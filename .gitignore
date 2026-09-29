@@ -1,0 +1,7 @@
+build*/
+third_party/JUCE/
+third_party/dexed-src/
+third_party/msfa-google/
+*.fwsc
+*_unpack/
+.DS_Store
