@@ -48,6 +48,9 @@ public:
     // envelopes (all 0..100). Off = the operator envelopes alone shape the note.
     void setEnvelope(bool on, int a, int d, int s, int r);
 
+    // Operator on/off (not part of the patch). `vcedIndex` 0 = OP6 .. 5 = OP1, as msfa's opSwitch.
+    void setOperatorEnabled(int vcedIndex, bool on);
+
     int activeVoices() const;
 
     // Mono output, added is false: overwrites `out`.

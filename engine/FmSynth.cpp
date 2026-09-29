@@ -173,6 +173,10 @@ int FmSynth::activeVoices() const {
     return n;
 }
 
+void FmSynth::setOperatorEnabled(int vcedIndex, bool on) {
+    if (vcedIndex >= 0 && vcedIndex < 6) controllers_.opSwitch[vcedIndex] = on ? '1' : '0';
+}
+
 void FmSynth::setEnvelope(bool on, int a, int d, int s, int r) {
     envOn_ = on; envA_ = a; envD_ = d; envS_ = s; envR_ = r;
     updateEnvCoefs();

@@ -82,6 +82,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     if (mono_.getNumSamples() < numSamples) mono_.setSize(1, numSamples, false, false, true);
 
     if (params.changed.exchange(false)) applyParamsToEngine();
+    for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
 
     keyboardMidi.removeNextBlockOfMessages(midi, numSamples);
 

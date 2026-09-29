@@ -19,8 +19,10 @@ dumps, so two-way sync needs FM-1+VA (FM-1_020 or later).
   differ from Dexed).
 - **Editor**: all 145 DX7 voice parameters, the six effects (on, type, three
   parameters each) and the envelope are host parameters: automatable, saved
-  with the session, shown in the FM Editor and Effects tabs. The preset name is
-  edited in the FM Editor.
+  with the session. The FM Editor uses Dexed's operator and global layouts,
+  look-and-feel, envelope displays and algorithm diagram (GPL-3.0-or-later,
+  see `plugin/dexed_ui/NOTICE.md`); click an operator's number to switch it
+  off while auditioning. The preset name is edited there too.
 - **Effects**: filter, reverb, delay, distortion, chorus, phaser in the chain
   order stored with the preset, built on juce::dsp. The values sync exactly
   with the synth; the sound is an approximation of the firmware's.
@@ -86,6 +88,7 @@ For Gig Performer, rescan plugins and add "FM-1 Companion" (VST3).
 - `sync/Fm1Link` MIDI ports, request/reply with retries
 - `sync/Fm1Session` the sync operations on a worker thread
 - `plugin/` JUCE processor, editor tabs, parameters, effects, sequencer, arpeggiator
+- `plugin/dexed_ui/` Dexed's look-and-feel, displays and images, and the operator/global panels built on them
 - `tests/` codec test against `golden.json`, engine smoke test, sequencer test,
   end-to-end sync test over virtual MIDI ports against a fake FM-1
 - `tests/gen_golden.mjs` regenerates `golden.json` from baud girl's web modules

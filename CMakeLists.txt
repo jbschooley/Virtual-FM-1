@@ -42,6 +42,9 @@ if(FM1_BUILD_PLUGIN)
         list(APPEND FM1_FORMATS AU)
     endif()
 
+    file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
+    juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
+
     juce_add_plugin(FM1Companion
         COMPANY_NAME "Jacob Schooley"
         BUNDLE_ID "com.schooley.fm1companion"
@@ -67,10 +70,15 @@ if(FM1_BUILD_PLUGIN)
         plugin/Sequencer.cpp
         plugin/Arpeggiator.cpp
         plugin/BankModel.cpp
+        plugin/dexed_ui/DXLookNFeel.cpp
+        plugin/dexed_ui/DXComponents.cpp
+        plugin/dexed_ui/AlgoDisplay.cpp
+        plugin/dexed_ui/OperatorPanel.cpp
+        plugin/dexed_ui/GlobalPanel.cpp
         sync/Fm1Link.cpp
         sync/Fm1Session.cpp)
 
-    target_include_directories(FM1Companion PRIVATE plugin sync engine)
+    target_include_directories(FM1Companion PRIVATE plugin plugin/dexed_ui sync engine)
 
     target_compile_definitions(FM1Companion PUBLIC
         JUCE_WEB_BROWSER=0
@@ -79,7 +87,7 @@ if(FM1_BUILD_PLUGIN)
         JUCE_DISPLAY_SPLASH_SCREEN=0)
 
     target_link_libraries(FM1Companion PRIVATE
-        fm1_engine fm1_sync
+        fm1_engine fm1_sync FM1Assets
         juce::juce_audio_utils
         juce::juce_audio_devices
         juce::juce_dsp

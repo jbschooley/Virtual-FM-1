@@ -200,58 +200,54 @@ void LibraryPanel::listBoxItemDoubleClicked(int row, const juce::MouseEvent&) {
 // ---- FmEditorPanel ------------------------------------------------------------------
 
 FmEditorPanel::FmEditorPanel(FM1Processor& p) : proc_(p) {
-    addAndMakeVisible(nameLabel_);
-    addAndMakeVisible(name_);
-    name_.setInputRestrictions(10);
-    name_.setFont(juce::FontOptions(16.0f));
-    auto commit = [this] { proc_.setCurrentName(name_.getText()); };
-    name_.onReturnKey = commit;
-    name_.onFocusLost = commit;
-    addAndMakeVisible(viewport_);
-    viewport_.setViewedComponent(&content_, false);
-    viewport_.setScrollBarsShown(true, false);
-
-    auto& apvts = proc_.apvts;
-    int y = 0;
-    const int width = 11 * 78;
+    setLookAndFeel(&lnf_);
+    proc_.params.fillVced(vced_.data());
     for (int op = 1; op <= 6; ++op) {
-        int idx = 6 - op;   // VCED lists OP6 first
-        juce::StringArray ids, labels;
-        for (int i = 0; i < 21; ++i) {
-            ids.add(Params::vcedId(idx * 21 + i));
-            labels.add(apvts.getParameter(ids[i])->getName(32).fromFirstOccurrenceOf(" ", false, false));
-        }
-        auto* h = makeLabel(headers_, content_, "Operator " + juce::String(op), 14.0f, true);
-        h->setBounds(0, y, width, 20); y += 22;
-        auto g = std::make_unique<ParamGrid>(apvts, ids, labels, 11, 78, 74);
-        g->setBounds(0, y, width, g->preferredHeight()); y += g->preferredHeight() + 8;
-        content_.addAndMakeVisible(*g);
-        grids_.push_back(std::move(g));
+        auto panel = std::make_unique<OperatorPanel>(proc_.apvts, op, vced_.data(), lnf_);
+        panel->onEnabledChanged = [this](int opNum, bool on) {
+            int idx = 6 - opNum;
+            proc_.opEnabled[size_t(idx)] = on;
+            opStatus_[idx] = on ? '1' : '0';
+            global_->repaint();
+        };
+        ops_[size_t(op - 1)] = std::move(panel);
+        addAndMakeVisible(*ops_[size_t(op - 1)]);
     }
-    juce::StringArray gids, glabels;
-    for (int off = 126; off <= 144; ++off) { gids.add(Params::vcedId(off)); glabels.add(apvts.getParameter(gids[gids.size() - 1])->getName(32)); }
-    auto* h = makeLabel(headers_, content_, "Pitch envelope, algorithm, LFO", 14.0f, true);
-    h->setBounds(0, y, width, 20); y += 22;
-    auto g = std::make_unique<ParamGrid>(apvts, gids, glabels, 10, 84, 74);
-    g->setBounds(0, y, 840, g->preferredHeight()); y += g->preferredHeight() + 8;
-    content_.addAndMakeVisible(*g);
-    grids_.push_back(std::move(g));
-    content_.setSize(width, y);
+    global_ = std::make_unique<GlobalPanel>(proc_.apvts, vced_.data(), lnf_);
+    global_->setOpStatus(opStatus_);
+    addAndMakeVisible(*global_);
+    auto commit = [this] { proc_.setCurrentName(global_->name.getText()); };
+    global_->name.onReturnKey = commit;
+    global_->name.onFocusLost = commit;
     refreshName();
+    startTimerHz(15);
+}
+
+FmEditorPanel::~FmEditorPanel() {
+    stopTimer();
+    global_.reset();
+    for (auto& o : ops_) o.reset();
+    setLookAndFeel(nullptr);
 }
 
 void FmEditorPanel::refreshName() {
-    if (!name_.hasKeyboardFocus(true))
-        name_.setText(juce::String(fm1::voiceName(proc_.bank.current().voice)).trimEnd(), juce::dontSendNotification);
+    if (!global_->name.hasKeyboardFocus(true))
+        global_->name.setText(juce::String(fm1::voiceName(proc_.bank.current().voice)).trimEnd(), juce::dontSendNotification);
+    global_->slotLabel.setText(BankModel::bankName(proc_.bank.currentSlot()) + (fm1::engineOf(proc_.bank.current().record) == fm1::Engine::VA ? "   Virtual Analog preset" : "   FM preset"), juce::dontSendNotification);
 }
 
+void FmEditorPanel::timerCallback() {
+    proc_.params.fillVced(vced_.data());
+    for (auto& o : ops_) o->refresh();
+    global_->refresh();
+}
+
+void FmEditorPanel::paint(juce::Graphics& g) { g.fillAll(DXLookNFeel::lightBackground.darker(0.4f)); }
+
 void FmEditorPanel::resized() {
-    auto r = getLocalBounds().reduced(10);
-    auto top = r.removeFromTop(26);
-    nameLabel_.setBounds(top.removeFromLeft(50));
-    name_.setBounds(top.removeFromLeft(160));
-    r.removeFromTop(6);
-    viewport_.setBounds(r);
+    int x0 = std::max(0, (getWidth() - 866) / 2), y0 = 4;
+    for (int i = 0; i < 6; ++i) ops_[size_t(i)]->setBounds(x0 + 2 + (i % 3) * 288, y0 + (i / 3) * 218, 287, 218);
+    global_->setBounds(x0 + 2, y0 + 436 + 4, 864, 144);
 }
 
 // ---- FxPanel -------------------------------------------------------------------------

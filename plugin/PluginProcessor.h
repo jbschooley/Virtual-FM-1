@@ -77,6 +77,9 @@ public:
     std::function<void(const juce::String&)> onStatus;   // message thread
     juce::MidiMessageCollector keyboardMidi;             // notes from the editor's keyboard
 
+    // Operator on/off switches from the editor (index 0 = OP6 .. 5 = OP1); not saved with the preset.
+    std::array<std::atomic<bool>, 6> opEnabled{true, true, true, true, true, true};
+
     // Note-ons the plugin received, for step recording in the editor (popped on the message thread).
     struct NoteEvent { int note, vel; };
     bool popNoteOn(NoteEvent& e);

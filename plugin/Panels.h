@@ -6,6 +6,9 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "PluginProcessor.h"
+#include "dexed_ui/DXLookNFeel.h"
+#include "dexed_ui/GlobalPanel.h"
+#include "dexed_ui/OperatorPanel.h"
 
 // A grid of parameter controls (rotary sliders, or combo boxes for choices)
 // bound to APVTS parameters.
@@ -60,20 +63,23 @@ private:
     bool wasBusy_ = false;
 };
 
-class FmEditorPanel : public juce::Component {
+class FmEditorPanel : public juce::Component, private juce::Timer {
 public:
     explicit FmEditorPanel(FM1Processor&);
+    ~FmEditorPanel() override;
+    void paint(juce::Graphics&) override;
     void resized() override;
     void refreshName();
 
 private:
+    void timerCallback() override;
+
     FM1Processor& proc_;
-    juce::Label nameLabel_{{}, "Name"};
-    juce::TextEditor name_;
-    juce::Viewport viewport_;
-    juce::Component content_;
-    std::vector<std::unique_ptr<juce::Label>> headers_;
-    std::vector<std::unique_ptr<ParamGrid>> grids_;
+    DXLookNFeel lnf_;
+    std::array<uint8_t, 156> vced_{};   // the editor's copy of the sound, from the parameters
+    std::unique_ptr<OperatorPanel> ops_[6];
+    std::unique_ptr<GlobalPanel> global_;
+    char opStatus_[7] = "111111";
 };
 
 class FxPanel : public juce::Component {

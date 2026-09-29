@@ -2,7 +2,7 @@
 
 FM1Editor::FM1Editor(FM1Processor& p)
     : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p) {
-    setSize(1100, 720);
+    setSize(1100, 770);
     auto bg = juce::Colour(0xff26262e);
     tabs_.addTab("Library & Sync", bg, &library_, false);
     tabs_.addTab("FM Editor", bg, &fm_, false);
