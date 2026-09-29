@@ -1,5 +1,7 @@
 #include "GlobalPanel.h"
 
+#include <cstring>
+
 #include "Params.h"
 
 using namespace juce;

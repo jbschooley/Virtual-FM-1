@@ -1,5 +1,7 @@
 #include "Fm1Link.h"
 
+#include <cstring>
+
 Fm1Link::Fm1Link() = default;
 Fm1Link::~Fm1Link() { close(); }
 

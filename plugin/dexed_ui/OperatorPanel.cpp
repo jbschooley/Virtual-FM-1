@@ -1,6 +1,7 @@
 #include "OperatorPanel.h"
 
 #include <cmath>
+#include <cstring>
 
 #include "Params.h"
 
@@ -111,7 +112,7 @@ void OperatorPanel::refresh() {
         txt << "f = " << (coarse + (coarse * (fine / 100)));
     } else {
         float f = std::pow(10.0f, float(int(coarse) & 3));
-        f = f * std::exp(float(M_LN10) * (fine / 100));
+        f = f * std::exp(2.302585093f * (fine / 100));
         txt << f << " Hz";
     }
     if (det > 0) txt << " +" << det;

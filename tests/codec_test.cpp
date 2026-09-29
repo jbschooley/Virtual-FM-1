@@ -2,8 +2,10 @@
 // baud girl's own FM-1+VA JavaScript (tests/gen_golden.mjs).
 // Minimal JSON reading: the file is flat enough to scan with a tiny parser.
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <sstream>

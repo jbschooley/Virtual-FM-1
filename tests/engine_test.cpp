@@ -2,6 +2,7 @@
 // go silent after release, and follow a patch change. Uses the VA preset
 // pack's voices (FM voice bytes) from golden.json.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

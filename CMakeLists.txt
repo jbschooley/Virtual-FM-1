@@ -8,6 +8,11 @@ set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
 
 option(FM1_BUILD_PLUGIN "Build the JUCE plugin" ON)
 option(FM1_BUILD_AU "Also build the AudioUnit" ON)
+option(FM1_COPY_PLUGIN "Copy the built plugins into the user plug-in folders" ON)
+
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES NOMINMAX)
+endif()
 
 # ---- msfa engine (Apache-2.0, see engine/msfa/NOTICE.md) ----------------------
 add_library(fm1_engine STATIC
@@ -38,7 +43,7 @@ if(FM1_BUILD_PLUGIN)
     add_subdirectory(third_party/JUCE)
 
     set(FM1_FORMATS VST3 Standalone)
-    if(FM1_BUILD_AU)
+    if(FM1_BUILD_AU AND APPLE)
         list(APPEND FM1_FORMATS AU)
     endif()
 
@@ -57,7 +62,7 @@ if(FM1_BUILD_PLUGIN)
         NEEDS_MIDI_OUTPUT TRUE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-        COPY_PLUGIN_AFTER_BUILD TRUE
+        COPY_PLUGIN_AFTER_BUILD ${FM1_COPY_PLUGIN}
         VST3_CATEGORIES Instrument Synth
         AU_MAIN_TYPE kAudioUnitType_MusicDevice)
 
@@ -95,7 +100,8 @@ if(FM1_BUILD_PLUGIN)
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
-    # end-to-end sync test over virtual CoreMIDI ports (no hardware)
+    # end-to-end sync test over virtual CoreMIDI ports (no hardware; macOS only, JUCE cannot create virtual ports on Windows)
+    if(APPLE)
     juce_add_console_app(sync_test PRODUCT_NAME "sync_test")
     target_sources(sync_test PRIVATE tests/sync_test.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
     target_include_directories(sync_test PRIVATE sync)
@@ -103,6 +109,7 @@ if(FM1_BUILD_PLUGIN)
     target_link_libraries(sync_test PRIVATE fm1_sync juce::juce_audio_devices juce::juce_events
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     add_test(NAME sync_test COMMAND sync_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
+    endif()
 
     # sequencer and arpeggiator timing
     juce_add_console_app(seq_test PRODUCT_NAME "seq_test")

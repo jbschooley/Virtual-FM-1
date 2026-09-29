@@ -51,20 +51,30 @@ Not done yet:
 - Knob assignments, mono/glide, and the VA bytes of the record are stored and
   synced but not edited. Baud girl's four Dexed fixes are not applied yet.
 
+## Install
+
+Installers for macOS (VST3, AU, Standalone; universal) and Windows (VST3,
+Standalone) are built by GitHub Actions on every push and attached to a
+release for every `v*` tag. The macOS package is unsigned unless signing
+secrets are configured, so on first open use right-click, Open (or
+`xattr -d com.apple.quarantine` on the .pkg). For Gig Performer, rescan
+plugins and add "FM-1 Companion" (VST3).
+
 ## Build
 
-Requires Xcode command line tools, CMake and Ninja (`brew install cmake ninja`).
-JUCE 8.0.8 is expected in `third_party/JUCE` (`git clone --depth 1 --branch 8.0.8
-https://github.com/juce-framework/JUCE third_party/JUCE`).
+Requires CMake and a C++20 compiler; on macOS also Ninja (`brew install cmake
+ninja`), on Windows Visual Studio 2022. JUCE 8.0.8 is a submodule:
 
 ```
+git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
 ctest --test-dir build
 ```
 
-The VST3 and AU are copied into `~/Library/Audio/Plug-Ins` after the build.
-For Gig Performer, rescan plugins and add "FM-1 Companion" (VST3).
+The VST3 and AU are copied into the user plug-in folders after the build
+(`-DFM1_COPY_PLUGIN=OFF` to skip). `scripts/package-macos.sh` builds the .pkg
+and `scripts/installer.iss` the Windows installer, as CI does.
 
 ## Using it
 
