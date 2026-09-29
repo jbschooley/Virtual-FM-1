@@ -10,6 +10,9 @@ on:
 jobs:
   macos:
     runs-on: macos-14
+    env:
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
+      HAS_NOTARY: ${{ secrets.NOTARY_APPLE_ID != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +29,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        if: env.HAS_SIGNING == 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -43,7 +46,7 @@ jobs:
           MACOS_INSTALLER_IDENTITY: ${{ secrets.MACOS_INSTALLER_IDENTITY }}
         run: bash scripts/package-macos.sh build dist "${{ steps.v.outputs.version }}"
       - name: Notarize
-        if: ${{ secrets.NOTARY_APPLE_ID != '' }}
+        if: env.HAS_NOTARY == 'true'
         env:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
