@@ -70,12 +70,15 @@ jobs:
         id: v
         shell: bash
         run: echo "version=$(sed -n 's/^project(FM1Companion VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DFM1_COPY_PLUGIN=OFF
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFM1_COPY_PLUGIN=OFF
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build --output-on-failure
       - name: Installer
         shell: pwsh
         run: |
