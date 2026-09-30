@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <algorithm>
 #include "Fm1Session.h"
 
 Fm1Session::Fm1Session(Fm1Link& link) : juce::Thread("FM-1 sync"), link_(link) {}
@@ -43,6 +45,64 @@ bool Fm1Session::writePatternPart(const fm1::Bytes& msg, juce::String& error) {
     if (!reply) { error = "no answer"; return false; }
     if (reply->status != 0) { error = reply->status < 4 ? fm1::kStatusText[reply->status] : "refused"; return false; }
     return true;
+}
+
+void Fm1Session::pullCurrent() { start(Op::PullCurrent); }
+
+std::optional<Fm1Session::CurrentAddrs> Fm1Session::knownAddrs(int version) {
+    // Located on FM-1_093 by dumping RAM around program changes (tests/fm1_probe.cpp
+    // "mem" and "select"); other builds move them, so they are found by search.
+    if (std::getenv("FM1_SEARCH_EDIT_BUFFER") != nullptr) return std::nullopt;   // test the search path
+    if (version == 93) return CurrentAddrs{0x01C10070, 0x01C0FEFA};
+    return std::nullopt;
+}
+
+bool Fm1Session::readBlock(uint32_t addr, int n, fm1::Bytes& out, juce::String& error) {
+    for (int off = 0; off < n; off += 256) {
+        int len = std::min(256, n - off);
+        auto d = readMem(addr + uint32_t(off), len, error);
+        if (!d) return false;
+        out.insert(out.end(), d->begin(), d->end());
+    }
+    return true;
+}
+
+// Find the edit buffer by content: read every stored preset, dump RAM, and look
+// for the one 155-byte VCED that equals a stored preset. Works while the synth
+// has no unsaved voice edits; the slot is the preset it matches.
+std::optional<uint32_t> Fm1Session::discoverEditBuffer(int& slotOut, juce::String& error) {
+    std::vector<fm1::Edit> stored;
+    for (int i = 0; i < fm1::kSlots; ++i) {
+        juce::String err;
+        auto s = readSound(i, err);
+        if (!s) { error = "could not read preset " + juce::String(i + 1); return std::nullopt; }
+        stored.push_back(fm1::unpackVoice(s->voice));
+        report(i, 160, "Looking for the synth's edit buffer...");
+    }
+    const uint32_t base = 0x01C00000, size = 0x80000;
+    fm1::Bytes ram;
+    for (uint32_t off = 0; off < size; off += 0x4000) {
+        if (cancel_ || threadShouldExit()) { error = "stopped"; return std::nullopt; }
+        if (!readBlock(base + off, 0x4000, ram, error)) return std::nullopt;
+        report(128 + int(off / 0x4000), 160, "Looking for the synth's edit buffer...");
+    }
+    std::optional<uint32_t> found;
+    int matches = 0;
+    for (int i = 0; i < fm1::kSlots; ++i) {
+        auto it = std::search(ram.begin(), ram.end(), stored[size_t(i)].begin(), stored[size_t(i)].end());
+        while (it != ram.end()) {
+            ++matches;
+            found = base + uint32_t(it - ram.begin());
+            slotOut = i;
+            it = std::search(it + 1, ram.end(), stored[size_t(i)].begin(), stored[size_t(i)].end());
+        }
+    }
+    if (matches != 1) {
+        error = matches == 0 ? "the synth has unsaved changes or this firmware keeps its edit buffer differently; save on the synth and try again"
+                             : "more than one preset matched; select a preset with a unique sound on the synth and try again";
+        return std::nullopt;
+    }
+    return found;
 }
 
 void Fm1Session::select(int slot, int midiChannel) {
@@ -192,6 +252,56 @@ void Fm1Session::run() {
             juce::MessageManager::callAsync([this, pat] { if (onPatternWritten) onPatternWritten(pat); });
         }
         report(total, total, juce::String(total) + (total == 1 ? " pattern written." : " patterns written."), true);
+        return;
+    }
+    case Op::PullCurrent: {
+        report(0, 1, "Reading the synth's current sound...");
+        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (identity_->isStock()) { report(0, 1, "This FM-1 runs M-VAVE's firmware, which cannot send its sound back.", true, true); return; }
+        juce::String err;
+        int slot = -1;
+        uint32_t edit = 0;
+        if (auto a = knownAddrs(identity_->version)) {
+            fm1::Bytes b;
+            if (!readBlock(a->slotByte, 1, b, err)) { report(0, 1, "Could not read the current preset number: " + err, true, true); return; }
+            slot = b[0];
+            edit = a->editBuffer;
+        } else if (discoveredEditBuffer_ && discoveredForVersion_ == identity_->version) {
+            edit = *discoveredEditBuffer_;
+        } else {
+            auto found = discoverEditBuffer(slot, err);
+            if (!found) { report(0, 1, "Could not find the synth's current sound: " + err + ".", true, true); return; }
+            discoveredEditBuffer_ = found;
+            discoveredForVersion_ = identity_->version;
+            edit = *found;
+        }
+        fm1::Bytes vced;
+        if (!readBlock(edit, fm1::kEditBytes, vced, err)) { report(0, 1, "Could not read the edit buffer: " + err, true, true); return; }
+        // sanity: a DX7 edit buffer has every parameter at 99 or below and a printable name
+        bool plausible = vced[134] <= 31 && vced[135] <= 7;
+        for (int i = 0; i < 145 && plausible; ++i) plausible = vced[size_t(i)] <= 99;
+        for (int i = 145; i < 155 && plausible; ++i) plausible = vced[size_t(i)] >= 0x20 && vced[size_t(i)] < 0x7F;
+        if (!plausible) { report(0, 1, "The synth's edit buffer did not look like a sound; this firmware may keep it elsewhere.", true, true); return; }
+        fm1::Edit e{};
+        std::copy(vced.begin(), vced.end(), e.begin());
+        if (slot < 0) {
+            // discovered earlier: the slot is the stored preset with the same name, if exactly one
+            for (int i = 0; i < fm1::kSlots; ++i) {
+                juce::String e2;
+                auto s = readSound(i, e2);
+                if (s && std::equal(s->voice.begin() + 118, s->voice.end(), vced.begin() + 145)) { slot = i; break; }
+            }
+            if (slot < 0) { report(0, 1, "Read the sound, but could not tell which preset it is.", true, true); return; }
+        }
+        if (slot < 0 || slot >= fm1::kSlots) { report(0, 1, "The current preset number read back as " + juce::String(slot) + ".", true, true); return; }
+        auto stored = readSound(slot, err);
+        if (!stored) { report(0, 1, "Could not read preset " + juce::String(slot + 1) + ": " + err, true, true); return; }
+        fm1::Sound cur = *stored;
+        cur.voice = fm1::packVoice(e);
+        bool same = cur.voice == stored->voice;
+        juce::MessageManager::callAsync([this, cur, same] { if (onCurrentRead) onCurrentRead(cur, same); });
+        report(1, 1, "Pulled preset " + juce::String(slot + 1) + " " + juce::String(fm1::voiceName(cur.voice)).trimEnd()
+               + (same ? "." : ", with the synth's unsaved changes."), true);
         return;
     }
     default: return;

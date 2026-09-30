@@ -79,7 +79,7 @@ void FmSynth::setPatch(const uint8_t* vced) {
     std::memcpy(patch_.data(), vced, kPatchBytes);
     patch_[155] = 0;
     for (auto& v : voices_)
-        if (v.live) v.note->update(patch_.data(), v.midiNote, v.velocity, 1);
+        if (v.live) v.note->update(patch_.data(), v.playedNote, v.velocity, 1);
     lfo_.reset(patch_.data() + 137);
 }
 
@@ -104,13 +104,21 @@ void FmSynth::noteOn(int midiNote, int velocity) {
     if (!anyDown) lfo_.keydown();   // LFO key sync
 
     auto& v = voices_[best];
+    // The FM-1 scales MIDI velocity by 100/127 before the msfa engine sees it:
+    // measured on FM-1_093 by recording its USB audio against renders of the same
+    // presets (PIANO 1, BRASS 5; tests/compare_audio.py). 127 plays as 100.
+    velocity = std::clamp((velocity * 100 + 63) / 127, 1, 127);
+    // The patch's transpose (VCED 144, 24 = none) shifts every key, as on a DX7.
+    // msfa leaves this to its host (Dexed applies it in its processor).
+    int played = std::clamp(midiNote + int(patch_[144]) - 24, 0, 127);
     v.midiNote = midiNote;
+    v.playedNote = played;
     v.velocity = velocity;
     v.keydown = true;
     v.sustained = sustain_;
     v.live = true;
     v.keydownSeq = ++seq_;
-    v.note->init(patch_.data(), midiNote, velocity, 1, &controllers_);
+    v.note->init(patch_.data(), played, velocity, 1, &controllers_);
     if (patch_[136]) v.note->oscSync();
     envKeyDown(v);
 }

@@ -17,6 +17,8 @@
 #include "Fm1Link.h"
 #include "Fm1Seq.h"
 #include "Fm1Session.h"
+#include "FmSynth.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 static void pump(int ms) {
     auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
@@ -32,6 +34,32 @@ int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
     juce::String cmd = argc > 1 ? argv[1] : "identify";
 
+    if (cmd == "render") {   // render <backup.syx> <slot 0-based> <note> <vel> <hold ms> <total ms> <out.wav>
+        juce::MemoryBlock mb;
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).loadFileAsData(mb);
+        fm1::Bytes b(static_cast<const uint8_t*>(mb.getData()), static_cast<const uint8_t*>(mb.getData()) + mb.getSize());
+        auto sounds = fm1::readSyx(b).sounds;
+        int slot = std::atoi(argv[3]), note = std::atoi(argv[4]), vel = std::atoi(argv[5]), hold = std::atoi(argv[6]), total = std::atoi(argv[7]);
+        const fm1::Sound* snd = nullptr;
+        for (const auto& x : sounds) if (x.slot == slot) snd = &x;
+        if (!snd) { std::printf("slot not in file\n"); return 1; }
+        FmSynth synth; synth.prepare(44100.0);
+        fm1::Edit e = fm1::unpackVoice(snd->voice);
+        synth.setPatch(e.data());
+        juce::AudioBuffer<float> out(1, total * 441 / 10);
+        int holdS = hold * 441 / 10;
+        synth.noteOn(note, vel);
+        synth.render(out.getWritePointer(0), holdS);
+        synth.noteOff(note);
+        synth.render(out.getWritePointer(0) + holdS, out.getNumSamples() - holdS);
+        juce::File f = juce::File::getCurrentWorkingDirectory().getChildFile(argv[8]);
+        f.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(f), 44100.0, 1, 24, {}, 0));
+        w->writeFromAudioSampleBuffer(out, 0, out.getNumSamples());
+        std::printf("rendered %s note %d to %s\n", fm1::voiceName(snd->voice).c_str(), note, argv[8]);
+        return 0;
+    }
     if (cmd == "ports") {
         for (auto& d : Fm1Link::inputs()) std::printf("in : %s\n", d.name.toRawUTF8());
         for (auto& d : Fm1Link::outputs()) std::printf("out: %s\n", d.name.toRawUTF8());
@@ -102,6 +130,58 @@ int main(int argc, char** argv) {
             std::printf("  pattern %2d: length %d, tempo %d, gate %d, swing %d, preset %d, %d notes\n", p + 1, pp.length, pp.tempo, pp.gate, pp.swing, pp.sound + 1, notes);
         }
         return last.failed ? 1 : 0;
+    }
+    if (cmd == "mem") {   // mem <addr hex> <len hex> <file>: read RAM in 256-byte requests
+        uint32_t addr = uint32_t(std::strtoul(argv[2], nullptr, 16)), len = uint32_t(std::strtoul(argv[3], nullptr, 16));
+        juce::MemoryBlock out;
+        auto t0 = juce::Time::getMillisecondCounter();
+        for (uint32_t off = 0; off < len; off += 256) {
+            int n = int(std::min<uint32_t>(256, len - off));
+            uint32_t a = addr + off;
+            auto r = link.ask<fm1::Reply>(fm1::encodeMemRead(a, n), [a](const fm1::Bytes& f) -> std::optional<fm1::Reply> {
+                auto d = fm1::decodeReply(f);
+                if (!d || d->kind != fm1::Reply::Kind::Mem || d->arg != a) return std::nullopt;
+                return d;
+            }, 1000, 3);
+            if (!r || r->status != 0 || int(r->data.size()) != n) { std::printf("read failed at %08X (%s)\n", a, r ? "refused" : "no answer"); return 1; }
+            out.append(r->data.data(), r->data.size());
+        }
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[4])).replaceWithData(out.getData(), out.getSize());
+        std::printf("read %u bytes in %u ms\n", len, juce::Time::getMillisecondCounter() - t0);
+        return 0;
+    }
+    if (cmd == "current") {
+        fm1::Sound got; bool have = false, same = false;
+        session.onCurrentRead = [&](const fm1::Sound& s, bool m) { got = s; have = true; same = m; };
+        session.pullCurrent();
+        waitIdle(session);
+        if (have) std::printf("current: preset %d %s (%s)\n", got.slot + 1, fm1::voiceName(got.voice).c_str(), same ? "same as stored" : "unsaved changes");
+        return have ? 0 : 1;
+    }
+    if (cmd == "write") {   // write <file.syx>: write every FM-1+VA sound message in the file to its slot, verified
+        juce::MemoryBlock mb;
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).loadFileAsData(mb);
+        fm1::Bytes b(static_cast<const uint8_t*>(mb.getData()), static_cast<const uint8_t*>(mb.getData()) + mb.getSize());
+        auto c = fm1::readSyx(b);
+        std::vector<fm1::Sound> own;
+        for (auto& x : c.sounds) if (x.slot >= 0 && x.hasRecord) own.push_back(x);
+        if (own.empty()) { std::printf("no FM-1 sound messages in the file\n"); return 1; }
+        session.push(own);
+        waitIdle(session);
+        std::printf("%zu of %zu written and verified\n", written.size(), own.size());
+        return written.size() == own.size() ? 0 : 1;
+    }
+    if (cmd == "note") {   // note <note> <vel> <hold ms>: play one note on channel 1
+        int n = std::atoi(argv[2]), v = std::atoi(argv[3]), ms = std::atoi(argv[4]);
+        link.sendRaw({0x90, uint8_t(n), uint8_t(v)});
+        juce::Thread::sleep(ms);
+        link.sendRaw({0x80, uint8_t(n), 0});
+        return 0;
+    }
+    if (cmd == "select") {   // select <slot 0-based>: program change, as Show on FM-1 does
+        session.select(std::atoi(argv[2]));
+        pump(300);
+        return 0;
     }
     std::printf("unknown command\n");
     return 2;

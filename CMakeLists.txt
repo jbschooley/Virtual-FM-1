@@ -119,7 +119,7 @@ if(FM1_BUILD_PLUGIN)
     target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
     target_include_directories(fm1_probe PRIVATE sync)
     target_compile_definitions(fm1_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
-    target_link_libraries(fm1_probe PRIVATE fm1_sync juce::juce_audio_devices juce::juce_events juce::juce_recommended_config_flags)
+    target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags)
     endif()
 
     # editor parameters: load/commit round trip

@@ -117,6 +117,21 @@ int main(int argc, char** argv) {
     CHECK(zc0 > 80 && zc0 < 96, "A4 sine at 440 Hz");
     CHECK(zc1 > zc0 + 5, "pitch bend raises the pitch");
 
+    // the patch transpose shifts the pitch: INIT VOICE with transpose -12 plays A4 as A3
+    {
+        synth.allSoundOff(); synth.setPitchBend(8192);
+        fm1::Edit t = fm1::kInitEdit; t[144] = 12;
+        synth.setPatch(t.data());
+        synth.noteOn(69, 100);
+        synth.render(buf.data(), int(buf.size())); synth.render(buf.data(), int(buf.size()));
+        int zcDown = zeroCrossings(buf);
+        std::printf("A4 with transpose -12: %d crossings/0.1s\n", zcDown);
+        CHECK(zcDown > 40 && zcDown < 48, "transpose -12 plays an octave down (220 Hz)");
+        synth.noteOff(69);
+        for (int i = 0; i < 40; ++i) synth.render(buf.data(), int(buf.size()));
+        CHECK(synth.activeVoices() == 0, "note-off finds the transposed voice");
+    }
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

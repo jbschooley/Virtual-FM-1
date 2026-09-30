@@ -54,7 +54,7 @@ private:
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
     juce::Label currentName_;
-    juce::TextButton pullCurrent_{"Pull current from FM-1"}, pushCurrent_{"Push current to FM-1"},
+    juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Push current to FM-1"},
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
                      selectOnDevice_{"Show on FM-1"}, cancel_{"Stop"},
                      importSyx_{"Import .syx..."}, exportSyx_{"Export .syx..."};

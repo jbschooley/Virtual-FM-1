@@ -59,7 +59,8 @@ public:
 private:
     struct VoiceSlot {
         std::unique_ptr<Dx7Note> note;
-        int midiNote = -1;
+        int midiNote = -1;       // the key that started the voice (for note-off)
+        int playedNote = -1;     // after the patch's transpose
         int velocity = 0;
         bool keydown = false;
         bool sustained = false;

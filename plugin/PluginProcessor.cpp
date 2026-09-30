@@ -12,6 +12,16 @@ FM1Processor::FM1Processor()
         if (s.slot == bank.currentSlot()) loadCurrentIntoParams();
     };
     session.onSoundWritten = [this](const fm1::Sound& s) { bank.markOnDevice(s.slot, s); };
+    session.onCurrentRead = [this](const fm1::Sound& s, bool matchesStored) {
+        // jump to the synth's preset and take its live sound; with unsaved changes the
+        // slot shows as differing from what the synth has stored
+        commitCurrent();
+        bank.setCurrentSlot(s.slot);
+        if (matchesStored) bank.setSound(s.slot, s, true);
+        else bank.setSound(s.slot, s, false);
+        loadCurrentIntoParams();
+        updateHostDisplay(ChangeDetails().withProgramChanged(true));
+    };
     session.onProgress = [this](const Fm1Session::Progress& p) { if (onStatus) onStatus(p.text); };
     session.onPatternRead = [this](int pat, const fm1::seq::Pattern& p) {
         const juce::SpinLock::ScopedLockType l(sequencer.lock);
@@ -336,7 +346,7 @@ void FM1Processor::disconnect() {
     if (onStatus) onStatus("Disconnected.");
 }
 
-void FM1Processor::pullCurrent() { if (link.isOpen()) session.pull({bank.currentSlot()}); }
+void FM1Processor::pullCurrent() { if (link.isOpen()) session.pullCurrent(); }
 void FM1Processor::pushCurrent() { if (link.isOpen()) session.push({commitCurrent()}, true); }
 
 void FM1Processor::pullAll() {

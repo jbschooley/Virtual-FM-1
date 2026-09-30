@@ -103,6 +103,21 @@ and `scripts/installer.iss` the Windows installer, as CI does.
   end-to-end sync test over virtual MIDI ports against a fake FM-1
 - `tests/gen_golden.mjs` regenerates `golden.json` from baud girl's web modules
 
+## Tested against hardware
+
+On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
+
+- Identify, pull of single presets and all 128, verified writes, pattern reads,
+  and pulling the synth's current sound all work.
+- The synth's live edit buffer is at `0x01C10070` and its current preset
+  number at `0x01C0FEFA` on FM-1_093; other versions are found by searching RAM.
+- Pitch, transpose, detune beating and LFO speed match the synth. The
+  firmware's LFO table is Dexed's, entry for entry.
+- The FM-1 scales incoming MIDI velocity by 100/127 before its engine; the
+  plugin does the same (measured on PIANO 1 and BRASS 5 at several velocities).
+- Stored presets keep most settings-record bytes at `0x03` ("unset"); the
+  editor writes back only settings you change, so these survive.
+
 ## Record layout
 
 The 59-byte settings record that travels with each preset is interpreted as
