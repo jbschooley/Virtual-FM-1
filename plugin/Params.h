@@ -42,8 +42,11 @@ public:
 
     // Load the parameters from a sound (message thread). Does not fire `changed`.
     void load(const fm1::Sound& s);
-    // Write the parameters into a sound's voice and record.
-    void commit(fm1::Sound& s) const;
+    // Write the parameters into a sound's voice and record. Only settings whose
+    // value differs from what load() (or the previous commit) saw are written,
+    // so bytes the editor does not understand, such as the firmware's "unset"
+    // markers, survive a load/commit round trip untouched.
+    void commit(fm1::Sound& s);
 
     // For the audio thread: fill a VCED from the parameters (name bytes left as given).
     void fillVced(uint8_t* vced155) const;
@@ -56,5 +59,6 @@ public:
 private:
     void parameterChanged(const juce::String&, float) override;
     std::vector<Binding> bindings_;
+    std::vector<int> committed_;   // per binding: the value last loaded or committed
     bool loading_ = false;
 };

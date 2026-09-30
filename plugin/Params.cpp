@@ -140,17 +140,40 @@ void Params::load(const fm1::Sound& s) {
         int max = juce::roundToInt(b.param->getNormalisableRange().end);
         setInt(b.param, juce::jlimit(0, max, v));
     }
+    committed_.clear();
+    for (const auto& b : bindings_) committed_.push_back(intValue(b.param));
     loading_ = false;
     changed = true;   // the engine reloads from the parameters
 }
 
-void Params::commit(fm1::Sound& s) const {
+void Params::commit(fm1::Sound& s) {
+    if (committed_.size() != bindings_.size()) {   // never loaded: nothing to compare against
+        committed_.clear();
+        for (const auto& b : bindings_) committed_.push_back(intValue(b.param));
+        return;
+    }
     fm1::Edit e = fm1::unpackVoice(s.voice);
-    fillVced(e.data());
-    s.voice = fm1::packVoice(e);
-    fm1::FxChain fx = fxChain(fm1::fxFromRecord(s.record));
-    fm1::fxToRecord(fx, s.record);
-    fm1::envToRecord(envelope(), s.record);
+    bool voiceChanged = false;
+    auto chainPos = [&s](int effect) {
+        for (int k = 0; k < fm1::kEffects; ++k) if (s.record[size_t(27 + 3 * k)] == effect) return k;
+        return -1;
+    };
+    for (size_t i = 0; i < bindings_.size(); ++i) {
+        const auto& b = bindings_[i];
+        int v = intValue(b.param);
+        if (v == committed_[i]) continue;
+        committed_[i] = v;
+        auto u = uint8_t(v);
+        switch (b.kind) {
+            case Kind::Vced:    e[size_t(b.a)] = u; voiceChanged = true; break;
+            case Kind::FxParam: s.record[size_t(3 * b.a + b.b)] = u; break;
+            case Kind::FxOn:    if (int k = chainPos(b.a); k >= 0) s.record[size_t(28 + 3 * k)] = u; break;
+            case Kind::FxType:  if (int k = chainPos(b.a); k >= 0) s.record[size_t(29 + 3 * k)] = u; break;
+            case Kind::Env:     s.record[size_t(54 + b.a)] = u; break;
+            case Kind::EnvOn:   s.record[58] = u; break;
+        }
+    }
+    if (voiceChanged) s.voice = fm1::packVoice(e);
     s.hasRecord = true;
 }
 

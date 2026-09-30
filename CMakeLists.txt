@@ -113,7 +113,22 @@ if(FM1_BUILD_PLUGIN)
     target_link_libraries(sync_test PRIVATE fm1_sync juce::juce_audio_devices juce::juce_events
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     add_test(NAME sync_test COMMAND sync_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
+
+    # hardware probe (not a ctest: needs a connected FM-1)
+    juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
+    target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
+    target_include_directories(fm1_probe PRIVATE sync)
+    target_compile_definitions(fm1_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(fm1_probe PRIVATE fm1_sync juce::juce_audio_devices juce::juce_events juce::juce_recommended_config_flags)
     endif()
+
+    # editor parameters: load/commit round trip
+    juce_add_console_app(params_test PRODUCT_NAME "params_test")
+    target_sources(params_test PRIVATE tests/params_test.cpp plugin/Params.cpp)
+    target_include_directories(params_test PRIVATE sync plugin)
+    target_compile_definitions(params_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(params_test PRIVATE fm1_sync juce::juce_audio_processors juce::juce_recommended_config_flags)
+    add_test(NAME params_test COMMAND params_test)
 
     # sequencer and arpeggiator timing
     juce_add_console_app(seq_test PRODUCT_NAME "seq_test")
