@@ -151,7 +151,8 @@ void LibraryPanel::timerCallback() {
     auto label = proc_.bank.slotLabel(proc_.bank.currentSlot()) + (proc_.isEdited() ? "  (edited)" : "");
     if (currentName_.getText() != label) currentName_.setText(label, juce::dontSendNotification);
     bool busy = proc_.session.busy();
-    if (busy != wasBusy_) { wasBusy_ = busy; refreshButtons(); }
+    bool open = proc_.link.isOpen();
+    if (busy != wasBusy_ || open != wasOpen_) { wasBusy_ = busy; wasOpen_ = open; refreshButtons(); refreshPorts(); }
     if (!busy && !proc_.link.isOpen() && identity_.getText().isNotEmpty()) identity_.setText("", juce::dontSendNotification);
 }
 

@@ -88,6 +88,16 @@ The VST3 and AU are copied into the user plug-in folders after the build
 (`-DFM1_COPY_PLUGIN=OFF` to skip). `scripts/package-macos.sh` builds the .pkg
 and `scripts/installer.iss` the Windows installer, as CI does.
 
+## One library everywhere
+
+The 128-preset library is shared by the Standalone and every plugin instance in
+every host, in `~/Library/Application Support/FM-1 Companion/library.fm1lib`.
+A change made anywhere (a pull, a store, an import) shows up in the others within
+a second. Each instance connects to the FM-1 by itself when it is plugged in.
+A host project saves its own current preset, unsaved edits, sequencer and
+arpeggiator, plus a copy of the library that is used only where no shared
+library exists yet (a project opened on another computer).
+
 ## Using it
 
 1. Connect the FM-1 over USB and switch it on.

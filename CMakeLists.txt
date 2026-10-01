@@ -114,6 +114,14 @@ if(FM1_BUILD_PLUGIN)
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     add_test(NAME sync_test COMMAND sync_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 
+    # loads the built AU/VST3 as a host would and opens/closes the editor
+    juce_add_console_app(host_test PRODUCT_NAME "host_test")
+    target_sources(host_test PRIVATE tests/host_test.cpp)
+    target_compile_definitions(host_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1)
+    target_link_libraries(host_test PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags "-framework CoreAudioKit")
+    add_dependencies(host_test FM1Companion_VST3)
+    add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/FM1Companion_artefacts/Release/VST3/FM-1 Companion.vst3" 2)
+
     # hardware probe (not a ctest: needs a connected FM-1)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
     target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)

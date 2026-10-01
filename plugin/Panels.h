@@ -64,6 +64,7 @@ private:
     juce::Label status_;
     std::unique_ptr<juce::FileChooser> chooser_;
     bool wasBusy_ = false;
+    bool wasOpen_ = false;
 };
 
 class FmEditorPanel : public juce::Component, private juce::Timer {

@@ -14,6 +14,7 @@ class GlobalPanel : public juce::Component {
 public:
     GlobalPanel(juce::AudioProcessorValueTreeState& apvts, uint8_t* vced, DXLookNFeel& lnf);
 
+    ~GlobalPanel() override;
     void paint(juce::Graphics& g) override;
     void refresh();
 

@@ -41,10 +41,100 @@ FM1Processor::FM1Processor()
         }
         dst = merged;
     };
+    // the 128-preset library is shared by every instance: start from it if it exists
+    bank.onLibraryChange = [this] { libraryDirty_ = true; };
+    loadLibrary();
     loadCurrentIntoParams();
+    writeDiagnostics();
+    background_.startTimer(1000);
 }
 
-FM1Processor::~FM1Processor() { stopTimer(); session.cancel(); }
+juce::File FM1Processor::libraryFile() {
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Application Support").getChildFile("FM-1 Companion").getChildFile("library.fm1lib");
+}
+
+bool FM1Processor::loadLibrary() {
+    auto f = libraryFile();
+    if (!f.existsAsFile()) return false;
+    juce::MemoryBlock mb;
+    if (!f.loadFileAsData(mb)) return false;
+    auto v = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
+    if (!v.isValid() || !v.hasType("FM1Bank")) return false;
+    int cur = bank.currentSlot();
+    auto onLib = bank.onLibraryChange;
+    bank.onLibraryChange = nullptr;
+    bank.fromState(v);
+    bank.setCurrentSlot(cur);            // each instance keeps its own current preset
+    bank.onLibraryChange = onLib;
+    libraryLoadedTime_ = f.getLastModificationTime();
+    return true;
+}
+
+void FM1Processor::saveLibrary() {
+    auto f = libraryFile();
+    f.getParentDirectory().createDirectory();
+    juce::MemoryOutputStream os;
+    bank.toState().writeToStream(os);
+    juce::TemporaryFile tmp(f);
+    if (tmp.getFile().replaceWithData(os.getData(), os.getDataSize()) && tmp.overwriteTargetFileWithTemporary())
+        libraryLoadedTime_ = f.getLastModificationTime();
+    libraryDirty_ = false;
+}
+
+static void diag(const juce::String& line) {
+    juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("fm1-companion.log")
+        .appendText(juce::Time::getCurrentTime().toISO8601(true) + "  " + line + "\n");
+}
+
+void FM1Processor::backgroundTick() {
+    // the shared library: save our changes, or pick up another instance's
+    if (libraryDirty_) saveLibrary();
+    else if (libraryFile().getLastModificationTime() > libraryLoadedTime_) {
+        bool edited = isEdited();
+        if (loadLibrary() && !edited) loadCurrentIntoParams();
+    }
+    // the synth: connect when it appears, let go when it disappears
+    if (session.busy()) return;
+    if (link.isOpen()) {
+        bool present = false;
+        for (auto& d : juce::MidiOutput::getAvailableDevices()) present = present || d.identifier == link.ports().outputId;
+        if (!present) {
+            link.close();
+            if (live_) setLive(false);
+            if (onStatus) onStatus("The FM-1 was disconnected.");
+        }
+    } else if (autoConnect_) {
+        if (auto p = Fm1Link::findFm1()) {
+            bool ok = connect(p->inputId, p->outputId, true);
+            diag(juce::String("auto-connect to ") + p->inputName + (ok ? ": ok" : ": could not open the ports"));
+        }
+    }
+}
+
+// A small log of what this instance can see, for diagnosing hosts that run the plugin
+// out of process or sandboxed (Logic's AUHostingService): which MIDI ports exist and
+// whether the FM-1's can be opened. Written to the process's temporary folder.
+void FM1Processor::writeDiagnostics() {
+    juce::String text;
+    text << juce::Time::getCurrentTime().toISO8601(true) << "  " << juce::PluginHostType().getHostDescription()
+         << "  wrapper " << juce::AudioProcessor::getWrapperTypeDescription(wrapperType)
+         << "  process " << juce::File::getSpecialLocation(juce::File::currentExecutableFile).getFullPathName() << "\n";
+    for (auto& d : juce::MidiInput::getAvailableDevices()) text << "  in : " << d.name << "\n";
+    for (auto& d : juce::MidiOutput::getAvailableDevices()) text << "  out: " << d.name << "\n";
+    if (auto p = Fm1Link::findFm1()) text << "  findFm1: " << p->inputName << " / " << p->outputName << "\n";
+    else text << "  findFm1: none\n";
+    text << "  library: " << libraryFile().getFullPathName() << (libraryFile().existsAsFile() ? "" : " (none yet)") << "\n";
+    juce::File f = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("fm1-companion.log");
+    f.replaceWithText(text);
+}
+
+FM1Processor::~FM1Processor() {
+    background_.stopTimer();
+    if (libraryDirty_) saveLibrary();
+    stopTimer();
+    session.cancel();
+}
 
 void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     keyboardMidi.reset(sampleRate);
@@ -332,7 +422,18 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
 void FM1Processor::setStateInformation(const void* data, int size) {
     auto v = juce::ValueTree::readFromData(data, size_t(size));
     if (!v.isValid() || !v.hasType("FM1Companion")) return;
-    bank.fromState(v.getChildWithName("FM1Bank"));
+    // The library is shared; the project's copy is used only where there is none yet
+    // (first run after updating, or a project opened on another computer).
+    auto saved = v.getChildWithName("FM1Bank");
+    auto hasContent = [](const juce::ValueTree& b) {   // anything beyond a blank instance's INIT VOICEs
+        BankModel probe; probe.fromState(b);
+        fm1::Voice init = fm1::packVoice(fm1::kInitEdit);
+        for (int i = 0; i < BankModel::kSlots; ++i)
+            if (probe.slot(i).onDevice || probe.slot(i).sound.voice != init) return true;
+        return false;
+    };
+    if (!libraryFile().existsAsFile() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); saveLibrary(); }
+    else if (saved.isValid()) bank.setCurrentSlot(int(saved.getProperty("current", 0)));
     loadedSlot_ = -1;
     loadCurrentIntoParams();
     // the saved parameters (edits since the slot was loaded) win over the slot's bytes
@@ -370,10 +471,10 @@ void FM1Processor::setStateInformation(const void* data, int size) {
 
 // ---- sync ----------------------------------------------------------------------
 
-bool FM1Processor::connect(const juce::String& inputId, const juce::String& outputId) {
+bool FM1Processor::connect(const juce::String& inputId, const juce::String& outputId, bool quiet) {
     bool ok = link.open(inputId, outputId);
-    if (ok) { bank.clearDeviceState(); session.identify(); }
-    if (onStatus) onStatus(ok ? "Connected to " + link.ports().inputName : "Could not open those MIDI ports.");
+    if (ok) { autoConnect_ = true; session.identify(); }
+    if (onStatus && (ok || !quiet)) onStatus(ok ? "Connected to " + link.ports().inputName : "Could not open those MIDI ports.");
     return ok;
 }
 
@@ -384,6 +485,7 @@ bool FM1Processor::autoConnect() {
 }
 
 void FM1Processor::disconnect() {
+    autoConnect_ = false;
     session.cancel();
     link.close();
     if (onStatus) onStatus("Disconnected.");

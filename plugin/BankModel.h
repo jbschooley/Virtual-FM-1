@@ -49,10 +49,12 @@ public:
     juce::ValueTree toState() const;
     void fromState(const juce::ValueTree& v);
 
-    std::function<void()> onChange;   // UI refresh (message thread)
+    std::function<void()> onChange;          // UI refresh (message thread)
+    std::function<void()> onLibraryChange;   // a slot's sound or sync state changed (to save the shared library)
 
 private:
     void changed() { if (onChange) onChange(); }
+    void libraryChanged() { if (onLibraryChange) onLibraryChange(); changed(); }
     std::array<Slot, kSlots> slots_;
     int current_ = 0;
 };

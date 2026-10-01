@@ -22,6 +22,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     };
     proc_.bank.onChange();
     // debugging aid: FM1_TAB=n opens the editor on tab n
+    tabs_.setComponentID("tabs");
     if (auto tab = juce::SystemStats::getEnvironmentVariable("FM1_TAB", ""); tab.isNotEmpty())
         tabs_.setCurrentTabIndex(juce::jlimit(0, tabs_.getNumTabs() - 1, tab.getIntValue()));
     // debugging aid: FM1_AUTOPULL=1 connects to the FM-1 and pulls every preset

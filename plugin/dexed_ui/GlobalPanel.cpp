@@ -88,6 +88,30 @@ GlobalPanel::GlobalPanel(AudioProcessorValueTreeState& apvts, uint8_t* vced, DXL
     refresh();
 }
 
+// The attachments listen to the controls, so they must go first (members are
+// destroyed in reverse order of declaration, and some controls are declared after).
+GlobalPanel::~GlobalPanel() {
+    algoA_.reset();
+    feedbackA_.reset();
+    lfoSpeedA_.reset();
+    lfoDelayA_.reset();
+    lfoPmdA_.reset();
+    lfoAmdA_.reset();
+    pmsA_.reset();
+    transposeA_.reset();
+    pegRA_[0].reset();
+    pegRA_[1].reset();
+    pegRA_[2].reset();
+    pegRA_[3].reset();
+    pegLA_[0].reset();
+    pegLA_[1].reset();
+    pegLA_[2].reset();
+    pegLA_[3].reset();
+    lfoWaveA_.reset();
+    lfoSyncA_.reset();
+    oscSyncA_.reset();
+}
+
 void GlobalPanel::paint(Graphics& g) {
     g.setColour(DXLookNFeel::background);
     g.fillRoundedRectangle(0.0f, 0.0f, 320.0f, 144.0f, 8.0f);

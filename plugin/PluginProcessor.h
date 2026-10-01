@@ -71,7 +71,7 @@ public:
     bool isLive() const { return live_; }
     fm1::edit::Channels channels;                 // FX channel must match the synth's GLOBE setting
 
-    bool connect(const juce::String& inputId, const juce::String& outputId);
+    bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
     bool autoConnect();
     void disconnect();
 
@@ -99,6 +99,24 @@ public:
 
 private:
     void loadCurrentIntoParams();
+    void writeDiagnostics();
+
+    // Background work on the message thread every second: connect to an FM-1 when
+    // one appears, notice when it goes away, and keep the shared library in step
+    // with the other instances (the Standalone and every plugin in every host).
+    struct Background : juce::Timer {
+        FM1Processor& p;
+        explicit Background(FM1Processor& owner) : p(owner) {}
+        void timerCallback() override { p.backgroundTick(); }
+    };
+    void backgroundTick();
+    static juce::File libraryFile();
+    bool loadLibrary();          // false when there is no shared library yet
+    void saveLibrary();
+    bool libraryDirty_ = false;
+    juce::Time libraryLoadedTime_;
+    bool autoConnect_ = true;    // off after the user disconnects by hand
+    Background background_{*this};
     void timerCallback() override;               // live sending
     void applyEditName();
     juce::String editName_;

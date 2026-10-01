@@ -27,18 +27,18 @@ void BankModel::setSound(int slot, const fm1::Sound& s, bool fromDevice) {
         sl.sound.hasRecord = true;
     }
     if (fromDevice) sl.onDevice = sl.sound;
-    changed();
+    libraryChanged();
 }
 
 void BankModel::markOnDevice(int slot, const fm1::Sound& s) {
     if (slot < 0 || slot >= kSlots) return;
     slots_[size_t(slot)].onDevice = s;
-    changed();
+    libraryChanged();
 }
 
 void BankModel::clearDeviceState() {
     for (auto& s : slots_) s.onDevice.reset();
-    changed();
+    libraryChanged();
 }
 
 int BankModel::unsyncedCount() const {

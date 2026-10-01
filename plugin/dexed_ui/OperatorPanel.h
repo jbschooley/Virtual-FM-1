@@ -14,6 +14,7 @@ public:
     // `op` is 1..6 as printed; the VCED block is (6 - op) * 21.
     OperatorPanel(juce::AudioProcessorValueTreeState& apvts, int op, uint8_t* vced, DXLookNFeel& lnf);
 
+    ~OperatorPanel() override;
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void refresh();   // from the panel's timer: frequency readout and envelope display

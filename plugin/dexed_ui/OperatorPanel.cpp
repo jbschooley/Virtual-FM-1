@@ -84,6 +84,32 @@ OperatorPanel::OperatorPanel(AudioProcessorValueTreeState& apvts, int op, uint8_
     refresh();
 }
 
+// The attachments listen to the controls, so they must go first (members are
+// destroyed in reverse order of declaration, and some controls are declared after).
+OperatorPanel::~OperatorPanel() {
+    eglA_[0].reset();
+    eglA_[1].reset();
+    eglA_[2].reset();
+    eglA_[3].reset();
+    egrA_[0].reset();
+    egrA_[1].reset();
+    egrA_[2].reset();
+    egrA_[3].reset();
+    levelA_.reset();
+    fineA_.reset();
+    coarseA_.reset();
+    detuneA_.reset();
+    lDepthA_.reset();
+    rDepthA_.reset();
+    rateScaleA_.reset();
+    keyVelA_.reset();
+    ampModA_.reset();
+    brkA_.reset();
+    opModeA_.reset();
+    lCurveA_.reset();
+    rCurveA_.reset();
+}
+
 void OperatorPanel::paint(Graphics& g) {
     g.drawImage(lnf_.imageOperator, 0, 0, 287, 218, 0, 0, 574, 436);
     g.setColour(enabled ? Colours::white : DXLookNFeel::roundBackground);
