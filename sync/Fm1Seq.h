@@ -6,6 +6,7 @@
 // length and sound, and a halfword for tempo. The write message carries eight
 // steps and the pattern settings; reading uses the memory-read request.
 //
+// See docs/FIRMWARE-GAPS.md section 2 for what the protocol cannot carry.
 // The plugin keeps more per step than the protocol carries (ratchet, chance,
 // gate, transpose, accent, slide). Those fields are plugin-side only until the
 // firmware's layout for them is published; the codec ignores them.

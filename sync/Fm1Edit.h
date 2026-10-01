@@ -7,8 +7,9 @@
 //   - effect CCs 0-23 on the FX channel set the live record's effect bytes
 //     (on, type, parameters) as the FM-1+VA manual lists them
 //   - envelope CCs 73/75/70/72 on the MIDI channel set A/D/S/R, 0-127 -> 0-100
-// Not reachable this way: distortion type, effect order, envelope off, and the
-// Virtual Analog settings beyond the manual's CCs.
+// Not reachable this way: the FM filter, distortion type, effect order, envelope
+// off, and the Virtual Analog settings beyond the manual's CCs. See
+// docs/FIRMWARE-GAPS.md section 1.
 
 #pragma once
 

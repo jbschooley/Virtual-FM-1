@@ -115,6 +115,13 @@ and `scripts/installer.iss` the Windows installer, as CI does.
   end-to-end sync test over virtual MIDI ports against a fake FM-1
 - `tests/gen_golden.mjs` regenerates `golden.json` from baud girl's web modules
 
+## Waiting on the FM-1+VA source
+
+Settings with no MIDI control, sequencer data that cannot be synced, build-specific
+addresses, inferred layout details and sound approximations are listed in
+[`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md), with what to look for in baud
+girl's source once it is published.
+
 ## Tested against hardware
 
 On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
