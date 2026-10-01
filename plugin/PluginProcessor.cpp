@@ -52,11 +52,15 @@ FM1Processor::FM1Processor()
 
 juce::File FM1Processor::libraryFile() {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-        .getChildFile("Application Support").getChildFile("FM-1 Companion").getChildFile("library.fm1lib");
+        .getChildFile("Application Support").getChildFile("Virtual FM-1").getChildFile("library.fm1lib");
 }
 
 bool FM1Processor::loadLibrary() {
     auto f = libraryFile();
+    if (!f.existsAsFile()) {   // carried over from the project's earlier name
+        auto old = f.getParentDirectory().getSiblingFile("FM-1 Companion").getChildFile("library.fm1lib");
+        if (old.existsAsFile()) { f.getParentDirectory().createDirectory(); old.copyFileTo(f); }
+    }
     if (!f.existsAsFile()) return false;
     juce::MemoryBlock mb;
     if (!f.loadFileAsData(mb)) return false;
@@ -381,7 +385,7 @@ static fm1::seq::Step stepFromString(const juce::String& t) {
 }
 
 void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
-    juce::ValueTree v("FM1Companion");
+    juce::ValueTree v("FM1Companion");   // the state's tag predates the rename; kept so saved sessions load
     v.setProperty("version", 3, nullptr);
     v.setProperty("editName", editName_, nullptr);
     v.setProperty("fxChannel", channels.fx, nullptr);

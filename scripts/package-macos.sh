@@ -10,9 +10,9 @@ export COPYFILE_DISABLE=1   # no AppleDouble ._ files in the payload
 BUILD=${1:?build dir}
 OUT=${2:?output dir}
 VERSION=${3:?version}
-ART="$BUILD/FM1Companion_artefacts/Release"
+ART="$BUILD/VirtualFM1_artefacts/Release"
 STAGE=$(mktemp -d)
-NAME="FM-1 Companion"
+NAME="Virtual FM-1"
 
 mkdir -p "$STAGE/Library/Audio/Plug-Ins/VST3" "$STAGE/Library/Audio/Plug-Ins/Components" "$STAGE/Applications" "$OUT"
 cp -R "$ART/VST3/$NAME.vst3" "$STAGE/Library/Audio/Plug-Ins/VST3/"
@@ -25,8 +25,8 @@ if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
     done
 fi
 
-PKG="$OUT/FM-1-Companion-$VERSION-macOS.pkg"
-pkgbuild --root "$STAGE" --identifier com.schooley.fm1companion --version "$VERSION" --install-location / "$PKG"
+PKG="$OUT/Virtual-FM-1-$VERSION-macOS.pkg"
+pkgbuild --root "$STAGE" --identifier com.bockage.virtualfm1 --version "$VERSION" --install-location / "$PKG"
 
 if [ -n "${MACOS_INSTALLER_IDENTITY:-}" ]; then
     productsign --sign "$MACOS_INSTALLER_IDENTITY" "$PKG" "$PKG.signed" && mv "$PKG.signed" "$PKG"

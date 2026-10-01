@@ -21,7 +21,7 @@ jobs:
         run: brew install ninja
       - name: Version
         id: v
-        run: echo "version=$(sed -n 's/^project(FM1Companion VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(sed -n 's/^project(VirtualFM1 VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFM1_COPY_PLUGIN=OFF
       - name: Build
@@ -70,7 +70,7 @@ jobs:
       - name: Version
         id: v
         shell: bash
-        run: echo "version=$(sed -n 's/^project(FM1Companion VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(sed -n 's/^project(VirtualFM1 VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
       - name: Toolchain
         shell: pwsh
         run: |

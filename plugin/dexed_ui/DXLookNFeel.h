@@ -11,7 +11,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * Trimmed from Dexed's DXLookNFeel for FM-1 Companion (see NOTICE.md).
+ * Trimmed from Dexed's DXLookNFeel for Virtual FM-1 (see NOTICE.md).
  */
 
 #pragma once

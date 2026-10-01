@@ -1,4 +1,6 @@
-# FM-1 Companion
+# Virtual FM-1
+
+By Bockage.
 
 A VST3 / AU / Standalone instrument that plays the M-VAVE FM-1's FM engine in
 software, edits every sound setting, runs the FM-1+VA sequencer and
@@ -70,7 +72,7 @@ Standalone) are built by GitHub Actions on every push and attached to a
 release for every `v*` tag. The macOS package is unsigned unless signing
 secrets are configured, so on first open use right-click, Open (or
 `xattr -d com.apple.quarantine` on the .pkg). For Gig Performer, rescan
-plugins and add "FM-1 Companion" (VST3).
+plugins and add "Virtual FM-1" (VST3).
 
 ## Build
 
@@ -91,7 +93,7 @@ and `scripts/installer.iss` the Windows installer, as CI does.
 ## One library everywhere
 
 The 128-preset library is shared by the Standalone and every plugin instance in
-every host, in `~/Library/Application Support/FM-1 Companion/library.fm1lib`.
+every host, in `~/Library/Application Support/Virtual FM-1/library.fm1lib`.
 A change made anywhere (a pull, a store, an import) shows up in the others within
 a second. Each instance connects to the FM-1 by itself when it is plugged in.
 A host project saves its own current preset, unsaved edits, sequencer and

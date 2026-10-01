@@ -9,19 +9,19 @@
 #ifndef OutDir
   #define OutDir "..\dist"
 #endif
-#define Name "FM-1 Companion"
-#define Art BuildDir + "\FM1Companion_artefacts\Release"
+#define Name "Virtual FM-1"
+#define Art BuildDir + "\VirtualFM1_artefacts\Release"
 
 [Setup]
 AppId={{9E2C1D0A-6C2B-4D3E-9B7B-5A1F0C0D2E31}
 AppName={#Name}
 AppVersion={#Version}
-AppPublisher=Jacob Schooley
+AppPublisher=Bockage
 AppPublisherURL=https://github.com/jbschooley/Virtual-FM-1
 DefaultDirName={autopf}\{#Name}
 DefaultGroupName={#Name}
 OutputDir={#OutDir}
-OutputBaseFilename=FM-1-Companion-{#Version}-Windows
+OutputBaseFilename=Virtual-FM-1-{#Version}-Windows
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2

@@ -6,7 +6,7 @@
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
- * Trimmed from Dexed's DXLookNFeel for FM-1 Companion (see NOTICE.md).
+ * Trimmed from Dexed's DXLookNFeel for Virtual FM-1 (see NOTICE.md).
  */
 
 #include "DXLookNFeel.h"

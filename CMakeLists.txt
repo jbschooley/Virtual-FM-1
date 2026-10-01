@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FM1Companion VERSION 0.1.0 LANGUAGES C CXX)
+project(VirtualFM1 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,13 +54,14 @@ if(FM1_BUILD_PLUGIN)
     file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
     juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
 
-    juce_add_plugin(FM1Companion
-        COMPANY_NAME "Jacob Schooley"
-        BUNDLE_ID "com.schooley.fm1companion"
+    juce_add_plugin(VirtualFM1
+        COMPANY_NAME "Bockage"
+        BUNDLE_ID "com.bockage.virtualfm1"
+        # the AU/VST3 identity codes stay as first released, so saved host projects still find the plugin
         PLUGIN_MANUFACTURER_CODE Jscn
         PLUGIN_CODE Fm1c
         FORMATS ${FM1_FORMATS}
-        PRODUCT_NAME "FM-1 Companion"
+        PRODUCT_NAME "Virtual FM-1"
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT TRUE
@@ -70,7 +71,7 @@ if(FM1_BUILD_PLUGIN)
         VST3_CATEGORIES Instrument Synth
         AU_MAIN_TYPE kAudioUnitType_MusicDevice)
 
-    target_sources(FM1Companion PRIVATE
+    target_sources(VirtualFM1 PRIVATE
         plugin/PluginProcessor.cpp
         plugin/PluginEditor.cpp
         plugin/Panels.cpp
@@ -87,15 +88,15 @@ if(FM1_BUILD_PLUGIN)
         sync/Fm1Link.cpp
         sync/Fm1Session.cpp)
 
-    target_include_directories(FM1Companion PRIVATE plugin plugin/dexed_ui sync engine)
+    target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui sync engine)
 
-    target_compile_definitions(FM1Companion PUBLIC
+    target_compile_definitions(VirtualFM1 PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0)
 
-    target_link_libraries(FM1Companion PRIVATE
+    target_link_libraries(VirtualFM1 PRIVATE
         fm1_engine fm1_sync FM1Assets
         juce::juce_audio_utils
         juce::juce_audio_devices
@@ -119,8 +120,8 @@ if(FM1_BUILD_PLUGIN)
     target_sources(host_test PRIVATE tests/host_test.cpp)
     target_compile_definitions(host_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1)
     target_link_libraries(host_test PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags "-framework CoreAudioKit")
-    add_dependencies(host_test FM1Companion_VST3)
-    add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/FM1Companion_artefacts/Release/VST3/FM-1 Companion.vst3" 2)
+    add_dependencies(host_test VirtualFM1_VST3)
+    add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/Release/VST3/Virtual FM-1.vst3" 2)
 
     # hardware probe (not a ctest: needs a connected FM-1)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
