@@ -62,6 +62,8 @@ if(FM1_BUILD_PLUGIN)
         PLUGIN_CODE Fm1c
         FORMATS ${FM1_FORMATS}
         PRODUCT_NAME "Virtual FM-1"
+        ICON_BIG "${CMAKE_SOURCE_DIR}/assets/icon-1024.png"
+        ICON_SMALL "${CMAKE_SOURCE_DIR}/assets/icon-256.png"
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT TRUE

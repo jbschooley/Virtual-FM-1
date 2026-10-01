@@ -28,6 +28,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 LicenseFile=..\LICENSE
+SetupIconFile=..\assets\icon.ico
+UninstallDisplayIcon={app}\{#Name}.exe
 PrivilegesRequired=admin
 
 [Types]
