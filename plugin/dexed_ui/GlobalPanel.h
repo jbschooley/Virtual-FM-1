@@ -19,6 +19,8 @@ public:
 
     juce::TextEditor name;       // the preset name; the owner binds onReturnKey/onFocusLost
     juce::Label slotLabel;
+    juce::TextButton storeButton{"Store"}, revertButton{"Revert"}, sendButton{"Send to FM-1"};
+    juce::ToggleButton liveButton{"Live"};
     void setOpStatus(const char* s) { algoDisplay_->opStatus = s; }
 
 private:

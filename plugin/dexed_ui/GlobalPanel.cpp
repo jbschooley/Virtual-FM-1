@@ -66,15 +66,25 @@ GlobalPanel::GlobalPanel(AudioProcessorValueTreeState& apvts, uint8_t* vced, DXL
     }
 
     // this project's left area
-    name.setBounds(16, 40, 190, 26);
+    name.setBounds(16, 36, 190, 26);
     name.setInputRestrictions(10);
     name.setFont(FontOptions(18.0f));
     addAndMakeVisible(name);
-    slotLabel.setBounds(16, 72, 190, 20);
+    slotLabel.setBounds(16, 66, 206, 34);
+    slotLabel.setJustificationType(juce::Justification::topLeft);
     slotLabel.setFont(FontOptions(13.0f));
     slotLabel.setColour(Label::textColourId, Colours::white.withAlpha(0.8f));
     addAndMakeVisible(slotLabel);
     transpose_ = knob("Transpose", 250, 44, transposeA_, Params::vcedId(144));
+    storeButton.setBounds(16, 104, 58, 26);
+    revertButton.setBounds(78, 104, 58, 26);
+    sendButton.setBounds(140, 104, 96, 26);
+    liveButton.setBounds(242, 104, 48, 26);
+    storeButton.setTooltip("Save the editor's changes into this preset in the plugin's library");
+    revertButton.setTooltip("Drop the editor's changes and go back to the stored preset");
+    sendButton.setTooltip("Play this sound on the FM-1 without saving it there");
+    liveButton.setTooltip("Send every change to the FM-1 as you edit, without saving it there");
+    for (auto* c : std::initializer_list<juce::Component*>{&storeButton, &revertButton, &sendButton, &liveButton}) addAndMakeVisible(c);
     refresh();
 }
 
@@ -84,9 +94,12 @@ void GlobalPanel::paint(Graphics& g) {
     g.drawImage(lnf_.imageGlobal, 325, 0, 539, 144, 650, 0, 1078, 288);
     g.setColour(Colours::white);
     g.setFont(FontOptions(15.0f, Font::bold));
-    g.drawText("Preset", 16, 14, 100, 20, Justification::centredLeft, true);
+    g.drawText("Preset", 16, 10, 100, 20, Justification::centredLeft, true);
     g.setFont(FontOptions(14.0f));
     g.drawText("Transpose", 226, 82, 82, 16, Justification::centred, true);
+    g.setFont(FontOptions(13.0f));
+    g.setColour(Colours::white);
+    g.drawText("Live", 292, 104, 30, 26, Justification::centredLeft, true);
     g.drawImage(lnf_.imageLight, 619, 102, 14, 14, 0, lfoSync_->getToggleState() ? 28 : 0, 28, 28);
     g.drawImage(lnf_.imageLight, 705, 102, 14, 14, 0, oscSync_->getToggleState() ? 28 : 0, 28, 28);
 }

@@ -49,6 +49,35 @@ bool Fm1Session::writePatternPart(const fm1::Bytes& msg, juce::String& error) {
 
 void Fm1Session::pullCurrent() { start(Op::PullCurrent); }
 
+void Fm1Session::sendEdit(const fm1::Sound& snd, fm1::edit::Channels ch, bool selectFirst) {
+    editSound_ = snd; editCh_ = ch; editSelect_ = selectFirst;
+    start(Op::SendEdit);
+}
+
+void Fm1Session::sendNow(const std::vector<fm1::Bytes>& msgs) {
+    if (!link_.isOpen()) return;
+    for (const auto& m : msgs) link_.sendRaw(m);
+}
+
+std::optional<uint32_t> Fm1Session::editBufferAddr(juce::String& err, int* slotOut) {
+    if (auto a = knownAddrs(identity_->version)) {
+        if (slotOut) {
+            fm1::Bytes b;
+            if (!readBlock(a->slotByte, 1, b, err)) return std::nullopt;
+            *slotOut = b[0];
+        }
+        return a->editBuffer;
+    }
+    if (discoveredEditBuffer_ && discoveredForVersion_ == identity_->version) return discoveredEditBuffer_;
+    int slot = -1;
+    auto found = discoverEditBuffer(slot, err);
+    if (!found) return std::nullopt;
+    discoveredEditBuffer_ = found;
+    discoveredForVersion_ = identity_->version;
+    if (slotOut) *slotOut = slot;
+    return found;
+}
+
 std::optional<Fm1Session::CurrentAddrs> Fm1Session::knownAddrs(int version) {
     // Located on FM-1_093 by dumping RAM around program changes (tests/fm1_probe.cpp
     // "mem" and "select"); other builds move them, so they are found by search.
@@ -260,21 +289,9 @@ void Fm1Session::run() {
         if (identity_->isStock()) { report(0, 1, "This FM-1 runs M-VAVE's firmware, which cannot send its sound back.", true, true); return; }
         juce::String err;
         int slot = -1;
-        uint32_t edit = 0;
-        if (auto a = knownAddrs(identity_->version)) {
-            fm1::Bytes b;
-            if (!readBlock(a->slotByte, 1, b, err)) { report(0, 1, "Could not read the current preset number: " + err, true, true); return; }
-            slot = b[0];
-            edit = a->editBuffer;
-        } else if (discoveredEditBuffer_ && discoveredForVersion_ == identity_->version) {
-            edit = *discoveredEditBuffer_;
-        } else {
-            auto found = discoverEditBuffer(slot, err);
-            if (!found) { report(0, 1, "Could not find the synth's current sound: " + err + ".", true, true); return; }
-            discoveredEditBuffer_ = found;
-            discoveredForVersion_ = identity_->version;
-            edit = *found;
-        }
+        auto addr = editBufferAddr(err, &slot);
+        if (!addr) { report(0, 1, "Could not find the synth's current sound: " + err + ".", true, true); return; }
+        uint32_t edit = *addr;
         fm1::Bytes vced;
         if (!readBlock(edit, fm1::kEditBytes, vced, err)) { report(0, 1, "Could not read the edit buffer: " + err, true, true); return; }
         // sanity: a DX7 edit buffer has every parameter at 99 or below and a printable name
@@ -298,10 +315,56 @@ void Fm1Session::run() {
         if (!stored) { report(0, 1, "Could not read preset " + juce::String(slot + 1) + ": " + err, true, true); return; }
         fm1::Sound cur = *stored;
         cur.voice = fm1::packVoice(e);
-        bool same = cur.voice == stored->voice;
-        juce::MessageManager::callAsync([this, cur, same] { if (onCurrentRead) onCurrentRead(cur, same); });
+        // the live settings record follows the edit buffer and its operator-switch byte
+        fm1::Bytes rec;
+        if (readBlock(edit + 156, fm1::kRecordBytes, rec, err)) {
+            bool looksRight = true;   // the chain positions hold effect ids 0..5 in some order
+            int seen = 0;
+            for (int k = 0; k < fm1::kEffects; ++k) { int id = rec[size_t(27 + 3 * k)]; if (id >= fm1::kEffects || (seen & (1 << id))) looksRight = false; else seen |= 1 << id; }
+            if (looksRight) std::copy(rec.begin(), rec.end(), cur.record.begin());
+        }
+        bool same = cur.voice == stored->voice && cur.record == stored->record;
+        fm1::Sound st = *stored;
+        juce::MessageManager::callAsync([this, cur, st] { if (onCurrentRead) onCurrentRead(cur, st); });
         report(1, 1, "Pulled preset " + juce::String(slot + 1) + " " + juce::String(fm1::voiceName(cur.voice)).trimEnd()
                + (same ? "." : ", with the synth's unsaved changes."), true);
+        return;
+    }
+    case Op::SendEdit: {
+        report(0, 1, "Sending to the synth's edit buffer...");
+        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (editSelect_ && editSound_.slot >= 0) { select(editSound_.slot); juce::Thread::sleep(250); }
+        auto msgs = fm1::edit::fullSound(editSound_, editCh_);
+        for (size_t i = 0; i < msgs.size(); ++i) {
+            link_.sendRaw(msgs[i]);
+            if (i % 8 == 7) juce::Thread::sleep(2);
+        }
+        juce::Thread::sleep(100);
+        juce::String what = "Sent " + juce::String(fm1::voiceName(editSound_.voice)).trimEnd() + " to the synth's edit buffer (not saved)";
+        if (identity_->isStock()) { report(1, 1, what + "; this firmware cannot be read back to check it.", true); return; }
+        juce::String err;
+        auto addr = editBufferAddr(err, nullptr);
+        if (!addr) { report(1, 1, what + "; could not read it back (" + err + ").", true); return; }
+        // the synth applies some CCs (the envelope) a little later; re-read for up to ~1 s
+        fm1::Edit want = fm1::unpackVoice(editSound_.voice);
+        int voiceBad = 0, recBad = 0;
+        juce::String detail;
+        for (int attempt = 0; attempt < 6; ++attempt) {
+            fm1::Bytes vced, rec;
+            if (!readBlock(*addr, fm1::kEditBytes, vced, err) || !readBlock(*addr + 156, fm1::kRecordBytes, rec, err)) {
+                report(1, 1, what + "; could not read it back (" + err + ").", true); return;
+            }
+            voiceBad = recBad = 0; detail.clear();
+            for (int i = 0; i < fm1::kEditBytes; ++i) if (vced[size_t(i)] != want[size_t(i)]) { ++voiceBad; detail << " v" << i << ":" << int(vced[size_t(i)]) << "/" << int(want[size_t(i)]); }
+            for (int i = 0; i < fm1::kRecordBytes; ++i)
+                if (fm1::edit::recordByteSettable(i, editSound_.record) && rec[size_t(i)] != editSound_.record[size_t(i)]) {
+                    ++recBad; detail << " r" << i << ":" << int(rec[size_t(i)]) << "/" << int(editSound_.record[size_t(i)]);
+                }
+            if (!voiceBad && !recBad) break;
+            juce::Thread::sleep(200);
+        }
+        if (voiceBad || recBad) report(1, 1, what + ", but " + juce::String(voiceBad) + " voice and " + juce::String(recBad) + " effect/envelope values read back different (got/wanted:" + detail + ").", true, true);
+        else report(1, 1, what + ", verified.", true);
         return;
     }
     default: return;

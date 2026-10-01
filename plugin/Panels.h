@@ -54,7 +54,10 @@ private:
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
     juce::Label currentName_;
-    juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Push current to FM-1"},
+    juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};
+    juce::ToggleButton live_{"Live: send every change"};
+    juce::ComboBox fxChannel_;
+    juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Store to FM-1 (saves the preset)"},
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
                      selectOnDevice_{"Show on FM-1"}, cancel_{"Stop"},
                      importSyx_{"Import .syx..."}, exportSyx_{"Export .syx..."};
@@ -80,6 +83,7 @@ private:
     std::unique_ptr<OperatorPanel> ops_[6];
     std::unique_ptr<GlobalPanel> global_;
     char opStatus_[7] = "111111";
+    int tick_ = 0;
 };
 
 class FxPanel : public juce::Component {

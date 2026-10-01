@@ -12,14 +12,16 @@ FM1Processor::FM1Processor()
         if (s.slot == bank.currentSlot()) loadCurrentIntoParams();
     };
     session.onSoundWritten = [this](const fm1::Sound& s) { bank.markOnDevice(s.slot, s); };
-    session.onCurrentRead = [this](const fm1::Sound& s, bool matchesStored) {
-        // jump to the synth's preset and take its live sound; with unsaved changes the
-        // slot shows as differing from what the synth has stored
-        commitCurrent();
-        bank.setCurrentSlot(s.slot);
-        if (matchesStored) bank.setSound(s.slot, s, true);
-        else bank.setSound(s.slot, s, false);
+    session.onCurrentRead = [this](const fm1::Sound& live, const fm1::Sound& stored) {
+        // the slot takes what the synth has stored; the editor takes what it is playing,
+        // so its unsaved changes show up as edits here too
+        bank.setSound(stored.slot, stored, true);
+        bank.setCurrentSlot(stored.slot);
         loadCurrentIntoParams();
+        params.applyEdit(live);
+        editName_ = juce::String(fm1::voiceName(live.voice)).trimEnd();
+        applyEditName();
+        if (live_) { lastSent_ = live; haveLastSent_ = true; }
         updateHostDisplay(ChangeDetails().withProgramChanged(true));
     };
     session.onProgress = [this](const Fm1Session::Progress& p) { if (onStatus) onStatus(p.text); };
@@ -39,7 +41,7 @@ FM1Processor::FM1Processor()
     loadCurrentIntoParams();
 }
 
-FM1Processor::~FM1Processor() { session.cancel(); }
+FM1Processor::~FM1Processor() { stopTimer(); session.cancel(); }
 
 void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     keyboardMidi.reset(sampleRate);
@@ -170,6 +172,7 @@ juce::AudioProcessorEditor* FM1Processor::createEditor() { return new FM1Editor(
 void FM1Processor::loadCurrentIntoParams() {
     loadedSlot_ = bank.currentSlot();
     const fm1::Sound& s = bank.current();
+    editName_ = juce::String(fm1::voiceName(s.voice)).trimEnd();
     {
         const juce::SpinLock::ScopedLockType l(nameLock_);
         fm1::Edit e = fm1::unpackVoice(s.voice);
@@ -178,19 +181,49 @@ void FM1Processor::loadCurrentIntoParams() {
     params.load(s);
 }
 
-fm1::Sound& FM1Processor::commitCurrent() {
-    fm1::Sound& s = bank.current();
-    if (loadedSlot_ == bank.currentSlot()) params.commit(s);
+void FM1Processor::applyEditName() {
+    fm1::Voice named = fm1::withName(bank.current().voice, editName_.toStdString());
+    const juce::SpinLock::ScopedLockType l(nameLock_);
+    for (int i = 0; i < 10; ++i) vced_[size_t(145 + i)] = named[size_t(118 + i)];
+}
+
+bool FM1Processor::isEdited() const {
+    if (loadedSlot_ != bank.currentSlot()) return false;
+    return params.isEdited() || editName_ != juce::String(fm1::voiceName(bank.current().voice)).trimEnd();
+}
+
+fm1::Sound FM1Processor::editedSound() const {
+    fm1::Sound s = bank.current();
+    Params& p = const_cast<Params&>(params);
+    // commit into a copy without moving the editor's baseline
+    auto snapshot = p.snapshot();
+    p.commit(s);
+    p.restoreSnapshot(snapshot);
+    s.voice = fm1::withName(s.voice, editName_.toStdString());
     return s;
 }
+
+fm1::Sound& FM1Processor::commitCurrent() {
+    fm1::Sound& s = bank.current();
+    if (loadedSlot_ == bank.currentSlot()) {
+        fm1::Sound c = s;
+        params.commit(c);
+        c.voice = fm1::withName(c.voice, editName_.toStdString());
+        bank.setSound(bank.currentSlot(), c, false);
+    }
+    return bank.current();
+}
+
+void FM1Processor::store() { commitCurrent(); }
+void FM1Processor::revert() { loadCurrentIntoParams(); bank.onChange ? bank.onChange() : void(); }
 
 void FM1Processor::selectSlot(int slot) {
     slot = juce::jlimit(0, BankModel::kSlots - 1, slot);
     if (slot == bank.currentSlot() && loadedSlot_ == slot) return;
-    commitCurrent();
     bank.setCurrentSlot(slot);
     loadCurrentIntoParams();
     updateHostDisplay(ChangeDetails().withProgramChanged(true));
+    if (live_ && link.isOpen()) sendToFm1EditBuffer();
 }
 
 void FM1Processor::setCurrentProgram(int index) {
@@ -204,13 +237,9 @@ const juce::String FM1Processor::getProgramName(int index) {
 }
 
 void FM1Processor::setCurrentName(const juce::String& name) {
-    fm1::Sound& s = commitCurrent();
-    s.voice = fm1::withName(s.voice, name.toStdString());
-    {
-        const juce::SpinLock::ScopedLockType l(nameLock_);
-        for (int i = 0; i < 10; ++i) vced_[size_t(145 + i)] = s.voice[size_t(118 + i)];
-    }
-    bank.setSound(bank.currentSlot(), s, false);
+    editName_ = name.substring(0, 10).trimEnd();
+    applyEditName();
+    if (bank.onChange) bank.onChange();
 }
 
 void FM1Processor::setCurrentSound(const fm1::Sound& s) {
@@ -251,9 +280,10 @@ static fm1::seq::Step stepFromString(const juce::String& t) {
 }
 
 void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
-    commitCurrent();
     juce::ValueTree v("FM1Companion");
-    v.setProperty("version", 2, nullptr);
+    v.setProperty("version", 3, nullptr);
+    v.setProperty("editName", editName_, nullptr);
+    v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
     v.setProperty("midiOut", link.ports().outputId, nullptr);
     v.addChild(bank.toState(), -1, nullptr);
@@ -297,6 +327,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     // the saved parameters (edits since the slot was loaded) win over the slot's bytes
     auto ps = v.getChildWithName(apvts.state.getType());
     if (ps.isValid()) { apvts.replaceState(ps); params.changed = true; }
+    if (v.hasProperty("editName")) { editName_ = v.getProperty("editName").toString(); applyEditName(); }
+    channels.fx = juce::jlimit(1, 16, int(v.getProperty("fxChannel", 2)));
     auto sq = v.getChildWithName("Sequencer");
     if (sq.isValid()) {
         sequencer.enabled = bool(sq.getProperty("enabled", false));
@@ -349,6 +381,28 @@ void FM1Processor::disconnect() {
 void FM1Processor::pullCurrent() { if (link.isOpen()) session.pullCurrent(); }
 void FM1Processor::pushCurrent() { if (link.isOpen()) session.push({commitCurrent()}, true); }
 
+void FM1Processor::sendToFm1EditBuffer() {
+    if (!link.isOpen()) return;
+    fm1::Sound s = editedSound();
+    lastSent_ = s;
+    haveLastSent_ = true;
+    session.sendEdit(s, channels, true);
+}
+
+void FM1Processor::setLive(bool on) {
+    live_ = on;
+    if (on) { sendToFm1EditBuffer(); startTimerHz(30); }
+    else { stopTimer(); haveLastSent_ = false; }
+}
+
+void FM1Processor::timerCallback() {
+    if (!live_ || !link.isOpen() || !haveLastSent_ || session.busy()) return;
+    fm1::Sound now = editedSound();
+    if (now.voice == lastSent_.voice && now.record == lastSent_.record) return;
+    session.sendNow(fm1::edit::delta(lastSent_, now, channels));
+    lastSent_ = now;
+}
+
 void FM1Processor::pullAll() {
     if (!link.isOpen()) return;
     std::vector<int> all(BankModel::kSlots);
@@ -358,7 +412,6 @@ void FM1Processor::pullAll() {
 
 void FM1Processor::pushChanged() {
     if (!link.isOpen()) return;
-    commitCurrent();
     std::vector<fm1::Sound> out;
     for (int i = 0; i < BankModel::kSlots; ++i)
         if (!bank.slot(i).synced()) out.push_back(bank.slot(i).sound);
@@ -368,7 +421,6 @@ void FM1Processor::pushChanged() {
 
 void FM1Processor::pushAll() {
     if (!link.isOpen()) return;
-    commitCurrent();
     std::vector<fm1::Sound> out;
     for (int i = 0; i < BankModel::kSlots; ++i) out.push_back(bank.slot(i).sound);
     session.push(out);
@@ -423,7 +475,6 @@ juce::String FM1Processor::importSyx(const juce::File& f) {
     fm1::Bytes bytes(static_cast<const uint8_t*>(mb.getData()), static_cast<const uint8_t*>(mb.getData()) + mb.getSize());
     fm1::SyxContents c = fm1::readSyx(bytes);
     if (c.sounds.empty()) return "No sounds in " + f.getFileName() + (c.skipped.empty() ? "" : " (" + juce::String(c.skipped[0]) + ")");
-    commitCurrent();
     int base = (bank.currentSlot() / fm1::kBankSlots) * fm1::kBankSlots;
     int n = 0;
     for (size_t i = 0; i < c.sounds.size(); ++i) {
@@ -439,7 +490,6 @@ juce::String FM1Processor::importSyx(const juce::File& f) {
 }
 
 bool FM1Processor::exportSyx(const juce::File& f) {
-    commitCurrent();
     std::vector<fm1::Sound> all;
     for (int i = 0; i < BankModel::kSlots; ++i) all.push_back(bank.slot(i).sound);
     fm1::Bytes bytes = fm1::toSyx(all);

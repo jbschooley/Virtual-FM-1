@@ -19,6 +19,7 @@
 
 #include "Fm1Codec.h"
 #include "Fm1Link.h"
+#include "Fm1Edit.h"
 #include "Fm1Seq.h"
 
 class Fm1Session : private juce::Thread {
@@ -26,7 +27,7 @@ public:
     Fm1Session(Fm1Link& link);
     ~Fm1Session() override;
 
-    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent };
+    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent, SendEdit };
 
     struct Progress {
         Op op = Op::None;
@@ -44,7 +45,8 @@ public:
     std::function<void(int pat)> onPatternWritten;
     // The sound the synth is playing now: its slot and its live edit buffer (unsaved
     // voice edits included), with the slot's stored settings record.
-    std::function<void(const fm1::Sound&, bool matchesStored)> onCurrentRead;
+    // `live` has the edit buffer's voice and the live settings record; `stored` is the slot as saved.
+    std::function<void(const fm1::Sound& live, const fm1::Sound& stored)> onCurrentRead;
 
     static constexpr int kPaceMs = 3000;
 
@@ -58,6 +60,11 @@ public:
     void pullPatterns(std::vector<int> pats);
     void pushPatterns(std::vector<std::pair<int, fm1::seq::Pattern>> pats, bool save);
     void pullCurrent();   // read whatever the synth is playing (FM-1+VA only)
+    // Put `s` into the synth's edit buffer without storing it: program change to
+    // s.slot (when selectFirst), then parameter changes and CCs, then read back.
+    void sendEdit(const fm1::Sound& s, fm1::edit::Channels ch, bool selectFirst);
+    // Send messages straight away (live editing); not queued, no read-back.
+    void sendNow(const std::vector<fm1::Bytes>& msgs);
 
     // Where the live edit buffer (155-byte VCED) and the current preset number
     // live in RAM for a firmware version, if known.
@@ -79,6 +86,11 @@ private:
     std::optional<uint32_t> discoverEditBuffer(int& slotOut, juce::String& error);
     std::optional<uint32_t> discoveredEditBuffer_;
     int discoveredForVersion_ = -1;
+    // The edit buffer's address for this synth (known table, cached search, or a new search).
+    std::optional<uint32_t> editBufferAddr(juce::String& err, int* slotOut);
+    fm1::Sound editSound_;
+    fm1::edit::Channels editCh_;
+    bool editSelect_ = true;
 
     Fm1Link& link_;
     Op op_ = Op::None;

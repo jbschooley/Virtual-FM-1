@@ -39,12 +39,15 @@ void Fm1Link::close() {
 
 void Fm1Link::send(const fm1::Bytes& sysex) {
     if (!out_ || sysex.size() < 2) return;
+    std::lock_guard<std::mutex> l(sendMutex_);
     // MidiMessage::createSysExMessage wants the payload without F0/F7
     out_->sendMessageNow(juce::MidiMessage::createSysExMessage(sysex.data() + 1, int(sysex.size()) - 2));
 }
 
 void Fm1Link::sendRaw(const fm1::Bytes& midi) {
     if (!out_ || midi.empty()) return;
+    std::lock_guard<std::mutex> l(sendMutex_);
+    if (midi[0] == 0xF0) { out_->sendMessageNow(juce::MidiMessage::createSysExMessage(midi.data() + 1, int(midi.size()) - 2)); return; }
     out_->sendMessageNow(juce::MidiMessage(midi.data(), int(midi.size())));
 }
 

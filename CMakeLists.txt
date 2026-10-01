@@ -26,7 +26,7 @@ if(NOT MSVC)
 endif()
 
 # ---- sync codec (no JUCE) -----------------------------------------------------
-add_library(fm1_sync STATIC sync/Fm1Codec.cpp sync/Fm1Seq.cpp sync/Fm1Record.cpp)
+add_library(fm1_sync STATIC sync/Fm1Codec.cpp sync/Fm1Seq.cpp sync/Fm1Record.cpp sync/Fm1Edit.cpp)
 target_include_directories(fm1_sync PUBLIC sync)
 if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)

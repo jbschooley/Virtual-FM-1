@@ -3,6 +3,7 @@
 // Minimal JSON reading: the file is flat enough to scan with a tiny parser.
 
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +15,8 @@
 
 #include "Fm1Codec.h"
 #include "Fm1Seq.h"
+#include "Fm1Edit.h"
+#include "Fm1Record.h"
 
 using namespace fm1;
 
@@ -191,6 +194,30 @@ int main(int argc, char** argv) {
         CHECK(same, "decodePattern matches hers");
         for (int v = 0; v < 10; ++v) CHECK(fm1::seq::kValueTicks[v] == int(sq["valueTicks"][size_t(v)].n), "VALUE_TICKS");
         CHECK(fm1::seq::kStepsRam == uint32_t(sq["consts"]["steps"].n) && fm1::seq::kExtRam == uint32_t(sq["consts"]["ext"].n) && fm1::seq::kGsetRam == uint32_t(sq["consts"]["gset"].n) && fm1::seq::kGsetLen == int(sq["consts"]["gsetLen"].n), "RAM constants");
+    }
+
+    // ---- edit-buffer messages (live editing) --------------------------------------
+    {
+        Sound a; a.voice = packVoice(kInitEdit); a.record = defaultRecord(); a.hasRecord = true;
+        auto full = fm1::edit::fullSound(a, {});
+        int params = 0, ccs = 0;
+        for (auto& m : full) { if (m[0] == 0xF0) ++params; else if ((m[0] & 0xF0) == 0xB0) ++ccs; }
+        CHECK(params == 155, "full sound sends all 155 voice parameters");
+        CHECK(ccs == 24, "full sound sends all 24 effect CCs (6 on, 2 types, 16 parameters)");
+        CHECK(toHex(fm1::edit::paramChange(134, 17)) == "f0431001061 1f7" || toHex(fm1::edit::paramChange(134, 17)) == "f043100106" "11f7", "parameter change bytes for 134 = 17");
+        Sound b = a;
+        Edit e = unpackVoice(b.voice); e[134] = 4; b.voice = packVoice(e);
+        FxChain fx = fxFromRecord(b.record); fx.fx[FxReverb].p[1] = 40; fxToRecord(fx, b.record);
+        auto d = fm1::edit::delta(a, b, {2, 1});
+        CHECK(d.size() == 2, "delta sends only what changed");
+        CHECK(d.size() == 2 && toHex(d[0]) == "f0431001060" "4f7" && toHex(d[1]) == "b10728", "delta: algorithm change, reverb mix CC 7 = 40 on channel 2");
+        Envelope env; env.on = true; env.a = 50; envToRecord(env, b.record);
+        auto d2 = fm1::edit::delta(a, b, {2, 1});
+        bool attack = false; for (auto& m : d2) if (m.size() == 3 && m[0] == 0xB0 && m[1] == 73 && m[2] == 64) attack = true;
+        CHECK(attack, "envelope on: attack 50 goes out as CC 73 = 64");
+        bool ok = true;
+        for (int v = 0; v <= 100; ++v) { int cc = fm1::edit::envToCc(v); if (cc * 100 / 127 != v) ok = false; }
+        CHECK(ok, "envToCc: every value 0..100 has a CC that maps back to it");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

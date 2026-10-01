@@ -56,6 +56,7 @@ private:
     std::unique_ptr<juce::MidiOutput> out_;
     Ports ports_;
 
+    std::mutex sendMutex_;             // sends come from the session thread and the message thread
     std::mutex mutex_;
     std::vector<fm1::Bytes> pending_;   // frames received since the last ask began
     juce::WaitableEvent frameArrived_;

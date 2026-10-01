@@ -48,6 +48,14 @@ public:
     // markers, survive a load/commit round trip untouched.
     void commit(fm1::Sound& s);
 
+    // True when any setting differs from what load() (or the last commit) saw.
+    bool isEdited() const;
+    std::vector<int> snapshot() const { return committed_; }
+    void restoreSnapshot(const std::vector<int>& v) { committed_ = v; }
+    // Set the parameters to another version of the loaded sound (the synth's live
+    // edit buffer, say) without moving the baseline, so the differences count as edits.
+    void applyEdit(const fm1::Sound& s);
+
     // For the audio thread: fill a VCED from the parameters (name bytes left as given).
     void fillVced(uint8_t* vced155) const;
     fm1::FxChain fxChain(const fm1::FxChain& orderFrom) const;   // keeps `orderFrom`'s order
@@ -58,6 +66,7 @@ public:
 
 private:
     void parameterChanged(const juce::String&, float) override;
+    std::vector<int> valuesFrom(const fm1::Sound& s) const;   // per binding, clamped to its range
     std::vector<Binding> bindings_;
     std::vector<int> committed_;   // per binding: the value last loaded or committed
     bool loading_ = false;

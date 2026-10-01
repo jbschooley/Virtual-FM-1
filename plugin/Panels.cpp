@@ -71,7 +71,8 @@ void ParamGrid::resized() {
 
 LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_, &list_, &currentName_,
-            &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &cancel_, &importSyx_, &exportSyx_, &status_})
+            &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &cancel_, &importSyx_, &exportSyx_, &status_,
+            &sendEdit_, &live_, &fxChannel_})
         addAndMakeVisible(c);
     refreshPorts();
     connect_.onClick = [this] {
@@ -83,6 +84,12 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     autoConnect_.onClick = [this] { refreshPorts(); if (proc_.autoConnect()) refreshPorts(); };
     pullCurrent_.onClick = [this] { proc_.pullCurrent(); };
     pushCurrent_.onClick = [this] { proc_.pushCurrent(); };
+    sendEdit_.onClick = [this] { proc_.sendToFm1EditBuffer(); };
+    live_.onClick = [this] { proc_.setLive(live_.getToggleState()); };
+    for (int ch = 1; ch <= 16; ++ch) fxChannel_.addItem("FX channel " + juce::String(ch), ch);
+    fxChannel_.setSelectedId(proc_.channels.fx, juce::dontSendNotification);
+    fxChannel_.onChange = [this] { proc_.channels.fx = fxChannel_.getSelectedId(); };
+    fxChannel_.setTooltip("Must match the FM-1's GLOBE > MIDI > FX Channel (2 unless changed)");
     pullAll_.onClick = [this] { proc_.pullAll(); };
     pushChanged_.onClick = [this] { proc_.pushChanged(); };
     pushAll_.onClick = [this] {
@@ -132,13 +139,17 @@ void LibraryPanel::refreshPorts() {
 
 void LibraryPanel::refreshButtons() {
     bool open = proc_.link.isOpen(), busy = proc_.session.busy();
-    for (auto* b : {&pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_}) b->setEnabled(open && !busy);
+    for (auto* b : {&pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &sendEdit_}) b->setEnabled(open && !busy);
+    live_.setEnabled(open);
     cancel_.setEnabled(busy);
     connect_.setEnabled(!busy);
     autoConnect_.setEnabled(!busy);
 }
 
 void LibraryPanel::timerCallback() {
+    if (live_.getToggleState() != proc_.isLive()) live_.setToggleState(proc_.isLive(), juce::dontSendNotification);
+    auto label = proc_.bank.slotLabel(proc_.bank.currentSlot()) + (proc_.isEdited() ? "  (edited)" : "");
+    if (currentName_.getText() != label) currentName_.setText(label, juce::dontSendNotification);
     bool busy = proc_.session.busy();
     if (busy != wasBusy_) { wasBusy_ = busy; refreshButtons(); }
     if (!busy && !proc_.link.isOpen() && identity_.getText().isNotEmpty()) identity_.setText("", juce::dontSendNotification);
@@ -165,8 +176,9 @@ void LibraryPanel::resized() {
         else a.setBounds(rr);
         r.removeFromTop(6);
     };
-    row(pullCurrent_, &pushCurrent_);
-    row(selectOnDevice_);
+    row(pullCurrent_, &sendEdit_);
+    row(live_, &fxChannel_);
+    row(pushCurrent_, &selectOnDevice_);
     r.removeFromTop(10);
     row(pullAll_, &pushChanged_);
     row(pushAll_, &cancel_);
@@ -189,7 +201,17 @@ void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
 }
 
 void LibraryPanel::selectedRowsChanged(int row) {
-    if (row >= 0 && row != proc_.bank.currentSlot()) proc_.selectSlot(row);
+    if (row < 0 || row == proc_.bank.currentSlot()) return;
+    if (!proc_.isEdited()) { proc_.selectSlot(row); return; }
+    int from = proc_.bank.currentSlot();
+    auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("Unsaved changes").withMessage(BankModel::bankName(from) + " has changes that are not stored.")
+        .withButton("Store").withButton("Discard").withButton("Cancel").withAssociatedComponent(this);
+    juce::AlertWindow::showAsync(opts, [this, row, from](int r) {
+        if (r == 1) { proc_.store(); proc_.selectSlot(row); }
+        else if (r == 2) proc_.selectSlot(row);
+        else list_.selectRow(from, true, true);
+    });
 }
 
 void LibraryPanel::listBoxItemDoubleClicked(int row, const juce::MouseEvent&) {
@@ -216,9 +238,14 @@ FmEditorPanel::FmEditorPanel(FM1Processor& p) : proc_(p) {
     global_ = std::make_unique<GlobalPanel>(proc_.apvts, vced_.data(), lnf_);
     global_->setOpStatus(opStatus_);
     addAndMakeVisible(*global_);
-    auto commit = [this] { proc_.setCurrentName(global_->name.getText()); };
-    global_->name.onReturnKey = commit;
-    global_->name.onFocusLost = commit;
+    auto rename = [this] { proc_.setCurrentName(global_->name.getText()); };
+    global_->name.onReturnKey = rename;
+    global_->name.onFocusLost = rename;
+    global_->storeButton.onClick = [this] { proc_.store(); refreshName(); };
+    global_->revertButton.onClick = [this] { proc_.revert(); refreshName(); };
+    global_->sendButton.onClick = [this] { proc_.sendToFm1EditBuffer(); };
+    global_->liveButton.setToggleState(proc_.isLive(), juce::dontSendNotification);
+    global_->liveButton.onClick = [this] { proc_.setLive(global_->liveButton.getToggleState()); };
     refreshName();
     startTimerHz(15);
 }
@@ -232,12 +259,22 @@ FmEditorPanel::~FmEditorPanel() {
 
 void FmEditorPanel::refreshName() {
     if (!global_->name.hasKeyboardFocus(true))
-        global_->name.setText(juce::String(fm1::voiceName(proc_.bank.current().voice)).trimEnd(), juce::dontSendNotification);
-    global_->slotLabel.setText(BankModel::bankName(proc_.bank.currentSlot()) + (fm1::engineOf(proc_.bank.current().record) == fm1::Engine::VA ? "   Virtual Analog preset" : "   FM preset"), juce::dontSendNotification);
+        global_->name.setText(proc_.editName(), juce::dontSendNotification);
+    bool edited = proc_.isEdited();
+    global_->slotLabel.setText(BankModel::bankName(proc_.bank.currentSlot())
+        + (fm1::engineOf(proc_.bank.current().record) == fm1::Engine::VA ? "   Virtual Analog" : "   FM")
+        + (edited ? "\nedited, not stored" : ""), juce::dontSendNotification);
+    global_->slotLabel.setColour(juce::Label::textColourId, edited ? juce::Colour(0xffe0a040) : juce::Colours::white.withAlpha(0.8f));
+    global_->storeButton.setEnabled(edited);
+    global_->revertButton.setEnabled(edited);
+    global_->sendButton.setEnabled(proc_.link.isOpen());
+    global_->liveButton.setEnabled(proc_.link.isOpen());
+    if (global_->liveButton.getToggleState() != proc_.isLive()) global_->liveButton.setToggleState(proc_.isLive(), juce::dontSendNotification);
 }
 
 void FmEditorPanel::timerCallback() {
     proc_.params.fillVced(vced_.data());
+    if (++tick_ % 5 == 0) refreshName();
     for (auto& o : ops_) o->refresh();
     global_->refresh();
 }

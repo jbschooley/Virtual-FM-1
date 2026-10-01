@@ -14,7 +14,7 @@
 #include "Params.h"
 #include "Sequencer.h"
 
-class FM1Processor : public juce::AudioProcessor {
+class FM1Processor : public juce::AudioProcessor, private juce::Timer {
 public:
     FM1Processor();
     ~FM1Processor() override;
@@ -52,11 +52,24 @@ public:
     Sequencer sequencer;
     Arpeggiator arp;
 
-    // The sound being edited: the parameters written into the current slot.
-    fm1::Sound& commitCurrent();
-    void setCurrentName(const juce::String& name);
+    // The editor is an edit buffer over the current slot, like the FM-1's own:
+    // changes stay here until store() writes them into the slot.
+    fm1::Sound& commitCurrent();                  // same as store(), returns the slot's sound
+    void store();
+    void revert();                                // reload the slot, dropping edits
+    bool isEdited() const;
+    fm1::Sound editedSound() const;               // the slot with the editor's changes applied
+    juce::String editName() const { return editName_; }
+    void setCurrentName(const juce::String& name);   // an edit, like any other setting
     void setCurrentSound(const fm1::Sound& s);   // replace the current slot's sound and load it
-    void selectSlot(int slot);                    // commit, switch, load (message thread)
+    void selectSlot(int slot);                    // switch and load; unsaved edits are dropped
+
+    // The synth side: send the editor's sound to the FM-1's edit buffer without
+    // saving, and optionally keep sending every change (Live).
+    void sendToFm1EditBuffer();
+    void setLive(bool on);
+    bool isLive() const { return live_; }
+    fm1::edit::Channels channels;                 // FX channel must match the synth's GLOBE setting
 
     bool connect(const juce::String& inputId, const juce::String& outputId);
     bool autoConnect();
@@ -86,6 +99,12 @@ public:
 
 private:
     void loadCurrentIntoParams();
+    void timerCallback() override;               // live sending
+    void applyEditName();
+    juce::String editName_;
+    bool live_ = false;
+    fm1::Sound lastSent_;
+    bool haveLastSent_ = false;
     void handleDx7Sysex(const uint8_t* data, int size);
     void applyParamsToEngine();
     void pushNoteOn(int note, int vel);

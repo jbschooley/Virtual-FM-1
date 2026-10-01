@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     }
     if (cmd == "current") {
         fm1::Sound got; bool have = false, same = false;
-        session.onCurrentRead = [&](const fm1::Sound& s, bool m) { got = s; have = true; same = m; };
+        session.onCurrentRead = [&](const fm1::Sound& live, const fm1::Sound& stored) { got = live; have = true; same = live.voice == stored.voice && live.record == stored.record; };
         session.pullCurrent();
         waitIdle(session);
         if (have) std::printf("current: preset %d %s (%s)\n", got.slot + 1, fm1::voiceName(got.voice).c_str(), same ? "same as stored" : "unsaved changes");
@@ -171,12 +171,43 @@ int main(int argc, char** argv) {
         std::printf("%zu of %zu written and verified\n", written.size(), own.size());
         return written.size() == own.size() ? 0 : 1;
     }
+    if (cmd == "param") {   // param <num> <val>: DX7 voice parameter change (edit buffer only)
+        int num = std::atoi(argv[2]), val = std::atoi(argv[3]);
+        link.send({0xF0, 0x43, 0x10, uint8_t((num >> 7) & 1), uint8_t(num & 0x7F), uint8_t(val & 0x7F), 0xF7});
+        pump(100);
+        return 0;
+    }
+    if (cmd == "cc") {   // cc <channel 1-16> <cc> <val>
+        int ch = std::atoi(argv[2]), cc = std::atoi(argv[3]), val = std::atoi(argv[4]);
+        link.sendRaw({uint8_t(0xB0 | ((ch - 1) & 15)), uint8_t(cc), uint8_t(val)});
+        pump(100);
+        return 0;
+    }
     if (cmd == "note") {   // note <note> <vel> <hold ms>: play one note on channel 1
         int n = std::atoi(argv[2]), v = std::atoi(argv[3]), ms = std::atoi(argv[4]);
         link.sendRaw({0x90, uint8_t(n), uint8_t(v)});
         juce::Thread::sleep(ms);
         link.sendRaw({0x80, uint8_t(n), 0});
         return 0;
+    }
+    if (cmd == "sendtest") {   // sendtest <slot 0-based>: send an edited version of the slot to the edit buffer, unsaved
+        int slot = std::atoi(argv[2]);
+        session.pull({slot}); waitIdle(session);
+        if (read.size() != 1) return 1;
+        fm1::Sound s = read[0];
+        fm1::Edit e = fm1::unpackVoice(s.voice);
+        e[134] = (e[134] + 7) % 32;                          // another algorithm
+        e[5 * 21 + 16] = 70;                                 // OP1 output level
+        s.voice = fm1::withName(fm1::packVoice(e), "SENT TEST");
+        fm1::FxChain fx = fm1::fxFromRecord(s.record);
+        fx.fx[fm1::FxReverb].on = true; fx.fx[fm1::FxReverb].type = 1; fx.fx[fm1::FxReverb].p = {60, 35, 0};
+        fx.fx[fm1::FxChorus].on = true; fx.fx[fm1::FxChorus].p = {20, 40, 50};
+        fm1::fxToRecord(fx, s.record);
+        fm1::Envelope env; env.on = true; env.a = 10; env.d = 40; env.s = 80; env.r = 30;
+        fm1::envToRecord(env, s.record);
+        session.sendEdit(s, {}, true); waitIdle(session);
+        std::printf("sent: %s\n", last.text.toRawUTF8());
+        return last.failed ? 1 : 0;
     }
     if (cmd == "select") {   // select <slot 0-based>: program change, as Show on FM-1 does
         session.select(std::atoi(argv[2]));

@@ -44,6 +44,13 @@ std::unique_ptr<juce::RangedAudioParameter> makeParam(const juce::String& id, co
 
 }  // namespace
 
+static int intValue(const juce::RangedAudioParameter* p) {
+    return juce::roundToInt(p->convertFrom0to1(p->getValue()));
+}
+static void setInt(juce::RangedAudioParameter* p, int v) {
+    p->setValueNotifyingHost(p->convertTo0to1(float(v)));
+}
+
 juce::String Params::vcedId(int offset) { return "v" + juce::String(offset); }
 juce::String Params::fxParamId(int fx, int i) { return "fx" + juce::String(fx) + "p" + juce::String(i); }
 juce::String Params::fxOnId(int fx) { return "fx" + juce::String(fx) + "on"; }
@@ -115,19 +122,12 @@ void Params::parameterChanged(const juce::String&, float) {
     if (!loading_) changed = true;
 }
 
-static int intValue(const juce::RangedAudioParameter* p) {
-    return juce::roundToInt(p->convertFrom0to1(p->getValue()));
-}
-static void setInt(juce::RangedAudioParameter* p, int v) {
-    p->setValueNotifyingHost(p->convertTo0to1(float(v)));
-}
-
-void Params::load(const fm1::Sound& s) {
-    loading_ = true;
+std::vector<int> Params::valuesFrom(const fm1::Sound& s) const {
     fm1::Edit e = fm1::unpackVoice(s.voice);
     fm1::FxChain fx = fm1::fxFromRecord(s.record);
     fm1::Envelope env = fm1::envFromRecord(s.record);
-    for (auto& b : bindings_) {
+    std::vector<int> out;
+    for (const auto& b : bindings_) {
         int v = 0;
         switch (b.kind) {
             case Kind::Vced:    v = e[size_t(b.a)]; break;
@@ -138,12 +138,32 @@ void Params::load(const fm1::Sound& s) {
             case Kind::EnvOn:   v = env.on ? 1 : 0; break;
         }
         int max = juce::roundToInt(b.param->getNormalisableRange().end);
-        setInt(b.param, juce::jlimit(0, max, v));
+        out.push_back(juce::jlimit(0, max, v));
     }
-    committed_.clear();
-    for (const auto& b : bindings_) committed_.push_back(intValue(b.param));
+    return out;
+}
+
+void Params::load(const fm1::Sound& s) {
+    loading_ = true;
+    auto vals = valuesFrom(s);
+    for (size_t i = 0; i < bindings_.size(); ++i) setInt(bindings_[i].param, vals[i]);
+    committed_ = vals;
     loading_ = false;
     changed = true;   // the engine reloads from the parameters
+}
+
+void Params::applyEdit(const fm1::Sound& s) {
+    auto vals = valuesFrom(s);
+    for (size_t i = 0; i < bindings_.size(); ++i)
+        if (intValue(bindings_[i].param) != vals[i]) setInt(bindings_[i].param, vals[i]);
+    changed = true;
+}
+
+bool Params::isEdited() const {
+    if (committed_.size() != bindings_.size()) return false;
+    for (size_t i = 0; i < bindings_.size(); ++i)
+        if (intValue(bindings_[i].param) != committed_[i]) return true;
+    return false;
 }
 
 void Params::commit(fm1::Sound& s) {
