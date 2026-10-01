@@ -1,11 +1,9 @@
 # Virtual FM-1
 
-By Bockage.
-
 A software M-VAVE FM-1: a Standalone app and VST3/AU plugin that plays the
 FM-1's FM engine, edits every sound setting, runs its sequencer and
 arpeggiator, and syncs presets and patterns with the hardware, much as
-Yamaha's MODX Connect does with a MODX. Pull or push the preset you're
+Yamaha's Expanded Softsynth Plugin does with the Montage M and MODX M. Pull or push the preset you're
 playing, send an edit to the synth without saving it, or sync the whole
 128-preset library in either direction.
 
