@@ -31,12 +31,13 @@ LicenseFile=..\LICENSE
 PrivilegesRequired=admin
 
 [Types]
-Name: "full"; Description: "VST3 plugin and standalone app"
-Name: "custom"; Description: "Custom"; Flags: iscustom
+Name: "full"; Description: "Standalone app and VST3 plugin"
+Name: "custom"; Description: "Choose what to install"; Flags: iscustom
 
 [Components]
-Name: "vst3"; Description: "VST3 plugin (for Gig Performer, Reaper, Cubase, ...)"; Types: full custom; Flags: fixed
-Name: "standalone"; Description: "Standalone application"; Types: full custom
+Name: "standalone"; Description: "Standalone app"; Types: full custom
+Name: "vst3"; Description: "VST3 plugin (Gig Performer, Reaper, Cubase, Ableton Live, ...)"; Types: full custom
+; Name: "aax"; Description: "AAX plugin (Pro Tools)"; Types: full custom   (see docs/AAX.md)
 
 [Files]
 Source: "{#Art}\VST3\{#Name}.vst3\*"; DestDir: "{commoncf64}\VST3\{#Name}.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs

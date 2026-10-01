@@ -45,7 +45,23 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           MACOS_INSTALLER_IDENTITY: ${{ secrets.MACOS_INSTALLER_IDENTITY }}
         run: bash scripts/package-macos.sh build dist "${{ steps.v.outputs.version }}"
-      - name: Install the package (as a user would, onto the runner)
+      - name: Install only the VST3 (choices work)
+        run: |
+          set -e
+          cat > only-vst3.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><array>
+            <dict><key>attributeSetting</key><integer>0</integer><key>choiceAttribute</key><string>selected</string><key>choiceIdentifier</key><string>app</string></dict>
+            <dict><key>attributeSetting</key><integer>0</integer><key>choiceAttribute</key><string>selected</string><key>choiceIdentifier</key><string>au</string></dict>
+          </array></plist>
+          EOF
+          sudo installer -pkg dist/*.pkg -target / -applyChoiceChangesXML only-vst3.plist
+          test -d "/Library/Audio/Plug-Ins/VST3/Virtual FM-1.vst3" || { echo "VST3 missing"; exit 1; }
+          test ! -e "/Library/Audio/Plug-Ins/Components/Virtual FM-1.component" || { echo "AU installed though not chosen"; exit 1; }
+          test ! -e "/Applications/Virtual FM-1.app" || { echo "app installed though not chosen"; exit 1; }
+          echo "only the VST3 was installed"
+      - name: Install everything (the default choices)
         run: sudo installer -pkg dist/*.pkg -target /
       - name: Check the installed plugins and app
         run: |
@@ -111,10 +127,19 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $exe = (Get-ChildItem dist\*.exe | Select-Object -First 1).FullName
-          $p = Start-Process $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log; throw "installer exited with $($p.ExitCode)" }
           $vst3 = "$env:CommonProgramFiles\VST3\Virtual FM-1.vst3"
           $app = "$env:ProgramFiles\Virtual FM-1\Virtual FM-1.exe"
+          # only the VST3 first: the choices work
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/COMPONENTS=vst3','/LOG=install-vst3.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install-vst3.log; throw "installer exited with $($p.ExitCode)" }
+          if (!(Test-Path "$vst3\Contents\x86_64-win\Virtual FM-1.vst3")) { throw "VST3 not installed" }
+          if (Test-Path $app) { throw "app installed though not chosen" }
+          Write-Host "only the VST3 was installed"
+          $p = Start-Process "$env:ProgramFiles\Virtual FM-1\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep -Seconds 3
+          # then everything (the default)
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log; throw "installer exited with $($p.ExitCode)" }
           if (!(Test-Path "$vst3\Contents\x86_64-win\Virtual FM-1.vst3")) { throw "VST3 not installed at $vst3" }
           if (!(Test-Path $app)) { throw "app not installed at $app" }
           Write-Host "installed: $vst3 and $app"
@@ -150,3 +175,4 @@ jobs:
             dist/macos-installer/*.pkg
             dist/windows-installer/*.exe
           generate_release_notes: true
+          draft: true          # published by hand from the Releases page

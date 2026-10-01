@@ -1,178 +1,150 @@
 # Virtual FM-1
 
-A VST3 / AU / Standalone instrument that plays the M-VAVE FM-1's FM engine in
-software, edits every sound setting, runs the FM-1+VA sequencer and
-arpeggiator, and syncs presets and patterns with the hardware the way Yamaha's
-MODX Connect works with a MODX: pull or push the current preset, or the whole
-128-preset library, in either direction.
+By Bockage.
 
-The FM-1's stock engine is Google's msfa (the Dexed core). The FM-1+VA custom
-firmware by baud girl (https://baudgirl.com/work/FM-1+VA) adds a read-back
-protocol; this plugin speaks it. Stock M-VAVE firmware can only *receive* DX7
-dumps, so two-way sync needs FM-1+VA (FM-1_020 or later).
+A software M-VAVE FM-1: a Standalone app and VST3/AU plugin that plays the
+FM-1's FM engine, edits every sound setting, runs its sequencer and
+arpeggiator, and syncs presets and patterns with the hardware, much as
+Yamaha's MODX Connect does with a MODX. Pull or push the preset you're
+playing, send an edit to the synth without saving it, or sync the whole
+128-preset library in either direction.
 
-## What it does
+It works on its own as a synth too; the FM-1 is only needed for syncing.
 
-- **Engine**: msfa, 12 voices, DX7 VCED patches, sustain, pitch bend, mod
-  wheel, breath, foot, aftertouch, the FM-1's global ADSR envelope. Algorithm
-  table matches the FM-1 firmware (Google's original rows 4 and 6, which
-  differ from Dexed).
-- **Editor**: all 145 DX7 voice parameters, the six effects (on, type, three
-  parameters each) and the envelope are host parameters: automatable, saved
-  with the session. The FM Editor uses Dexed's operator and global layouts,
-  look-and-feel, envelope displays and algorithm diagram (GPL-3.0-or-later,
-  see `plugin/dexed_ui/NOTICE.md`); click an operator's number to switch it
-  off while auditioning. The preset name is edited there too.
-- **Effects**: filter, reverb, delay, distortion, chorus, phaser in the chain
-  order stored with the preset, built on juce::dsp. The values sync exactly
-  with the synth; the sound is an approximation of the firmware's.
-- **Sequencer**: 16 patterns, up to 64 steps, up to nine notes a step, per-step
-  note value, ratchet, gate, chance, transpose, accent and slide, pattern
-  chaining, swing, step recording from the keyboard, host transport and tempo
-  sync. Pull and push patterns with the synth (notes, velocities, note values,
-  length, tempo, gate, swing and preset; the per-step extras stay in the plugin
-  until the firmware's layout for them is published).
-- **Arpeggiator**: Up, Down, Inclusive, Exclusive, Random, Order, Repeat over
-  1 to 4 octaves, note value, gate, swing, latch, host sync.
-- **Edit buffer**: the editor works like the FM-1's: changes are kept unsaved
-  until **Store**; **Revert** drops them; switching presets asks first.
-  **Send to FM-1** puts the sound in the synth's edit buffer without saving it
-  there (DX7 parameter changes plus the manual's effect and envelope CCs, then
-  read back to verify); **Live** sends every change as you make it. The FM
-  filter, distortion type and effect order have no MIDI control, so they reach
-  the synth only with Store to FM-1.
-- **FM-1_092/093 features**: the per-note filter on FM presets (type, cutoff,
-  resonance, envelope, decay, shape, velocity, key tracking, LFO to cutoff;
-  its curve fitted to recordings of the synth), per-pattern Chain read from
-  the synth, Tie & Slide per step and per note, and real-time recording while
-  a pattern plays.
-- **Sync**: identify, pull/push current preset, pull all 128, push changed,
-  push all, show a preset on the synth, `.syx` import/export in FM-1+VA's own
-  format plus DX7 banks and voices, DX7 SysEx from the host.
-- **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
-  MIDI, so a host can route it to the hardware too.
+> Not affiliated with M-VAVE or with baud girl. Use at your own risk.
 
-Not done yet:
+## What you need
 
-- **Virtual Analog engine.** VA presets sync and are marked, but play through
-  the FM engine. Baud girl's source is announced as GPL-3.0-or-later and not
-  yet published; the VA DSP is either ported from that or reverse engineered.
-- **"Current preset on the synth."** The plugin's current slot is what it
-  pushes and pulls; it does not yet learn which preset the FM-1 is showing.
-  The firmware's memory-read command makes this findable with the hardware.
-- Knob assignments, mono/glide, and the VA bytes of the record are stored and
-  synced but not edited. Baud girl's four Dexed fixes are not applied yet.
+- **macOS 11 or later** (Apple Silicon or Intel) or **Windows 10/11** (64-bit).
+- To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
+  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)**. Two-way sync uses
+  features only that firmware has. On M-VAVE's own firmware the plugin still
+  plays and edits sounds, but cannot read anything back from the synth.
 
 ## Install
 
-Installers for macOS (VST3, AU, Standalone; universal) and Windows (VST3,
-Standalone) are built by GitHub Actions on every push and attached to a
-release for every `v*` tag. The macOS package is unsigned unless signing
-secrets are configured, so on first open use right-click, Open (or
-`xattr -d com.apple.quarantine` on the .pkg). For Gig Performer, rescan
-plugins and add "Virtual FM-1" (VST3).
+Download the installer for your system from the
+[Releases](https://github.com/jbschooley/Virtual-FM-1/releases) page.
 
-## Build
+- **macOS**: open `Virtual-FM-1-…-macOS.pkg`. Under **Customize** you can
+  choose the **Standalone app**, the **VST3 plugin** and the **Audio Unit
+  plugin**; all three are installed by default. The installer is not signed
+  yet, so macOS will say it cannot verify it: open **System Settings ›
+  Privacy & Security** and click **Open Anyway**.
+- **Windows**: run `Virtual-FM-1-…-Windows.exe` and choose the **Standalone
+  app** and/or the **VST3 plugin**. Windows SmartScreen may warn about an
+  unknown publisher: click **More info › Run anyway**.
 
-Requires CMake and a C++20 compiler; on macOS also Ninja (`brew install cmake
-ninja`), on Windows Visual Studio 2022. JUCE 8.0.8 is a submodule:
-
-```
-git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja -C build
-ctest --test-dir build
-```
-
-The VST3 and AU are copied into the user plug-in folders after the build
-(`-DFM1_COPY_PLUGIN=OFF` to skip). `scripts/package-macos.sh` builds the .pkg
-and `scripts/installer.iss` the Windows installer, as CI does.
-
-## One library everywhere
-
-The 128-preset library is shared by the Standalone and every plugin instance in
-every host, in `~/Library/Application Support/Virtual FM-1/library.fm1lib`.
-A change made anywhere (a pull, a store, an import) shows up in the others within
-a second. Each instance connects to the FM-1 by itself when it is plugged in.
-A host project saves its own current preset, unsaved edits, sequencer and
-arpeggiator, plus a copy of the library that is used only where no shared
-library exists yet (a project opened on another computer).
+Then rescan plugins in your host. It appears as **Virtual FM-1** by Bockage.
+Logic needs a restart to pick up a new Audio Unit.
 
 ## Using it
 
-1. Connect the FM-1 over USB and switch it on.
-2. Library & Sync tab: press **Find FM-1** (or pick its ports and **Connect**).
-   The firmware version appears; FM-1+VA enables everything, stock enables
-   nothing but receiving DX7 dumps.
-3. **Pull all 128** copies the synth's presets into the plugin (about 15 s).
-4. Select a preset in the list to play it. **Pull current** / **Push current**
-   move one preset. **Push changed** writes only the slots marked `*`.
-5. **Show on FM-1** sends a program change so the synth shows the same preset.
-6. Sequencer tab: **Pull patterns from FM-1** / **Push patterns to FM-1**.
+1. Connect the FM-1 with USB and switch it on. The plugin finds it by itself;
+   the Library & Sync tab shows its firmware version.
+2. **Pull all 128** copies the synth's presets into the plugin. The library is
+   shared by the Standalone and every plugin instance in every host, so you do
+   this once.
+3. Pick a preset in the list to play it. **Pull what the FM-1 is playing**
+   loads the synth's current sound, unsaved changes included.
+4. Edit in the **FM Editor** and **Effects & Envelope** tabs. Changes stay
+   unsaved until **Store**, as on the FM-1; **Revert** drops them.
+5. **Send to FM-1** plays your sound on the synth without saving it there;
+   **Live** sends every change as you make it. **Store to FM-1** saves the
+   preset on the synth. **Push changed** writes every preset that differs.
+6. The **Sequencer** tab pulls and pushes patterns; **Arpeggiator** works like
+   the FM-1's. Both follow your host's tempo and transport.
 
-## Layout
+Every sound setting is a host parameter, so it can be automated, and a host
+project saves its own current preset, edits, patterns and arpeggiator.
 
-- `engine/msfa` msfa (Apache-2.0, from Dexed) with the changes listed in its `NOTICE.md`
-- `engine/FmSynth` voice allocation, global envelope and rendering around msfa
-- `sync/Fm1Codec` the sound protocol, no JUCE
-- `sync/Fm1Seq` the pattern protocol
-- `sync/Fm1Record` the effects and envelope bytes of the settings record
-- `sync/Fm1Link` MIDI ports, request/reply with retries
-- `sync/Fm1Session` the sync operations on a worker thread
-- `plugin/` JUCE processor, editor tabs, parameters, effects, sequencer, arpeggiator
-- `plugin/dexed_ui/` Dexed's look-and-feel, displays and images, and the operator/global panels built on them
-- `tests/` codec test against `golden.json`, engine smoke test, sequencer test,
-  end-to-end sync test over virtual MIDI ports against a fake FM-1
-- `tests/gen_golden.mjs` regenerates `golden.json` from baud girl's web modules
+## What's in it
 
-## Waiting on the FM-1+VA source
+- **Engine**: the same FM engine the FM-1 uses (Google's msfa, the core of
+  Dexed), 12 voices, matched to the hardware where it was measured: pitch,
+  per-preset transpose, velocity response, detune and LFO speed.
+- **FM Editor** in Dexed's layout: six operators, algorithm diagram, pitch
+  envelope, LFO.
+- **Effects and envelope**: the FM-1's filter, reverb, delay, distortion,
+  chorus and phaser in each preset's chain order, its global ADSR, and the
+  per-note filter FM presets gained in FM-1_092. Settings sync exactly; the
+  effects' sound is an approximation of the firmware's.
+- **Sequencer**: 16 patterns of up to 64 steps, up to nine notes a step,
+  ratchet, chance, gate, transpose, accent, Tie & Slide per step and per
+  note, per-pattern Chain, swing, step recording and real-time recording.
+- **Arpeggiator**: Up, Down, Inclusive, Exclusive, Random, Order and Repeat
+  over 1 to 4 octaves.
+- **Sync**: identify, pull and push one preset or all 128, push only what
+  changed, send unsaved edits, show a preset on the synth, `.syx` import and
+  export (FM-1+VA backups, DX7 banks and voices).
+- **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
+  MIDI, so a host can route it to the synth as well.
 
-Settings with no MIDI control, sequencer data that cannot be synced, build-specific
-addresses, inferred layout details and sound approximations are listed in
-[`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md), with what to look for in baud
-girl's source once it is published.
+## Not done yet
 
-## Tested against hardware
+- **Virtual Analog presets** sync but play through the FM engine. baud girl
+  has announced her firmware's source; the VA engine waits for it.
+- Some settings have no MIDI control on the synth (the FM filter, distortion
+  type, effect order), so they reach it only with **Store to FM-1**.
+- Ties, ratchet, chance and accent stay in the plugin; how the synth stores
+  them is not known yet. Per-pattern Chain can be read from the synth but not
+  written.
+- Knob assignments and mono/glide are kept as stored but not edited.
+- **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
 
-On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
+[`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
+look for in baud girl's source once it is published.
 
-- Identify, pull of single presets and all 128, verified writes, pattern reads,
-  and pulling the synth's current sound all work.
-- The synth's live edit buffer is at `0x01C10070` and its current preset
-  number at `0x01C0FEFA` on FM-1_093; other versions are found by searching RAM.
-- Pitch, transpose, detune beating and LFO speed match the synth. The
-  firmware's LFO table is Dexed's, entry for entry.
-- The FM-1 scales incoming MIDI velocity by 100/127 before its engine; the
-  plugin does the same (measured on PIANO 1 and BRASS 5 at several velocities).
-- Stored presets keep most settings-record bytes at `0x03` ("unset"); the
-  editor writes back only settings you change, so these survive.
-- The live settings record sits right after the edit buffer (+156). Effect
-  bytes, chain on/type, envelope A-D-S-R and the VA/FM filter layout were
-  confirmed by sending CCs and walking the synth's menu by its panel CCs.
-- DX7 voice parameter changes edit the synth's edit buffer only; stored
-  presets stay byte-identical. A program change drops unsaved edits.
-- Ties are not synced: how FM-1_092 stores them is not yet known, and neither
-  her pattern write nor read covers them. Per-pattern Chain can be read but
-  not written over MIDI.
+## Build
 
-## Record layout
+Requires CMake 3.22+, a C++20 compiler and Ninja on macOS (`brew install cmake
+ninja`), or Visual Studio 2022 on Windows. JUCE 8.0.8 is a submodule:
 
-The 59-byte settings record that travels with each preset is interpreted as
-described in `sync/Fm1Record.h`. That layout is inferred from baud girl's
-comments and from her 16-preset Virtual Analog pack, not from published
-source; the bytes for Virtual Analog settings and knob assignments are kept
-as they are.
+```
+git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1
+cd Virtual-FM-1
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build
+```
+
+The plugins are copied into your user plug-in folders after building
+(`-DFM1_COPY_PLUGIN=OFF` to skip). `scripts/package-macos.sh` and
+`scripts/installer.iss` build the installers. CI builds both on every push,
+installs them on clean macOS and Windows machines and checks the result, and
+attaches them to a draft release for every `v*` tag.
+
+Source layout:
+
+- `engine/` msfa (Apache-2.0, from Dexed; changes in `engine/msfa/NOTICE.md`)
+  and the voice, envelope and filter code around it
+- `sync/` the FM-1 protocols (sounds, patterns, settings record, edit buffer),
+  the MIDI link and the sync operations; no JUCE in the protocol code
+- `plugin/` the processor, editor, parameters, effects, sequencer and
+  arpeggiator; `plugin/dexed_ui/` holds Dexed's look-and-feel and panels
+- `tests/` protocol tests against vectors generated from baud girl's own code,
+  engine, sequencer and parameter tests, an end-to-end sync test against a
+  simulated FM-1, a host test that loads the built plugin like a DAW, and the
+  hardware probe used to study the synth
+- `docs/` [hardware notes](docs/HARDWARE-NOTES.md),
+  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md)
+
+## Credits
+
+- **baud girl** for the [FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA),
+  whose read-back protocol makes two-way sync possible.
+- **Google's music-synthesizer-for-android** (msfa) and **Dexed** by Pascal
+  Gauthier and contributors, for the FM engine and the editor's look.
+- Reverse-engineering work on the FM-1 by
+  [AL-255](https://github.com/AL-255/FM-1-RE),
+  [ip2k](https://github.com/ip2k/mvave-fm1-open-firmware),
+  [aroum](https://github.com/aroum/fm1-custom-fw) and
+  [kagaimiq](https://github.com/kagaimiq/jl-misctools).
+- Built with [JUCE](https://juce.com).
 
 ## License
 
-GPL-3.0-or-later (see `LICENSE`). Third-party components and their licenses
-are listed in `THIRD_PARTY.md`: msfa is Apache-2.0, JUCE is used under the
-AGPLv3, the VST3 SDK under the GPLv3. The AAX format is not built because
-Avid's SDK terms do not allow GPL distribution.
-
-## Finding the synth's current preset
-
-FM-1+VA's memory-read command returns up to 256 bytes of RAM. The sequencer's
-settings block is at `0x01C0E840 + 5816`; the preset number the synth shows is
-not yet located. A probe that reads a window repeatedly while presets are
-changed on the synth will find it; that is the next sync feature.
+GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
+in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
+are GPL-3.0-or-later, JUCE is used under the AGPLv3 and the VST3 SDK under the
+GPLv3.
