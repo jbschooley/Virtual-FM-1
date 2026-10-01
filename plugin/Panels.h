@@ -124,6 +124,20 @@ private:
     juce::Slider length_, tempo_, gate_, swing_, sound_, transpose_, stepGate_, stepChance_, stepTranspose_;
     juce::ToggleButton accent_{"Accent"}, slide_{"Tie & Slide"};
     juce::Label stepNotes_, info_;
+    // the selected step's notes, one row each, as on the FM-1's step list:
+    // name, velocity, Tie & Slide for that note, remove
+    struct NoteRow {
+        juce::Label name;
+        juce::Slider velocity;
+        juce::ToggleButton tie{"Tie"};
+        juce::TextButton remove{"Remove"};
+    };
+    std::array<std::unique_ptr<NoteRow>, fm1::seq::kMaxNotes> noteRows_;
+    juce::Label allVelLabel_{{}, "All notes"};
+    juce::Slider allVelocity_;
+    void applyNoteRow(int i);
+    void layoutNoteRows(juce::Rectangle<int> area);
+    juce::Rectangle<int> noteArea_;
     std::vector<std::unique_ptr<juce::Label>> labels_;
     bool loading_ = false;
     std::optional<fm1::seq::Step> clipboard_;

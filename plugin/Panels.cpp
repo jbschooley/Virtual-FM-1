@@ -396,6 +396,40 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     info_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.6f));
     info_.setText("Click a step to select it. Rec while stopped: notes go into the selected step and it advances. Rec while playing: notes land on the nearest step, held notes are tied (~). Ties, ratchet, chance and accent stay in the plugin.", juce::dontSendNotification);
     stepNotes_.setFont(juce::FontOptions(14.0f));
+    for (int i = 0; i < fm1::seq::kMaxNotes; ++i) {
+        auto r = std::make_unique<NoteRow>();
+        r->name.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        r->velocity.setSliderStyle(juce::Slider::LinearHorizontal);
+        r->velocity.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 18);
+        r->velocity.setRange(1, 127, 1);
+        r->velocity.setScrollWheelEnabled(false);
+        r->velocity.onValueChange = [this, i] { applyNoteRow(i); };
+        r->tie.onClick = [this, i] { applyNoteRow(i); };
+        r->remove.onClick = [this, i] {
+            {
+                const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
+                auto& notes = pattern().steps[size_t(selectedStep_)].notes;
+                if (i < int(notes.size())) notes.erase(notes.begin() + i);
+            }
+            loadStepControls(); repaint();
+        };
+        for (auto* c : std::initializer_list<juce::Component*>{&r->name, &r->velocity, &r->tie, &r->remove}) addChildComponent(c);
+        noteRows_[size_t(i)] = std::move(r);
+    }
+    allVelocity_.setSliderStyle(juce::Slider::LinearHorizontal);
+    allVelocity_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 18);
+    allVelocity_.setRange(1, 127, 1);
+    allVelocity_.setScrollWheelEnabled(false);
+    allVelocity_.onValueChange = [this] {
+        if (loading_) return;
+        {
+            const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
+            for (auto& n : pattern().steps[size_t(selectedStep_)].notes) n.vel = int(allVelocity_.getValue());
+        }
+        loadStepControls();
+    };
+    addChildComponent(allVelLabel_);
+    addChildComponent(allVelocity_);
     loadPatternControls();
     loadStepControls();
     startTimerHz(20);
@@ -424,9 +458,21 @@ void SeqPanel::loadStepControls() {
     stepGate_.setValue(s.gate, juce::dontSendNotification); stepChance_.setValue(s.chance, juce::dontSendNotification);
     stepTranspose_.setValue(s.transpose, juce::dontSendNotification);
     accent_.setToggleState(s.accent, juce::dontSendNotification); slide_.setToggleState(s.slide, juce::dontSendNotification);
-    juce::String notes;
-    for (const auto& n : s.notes) notes += (notes.isEmpty() ? "" : "  ") + noteName(n.note) + ":" + juce::String(n.vel) + (n.tie ? "~" : "");
-    stepNotes_.setText("Step " + juce::String(selectedStep_ + 1) + ":  " + (notes.isEmpty() ? "(empty)" : notes), juce::dontSendNotification);
+    stepNotes_.setText("Step " + juce::String(selectedStep_ + 1) + (s.notes.empty() ? ":  (empty)" : ""), juce::dontSendNotification);
+    for (int i = 0; i < fm1::seq::kMaxNotes; ++i) {
+        auto& r = *noteRows_[size_t(i)];
+        bool used = i < int(s.notes.size());
+        for (auto* c : std::initializer_list<juce::Component*>{&r.name, &r.velocity, &r.tie, &r.remove}) c->setVisible(used);
+        if (!used) continue;
+        r.name.setText(noteName(s.notes[size_t(i)].note), juce::dontSendNotification);
+        r.velocity.setValue(s.notes[size_t(i)].vel, juce::dontSendNotification);
+        r.tie.setToggleState(s.notes[size_t(i)].tie, juce::dontSendNotification);
+    }
+    bool several = s.notes.size() > 1;
+    allVelLabel_.setVisible(several);
+    allVelocity_.setVisible(several);
+    if (several) allVelocity_.setValue(s.notes[0].vel, juce::dontSendNotification);
+    layoutNoteRows(noteArea_);
     loading_ = false;
 }
 
@@ -441,6 +487,39 @@ void SeqPanel::applyPatternControls() {
     p.swing = int(swing_.getValue());
     p.transpose = int(transpose_.getValue());
     repaint();
+}
+
+void SeqPanel::applyNoteRow(int i) {
+    if (loading_) return;
+    const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
+    auto& notes = pattern().steps[size_t(selectedStep_)].notes;
+    if (i >= int(notes.size())) return;
+    notes[size_t(i)].vel = int(noteRows_[size_t(i)]->velocity.getValue());
+    notes[size_t(i)].tie = noteRows_[size_t(i)]->tie.getToggleState();
+}
+
+void SeqPanel::layoutNoteRows(juce::Rectangle<int> area) {
+    int rows = allVelocity_.isVisible() ? 1 : 0;
+    for (auto& row : noteRows_) rows += row->name.isVisible() ? 1 : 0;
+    // nine notes plus "All notes" must fit under the grid: rows shrink when they would not
+    const int rowH = rows ? juce::jlimit(16, 24, area.getHeight() / rows - 2) : 24;
+    auto a = area;
+    if (allVelocity_.isVisible()) {
+        auto r = a.removeFromTop(rowH);
+        allVelLabel_.setBounds(r.removeFromLeft(80));
+        allVelocity_.setBounds(r.removeFromLeft(std::min(240, r.getWidth())));
+        a.removeFromTop(4);
+    }
+    for (auto& row : noteRows_) {
+        if (!row->name.isVisible()) continue;
+        auto r = a.removeFromTop(rowH);
+        row->name.setBounds(r.removeFromLeft(56));
+        row->remove.setBounds(r.removeFromRight(70));
+        r.removeFromRight(6);
+        row->tie.setBounds(r.removeFromRight(56));
+        row->velocity.setBounds(r);
+        a.removeFromTop(2);
+    }
 }
 
 void SeqPanel::applyStepControls() {
@@ -563,6 +642,11 @@ void SeqPanel::resized() {
     rr = mid.removeFromTop(26); clearPattern_.setBounds(rr.removeFromLeft(120));
     right.removeFromLeft(20);
     stepNotes_.setBounds(right.removeFromTop(26)); right.removeFromTop(4);
+    {   // the step's notes, under the grid
+        auto g = gridBounds();
+        noteArea_ = juce::Rectangle<int>(g.getX(), g.getBottom() + 12, g.getWidth(), getHeight() - g.getBottom() - 16);
+        layoutNoteRows(noteArea_);
+    }
     rr = right.removeFromTop(26); labels_[7]->setBounds(rr.removeFromLeft(96)); ratchet_.setBounds(rr.removeFromLeft(80)); right.removeFromTop(4);
     rowOf(right, *labels_[8], stepGate_); rowOf(right, *labels_[9], stepChance_); rowOf(right, *labels_[10], stepTranspose_);
     rr = right.removeFromTop(26); labels_[11]->setBounds(rr.removeFromLeft(96)); stepRate_.setBounds(rr.removeFromLeft(90)); right.removeFromTop(4);
