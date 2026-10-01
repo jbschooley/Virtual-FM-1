@@ -65,7 +65,8 @@ int main(int argc, char** argv) {
         juce::File f = juce::File::getCurrentWorkingDirectory().getChildFile(argv[8]);
         f.deleteFile();
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(f), 44100.0, 1, 24, {}, 0));
+        std::unique_ptr<juce::OutputStream> os = std::make_unique<juce::FileOutputStream>(f);
+        auto w = wav.createWriterFor(os, juce::AudioFormatWriterOptions{}.withSampleRate(44100.0).withNumChannels(1).withBitsPerSample(24));
         w->writeFromAudioSampleBuffer(out, 0, out.getNumSamples());
         std::printf("rendered %s note %d to %s\n", fm1::voiceName(snd->voice).c_str(), note, argv[8]);
         return 0;

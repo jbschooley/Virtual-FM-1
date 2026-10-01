@@ -9,10 +9,10 @@
   the Noto Sans font from Dexed. GPL-3.0-or-later, copyright 2013-2025 Pascal
   Gauthier and contributors; envelope tables from legasynth / DX7 Patch Editor.
   See `plugin/dexed_ui/NOTICE.md`.
-- **JUCE 8** (`third_party/JUCE`, not vendored): dual-licensed under the
+- **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.
-- **VST3 SDK** (bundled with JUCE): GPLv3 or Steinberg's proprietary licence.
+- **VST3 SDK** 3.8 (bundled with JUCE): MIT licence.
 - **Test vectors** (`tests/golden.json`): generated from baud girl's FM-1+VA
   web modules (GPL-3.0-or-later) by `tests/gen_golden.mjs`. Her modules are not
   vendored.

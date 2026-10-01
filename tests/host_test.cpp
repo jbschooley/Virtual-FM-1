@@ -11,7 +11,7 @@ int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
     if (argc < 2) return 2;
     juce::AudioPluginFormatManager fm;
-    fm.addDefaultFormats();
+    juce::addDefaultFormatsToManager(fm);
     juce::OwnedArray<juce::PluginDescription> found;
     for (auto* f : fm.getFormats())
         if (f->fileMightContainThisPluginType(argv[1])) f->findAllTypesForFile(found, argv[1]);
@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
             std::printf("  sent a DX7 voice named %s\n", argv[3]);
         }
         {
-            std::unique_ptr<juce::AudioProcessorEditor> ed(inst->createEditorIfNeeded());
+            std::unique_ptr<juce::AudioProcessorEditor> ed(inst->createEditorAndMakeActive());
             juce::DocumentWindow w("host_test", juce::Colours::black, 0);
             w.setContentNonOwned(ed.get(), true);
             w.setVisible(true);

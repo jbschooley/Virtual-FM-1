@@ -96,7 +96,7 @@ look for in baud girl's source once it is published.
 ## Build
 
 Requires CMake 3.22+, a C++20 compiler and Ninja on macOS (`brew install cmake
-ninja`), or Visual Studio 2022 on Windows. JUCE 8.0.8 is a submodule:
+ninja`), or Visual Studio 2022 on Windows. JUCE 9.0.3 is a submodule:
 
 ```
 git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1
@@ -144,5 +144,5 @@ Source layout:
 
 GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
 in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
-are GPL-3.0-or-later, JUCE is used under the AGPLv3 and the VST3 SDK under the
-GPLv3.
+are GPL-3.0-or-later, JUCE is used under the AGPLv3 and the VST3 SDK is under
+the MIT licence.
