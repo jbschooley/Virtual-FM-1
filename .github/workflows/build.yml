@@ -45,6 +45,25 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           MACOS_INSTALLER_IDENTITY: ${{ secrets.MACOS_INSTALLER_IDENTITY }}
         run: bash scripts/package-macos.sh build dist "${{ steps.v.outputs.version }}"
+      - name: Install the package (as a user would, onto the runner)
+        run: sudo installer -pkg dist/*.pkg -target /
+      - name: Check the installed plugins and app
+        run: |
+          set -e
+          for b in "/Library/Audio/Plug-Ins/VST3/Virtual FM-1.vst3" "/Library/Audio/Plug-Ins/Components/Virtual FM-1.component" "/Applications/Virtual FM-1.app"; do
+            test -d "$b" || { echo "missing: $b"; exit 1; }
+            lipo -info "$b/Contents/MacOS/Virtual FM-1"
+            lipo "$b/Contents/MacOS/Virtual FM-1" -verify_arch arm64 x86_64
+          done
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -v aumu Fm1c Jscn | tee auval.txt
+          grep -q "AU VALIDATION SUCCEEDED" auval.txt
+          ./build/host_test_artefacts/Release/host_test "/Library/Audio/Plug-Ins/VST3/Virtual FM-1.vst3" 1
+          ./build/host_test_artefacts/Release/host_test "/Library/Audio/Plug-Ins/Components/Virtual FM-1.component" 1
+          "/Applications/Virtual FM-1.app/Contents/MacOS/Virtual FM-1" &
+          PID=$!; sleep 10
+          kill -0 $PID && echo "Standalone app is running"
+          kill $PID
       - name: Notarize
         if: env.HAS_NOTARY == 'true'
         env:
@@ -87,6 +106,29 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=${{ steps.v.outputs.version }} "/DBuildDir=$PWD\build" "/DOutDir=$PWD\dist" scripts\installer.iss
+      - name: Install, check, uninstall (as a user would, on the runner)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = (Get-ChildItem dist\*.exe | Select-Object -First 1).FullName
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log; throw "installer exited with $($p.ExitCode)" }
+          $vst3 = "$env:CommonProgramFiles\VST3\Virtual FM-1.vst3"
+          $app = "$env:ProgramFiles\Virtual FM-1\Virtual FM-1.exe"
+          if (!(Test-Path "$vst3\Contents\x86_64-win\Virtual FM-1.vst3")) { throw "VST3 not installed at $vst3" }
+          if (!(Test-Path $app)) { throw "app not installed at $app" }
+          Write-Host "installed: $vst3 and $app"
+          & build\host_test_artefacts\Release\host_test.exe $vst3 1
+          if ($LASTEXITCODE -ne 0) { throw "host_test failed on the installed VST3 ($LASTEXITCODE)" }
+          $sa = Start-Process $app -PassThru
+          Start-Sleep -Seconds 10
+          if ($sa.HasExited) { throw "the Standalone app exited with $($sa.ExitCode)" }
+          Write-Host "Standalone app is running"
+          Stop-Process -Id $sa.Id
+          $un = Start-Process "$env:ProgramFiles\Virtual FM-1\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep -Seconds 3
+          if ((Test-Path "$vst3\Contents") -or (Test-Path $app)) { throw "uninstall left files behind" }
+          Write-Host "uninstalled cleanly"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer

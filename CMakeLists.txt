@@ -115,14 +115,6 @@ if(FM1_BUILD_PLUGIN)
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     add_test(NAME sync_test COMMAND sync_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 
-    # loads the built AU/VST3 as a host would and opens/closes the editor
-    juce_add_console_app(host_test PRODUCT_NAME "host_test")
-    target_sources(host_test PRIVATE tests/host_test.cpp)
-    target_compile_definitions(host_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1)
-    target_link_libraries(host_test PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags "-framework CoreAudioKit")
-    add_dependencies(host_test VirtualFM1_VST3)
-    add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/Release/VST3/Virtual FM-1.vst3" 2)
-
     # hardware probe (not a ctest: needs a connected FM-1)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
     target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
@@ -130,6 +122,17 @@ if(FM1_BUILD_PLUGIN)
     target_compile_definitions(fm1_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags)
     endif()
+
+    # loads the built plugin (VST3, and AU on macOS) as a host would, opens and closes
+    # the editor, and unloads it; CI also runs it on the installed plugins
+    juce_add_console_app(host_test PRODUCT_NAME "host_test")
+    target_sources(host_test PRIVATE tests/host_test.cpp)
+    target_compile_definitions(host_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>)
+    target_link_libraries(host_test PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags
+        $<$<PLATFORM_ID:Darwin>:-framework\ CoreAudioKit>)
+    add_dependencies(host_test VirtualFM1_VST3)
+    add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/VST3/Virtual FM-1.vst3" 2)
 
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")
