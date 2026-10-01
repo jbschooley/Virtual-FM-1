@@ -49,8 +49,11 @@ cat > "$WORK/distribution.xml" <<EOF
 <installer-gui-script minSpecVersion="2">
     <title>$NAME $VERSION</title>
     <license file="LICENSE.txt"/>
-    <options customize="allow" require-scripts="false" hostArchitectures="x86_64,arm64"/>
-    <domains enable_localSystem="true"/>
+    <!-- customize="always": the Installation Type step shows the checkboxes directly.
+         rootVolumeOnly + one domain: no "Select Destination" step; everything goes on
+         the startup disk, the only place plugins and apps are looked for. -->
+    <options customize="always" rootVolumeOnly="true" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
     <choices-outline>
         <line choice="app"/>
         <line choice="vst3"/>
