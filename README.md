@@ -34,6 +34,18 @@ dumps, so two-way sync needs FM-1+VA (FM-1_020 or later).
   until the firmware's layout for them is published).
 - **Arpeggiator**: Up, Down, Inclusive, Exclusive, Random, Order, Repeat over
   1 to 4 octaves, note value, gate, swing, latch, host sync.
+- **Edit buffer**: the editor works like the FM-1's: changes are kept unsaved
+  until **Store**; **Revert** drops them; switching presets asks first.
+  **Send to FM-1** puts the sound in the synth's edit buffer without saving it
+  there (DX7 parameter changes plus the manual's effect and envelope CCs, then
+  read back to verify); **Live** sends every change as you make it. The FM
+  filter, distortion type and effect order have no MIDI control, so they reach
+  the synth only with Store to FM-1.
+- **FM-1_092/093 features**: the per-note filter on FM presets (type, cutoff,
+  resonance, envelope, decay, shape, velocity, key tracking, LFO to cutoff;
+  its curve fitted to recordings of the synth), per-pattern Chain read from
+  the synth, Tie & Slide per step and per note, and real-time recording while
+  a pattern plays.
 - **Sync**: identify, pull/push current preset, pull all 128, push changed,
   push all, show a preset on the synth, `.syx` import/export in FM-1+VA's own
   format plus DX7 banks and voices, DX7 SysEx from the host.
@@ -117,6 +129,14 @@ On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
   plugin does the same (measured on PIANO 1 and BRASS 5 at several velocities).
 - Stored presets keep most settings-record bytes at `0x03` ("unset"); the
   editor writes back only settings you change, so these survive.
+- The live settings record sits right after the edit buffer (+156). Effect
+  bytes, chain on/type, envelope A-D-S-R and the VA/FM filter layout were
+  confirmed by sending CCs and walking the synth's menu by its panel CCs.
+- DX7 voice parameter changes edit the synth's edit buffer only; stored
+  presets stay byte-identical. A program change drops unsaved edits.
+- Ties are not synced: how FM-1_092 stores them is not yet known, and neither
+  her pattern write nor read covers them. Per-pattern Chain can be read but
+  not written over MIDI.
 
 ## Record layout
 

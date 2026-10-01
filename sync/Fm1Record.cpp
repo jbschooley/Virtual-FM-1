@@ -15,6 +15,18 @@ const char* const kEffectTypeNames[kEffects][3] = {
     {"Low Pass", "Band Pass", "High Pass"}, {"Room", "Hall", "Plate"}, {"", "", ""},
     {"Soft Clip", "Hard Clip", "Foldback"}, {"", "", ""}, {"", "", ""}};
 
+const char* const kFilterTypeNames[4] = {"LP12", "LP24", "BP", "HP"};
+
+VaFilter filterFromRecord(const Record& r) {
+    VaFilter f;
+    auto get = [&r](int i, int dflt) { return (r[size_t(i)] & 0x80) ? std::min(int(r[size_t(i)] & 0x7F), 100) : dflt; };
+    f.cutoff = get(23, 100); f.resonance = get(24, 0); f.envelope = get(25, 0);
+    f.velocity = get(47, 0); f.shape = get(49, 0); f.lfo = get(50, 0); f.decay = get(51, 0);
+    if (r[26] & 0x80) { f.type = r[26] & 3; f.keyTrack = (r[26] >> 2) & 3; f.on = (r[26] & 0x10) != 0; }
+    if (r[18] == kMarkVA) f.on = true;
+    return f;
+}
+
 FxChain fxFromRecord(const Record& r) {
     FxChain c;
     bool seen[kEffects] = {false};

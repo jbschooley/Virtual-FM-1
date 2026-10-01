@@ -16,7 +16,7 @@
 
 class Params : private juce::AudioProcessorValueTreeState::Listener {
 public:
-    enum class Kind { Vced, FxParam, FxOn, FxType, Env, EnvOn };
+    enum class Kind { Vced, FxParam, FxOn, FxType, Env, EnvOn, Filter };
 
     struct Binding {
         juce::String id;
@@ -36,6 +36,9 @@ public:
     static juce::String fxTypeId(int fx);                   // "fx<fx>type"
     static juce::String envId(int i);                       // "env0".."env3"
     static constexpr const char* kEnvOn = "envon";
+    // Filter fields: 0 on, 1 type, 2 key tracking, then record bytes 23 cutoff, 24 resonance,
+    // 25 envelope, 51 decay, 49 shape, 47 velocity, 50 LFO to cutoff.
+    static juce::String filterId(int field);   // "flt0".."flt9"
 
     juce::AudioProcessorValueTreeState& apvts;
     const std::vector<Binding>& bindings() const { return bindings_; }
@@ -60,6 +63,7 @@ public:
     void fillVced(uint8_t* vced155) const;
     fm1::FxChain fxChain(const fm1::FxChain& orderFrom) const;   // keeps `orderFrom`'s order
     fm1::Envelope envelope() const;
+    fm1::VaFilter filter() const;
 
     // Set by any parameter change (any thread); cleared by whoever consumes it.
     std::atomic<bool> changed{false};

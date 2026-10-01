@@ -112,8 +112,10 @@ console.log(`wrote golden.json: ${out.presets.length} presets, ${out.replies.len
   put(0, [{ note: 36, vel: 100 }], 6); put(2, [{ note: 48, vel: 80 }, { note: 55, vel: 70 }], 0xff); put(40, [{ note: 72, vel: 127 }], 3);
   const gset = new Uint8Array(137);
   const pat = 2;
+  gset[118 + 5] = 128 + 9;   // FM-1_093: pattern 6 chains to pattern 10
   gset[98 + pat] = 48; gset[50 + pat] = 5; gset[66 + 2 * pat] = 300 & 0xff; gset[67 + 2 * pat] = 300 >> 8; gset[18 + pat] = 33; gset[34 + pat] = 66; gset[118 + pat] = 7;
-  seq.decode = { steps: hex(steps), gset: hex(gset), pat, pattern: S.decodePattern(steps, gset, pat) };
+  seq.decode = { steps: hex(steps), gset: hex(gset), pat, pattern: S.decodePattern(steps, gset, pat),
+                 chained: S.decodePattern(steps, gset, 5) };
   out.seq = seq;
   writeFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "golden.json"), JSON.stringify(out, null, 1));
   console.log(`added sequencer vectors: ${seq.writes.length} write messages`);

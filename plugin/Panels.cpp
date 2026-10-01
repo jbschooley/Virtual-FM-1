@@ -306,6 +306,18 @@ FxPanel::FxPanel(FM1Processor& p) {
         grids_.push_back(std::move(g));
         y += 78;
     }
+    {
+        juce::StringArray fids, flabels;
+        const char* names[10] = {"On", "Type", "Key Track", "Cutoff", "Resonance", "Envelope", "Decay", "Shape", "Velocity", "LFO > Cutoff"};
+        for (int f = 0; f < 10; ++f) { fids.add(Params::filterId(f)); flabels.add(names[f]); }
+        auto* fh = makeLabel(headers_, *this, "Filter (per note)", 14.0f, true);
+        fh->setBounds(10, y + 10, 120, 20);
+        auto fg = std::make_unique<ParamGrid>(apvts, fids, flabels, 10, 90, 74);
+        fg->setBounds(130, y, 10 * 90, fg->preferredHeight());
+        addAndMakeVisible(*fg);
+        grids_.push_back(std::move(fg));
+        y += 78;
+    }
     juce::StringArray ids = {Params::kEnvOn, Params::envId(0), Params::envId(1), Params::envId(2), Params::envId(3)};
     juce::StringArray labels = {"On", "Attack", "Decay", "Sustain", "Release"};
     auto* h = makeLabel(headers_, *this, "Envelope", 14.0f, true);
@@ -315,7 +327,7 @@ FxPanel::FxPanel(FM1Processor& p) {
     addAndMakeVisible(*g);
     grids_.push_back(std::move(g));
     y += 84;
-    note_.setText("The effects run in the chain order stored with the preset. Their sound is an approximation of the FM-1's; the values sync exactly.", juce::dontSendNotification);
+    note_.setText("Effects run in the preset's chain order. The filter (FM-1_092 and later) runs on each note after the operators. Both sound like the FM-1's approximately; the values sync exactly.", juce::dontSendNotification);
     note_.setFont(juce::FontOptions(12.0f));
     note_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.6f));
     note_.setBounds(10, y, 800, 20);
@@ -334,15 +346,17 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     enable_.setClickingTogglesState(true);
     enable_.setColour(juce::TextButton::buttonOnColourId, kAccent);
     rec_.setClickingTogglesState(true);
+    rec_.onClick = [this] { proc_.sequencer.recording = rec_.getToggleState() && proc_.sequencer.isPlaying(); };
     rec_.setColour(juce::TextButton::buttonOnColourId, juce::Colours::indianred);
     play_.setColour(juce::TextButton::buttonOnColourId, juce::Colours::seagreen);
     for (int i = 1; i <= Sequencer::kPatterns; ++i) pattern_.addItem("Pattern " + juce::String(i), i);
     for (int i = 0; i < 10; ++i) { rate_.addItem(fm1::seq::kNoteValueNames[i], i + 1); stepRate_.addItem(fm1::seq::kNoteValueNames[i], i + 1); }
-    chainTo_.addItem("Loop", 1);
+    chainTo_.addItem("Repeat", 1);
     for (int i = 1; i <= Sequencer::kPatterns; ++i) chainTo_.addItem("then " + juce::String(i), i + 1);
     ratchet_.addItem("Off", 1); ratchet_.addItem("2", 2); ratchet_.addItem("3", 3); ratchet_.addItem("4", 4);
     setupLinear(length_, 1, 64); setupLinear(tempo_, 30, 300); setupLinear(gate_, 5, 100); setupLinear(swing_, 50, 75);
-    setupLinear(sound_, 1, 128); setupLinear(transpose_, -24, 24);
+    setupLinear(sound_, 0, 128);
+    sound_.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("None") : juce::String(int(v)); }; setupLinear(transpose_, -24, 24);
     setupLinear(stepGate_, 0, 100); setupLinear(stepChance_, 5, 100); setupLinear(stepTranspose_, -24, 24);
     stepGate_.textFromValueFunction = [](double v) { return v <= 0 ? juce::String("Pattern") : juce::String(int(v)); };
     stepChance_.textFromValueFunction = [](double v) { return v >= 100 ? juce::String("Always") : juce::String(int(v)); };
@@ -376,7 +390,7 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     push_.onClick = [this] { proc_.pushPatterns(true); };
     info_.setFont(juce::FontOptions(12.0f));
     info_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.6f));
-    info_.setText("Click a step to select it. With Rec on, notes you play go into the selected step and it advances. Steps 17-64 and per-step extras need FM-1+VA on the synth.", juce::dontSendNotification);
+    info_.setText("Click a step to select it. Rec while stopped: notes go into the selected step and it advances. Rec while playing: notes land on the nearest step, held notes are tied (~). Ties, ratchet, chance and accent stay in the plugin.", juce::dontSendNotification);
     stepNotes_.setFont(juce::FontOptions(14.0f));
     loadPatternControls();
     loadStepControls();
@@ -393,7 +407,7 @@ void SeqPanel::loadPatternControls() {
     chainTo_.setSelectedId(proc_.sequencer.chain[size_t(proc_.sequencer.selected.load())] + 2, juce::dontSendNotification);
     length_.setValue(p.length, juce::dontSendNotification); tempo_.setValue(p.tempo, juce::dontSendNotification);
     gate_.setValue(p.gate, juce::dontSendNotification); swing_.setValue(p.swing, juce::dontSendNotification);
-    sound_.setValue(p.sound + 1, juce::dontSendNotification); transpose_.setValue(p.transpose, juce::dontSendNotification);
+    sound_.setValue(p.sound < 0 ? 0 : p.sound + 1, juce::dontSendNotification); transpose_.setValue(p.transpose, juce::dontSendNotification);
     loading_ = false;
 }
 
@@ -407,7 +421,7 @@ void SeqPanel::loadStepControls() {
     stepTranspose_.setValue(s.transpose, juce::dontSendNotification);
     accent_.setToggleState(s.accent, juce::dontSendNotification); slide_.setToggleState(s.slide, juce::dontSendNotification);
     juce::String notes;
-    for (const auto& n : s.notes) notes += (notes.isEmpty() ? "" : "  ") + noteName(n.note) + ":" + juce::String(n.vel);
+    for (const auto& n : s.notes) notes += (notes.isEmpty() ? "" : "  ") + noteName(n.note) + ":" + juce::String(n.vel) + (n.tie ? "~" : "");
     stepNotes_.setText("Step " + juce::String(selectedStep_ + 1) + ":  " + (notes.isEmpty() ? "(empty)" : notes), juce::dontSendNotification);
     loading_ = false;
 }
@@ -420,7 +434,7 @@ void SeqPanel::applyPatternControls() {
     if (newRate != p.rate) { for (auto& s : p.steps) if (s.rate == p.rate) s.rate = newRate; p.rate = newRate; }
     proc_.sequencer.chain[size_t(proc_.sequencer.selected.load())] = chainTo_.getSelectedId() - 2;
     p.length = int(length_.getValue()); p.tempo = int(tempo_.getValue()); p.gate = int(gate_.getValue());
-    p.swing = int(swing_.getValue()); p.sound = int(sound_.getValue()) - 1; p.transpose = int(transpose_.getValue());
+    p.swing = int(swing_.getValue()); p.sound = int(sound_.getValue()) - 1;   // 0 on the slider = none (-1) p.transpose = int(transpose_.getValue());
     repaint();
 }
 
@@ -480,8 +494,11 @@ void SeqPanel::timerCallback() {
     FM1Processor::NoteEvent ev;
     double now = juce::Time::getMillisecondCounterHiRes();
     bool got = false;
+    if (rec_.getToggleState() && proc_.sequencer.isPlaying() != proc_.sequencer.recording.load())
+        proc_.sequencer.recording = proc_.sequencer.isPlaying();       // real-time while playing, step recording while stopped
+    if (!rec_.getToggleState()) proc_.sequencer.recording = false;
     while (proc_.popNoteOn(ev)) {
-        if (!rec_.getToggleState()) continue;
+        if (!rec_.getToggleState() || proc_.sequencer.isPlaying()) continue;
         if (!recChord_.empty() && now - recLastMs_ > 120.0) {   // a new chord: commit the previous one first
             const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
             auto& s = pattern().steps[size_t(selectedStep_)];

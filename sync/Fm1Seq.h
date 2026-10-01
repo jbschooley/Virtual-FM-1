@@ -38,7 +38,10 @@ constexpr uint32_t kExtRam   = 0x01C79D30;      // steps 17-64, 1536 B a pattern
 constexpr uint32_t kGsetRam  = 0x01C0E840 + 5816;
 constexpr int kGsetLen = 137;
 
-struct Note { int note = 60; int vel = 100; };
+struct Note {
+    int note = 60, vel = 100;
+    bool tie = false;             // held into the next step (FM-1_092 "Tie & Slide" on a note); plugin-side
+};
 
 struct Step {
     int rate = 6;                 // 0..9 note value, see kNoteValueNames
@@ -49,7 +52,7 @@ struct Step {
     int chance = 100;             // 5..100
     int transpose = 0;            // -24..24
     bool accent = false;
-    bool slide = false;
+    bool slide = false;           // "Tie & Slide" for the whole step: every note held into the next
 };
 
 struct Pattern {
@@ -58,7 +61,8 @@ struct Pattern {
     int tempo = 120;              // 30..300
     int gate = 50;                // 5..100
     int swing = 50;               // 50..75
-    int sound = 0;                // 0..127 preset
+    int sound = -1;               // -1 none; the synth stopped storing a preset per pattern at FM-1_060
+    int chain = -1;               // FM-1_093: what plays after this pattern, -1 Repeat, else 0..15
     int transpose = 0;            // plugin-side
     std::array<Step, kSteps> steps{};
 };

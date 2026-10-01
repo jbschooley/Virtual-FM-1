@@ -121,6 +121,8 @@ void FmSynth::noteOn(int midiNote, int velocity) {
     v.note->init(patch_.data(), played, velocity, 1, &controllers_);
     if (patch_[136]) v.note->oscSync();
     envKeyDown(v);
+    v.playedVelocity = velocity;
+    filterKeyDown(v);
 }
 
 void FmSynth::noteOff(int midiNote) {
@@ -128,7 +130,7 @@ void FmSynth::noteOff(int midiNote) {
         if (v.midiNote == midiNote && v.keydown) {
             v.keydown = false;
             if (sustain_) v.sustained = true;
-            else { v.note->keyup(); envKeyUp(v); }
+            else { v.note->keyup(); envKeyUp(v); filterKeyUp(v); }
         }
     }
 }
@@ -139,6 +141,7 @@ void FmSynth::allNotesOff() {
             v.keydown = v.sustained = false;
             v.note->keyup();
             envKeyUp(v);
+            filterKeyUp(v);
         }
     }
 }
@@ -170,6 +173,7 @@ void FmSynth::setSustain(bool down) {
                 v.sustained = false;
                 v.note->keyup();
                 envKeyUp(v);
+                filterKeyUp(v);
             }
         }
     }
@@ -179,6 +183,61 @@ int FmSynth::activeVoices() const {
     int n = 0;
     for (const auto& v : voices_) if (v.live) ++n;
     return n;
+}
+
+void FmSynth::setFilter(const Filter& f) { filter_ = f; }
+
+double FmSynth::cutoffHz(int setting) {
+    // 0..100 spread exponentially over 20 Hz .. 20 kHz (an approximation of the
+    // firmware's curve; the synth shows this setting in Hz)
+    return 20.0 * std::pow(1000.0, std::clamp(setting, 0, 100) / 100.0);
+}
+
+void FmSynth::filterKeyDown(VoiceSlot& v) {
+    v.fenvStage = 1;
+    v.fenv = 0.0f;
+    v.s1[0] = v.s1[1] = v.s2[0] = v.s2[1] = 0.0f;
+}
+
+void FmSynth::filterKeyUp(VoiceSlot& v) { if (v.fenvStage != 0) v.fenvStage = 3; }
+
+// One sample through the filter. The envelope follows the manual: Shape 0 opens and
+// closes at once, 50 rises over 1.5 s and closes at once, 100 opens at once and closes
+// over 1.5 s; Decay lets it fall while the key is held, 2 s at 0 to 0.2 s at 100.
+float FmSynth::filterSample(VoiceSlot& v, float x, float baseOct, float lfoOct) {
+    const float sr = float(sampleRate_);
+    const float sh = float(filter_.shape) / 100.0f;
+    const float riseS = 1.5f * (sh <= 0.5f ? sh * 2.0f : (1.0f - sh) * 2.0f);
+    const float closeS = 1.5f * std::max(0.0f, sh * 2.0f - 1.0f);
+    const float decayS = 2.0f - 1.8f * float(filter_.decay) / 100.0f;
+    switch (v.fenvStage) {
+        case 1: v.fenv += riseS > 0.001f ? 1.0f / (riseS * sr) : 1.0f; if (v.fenv >= 1.0f) { v.fenv = 1.0f; v.fenvStage = 2; } break;
+        case 2: if (filter_.decay > 0) v.fenv *= std::exp(-1.0f / (decayS * sr * 0.25f)); break;
+        case 3: if (closeS > 0.001f) v.fenv *= std::exp(-1.0f / (closeS * sr * 0.25f)); else v.fenv = 0.0f; break;
+        default: break;
+    }
+    float oct = baseOct + lfoOct + v.fenv * 8.0f * float(filter_.envelope) / 100.0f;
+    float fc = std::clamp(float(cutoffHz(filter_.cutoff)) * std::exp2(oct), 20.0f, sr * 0.45f);
+    float g = std::tan(3.14159265f * fc / sr);
+    // damping at resonance 0 fitted to FM-1_093 recordings of LP24 at cutoff 30/50/70
+    float k = 1.55f - 1.45f * float(filter_.resonance) / 100.0f;
+    float a1 = 1.0f / (1.0f + g * (g + k)), a2 = g * a1, a3 = g * a2;
+    int stages = filter_.type == 1 ? 2 : 1;
+    float in = x, out = 0.0f;
+    for (int st = 0; st < stages; ++st) {
+        float v3 = in - v.s2[st];
+        float v1 = a1 * v.s1[st] + a2 * v3;
+        float v2 = v.s2[st] + a2 * v.s1[st] + a3 * v3;
+        v.s1[st] = 2.0f * v1 - v.s1[st];
+        v.s2[st] = 2.0f * v2 - v.s2[st];
+        switch (filter_.type) {
+            case 2: out = v1 * k; break;                 // band pass, unity at the peak
+            case 3: out = in - k * v1 - v2; break;       // high pass
+            default: out = v2; break;                    // low pass (12, or 24 as two stages)
+        }
+        in = out;
+    }
+    return out;
 }
 
 void FmSynth::setOperatorEnabled(int vcedIndex, bool on) {
@@ -210,13 +269,26 @@ void FmSynth::renderBlock() {
     int32_t lfoDelay = lfo_.getdelay();
     for (auto& v : voices_) {
         if (!v.live) continue;
-        if (!envOn_) {
+        if (!envOn_ && !filter_.on) {
             v.note->compute(mix.get(), lfoValue, lfoDelay, &controllers_);
             if (!v.note->isPlaying()) v.live = false;
             continue;
         }
         for (int j = 0; j < N; ++j) one.get()[j] = 0;
         v.note->compute(one.get(), lfoValue, lfoDelay, &controllers_);
+        if (filter_.on) {
+            static const float kTrack[4] = {0.0f, 0.33f, 0.67f, 1.0f};
+            float baseOct = kTrack[filter_.keyTrack & 3] * float(v.playedNote - 60) / 12.0f
+                          + 4.0f * float(filter_.velocity) / 100.0f * (float(v.playedVelocity) / 127.0f - 1.0f);
+            float lfoOct = 4.0f * float(filter_.lfo) / 100.0f * (float(lfoValue) / float(1 << 24) * 2.0f - 1.0f);
+            for (int j = 0; j < N; ++j)
+                one.get()[j] = int32_t(filterSample(v, float(one.get()[j]), baseOct, lfoOct));
+        }
+        if (!envOn_) {
+            for (int j = 0; j < N; ++j) mix.get()[j] += one.get()[j];
+            if (!v.note->isPlaying()) v.live = false;
+            continue;
+        }
         for (int j = 0; j < N; ++j) {
             switch (v.envStage) {
                 case 1: v.envLevel += envAttackInc_; if (v.envLevel >= 1.0f) { v.envLevel = 1.0f; v.envStage = 2; } break;

@@ -96,7 +96,7 @@ int main() {
         CHECK(std::abs(on62 - stepA) < 2, "swing delays the second step");
         CHECK(accentVel == 127, "accent plays at full velocity");
         CHECK(count64 <= 2, "chance 5% mostly skips (expected 0-2 of 4 loops)");
-        CHECK(on65 >= 0 && off65 - on65 > stepB, "slide holds the note past the step");
+        CHECK(on65 >= 0 && off65 - on65 < stepB, "Tie & Slide does nothing on the last step (greyed out on the FM-1)");
         CHECK(on72.size() > 0 && on62 >= 0, "pattern transpose +12 and step transpose -12 applied");
     }
     // ---- chaining and host sync
@@ -125,6 +125,64 @@ int main() {
         bool anyOn = false; for (const auto& e : after) anyOn = anyOn || e.on;
         CHECK(!anyOn, "stops when the host stops");
     }
+    // ---- ties: a note tied across three steps sounds once, held; real-time recording
+    {
+        Sequencer s;
+        s.prepare(sr);
+        {
+            const juce::SpinLock::ScopedLockType l(s.lock);
+            auto& p = s.patterns[0];
+            p.length = 8; p.rate = 6; p.tempo = 120; p.gate = 50; p.swing = 50;
+            for (auto& st : p.steps) st.rate = 6;
+            p.steps[0].notes = {{60, 100, true}};
+            p.steps[1].notes = {{60, 100, true}};
+            p.steps[2].notes = {{60, 100, false}};
+            p.steps[4].notes = {{64, 90, false}, {67, 90, false}};
+            p.steps[4].slide = true;
+            p.steps[5].notes = {{64, 90, false}, {69, 90, false}};
+        }
+        s.enabled = true; s.syncToHost = false; s.play();
+        auto ev = run(s, sr, 100, 480);    // 1 s = one pass of 8 x 0.125 s
+        int on60 = 0, on64 = 0; double start60 = -1, end60 = -1, end67 = -1, start69 = -1;
+        for (const auto& e : ev) {
+            if (e.note == 60 && e.on && e.sample < 48000) { ++on60; if (start60 < 0) start60 = e.sample; }
+            if (e.note == 60 && !e.on && end60 < 0) end60 = e.sample;
+            if (e.note == 64 && e.on && e.sample < 48000) ++on64;
+            if (e.note == 67 && !e.on && end67 < 0) end67 = e.sample;
+            if (e.note == 69 && e.on && start69 < 0) start69 = e.sample;
+        }
+        CHECK(on60 == 1, "a note tied over three steps is played once");
+        CHECK(std::abs((end60 - start60) - (2 * 6000 + 3000)) < 4, "and held for two steps plus the third step's gate");
+        CHECK(on64 == 1, "Tie & Slide: the note both steps share is not retriggered");
+        CHECK(end67 > start69, "Tie & Slide: a note that changes overlaps into the next step (legato)");
+
+        // real-time recording: a note played half way through step 2 lands on step 3; held 2 steps it ties
+        Sequencer r;
+        r.prepare(sr);
+        { const juce::SpinLock::ScopedLockType l(r.lock); auto& p = r.patterns[0]; p.length = 8; p.rate = 6; p.tempo = 120; for (auto& st : p.steps) st.rate = 6; }
+        r.enabled = true; r.syncToHost = false; r.play();
+        juce::MidiBuffer buf;
+        auto block = [&](int n) { for (int i = 0; i < n; ++i) { buf.clear(); r.process(nullptr, 480, buf); } };
+        r.recording = true;
+        block(1);                      // start: step 1 fired
+        block(12);                     // 0.13 s -> within step 2 (6000..12000 samples)
+        block(6);                      // 9120 samples: 3120 into step 2, past its half
+        r.recordNoteOn(72, 99);
+        block(25);                     // hold ~0.25 s = 2 steps
+        r.recordNoteOff(72);
+        {
+            const juce::SpinLock::ScopedLockType l(r.lock);
+            const auto& p = r.patterns[0];
+            bool on3 = false, tie3 = false, on4 = false, tie4 = false, on5 = false;
+            for (const auto& n : p.steps[2].notes) if (n.note == 72) { on3 = n.vel == 99; tie3 = n.tie; }
+            for (const auto& n : p.steps[3].notes) if (n.note == 72) { on4 = true; tie4 = n.tie; }
+            for (const auto& n : p.steps[4].notes) if (n.note == 72) on5 = true;
+            CHECK(on3 && tie3, "recorded note lands on the nearest step (3) with its velocity, tied");
+            CHECK(on4 && tie4 && on5, "a held note is tied across the steps it spans");
+            CHECK(p.steps[1].notes.empty(), "nothing recorded on step 2");
+        }
+    }
+
     // ---- arpeggiator
     {
         Arpeggiator a;

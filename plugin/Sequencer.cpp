@@ -8,7 +8,7 @@ Sequencer::Sequencer() {
     sounding_.fill(0);
 }
 
-void Sequencer::prepare(double sampleRate) { sr_ = sampleRate; }
+void Sequencer::prepare(double sampleRate) { sr_ = sampleRate; recHeld_.reserve(64); }
 
 void Sequencer::play() { startRequest_ = true; }
 void Sequencer::stop() { stopRequest_ = true; }
@@ -25,36 +25,111 @@ void Sequencer::startPattern(int pat, double atTick, bool first) {
     nextStepTick_ = atTick;
     playingPattern_ = pat_;
     if (!syncToHost) tempo_ = cur_.tempo;
-    patternSoundRequest = cur_.sound;
+    if (cur_.sound >= 0) patternSoundRequest = cur_.sound;
 }
 
 void Sequencer::fireStep(double atTick) {
     const fm1::seq::Step& s = cur_.steps[size_t(stepIx_)];
     const fm1::seq::StepTime& t = times_.steps[size_t(stepIx_)];
+    const int n = cur_.length;
+    auto tiedFrom = [&](int i, int note) {   // does step i hold `note` into step i+1, which plays it too?
+        if (i + 1 >= n) return false;
+        const auto& a = cur_.steps[size_t(i)];
+        const auto& b = cur_.steps[size_t(i + 1)];
+        bool tied = a.slide;
+        for (const auto& x : a.notes) if (x.note == note && x.tie) tied = true;
+        bool has = false;
+        for (const auto& x : b.notes) if (x.note == note) has = true;
+        return tied && has;
+    };
     bool play = s.chance >= 100 || int(rng_() % 100) < s.chance;
     if (play && !s.notes.empty()) {
         int hits = s.ratchet;
         double hitDur = double(t.dur) / hits;
         int gatePct = s.gate > 0 ? s.gate : cur_.gate;
         double gate = std::max(1.0, hitDur * gatePct / 100.0);
-        if (s.slide) gate = double(t.dur) + 2.0;   // tie into the next step (or into step 1 when looping)
         for (int h = 0; h < hits; ++h) {
             double on = atTick + h * hitDur;
-            for (const auto& n : s.notes) {
-                int note = juce::jlimit(0, 127, n.note + cur_.transpose + s.transpose);
-                int vel = s.accent ? 127 : n.vel;
+            for (const auto& nt : s.notes) {
+                // a continuation of a tie from the previous step is already sounding
+                if (h == 0 && stepIx_ > 0 && tiedFrom(stepIx_ - 1, nt.note)) continue;
+                int note = juce::jlimit(0, 127, nt.note + cur_.transpose + s.transpose);
+                int vel = s.accent ? 127 : nt.vel;
+                double len = gate;
+                if (h == hits - 1) {
+                    // held through every following step it is tied into
+                    double extra = 0.0;
+                    int i = stepIx_;
+                    bool any = false;
+                    while (tiedFrom(i, nt.note)) { any = true; extra += times_.steps[size_t(i)].dur; ++i; }
+                    if (any) {
+                        const auto& last = cur_.steps[size_t(i)];
+                        int lastGate = last.gate > 0 ? last.gate : cur_.gate;
+                        len = (double(t.dur) - h * hitDur) + (extra - t.dur) + std::max(1.0, times_.steps[size_t(i)].dur * lastGate / 100.0);
+                    } else if (s.slide && stepIx_ + 1 < n) {
+                        len = double(t.dur) + 2.0;   // Tie & Slide into a different note: legato overlap
+                    }
+                }
                 pending_.push_back({on, note, true, vel});
-                pending_.push_back({on + gate, note, false, 0});
+                pending_.push_back({on + len, note, false, 0});
             }
         }
     }
     playingStep_ = stepIx_;
+    lastStep_ = stepIx_;
+    lastStepTick_ = atTick;
     nextStepTick_ = atTick + t.dur;
     if (++stepIx_ >= cur_.length) {
+        recTouched_.fill(false);   // a new pass: the first note on a step replaces it again
         int next = chain[size_t(pat_)];
         int sel = selected.load();
-        if (next < 0 || next >= kPatterns) next = sel != pat_ ? sel : pat_;   // the knob picks the next pattern
+        if (next < 0 || next >= kPatterns) next = sel != pat_ ? sel : pat_;   // Repeat, unless another pattern was chosen
         startPattern(next, nextStepTick_, false);
+    }
+}
+
+int Sequencer::nearestStep(double tick) const {
+    if (lastStep_ < 0 || times_.steps.empty()) return 0;
+    double dur = times_.steps[size_t(std::min(lastStep_, int(times_.steps.size()) - 1))].dur;
+    // a note in the second half of a step goes to the next one
+    int step = (tick - lastStepTick_) < dur / 2.0 ? lastStep_ : lastStep_ + 1;
+    return step % std::max(1, cur_.length);
+}
+
+void Sequencer::recordNoteOn(int note, int vel) {
+    if (!playing_ || !recording) return;
+    int step = nearestStep(absTick_);
+    const juce::SpinLock::ScopedTryLockType l(lock);
+    if (!l.isLocked()) return;
+    auto& p = patterns[size_t(pat_)];
+    auto& st = p.steps[size_t(step)];
+    bool replace = !overdub.load() && !recTouched_[size_t(step)];
+    if (replace) st.notes.clear();
+    recTouched_[size_t(step)] = true;
+    st.notes.erase(std::remove_if(st.notes.begin(), st.notes.end(), [note](const fm1::seq::Note& n) { return n.note == note; }), st.notes.end());
+    if (int(st.notes.size()) < fm1::seq::kMaxNotes) st.notes.push_back({note, vel, false});
+    recHeld_.push_back({note, vel, step});
+}
+
+void Sequencer::recordNoteOff(int note) {
+    if (!playing_) { recHeld_.clear(); return; }
+    auto it = std::find_if(recHeld_.begin(), recHeld_.end(), [note](const Held& h) { return h.note == note; });
+    if (it == recHeld_.end()) return;
+    Held h = *it;
+    recHeld_.erase(it);
+    int endStep = nearestStep(absTick_);
+    const juce::SpinLock::ScopedTryLockType l(lock);
+    if (!l.isLocked()) return;
+    auto& p = patterns[size_t(pat_)];
+    // a note ends on the step nearest to its release; one held past the pattern's end ends on its last step
+    int last = endStep >= h.step ? endStep : p.length - 1;
+    for (int i = h.step; i < last; ++i) {
+        auto& a = p.steps[size_t(i)];
+        for (auto& n : a.notes) if (n.note == note) n.tie = true;
+        auto& b = p.steps[size_t(i + 1)];
+        bool has = false;
+        for (const auto& n : b.notes) if (n.note == note) has = true;
+        if (!has && int(b.notes.size()) < fm1::seq::kMaxNotes) b.notes.push_back({note, h.vel, false});
     }
 }
 
@@ -94,6 +169,8 @@ void Sequencer::process(const juce::AudioPlayHead::PositionInfo* pos, int numSam
 
     if (stopRequest_.exchange(false)) {
         playing_ = false;
+        recording = false;
+        recHeld_.clear();
         playingStep_ = -1;
         panic(out);
     }

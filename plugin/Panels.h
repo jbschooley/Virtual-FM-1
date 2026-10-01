@@ -121,7 +121,7 @@ private:
     juce::ToggleButton sync_{"Sync to host"}, overdub_{"Overdub"};
     juce::ComboBox pattern_, rate_, chainTo_, stepRate_, ratchet_;
     juce::Slider length_, tempo_, gate_, swing_, sound_, transpose_, stepGate_, stepChance_, stepTranspose_;
-    juce::ToggleButton accent_{"Accent"}, slide_{"Slide"};
+    juce::ToggleButton accent_{"Accent"}, slide_{"Tie & Slide"};
     juce::Label stepNotes_, info_;
     std::vector<std::unique_ptr<juce::Label>> labels_;
     bool loading_ = false;

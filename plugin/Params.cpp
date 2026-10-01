@@ -56,6 +56,14 @@ juce::String Params::fxParamId(int fx, int i) { return "fx" + juce::String(fx) +
 juce::String Params::fxOnId(int fx) { return "fx" + juce::String(fx) + "on"; }
 juce::String Params::fxTypeId(int fx) { return "fx" + juce::String(fx) + "type"; }
 juce::String Params::envId(int i) { return "env" + juce::String(i); }
+juce::String Params::filterId(int f) { return "flt" + juce::String(f); }
+
+namespace {
+const char* const kFilterNames[10] = {"Filter On", "Filter Type", "Filter Key Tracking", "Filter Cutoff", "Filter Resonance",
+                                      "Filter Envelope", "Filter Decay", "Filter Shape", "Filter Velocity", "Filter LFO to Cutoff"};
+const int kFilterByte[10] = {26, 26, 26, 23, 24, 25, 51, 49, 47, 50};
+const char* const kKeyTrack[4] = {"0", "33", "67", "100"};
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout Params::layout() {
     juce::AudioProcessorValueTreeState::ParameterLayout l;
@@ -88,6 +96,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout Params::layout() {
                                       fm1::kEffectParamMax[e][i], nullptr, 0, 0));
         l.add(std::move(g));
     }
+    auto flt = std::make_unique<juce::AudioProcessorParameterGroup>("flt", "Filter", " | ");
+    flt->addChild(makeParam(filterId(0), kFilterNames[0], 1, kOnOff, 2, 0));
+    flt->addChild(makeParam(filterId(1), kFilterNames[1], 3, fm1::kFilterTypeNames, 4, 0));
+    flt->addChild(makeParam(filterId(2), kFilterNames[2], 3, kKeyTrack, 4, 0));
+    for (int f = 3; f < 10; ++f) flt->addChild(makeParam(filterId(f), kFilterNames[f], 100, nullptr, 0, f == 3 ? 100 : 0));
+    l.add(std::move(flt));
+
     auto env = std::make_unique<juce::AudioProcessorParameterGroup>("env", "Envelope", " | ");
     env->addChild(makeParam(kEnvOn, "Envelope On", 1, kOnOff, 2, 0));
     const char* envNames[4] = {"Envelope Attack", "Envelope Decay", "Envelope Sustain", "Envelope Release"};
@@ -105,6 +120,7 @@ Params::Params(juce::AudioProcessorValueTreeState& a) : apvts(a) {
         for (int i = 0; i < 3; ++i)
             if (fm1::kEffectParamNames[e][i][0]) bindings_.push_back({fxParamId(e, i), Kind::FxParam, e, i, nullptr});
     }
+    for (int f = 0; f < 10; ++f) bindings_.push_back({filterId(f), Kind::Filter, f, 0, nullptr});
     bindings_.push_back({kEnvOn, Kind::EnvOn, 0, 0, nullptr});
     for (int i = 0; i < 4; ++i) bindings_.push_back({envId(i), Kind::Env, i, 0, nullptr});
     for (auto& b : bindings_) {
@@ -126,6 +142,8 @@ std::vector<int> Params::valuesFrom(const fm1::Sound& s) const {
     fm1::Edit e = fm1::unpackVoice(s.voice);
     fm1::FxChain fx = fm1::fxFromRecord(s.record);
     fm1::Envelope env = fm1::envFromRecord(s.record);
+    fm1::VaFilter flt = fm1::filterFromRecord(s.record);
+    const int fv[10] = {flt.on ? 1 : 0, flt.type, flt.keyTrack, flt.cutoff, flt.resonance, flt.envelope, flt.decay, flt.shape, flt.velocity, flt.lfo};
     std::vector<int> out;
     for (const auto& b : bindings_) {
         int v = 0;
@@ -136,6 +154,7 @@ std::vector<int> Params::valuesFrom(const fm1::Sound& s) const {
             case Kind::FxType:  v = fx.fx[size_t(b.a)].type; break;
             case Kind::Env:     v = b.a == 0 ? env.a : b.a == 1 ? env.d : b.a == 2 ? env.s : env.r; break;
             case Kind::EnvOn:   v = env.on ? 1 : 0; break;
+            case Kind::Filter:  v = fv[b.a]; break;
         }
         int max = juce::roundToInt(b.param->getNormalisableRange().end);
         out.push_back(juce::jlimit(0, max, v));
@@ -191,6 +210,20 @@ void Params::commit(fm1::Sound& s) {
             case Kind::FxType:  if (int k = chainPos(b.a); k >= 0) s.record[size_t(29 + 3 * k)] = u; break;
             case Kind::Env:     s.record[size_t(54 + b.a)] = u; break;
             case Kind::EnvOn:   s.record[58] = u; break;
+            case Kind::Filter: {
+                int byte = kFilterByte[b.a];
+                if (byte == 26) {
+                    // type, key tracking and on share a byte; start from the defaults when unset
+                    uint8_t cur = (s.record[26] & 0x80) ? s.record[26] : uint8_t(0x80);
+                    if (b.a == 0) cur = uint8_t((cur & ~0x10) | (v ? 0x10 : 0));
+                    if (b.a == 1) cur = uint8_t((cur & ~0x03) | (v & 3));
+                    if (b.a == 2) cur = uint8_t((cur & ~0x0C) | ((v & 3) << 2));
+                    s.record[26] = cur;
+                } else {
+                    s.record[size_t(byte)] = uint8_t(0x80 | (v & 0x7F));
+                }
+                break;
+            }
         }
     }
     if (voiceChanged) s.voice = fm1::packVoice(e);
@@ -213,6 +246,15 @@ fm1::FxChain Params::fxChain(const fm1::FxChain& orderFrom) const {
         }
     }
     return c;
+}
+
+fm1::VaFilter Params::filter() const {
+    fm1::VaFilter f;
+    int v[10] = {0};
+    for (const auto& b : bindings_) if (b.kind == Kind::Filter) v[b.a] = intValue(b.param);
+    f.on = v[0] != 0; f.type = v[1]; f.keyTrack = v[2]; f.cutoff = v[3]; f.resonance = v[4];
+    f.envelope = v[5]; f.decay = v[6]; f.shape = v[7]; f.velocity = v[8]; f.lfo = v[9];
+    return f;
 }
 
 fm1::Envelope Params::envelope() const {

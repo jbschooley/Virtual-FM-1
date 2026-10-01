@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include "Fm1Session.h"
+#include "Fm1Record.h"
 
 Fm1Session::Fm1Session(Fm1Link& link) : juce::Thread("FM-1 sync"), link_(link) {}
 Fm1Session::~Fm1Session() { cancel_ = true; stopThread(5000); }
@@ -341,6 +342,8 @@ void Fm1Session::run() {
         }
         juce::Thread::sleep(100);
         juce::String what = "Sent " + juce::String(fm1::voiceName(editSound_.voice)).trimEnd() + " to the synth's edit buffer (not saved)";
+        if (fm1::engineOf(editSound_.record) == fm1::Engine::FM && fm1::filterFromRecord(editSound_.record).on)
+            what += "; the filter has no MIDI control on FM presets, so it reaches the synth only with Store to FM-1";
         if (identity_->isStock()) { report(1, 1, what + "; this firmware cannot be read back to check it.", true); return; }
         juce::String err;
         auto addr = editBufferAddr(err, nullptr);

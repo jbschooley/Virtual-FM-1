@@ -31,10 +31,13 @@ FM1Processor::FM1Processor()
         auto& dst = sequencer.patterns[size_t(pat)];
         fm1::seq::Pattern merged = p;
         merged.transpose = dst.transpose;
+        if (merged.sound < 0) merged.sound = dst.sound;       // the synth keeps no preset per pattern
+        sequencer.chain[size_t(pat)] = p.chain;              // FM-1_093 stores Chain per pattern
         for (int i = 0; i < fm1::seq::kSteps; ++i) {
             auto& ms = merged.steps[size_t(i)];
             const auto& ds = dst.steps[size_t(i)];
             ms.ratchet = ds.ratchet; ms.gate = ds.gate; ms.chance = ds.chance; ms.transpose = ds.transpose; ms.accent = ds.accent; ms.slide = ds.slide;
+            for (auto& n : ms.notes) for (const auto& dn : ds.notes) if (dn.note == n.note) n.tie = dn.tie;
         }
         dst = merged;
     };
@@ -85,6 +88,11 @@ void FM1Processor::applyParamsToEngine() {
     fx_.setChain(params.fxChain(fm1::fxFromRecord(bank.current().record)));
     fm1::Envelope e = params.envelope();
     synth_.setEnvelope(e.on, e.a, e.d, e.s, e.r);
+    fm1::VaFilter f = params.filter();
+    FmSynth::Filter ef;
+    ef.on = f.on; ef.type = f.type; ef.keyTrack = f.keyTrack; ef.cutoff = f.cutoff; ef.resonance = f.resonance;
+    ef.envelope = f.envelope; ef.decay = f.decay; ef.shape = f.shape; ef.velocity = f.velocity; ef.lfo = f.lfo;
+    synth_.setFilter(ef);
 }
 
 void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) {
@@ -111,8 +119,10 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         int at = juce::jlimit(0, numSamples - 1, meta.samplePosition);
         if (m.isNoteOn()) {
             pushNoteOn(m.getNoteNumber(), m.getVelocity());
+            sequencer.recordNoteOn(m.getNoteNumber(), m.getVelocity());
             if (arpOn) arp.noteOn(m.getNoteNumber(), m.getVelocity()); else synthEvents_.addEvent(m, at);
         } else if (m.isNoteOff()) {
+            sequencer.recordNoteOff(m.getNoteNumber());
             if (arpOn) arp.noteOff(m.getNoteNumber()); else synthEvents_.addEvent(m, at);
         } else if (m.isProgramChange()) {
             pendingProgram_ = m.getProgramChangeNumber();
@@ -252,7 +262,7 @@ void FM1Processor::setCurrentSound(const fm1::Sound& s) {
 static juce::String stepToString(const fm1::seq::Step& s) {
     juce::String t = "r" + juce::String(s.rate) + " k" + juce::String(s.ratchet) + " g" + juce::String(s.gate) + " c" + juce::String(s.chance)
                    + " t" + juce::String(s.transpose) + " a" + juce::String(s.accent ? 1 : 0) + " s" + juce::String(s.slide ? 1 : 0) + " n";
-    for (size_t i = 0; i < s.notes.size(); ++i) t += (i ? "," : "") + juce::String(s.notes[i].note) + ":" + juce::String(s.notes[i].vel);
+    for (size_t i = 0; i < s.notes.size(); ++i) t += (i ? "," : "") + juce::String(s.notes[i].note) + ":" + juce::String(s.notes[i].vel) + (s.notes[i].tie ? "~" : "");
     return t;
 }
 static fm1::seq::Step stepFromString(const juce::String& t) {
@@ -271,7 +281,8 @@ static fm1::seq::Step stepFromString(const juce::String& t) {
             case 's': s.slide = v.getIntValue() != 0; break;
             case 'n':
                 for (const auto& nv : juce::StringArray::fromTokens(v, ",", ""))
-                    if (nv.containsChar(':')) s.notes.push_back({nv.upToFirstOccurrenceOf(":", false, false).getIntValue(), nv.fromFirstOccurrenceOf(":", false, false).getIntValue()});
+                    if (nv.containsChar(':')) s.notes.push_back({nv.upToFirstOccurrenceOf(":", false, false).getIntValue(),
+                                                                  nv.fromFirstOccurrenceOf(":", false, false).getIntValue(), nv.endsWithChar('~')});
                 break;
             default: break;
         }
@@ -341,7 +352,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (i < 0 || i >= Sequencer::kPatterns) continue;
             auto& p = sequencer.patterns[size_t(i)];
             p.length = pt.getProperty("length", 16); p.rate = pt.getProperty("rate", 6); p.tempo = pt.getProperty("tempo", 120);
-            p.gate = pt.getProperty("gate", 50); p.swing = pt.getProperty("swing", 50); p.sound = pt.getProperty("sound", 0);
+            p.gate = pt.getProperty("gate", 50); p.swing = pt.getProperty("swing", 50); p.sound = pt.getProperty("sound", -1);
             p.transpose = pt.getProperty("transpose", 0); sequencer.chain[size_t(i)] = pt.getProperty("chain", -1);
             auto steps = juce::StringArray::fromTokens(pt.getProperty("steps").toString(), "|", "");
             for (int k = 0; k < fm1::seq::kSteps && k < steps.size(); ++k) p.steps[size_t(k)] = stepFromString(steps[k]);

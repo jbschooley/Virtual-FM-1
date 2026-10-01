@@ -48,6 +48,17 @@ public:
     // envelopes (all 0..100). Off = the operator envelopes alone shape the note.
     void setEnvelope(bool on, int a, int d, int s, int r);
 
+    // The FM-1's per-note filter (FM presets from FM-1_092; the VA filter).
+    // All amounts 0..100; type 0 LP12, 1 LP24, 2 BP, 3 HP; keyTrack 0..3 (0, 33, 67, 100 %).
+    struct Filter {
+        bool on = false;
+        int type = 0, keyTrack = 0;
+        int cutoff = 100, resonance = 0, envelope = 0, decay = 0, shape = 0, velocity = 0, lfo = 0;
+    };
+    void setFilter(const Filter& f);
+    // Cutoff in Hz for a 0..100 setting, before envelope, velocity, tracking and LFO.
+    static double cutoffHz(int setting);
+
     // Operator on/off (not part of the patch). `vcedIndex` 0 = OP6 .. 5 = OP1, as msfa's opSwitch.
     void setOperatorEnabled(int vcedIndex, bool on);
 
@@ -69,6 +80,11 @@ private:
         // global envelope state
         int envStage = 0;        // 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
         float envLevel = 0.0f;
+        // filter state: two TPT state-variable stages, and its envelope
+        float s1[2] = {0, 0}, s2[2] = {0, 0};
+        float fenv = 0.0f;
+        int fenvStage = 0;       // 0 idle, 1 rising, 2 held (decaying), 3 closing
+        int playedVelocity = 0;
     };
 
     void renderBlock();  // fills block_ with N samples
@@ -84,6 +100,10 @@ private:
     double sampleRate_ = 44100.0;
 
     bool envOn_ = false;
+    Filter filter_;
+    void filterKeyDown(VoiceSlot& v);
+    void filterKeyUp(VoiceSlot& v);
+    float filterSample(VoiceSlot& v, float x, float baseOct, float lfoOct);
     float envAttackInc_ = 1.0f, envDecayCoef_ = 0.0f, envSustain_ = 1.0f, envReleaseCoef_ = 0.0f;
     void envKeyDown(VoiceSlot& v);
     void envKeyUp(VoiceSlot& v);

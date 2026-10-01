@@ -26,7 +26,7 @@ public:
     // Pattern data. Edit under `lock` (the audio thread skips a block it cannot lock).
     juce::SpinLock lock;
     std::array<fm1::seq::Pattern, kPatterns> patterns;
-    std::array<int, kPatterns> chain;   // pattern index to play after this one, -1 = loop
+    std::array<int, kPatterns> chain;   // pattern index to play after this one, -1 = Repeat (FM-1_093 per-pattern Chain)
 
     // Settings (atomics: set from the UI, read by the audio thread)
     std::atomic<bool> enabled{false};      // the SEQ button
@@ -49,8 +49,20 @@ public:
 
     std::atomic<int> patternSoundRequest{-1};   // the pattern's sound (preset) when a pattern starts
 
+    // Real-time recording (FM-1_092): while playing and `recording`, played notes go to
+    // the nearest step with their velocity; a held note is tied across the steps it spans.
+    std::atomic<bool> recording{false};
+    void recordNoteOn(int note, int vel);   // audio thread
+    void recordNoteOff(int note);           // audio thread
+
 private:
     struct Pending { double tick; int note; bool on; int vel; };
+    struct Held { int note, vel, step; };
+    std::vector<Held> recHeld_;
+    std::array<bool, fm1::seq::kSteps> recTouched_{};   // steps replaced in this pass
+    double lastStepTick_ = 0.0;
+    int lastStep_ = -1;
+    int nearestStep(double tick) const;
     void startPattern(int pat, double atTick, bool first);
     void fireStep(double atTick);
     void flush(juce::MidiBuffer& out, int upToSample, double tickAtBlockStart, double ticksPerSample, int blockStartSample);

@@ -43,6 +43,22 @@ struct Envelope {
     int a = 0, d = 0, s = 100, r = 0;   // 0..100
 };
 
+// The Virtual Analog filter, which an FM preset can also use from FM-1_092.
+// Each byte is 0x80 | value when set; below 0x80 means unset (the default).
+// Mapped on FM-1_093 by sending the VA CCs and walking the FM Filter group
+// from the panel CCs, then reading the live record back:
+//   [23] cutoff 0..100   [24] resonance 0..100   [25] envelope 0..100
+//   [26] bits 0-1 type (LP12, LP24, BP, HP), bits 2-3 key tracking (0, 33, 67, 100 %),
+//        bit 4 filter on (FM presets; a VA preset always filters)
+//   [47] velocity 0..100   [49] shape 0..100   [50] LFO to cutoff 0..100   [51] decay 0..100
+struct VaFilter {
+    bool on = false;
+    int type = 0, keyTrack = 0;
+    int cutoff = 100, resonance = 0, envelope = 0, decay = 0, shape = 0, velocity = 0, lfo = 0;
+};
+VaFilter filterFromRecord(const Record& r);
+extern const char* const kFilterTypeNames[4];
+
 FxChain fxFromRecord(const Record& r);
 void fxToRecord(const FxChain& c, Record& r);        // leaves every other byte alone
 

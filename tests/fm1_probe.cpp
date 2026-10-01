@@ -16,6 +16,7 @@
 #include "Fm1Codec.h"
 #include "Fm1Link.h"
 #include "Fm1Seq.h"
+#include "Fm1Record.h"
 #include "Fm1Session.h"
 #include "FmSynth.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -46,6 +47,15 @@ int main(int argc, char** argv) {
         FmSynth synth; synth.prepare(44100.0);
         fm1::Edit e = fm1::unpackVoice(snd->voice);
         synth.setPatch(e.data());
+        if (snd->hasRecord) {
+            fm1::VaFilter f = fm1::filterFromRecord(snd->record);
+            FmSynth::Filter ef;
+            ef.on = f.on; ef.type = f.type; ef.keyTrack = f.keyTrack; ef.cutoff = f.cutoff; ef.resonance = f.resonance;
+            ef.envelope = f.envelope; ef.decay = f.decay; ef.shape = f.shape; ef.velocity = f.velocity; ef.lfo = f.lfo;
+            synth.setFilter(ef);
+            fm1::Envelope env = fm1::envFromRecord(snd->record);
+            synth.setEnvelope(env.on, env.a, env.d, env.s, env.r);
+        }
         juce::AudioBuffer<float> out(1, total * 441 / 10);
         int holdS = hold * 441 / 10;
         synth.noteOn(note, vel);
@@ -155,7 +165,12 @@ int main(int argc, char** argv) {
         session.onCurrentRead = [&](const fm1::Sound& live, const fm1::Sound& stored) { got = live; have = true; same = live.voice == stored.voice && live.record == stored.record; };
         session.pullCurrent();
         waitIdle(session);
-        if (have) std::printf("current: preset %d %s (%s)\n", got.slot + 1, fm1::voiceName(got.voice).c_str(), same ? "same as stored" : "unsaved changes");
+        if (have) {
+            std::printf("current: preset %d %s (%s)\n", got.slot + 1, fm1::voiceName(got.voice).c_str(), same ? "same as stored" : "unsaved changes");
+            auto f = fm1::filterFromRecord(got.record);
+            std::printf("  filter: %s type %s cutoff %d resonance %d envelope %d decay %d shape %d velocity %d keytrack %d lfo %d\n",
+                        f.on ? "on" : "off", fm1::kFilterTypeNames[f.type & 3], f.cutoff, f.resonance, f.envelope, f.decay, f.shape, f.velocity, f.keyTrack, f.lfo);
+        }
         return have ? 0 : 1;
     }
     if (cmd == "write") {   // write <file.syx>: write every FM-1+VA sound message in the file to its slot, verified
@@ -181,6 +196,16 @@ int main(int argc, char** argv) {
         int ch = std::atoi(argv[2]), cc = std::atoi(argv[3]), val = std::atoi(argv[4]);
         link.sendRaw({uint8_t(0xB0 | ((ch - 1) & 15)), uint8_t(cc), uint8_t(val)});
         pump(100);
+        return 0;
+    }
+    if (cmd == "press") {   // press <cc> [<cc> ...]: a short press and release of each panel control, in order
+        for (int i = 2; i < argc; ++i) {
+            int cc = std::atoi(argv[i]);
+            link.sendRaw({0xB0, uint8_t(cc), 127});
+            juce::Thread::sleep(30);
+            link.sendRaw({0xB0, uint8_t(cc), 0});
+            juce::Thread::sleep(150);
+        }
         return 0;
     }
     if (cmd == "note") {   // note <note> <vel> <hold ms>: play one note on channel 1

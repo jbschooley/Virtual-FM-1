@@ -17,7 +17,8 @@ Pattern normalise(const Pattern& p) {
     out.tempo = clamp(p.tempo, 30, 300);
     out.gate = clamp(p.gate, 5, 100);
     out.swing = clamp(p.swing, 50, 75);
-    out.sound = clamp(p.sound, 0, 127);
+    out.sound = p.sound < 0 ? -1 : clamp(p.sound, 0, 127);
+    out.chain = p.chain < 0 ? -1 : clamp(p.chain, 0, kPatterns - 1);
     out.transpose = clamp(p.transpose, -24, 24);
     for (int i = 0; i < kSteps; ++i) {
         const Step& s = p.steps[size_t(i)];
@@ -27,7 +28,7 @@ Pattern normalise(const Pattern& p) {
             int note = clamp(n.note, 0, 127);
             if (seen.count(note) || int(o.notes.size()) >= kMaxNotes) continue;
             seen.insert(note);
-            o.notes.push_back({note, clamp(n.vel, 1, 127)});
+            o.notes.push_back({note, clamp(n.vel, 1, 127), n.tie});
         }
         o.rate = clamp(s.rate, 0, 9);
         o.ratchet = clamp(s.ratchet, 1, 4);
@@ -45,7 +46,7 @@ Bytes encodeWritePart(const Pattern& pattern, int pat, int part, bool save) {
     Pattern p = normalise(pattern);
     Bytes body = {0x20, uint8_t(pat & 0x0F), uint8_t(part & 7), uint8_t(save ? 1 : 0),
                   uint8_t(p.length), uint8_t(p.rate), uint8_t(p.tempo & 0x7F), uint8_t(p.tempo >> 7),
-                  uint8_t(p.gate), uint8_t(p.swing), uint8_t(p.sound)};
+                  uint8_t(p.gate), uint8_t(p.swing), uint8_t(std::max(0, p.sound))};   // not stored since FM-1_060
     for (int i = 0; i < 8; ++i) {
         const Step& s = p.steps[size_t((part & 7) * 8 + i)];
         uint8_t notes[kMaxNotes] = {0}, vels[kMaxNotes] = {0};
@@ -87,14 +88,16 @@ Pattern decodePattern(const Bytes& steps, const Bytes& gset, int pat) {
     p.tempo = gset[66 + 2 * u] | (gset[67 + 2 * u] << 8);
     p.gate = gset[18 + u];
     p.swing = gset[34 + u];
-    p.sound = gset[118 + u];
+    int v = gset[118 + u];
+    p.sound = v < 128 ? v : -1;
+    p.chain = (v >= 128 && v < 128 + kPatterns) ? v - 128 : -1;
     for (int i = 0; i < kSteps; ++i) {
         Step st;
         st.rate = p.rate;
         if (size_t(i + 1) * 32 <= steps.size()) {
             const uint8_t* s = steps.data() + i * 32;
             for (int j = 0; j < 10; ++j)
-                if (s[j] < 128) st.notes.push_back({s[j], s[20 + j]});
+                if (s[j] < 128) st.notes.push_back({s[j], s[20 + j], false});
             st.rate = s[10] > 9 ? p.rate : s[10];
         }
         p.steps[size_t(i)] = st;

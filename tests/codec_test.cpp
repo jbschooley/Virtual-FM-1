@@ -192,6 +192,8 @@ int main(int argc, char** argv) {
                 same = d.steps[size_t(i)].notes[j].note == want.steps[size_t(i)].notes[j].note && d.steps[size_t(i)].notes[j].vel == want.steps[size_t(i)].notes[j].vel;
         }
         CHECK(same, "decodePattern matches hers");
+        fm1::seq::Pattern ch = fm1::seq::decodePattern(fromHex(sq["decode"]["steps"].s), fromHex(sq["decode"]["gset"].s), 5);
+        CHECK(ch.sound == int(sq["decode"]["chained"]["sound"].n) && ch.sound == -1 && ch.chain == 9, "FM-1_093 Chain byte: no preset, chains to pattern 10");
         for (int v = 0; v < 10; ++v) CHECK(fm1::seq::kValueTicks[v] == int(sq["valueTicks"][size_t(v)].n), "VALUE_TICKS");
         CHECK(fm1::seq::kStepsRam == uint32_t(sq["consts"]["steps"].n) && fm1::seq::kExtRam == uint32_t(sq["consts"]["ext"].n) && fm1::seq::kGsetRam == uint32_t(sq["consts"]["gset"].n) && fm1::seq::kGsetLen == int(sq["consts"]["gsetLen"].n), "RAM constants");
     }
