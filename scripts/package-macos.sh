@@ -26,7 +26,16 @@ if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
 fi
 
 PKG="$OUT/Virtual-FM-1-$VERSION-macOS.pkg"
-pkgbuild --root "$STAGE" --identifier com.bockage.virtualfm1 --version "$VERSION" --install-location / "$PKG"
+# Bundles in a package are "relocatable" by default: if a bundle with the same id
+# exists anywhere on the disk (a build folder, say), Installer updates that copy
+# instead of installing where the package says. Turn that off for every bundle.
+PLIST="$(mktemp -d)/components.plist"
+pkgbuild --analyze --root "$STAGE" "$PLIST"
+plutil -convert xml1 "$PLIST"
+perl -0pi -e 's|(<key>BundleIsRelocatable</key>\s*)<true/>|$1<false/>|g' "$PLIST"
+if grep -A1 BundleIsRelocatable "$PLIST" | grep -q '<true/>'; then echo "could not make the bundles non-relocatable"; exit 1; fi
+pkgbuild --root "$STAGE" --component-plist "$PLIST" --identifier com.bockage.virtualfm1 --version "$VERSION" --install-location / "$PKG"
+rm -f "$PLIST"
 
 if [ -n "${MACOS_INSTALLER_IDENTITY:-}" ]; then
     productsign --sign "$MACOS_INSTALLER_IDENTITY" "$PKG" "$PKG.signed" && mv "$PKG.signed" "$PKG"

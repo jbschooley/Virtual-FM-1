@@ -1,7 +1,5 @@
 # Virtual FM-1
 
-By Bockage.
-
 A VST3 / AU / Standalone instrument that plays the M-VAVE FM-1's FM engine in
 software, edits every sound setting, runs the FM-1+VA sequencer and
 arpeggiator, and syncs presets and patterns with the hardware the way Yamaha's
