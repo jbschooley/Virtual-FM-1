@@ -25,7 +25,7 @@ void Sequencer::startPattern(int pat, double atTick, bool first) {
     nextStepTick_ = atTick;
     playingPattern_ = pat_;
     if (!syncToHost) tempo_ = cur_.tempo;
-    if (cur_.sound >= 0) patternSoundRequest = cur_.sound;
+
 }
 
 void Sequencer::fireStep(double atTick) {

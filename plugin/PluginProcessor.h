@@ -50,6 +50,7 @@ public:
     Fm1Link link;
     Fm1Session session;
     Sequencer sequencer;
+    std::atomic<int> patternsVersion{0};          // bumped when patterns arrive from the synth
     Arpeggiator arp;
 
     // The editor is an edit buffer over the current slot, like the FM-1's own:

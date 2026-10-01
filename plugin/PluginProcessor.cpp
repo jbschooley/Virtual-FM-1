@@ -31,7 +31,7 @@ FM1Processor::FM1Processor()
         auto& dst = sequencer.patterns[size_t(pat)];
         fm1::seq::Pattern merged = p;
         merged.transpose = dst.transpose;
-        if (merged.sound < 0) merged.sound = dst.sound;       // the synth keeps no preset per pattern
+        merged.sound = -1;                                   // the synth's old preset byte is stale since FM-1_060
         sequencer.chain[size_t(pat)] = p.chain;              // FM-1_093 stores Chain per pattern
         for (int i = 0; i < fm1::seq::kSteps; ++i) {
             auto& ms = merged.steps[size_t(i)];
@@ -40,6 +40,7 @@ FM1Processor::FM1Processor()
             for (auto& n : ms.notes) for (const auto& dn : ds.notes) if (dn.note == n.note) n.tie = dn.tie;
         }
         dst = merged;
+        ++patternsVersion;
     };
     // the 128-preset library is shared by every instance: start from it if it exists
     bank.onLibraryChange = [this] { libraryDirty_ = true; };
@@ -227,8 +228,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     sequencer.process(pos, numSamples, generated_);
     arp.process(pos, numSamples, generated_);
     synthEvents_.addEvents(generated_, 0, numSamples, 0);
-    int soundReq = sequencer.patternSoundRequest.exchange(-1);
-    if (soundReq >= 0 && soundReq != bank.currentSlot()) pendingProgram_ = soundReq;
+    sequencer.patternSoundRequest = -1;   // no preset per pattern on the FM-1: the selected preset plays
 
     // 3. render
     float* out = mono_.getWritePointer(0);
@@ -453,7 +453,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (i < 0 || i >= Sequencer::kPatterns) continue;
             auto& p = sequencer.patterns[size_t(i)];
             p.length = pt.getProperty("length", 16); p.rate = pt.getProperty("rate", 6); p.tempo = pt.getProperty("tempo", 120);
-            p.gate = pt.getProperty("gate", 50); p.swing = pt.getProperty("swing", 50); p.sound = pt.getProperty("sound", -1);
+            p.gate = pt.getProperty("gate", 50); p.swing = pt.getProperty("swing", 50); p.sound = -1;
             p.transpose = pt.getProperty("transpose", 0); sequencer.chain[size_t(i)] = pt.getProperty("chain", -1);
             auto steps = juce::StringArray::fromTokens(pt.getProperty("steps").toString(), "|", "");
             for (int k = 0; k < fm1::seq::kSteps && k < steps.size(); ++k) p.steps[size_t(k)] = stepFromString(steps[k]);

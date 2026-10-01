@@ -129,6 +129,7 @@ private:
     std::optional<fm1::seq::Step> clipboard_;
     // step recording: notes within a short window form one chord
     std::vector<fm1::seq::Note> recChord_;
+    int seenVersion_ = 0;
     double recLastMs_ = 0;
 };
 

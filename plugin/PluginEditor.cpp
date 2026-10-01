@@ -27,7 +27,8 @@ FM1Editor::FM1Editor(FM1Processor& p)
         tabs_.setCurrentTabIndex(juce::jlimit(0, tabs_.getNumTabs() - 1, tab.getIntValue()));
     // debugging aid: FM1_AUTOPULL=1 connects to the FM-1 and pulls every preset
     if (juce::SystemStats::getEnvironmentVariable("FM1_AUTOPULL", "").isNotEmpty())
-        juce::Timer::callAfterDelay(500, [this] { if (proc_.autoConnect()) juce::Timer::callAfterDelay(1500, [this] { proc_.pullAll(); }); });
+        juce::Timer::callAfterDelay(500, [this] { if (proc_.link.isOpen() || proc_.autoConnect()) juce::Timer::callAfterDelay(1500, [this] {
+            if (juce::SystemStats::getEnvironmentVariable("FM1_AUTOPULL", "") == "patterns") proc_.pullPatterns(); else proc_.pullAll(); }); });
 }
 
 FM1Editor::~FM1Editor() {

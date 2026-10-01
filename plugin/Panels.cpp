@@ -378,7 +378,10 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     pattern_.onChange = [this] { proc_.sequencer.selected = pattern_.getSelectedId() - 1; selectedStep_ = 0; loadPatternControls(); loadStepControls(); repaint(); };
     auto applyP = [this] { applyPatternControls(); };
     rate_.onChange = applyP; chainTo_.onChange = applyP;
-    for (auto* s : {&length_, &tempo_, &gate_, &swing_, &sound_, &transpose_}) s->onValueChange = applyP;
+    for (auto* s : {&length_, &tempo_, &gate_, &swing_, &transpose_}) s->onValueChange = applyP;
+    // the FM-1's sequencer plays whatever preset is selected; there is no preset per pattern
+    sound_.setVisible(false);
+    labels_[4]->setVisible(false);
     auto applyS = [this] { applyStepControls(); };
     stepRate_.onChange = applyS; ratchet_.onChange = applyS;
     for (auto* s : {&stepGate_, &stepChance_, &stepTranspose_}) s->onValueChange = applyS;
@@ -408,7 +411,7 @@ void SeqPanel::loadPatternControls() {
     chainTo_.setSelectedId(proc_.sequencer.chain[size_t(proc_.sequencer.selected.load())] + 2, juce::dontSendNotification);
     length_.setValue(p.length, juce::dontSendNotification); tempo_.setValue(p.tempo, juce::dontSendNotification);
     gate_.setValue(p.gate, juce::dontSendNotification); swing_.setValue(p.swing, juce::dontSendNotification);
-    sound_.setValue(p.sound < 0 ? 0 : p.sound + 1, juce::dontSendNotification); transpose_.setValue(p.transpose, juce::dontSendNotification);
+    transpose_.setValue(p.transpose, juce::dontSendNotification);
     loading_ = false;
 }
 
@@ -435,7 +438,8 @@ void SeqPanel::applyPatternControls() {
     if (newRate != p.rate) { for (auto& s : p.steps) if (s.rate == p.rate) s.rate = newRate; p.rate = newRate; }
     proc_.sequencer.chain[size_t(proc_.sequencer.selected.load())] = chainTo_.getSelectedId() - 2;
     p.length = int(length_.getValue()); p.tempo = int(tempo_.getValue()); p.gate = int(gate_.getValue());
-    p.swing = int(swing_.getValue()); p.sound = int(sound_.getValue()) - 1;   // 0 on the slider = none (-1) p.transpose = int(transpose_.getValue());
+    p.swing = int(swing_.getValue());
+    p.transpose = int(transpose_.getValue());
     repaint();
 }
 
@@ -482,6 +486,10 @@ void SeqPanel::mouseDown(const juce::MouseEvent& e) {
 }
 
 void SeqPanel::timerCallback() {
+    if (int v = proc_.patternsVersion.load(); v != seenVersion_) {   // patterns pulled from the synth
+        seenVersion_ = v;
+        loadPatternControls(); loadStepControls(); repaint();
+    }
     static int lastPlaying = -2;
     int playing = proc_.sequencer.playingStep();
     bool isPlaying = proc_.sequencer.isPlaying();
@@ -549,7 +557,7 @@ void SeqPanel::resized() {
         area.removeFromTop(4);
     };
     rowOf(mid, *labels_[0], length_); rowOf(mid, *labels_[1], tempo_); rowOf(mid, *labels_[2], gate_);
-    rowOf(mid, *labels_[3], swing_); rowOf(mid, *labels_[4], sound_); rowOf(mid, *labels_[5], transpose_);
+    rowOf(mid, *labels_[3], swing_); rowOf(mid, *labels_[5], transpose_);
     auto rr = mid.removeFromTop(26); labels_[6]->setBounds(rr.removeFromLeft(96)); rate_.setBounds(rr.removeFromLeft(90));
     mid.removeFromTop(10);
     rr = mid.removeFromTop(26); clearPattern_.setBounds(rr.removeFromLeft(120));
