@@ -145,7 +145,8 @@ Source layout:
   hardware probe used to study the synth
 - `docs/` [hardware notes](docs/HARDWARE-NOTES.md),
   [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md),
-  [JSON format](docs/JSON-FORMAT.md)
+  [JSON format](docs/JSON-FORMAT.md), [firmware profiles](docs/FIRMWARE-PROFILES.md)
+  and a [shared protocol proposal](docs/PROTOCOL-PROPOSAL.md) for FM-1 firmwares
 
 ## Credits
 
