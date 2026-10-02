@@ -59,8 +59,9 @@ or writes them, so the plugin cannot see them. Some matter to it:
 | Pitch bend up and down | The plugin's bend range should match | Read on FM-1_093 and applied to the engine; otherwise ±12, the FM-1's default | Same |
 | Keyboard › Velocity | Sets how hard the FM-1's own keys play, which is what a recorded step gets | Read and shown on FM-1_093 | Same |
 | Glide group | Changes the sound if it is global; the plugin's engine has no glide yet | Mode and time read and shown on FM-1_093; not modelled | The glide curve, so the engine (msfa's portamento) can match it |
-| Drive | Changes the sound if it is global; not modelled | Not located: it changed together with other settings in the test dump | Its byte, range and the drive curve |
-| Ext Ctrl CC7 Vol | Whether CC 7 from the plugin changes the synth's volume | Not located | Its byte |
+| Drive (0 or −6) | Changes the sound; not modelled | Read and shown on FM-1_093 (a flag bit) | What it does to the signal, so the engine can match it |
+| Ext Ctrl CC7 Vol | Whether CC 7 from the plugin changes the synth's volume | Read and shown on FM-1_093 (a flag bit) | Nothing more needed to read it |
+| Other flag bits | Bits 4 and 6 of the flags byte were seen set | Unknown | What they are |
 | Overdub Rec | The plugin has its own Overdub switch | Separate | Nothing needed |
 
 Reading these without her source: each setting's RAM address was found by

@@ -962,7 +962,9 @@ void SettingsPanel::showSynth() {
     synth_.setText("Read from the FM-1's GLOBE settings: MIDI channel " + (g->midiChannel == 0 ? juce::String("All") : juce::String(g->midiChannel))
         + ", FX channel " + juce::String(g->fxChannel) + ", pitch bend +" + juce::String(g->bendUp) + " / -" + juce::String(g->bendDown)
         + " semitones, key velocity " + juce::String(g->keyVelocity) + ", glide " + (g->glideFingered ? "Fingered" : "Full Time") + " "
-        + juce::String(g->glideTime) + ".\nThe plugin talks to the FM-1 on its MIDI and FX channels. The plugin has no glide yet.",
+        + juce::String(g->glideTime) + ", drive " + (g->driveMinus6 ? "-6" : "0") + ", CC7 volume " + (g->cc7Volume ? "on" : "off")
+        + ", overdub rec " + (g->overdubRec ? "on" : "off") + ".\nThe plugin talks to the FM-1 on its MIDI and FX channels. "
+        "It has no glide or drive yet.",
         juce::dontSendNotification);
 }
 

@@ -18,9 +18,11 @@ On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
   (stored minus one), bend up `+2` and down `+3` (semitones), Keyboard ›
   Velocity `+4`, glide time `+0x82` (0-100) and glide mode `+0x83` (0 Full
   Time, 1 Fingered). A second copy of the bend and glide values sits near
-  `0x01C61D57`. The plugin reads these on connect (FM-1_093 only). Drive,
-  Ext Ctrl CC7 Vol and Overdub Rec changed in the same dump and are not
-  placed yet.
+  `0x01C61D57`. The byte at `+0x6E` holds flags: bit 1 Drive −6, bit 2 Ext
+  Ctrl CC7 Vol off, bit 3 Overdub Rec on (found by changing them one at a
+  time during continuous dumps; bits 4 and 6 were also seen set, meaning
+  unknown). The plugin reads all of these on connect and when the Settings
+  tab opens (FM-1_093 only).
 - Pitch, transpose, detune beating and LFO speed match the synth. The
   firmware's LFO table is Dexed's, entry for entry.
 - The FM-1 scales incoming MIDI velocity by 100/127 before its engine; the

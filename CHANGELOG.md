@@ -14,7 +14,8 @@ for the code. New work goes under the next version at the top.
   project; **Save as default** makes them what new instances start with,
   and **Revert to default** goes back to them.
 - **Reads the FM-1's GLOBE settings** when it connects (FM-1_093): its MIDI
-  and FX channels, pitch-bend range, key velocity and glide, shown on the
+  and FX channels, pitch-bend range, key velocity, glide, drive, CC7 volume
+  and overdub setting, shown on the
   Settings tab. The plugin talks to the FM-1 on its channels, so the FX
   channel no longer has to be set by hand. **Copy from FM-1** takes its
   bend range and key velocity into the plugin's settings.

@@ -93,7 +93,8 @@ std::optional<Fm1Session::CurrentAddrs> Fm1Session::knownAddrs(int version) {
 // changing each setting between memory dumps):
 //   +0 MIDI channel (0 = All)  +1 FX channel - 1  +2 bend up  +3 bend down
 //   +4 Keyboard > Velocity     +0x82 glide time   +0x83 glide mode (1 = Fingered)
-// Drive, Ext Ctrl CC7 Vol and Overdub Rec are not located yet.
+//   +0x6E flags: bit 1 Drive -6, bit 2 Ext Ctrl CC7 Vol off, bit 3 Overdub Rec on
+//         (bits 4 and 6 were seen set too; their meaning is not known)
 bool Fm1Session::readGlobals() {
     if (!identity_) return false;
     auto a = knownAddrs(identity_->version);
@@ -109,6 +110,9 @@ bool Fm1Session::readGlobals() {
     g.keyVelocity = b[4];
     g.glideTime = b[0x82];
     g.glideFingered = b[0x83] == 1;
+    g.driveMinus6 = (b[0x6E] & 0x02) != 0;
+    g.cc7Volume = (b[0x6E] & 0x04) == 0;
+    g.overdubRec = (b[0x6E] & 0x08) != 0;
     // a different layout (an unknown build) shows up as values out of range: ignore it
     if (g.midiChannel > 16 || g.fxChannel > 16 || g.bendUp > 48 || g.bendDown > 48 || g.keyVelocity < 1 || g.keyVelocity > 127
         || g.glideTime > 100 || b[0x83] > 1)

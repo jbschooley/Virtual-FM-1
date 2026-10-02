@@ -56,6 +56,9 @@ public:
         int keyVelocity = 90;          // Keyboard > Velocity
         int glideTime = 0;             // 0..100
         bool glideFingered = false;    // Glide mode: Full Time or Fingered
+        bool driveMinus6 = false;      // Drive: 0 or -6
+        bool cc7Volume = true;         // MIDI > Ext Ctrl CC7 Vol
+        bool overdubRec = false;       // Overdub Rec
     };
     std::function<void(const Globals&)> onGlobals;
 
