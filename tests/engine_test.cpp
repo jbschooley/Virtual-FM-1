@@ -2,6 +2,10 @@
 // go silent after release, and follow a patch change. Uses the VA preset
 // pack's voices (FM voice bytes) from golden.json.
 
+#include <cmath>
+#include <vector>
+
+#include "HardwareCharacter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -130,6 +134,47 @@ int main(int argc, char** argv) {
         synth.noteOff(69);
         for (int i = 0; i < 40; ++i) synth.render(buf.data(), int(buf.size()));
         CHECK(synth.activeVoices() == 0, "note-off finds the transposed voice");
+    }
+
+    // ---- Hardware character (plugin/HardwareCharacter.h) ----
+    {
+        auto toneLossDb = [](double sr, double freq) {   // steady-state loss of a sine through it
+            HardwareCharacter hc; hc.prepare(sr);
+            const int n = int(sr);
+            std::vector<float> x(static_cast<size_t>(n));
+            for (int i = 0; i < n; ++i) x[size_t(i)] = float(0.5 * std::sin(2.0 * M_PI * freq * i / sr));
+            hc.process(x.data(), n);
+            double in = 0, out = 0;
+            for (int i = n / 2; i < n; ++i) { double ref = 0.5 * std::sin(2.0 * M_PI * freq * i / sr); in += ref * ref; out += double(x[size_t(i)]) * x[size_t(i)]; }
+            return 10.0 * std::log10(in / out);
+        };
+        {
+            HardwareCharacter hc; hc.prepare(44100.0);
+            std::vector<float> z(4096, 0.0f); hc.process(z.data(), int(z.size()));
+            bool silent = true; for (float v : z) silent = silent && v == 0.0f;
+            CHECK(silent, "hardware character: silence stays exactly silent");
+            std::vector<float> x(4096); for (size_t i = 0; i < x.size(); ++i) x[i] = float(0.3 * std::sin(0.05 * double(i)));
+            hc.process(x.data(), int(x.size()));
+            bool grid = true; for (float v : x) { double q = double(v) * 32768.0 / 1.3335; grid = grid && std::fabs(q - std::round(q)) < 1e-3; }
+            CHECK(grid, "hardware character: output on the 16-bit grid at the FM-1's level");
+            // 24 dB below full volume: steps 24 dB coarser, same level
+            HardwareCharacter q; q.prepare(44100.0); q.setVolumeDb(-24.0f);
+            std::vector<float> y(4096); for (size_t i = 0; i < y.size(); ++i) y[i] = float(0.3 * std::sin(0.05 * double(i)));
+            q.process(y.data(), int(y.size()));
+            double step = 1.3335 * std::pow(10.0, 24.0 / 20.0) / 32768.0;
+            bool coarse = true; double peak = 0;
+            for (float v : y) { double k = double(v) / step; coarse = coarse && std::fabs(k - std::round(k)) < 1e-3; peak = std::max(peak, std::fabs(double(v))); }
+            CHECK(coarse && peak > 0.28, "hardware character: at -24 dB the steps are 24 dB coarser and the level is unchanged");
+        }
+        for (double sr : {44100.0, 48000.0, 96000.0}) {
+            double l1k = toneLossDb(sr, 1000.0), l12k = toneLossDb(sr, 12000.0);
+            std::printf("  hardware character at %.0f Hz: loss %.2f dB at 1 kHz, %.2f dB at 12 kHz\n", sr, l1k, l12k);
+            CHECK(std::fabs(l1k) < 0.1, "hardware character: 1 kHz passes");
+            CHECK(l12k > 2.0 && l12k < 3.0, "hardware character: about 2.5 dB down at 12 kHz, the FM-1's roll-off");
+        }
+        double l30k = toneLossDb(96000.0, 30000.0);
+        std::printf("  hardware character at 96000 Hz: loss %.1f dB at 30 kHz\n", l30k);
+        CHECK(l30k > 15.0, "hardware character: rolled off above 20 kHz at 96 kHz, where 44.1 kHz audio ends");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

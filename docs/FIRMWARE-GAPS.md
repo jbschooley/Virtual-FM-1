@@ -69,6 +69,20 @@ changing it on the synth between memory dumps (`fm1_probe mem`), as was
 done for the edit buffer. The addresses need checking for each firmware
 build (section 3). Writing them needs a message in her firmware.
 
+## 2b. The sound, exactly
+
+The plugin's engine matches the FM-1 closely in measurements (HARDWARE-NOTES,
+"Sound compared with the plugin"), and Hardware character copies the
+measured output stage. Getting it exact needs her source:
+
+| What | Today | Look for in her source |
+|---|---|---|
+| Engine internals: sine table, envelope and LFO steps, fixed-point rounding, any changes to msfa | The plugin uses msfa as in Dexed (with the FM-1's algorithm table, velocity scaling and transpose found by measurement) | Her engine code, to diff against `engine/msfa` |
+| Effects (filter, reverb, delay, distortion, chorus, phaser) and the per-note filter | Settings sync exactly; the sound is an approximation | Each effect's algorithm and parameter curves |
+| Output stage: the high-frequency roll-off, the odd harmonics near full level, Drive | Roll-off fitted from recordings (Hardware character); harmonics and Drive not modelled | The output path: any filter, saturation or gain stage, and what Drive does |
+| The master volume's scaling | Hardware character's FM-1 volume is set in dB below full, not in knob positions | How MASTER scales the output, so the setting can follow the knob |
+| The USB audio's dropped or repeated blocks, the 68 Hz sidebands | Not modelled (a transport fault) | The USB audio buffer handling, in case it can be fixed in the firmware |
+
 ## 3. Addresses that depend on the firmware build
 
 | What | FM-1_093 | Today on other builds |

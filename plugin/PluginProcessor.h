@@ -11,6 +11,7 @@
 #include "Fm1Link.h"
 #include "Fm1Session.h"
 #include "FmSynth.h"
+#include "HardwareCharacter.h"
 #include "Params.h"
 #include "Sequencer.h"
 #include "Settings.h"
@@ -141,6 +142,9 @@ private:
     PluginSettings settings_;
     std::atomic<int> bendUp_{12}, bendDown_{12};   // semitones, for the audio thread
     std::atomic<int> inputChannel_{0};             // 0 = every channel
+    std::atomic<bool> hardwareCharacter_{false};
+    HardwareCharacter hwChar_;                     // audio thread
+    bool hwCharWasOn_ = false;                     // audio thread
     std::atomic<bool> settingsNotify_{false};
     bool copyPending_ = false;
     void copyGlobalsToSettings();

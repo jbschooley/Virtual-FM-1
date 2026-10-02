@@ -186,6 +186,9 @@ private:
     FM1Processor& proc_;
     juce::Slider bendUp_, bendDown_, velocity_;
     juce::ComboBox channel_, velocityMode_;
+    juce::ToggleButton hardware_{"Hardware character"};
+    juce::Slider volumeDb_;
+    juce::Label hardwareNote_;
     juce::TextButton save_{"Save as default"}, revert_{"Revert to default"}, copy_{"Copy from FM-1"};
     juce::Label note_, synth_;
     std::vector<std::unique_ptr<juce::Label>> labels_, headers_;

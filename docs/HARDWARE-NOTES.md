@@ -38,6 +38,34 @@ On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
   her pattern write nor read covers them. Per-pattern Chain can be read but
   not written over MIDI.
 
+## Sound compared with the plugin
+
+Measured on FM-1_093 from its USB audio ("FM-1 Audio", 44.1 kHz) against the
+plugin rendering the same presets and notes (October 2026):
+
+- The USB audio is mono (left and right identical, effects included), 16-bit
+  (every sample on the 16-bit grid) and exactly silent between notes.
+- A plain sine (INIT VOICE, effects off) has the engine's pure shape: odd
+  harmonics of the 3rd to 7th order appear only near full output (about -55 to
+  -61 dB) and fall into the 16-bit floor as the level drops, so they come from
+  the output stage, not the engine's sine.
+- Eight factory FM presets (PIANO 1, SYN LEAD 1, SYN PAD 1, SYN LEAD 3, PIANO 6,
+  DS GUITAR4, WOODWIND 4, STRING 7) at C4 and C6 match the plugin within about
+  0.6 dB per octave band (bands within 40 dB of each sound's peak), the same at
+  a 44.1 or 48 kHz host rate. The FM-1 is consistently a little softer above
+  6 kHz: about 1, 2 and 3.5 dB at 6-10, 10-14 and 14-20 kHz.
+- Its level follows the MASTER knob; with the knob as it was in one session,
+  believed to be at full, a full-level sine came out 2.5 dB below the plugin.
+- The USB stream drops or repeats 512-sample blocks a few times a second
+  (clicks); there are also faint sidebands 68 Hz either side of a held sine,
+  cause unknown.
+
+The Settings tab's Hardware character (`plugin/HardwareCharacter.h`) applies
+the 16-bit output at that level and the high-frequency roll-off, which brings
+the bands above 6 kHz to within 0.2 dB of the FM-1 on the same recordings (the
+roll-off was fitted to them). Its FM-1 volume control rounds as coarsely as the
+FM-1 would at a given number of dB below full volume.
+
 ## Record layout
 
 The 59-byte settings record that travels with each preset is interpreted as

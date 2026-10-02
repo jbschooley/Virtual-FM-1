@@ -8,6 +8,11 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **Hardware character** (Settings tab, saved with the project): makes the
+  plugin sound like the FM-1's USB audio, with 16-bit output at the FM-1's
+  level and its slightly softer high end, both measured from the hardware.
+  An FM-1 volume control sets how far below full the synth's volume is, for
+  the grain its output has at lower volumes. Off by default.
 - **MIDI files for the sequencer**: export this pattern or all 16 (one track
   each) as a standard MIDI file with the notes as they play, including
   ratchets, accents, ties and transpose; import a MIDI file's notes into the

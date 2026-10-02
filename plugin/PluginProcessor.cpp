@@ -165,6 +165,7 @@ void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     generated_.ensureSize(4096);
     synthEvents_.ensureSize(4096);
     filtered_.ensureSize(4096);
+    hwChar_.prepare(sampleRate);
     params.changed = true;
 }
 
@@ -284,6 +285,10 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     }
     if (p0 < numSamples) synth_.render(out + p0, numSamples - p0);
     fx_.process(out, numSamples);
+    // the FM-1's output (16 bits, its high end), when chosen in Settings
+    bool hw = hardwareCharacter_.load();
+    if (hw != hwCharWasOn_) { hwChar_.reset(); hwCharWasOn_ = hw; }
+    if (hw) hwChar_.process(out, numSamples);
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch) buffer.copyFrom(ch, 0, out, numSamples);
 
     // 4. MIDI out: what the sequencer and arpeggiator played
@@ -663,6 +668,8 @@ void FM1Processor::setSettings(const PluginSettings& s) {
     bendUp_ = settings_.bendUp;
     bendDown_ = settings_.bendDown;
     inputChannel_ = settings_.midiChannel;
+    hardwareCharacter_ = settings_.hardwareCharacter;
+    hwChar_.setVolumeDb(float(settings_.fm1VolumeDb));   // atomic inside
     // hosts may restore state off the message thread; then the editor hears of it
     // from the background timer (backgroundTick), on the message thread
     if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onSettingsChanged) onSettingsChanged(); }

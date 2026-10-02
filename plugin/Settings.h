@@ -13,6 +13,8 @@ struct PluginSettings {
     int midiChannel = 0;              // 0 = every channel, else 1..16: the host MIDI the plugin plays
     bool fixedVelocity = false;       // on-screen keyboard: one velocity, or by where a key is clicked
     int velocity = 100;               // 1..127, when fixed
+    bool hardwareCharacter = false;   // the FM-1's output: 16-bit, its high-frequency roll-off and bandwidth
+    int fm1VolumeDb = 0;              // with it: how far below full the FM-1's volume is, 0..-40 dB (16-bit grain)
 
     bool operator==(const PluginSettings&) const = default;
 
@@ -22,6 +24,7 @@ struct PluginSettings {
         s.bendDown = juce::jlimit(0, 24, s.bendDown);
         s.midiChannel = juce::jlimit(0, 16, s.midiChannel);
         s.velocity = juce::jlimit(1, 127, s.velocity);
+        s.fm1VolumeDb = juce::jlimit(-40, 0, s.fm1VolumeDb);
         return s;
     }
 
@@ -33,6 +36,8 @@ struct PluginSettings {
         t.setProperty("midiChannel", midiChannel, nullptr);
         t.setProperty("fixedVelocity", fixedVelocity, nullptr);
         t.setProperty("velocity", velocity, nullptr);
+        t.setProperty("hardwareCharacter", hardwareCharacter, nullptr);
+        t.setProperty("fm1VolumeDb", fm1VolumeDb, nullptr);
         return t;
     }
     static PluginSettings fromTree(const juce::ValueTree& t) {
@@ -42,6 +47,8 @@ struct PluginSettings {
         s.midiChannel = t.getProperty("midiChannel", s.midiChannel);
         s.fixedVelocity = t.getProperty("fixedVelocity", s.fixedVelocity);
         s.velocity = t.getProperty("velocity", s.velocity);
+        s.hardwareCharacter = t.getProperty("hardwareCharacter", s.hardwareCharacter);
+        s.fm1VolumeDb = t.getProperty("fm1VolumeDb", s.fm1VolumeDb);
         return s.clamped();
     }
     juce::var toJson() const {
@@ -51,6 +58,8 @@ struct PluginSettings {
         o->setProperty("midiChannel", midiChannel);
         o->setProperty("fixedVelocity", fixedVelocity);
         o->setProperty("velocity", velocity);
+        o->setProperty("hardwareCharacter", hardwareCharacter);
+        o->setProperty("fm1VolumeDb", fm1VolumeDb);
         return juce::var(o);
     }
     static PluginSettings fromJson(const juce::var& v) {
@@ -61,6 +70,8 @@ struct PluginSettings {
         s.midiChannel = v.getProperty("midiChannel", s.midiChannel);
         s.fixedVelocity = v.getProperty("fixedVelocity", s.fixedVelocity);
         s.velocity = v.getProperty("velocity", s.velocity);
+        s.hardwareCharacter = v.getProperty("hardwareCharacter", s.hardwareCharacter);
+        s.fm1VolumeDb = v.getProperty("fm1VolumeDb", s.fm1VolumeDb);
         return s.clamped();
     }
 };

@@ -41,6 +41,7 @@ add_test(NAME codec_test COMMAND codec_test ${CMAKE_SOURCE_DIR}/tests/golden.jso
 
 add_executable(engine_test tests/engine_test.cpp)
 target_link_libraries(engine_test PRIVATE fm1_engine fm1_sync)
+target_include_directories(engine_test PRIVATE plugin)   # HardwareCharacter.h
 add_test(NAME engine_test COMMAND engine_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 
 # ---- plugin ---------------------------------------------------------------------

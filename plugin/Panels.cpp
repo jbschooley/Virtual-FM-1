@@ -882,11 +882,12 @@ void SeqPanel::showExportMenu() {
 // ---- SettingsPanel ------------------------------------------------------------------
 
 SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
-    for (auto* c : std::initializer_list<juce::Component*>{&bendUp_, &bendDown_, &velocity_, &channel_, &velocityMode_, &save_, &revert_, &copy_, &note_, &synth_})
+    for (auto* c : std::initializer_list<juce::Component*>{&bendUp_, &bendDown_, &velocity_, &channel_, &velocityMode_, &save_, &revert_, &copy_, &note_, &synth_,
+                                                           &hardware_, &hardwareNote_, &volumeDb_})
         addAndMakeVisible(c);
     makeLabel(headers_, *this, "Playing", 14.0f, true);
     makeLabel(headers_, *this, "FM-1", 14.0f, true);
-    for (const char* n : {"Pitch bend up", "Pitch bend down", "MIDI input channel", "On-screen keyboard"})
+    for (const char* n : {"Pitch bend up", "Pitch bend down", "MIDI input channel", "On-screen keyboard", "Sound"})
         makeLabel(labels_, *this, n, 13.0f);
     setupLinear(bendUp_, 0, 24);
     setupLinear(bendDown_, 0, 24);
@@ -905,13 +906,26 @@ SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
                              "like the FM-1's Keyboard > Velocity for its own keys");
     for (auto* sl : {&bendUp_, &bendDown_, &velocity_}) sl->onValueChange = [this] { apply(); };
     channel_.onChange = [this] { apply(); };
+    hardware_.onClick = [this] { apply(); };
+    setupLinear(volumeDb_, -40, 0);
+    volumeDb_.setTextValueSuffix(" dB");
+    volumeDb_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    volumeDb_.onValueChange = [this] { apply(); };
+    volumeDb_.setTooltip("How far below full the FM-1's volume is. Lower is grainier on decays and quiet passages, "
+                         "as the FM-1's USB audio is at lower MASTER settings; the plugin's own level does not change.");
+    hardware_.setTooltip("Sound like the FM-1's USB audio: 16-bit output at its level and its slightly softer high end. "
+                         "Saved with the project; nothing is sent to the synth.");
     velocityMode_.onChange = [this] { apply(); };
-    for (auto* l : {&note_, &synth_}) {
+    for (auto* l : {&note_, &synth_, &hardwareNote_}) {
         l->setFont(juce::FontOptions(13.0f));
         l->setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
         l->setJustificationType(juce::Justification::topLeft);
     }
     note_.setText("Changes take effect now and are saved with your project. New instances start from the defaults.", juce::dontSendNotification);
+    hardwareNote_.setText("Off: the engine at full resolution. On: like the FM-1's own output, measured from its USB audio "
+                          "(16 bits, a gentle high-frequency roll-off). The dB slider sets how far below full the FM-1's volume is: "
+                          "lower is grainier. Close, not exact: some details need the firmware's source.",
+                          juce::dontSendNotification);
     save_.onClick = [this] {
         note_.setText(proc_.saveSettingsAsDefault() ? "Saved as the defaults for new instances."
                                                     : "Could not write " + FM1Processor::defaultSettingsFile().getFullPathName(),
@@ -940,6 +954,9 @@ void SettingsPanel::refresh() {
     velocityMode_.setSelectedId(s.fixedVelocity ? 2 : 1, juce::dontSendNotification);
     velocity_.setValue(s.velocity, juce::dontSendNotification);
     velocity_.setEnabled(s.fixedVelocity);
+    hardware_.setToggleState(s.hardwareCharacter, juce::dontSendNotification);
+    volumeDb_.setValue(s.fm1VolumeDb, juce::dontSendNotification);
+    volumeDb_.setEnabled(s.hardwareCharacter);
     loading_ = false;
 }
 
@@ -951,6 +968,8 @@ void SettingsPanel::apply() {
     s.midiChannel = channel_.getSelectedId() - 1;
     s.fixedVelocity = velocityMode_.getSelectedId() == 2;
     s.velocity = int(velocity_.getValue());
+    s.hardwareCharacter = hardware_.getToggleState();
+    s.fm1VolumeDb = int(volumeDb_.getValue());
     proc_.setSettings(s);
 }
 
@@ -994,6 +1013,9 @@ void SettingsPanel::resized() {
     row(1, bendDown_);
     row(2, channel_);
     row(3, velocityMode_, &velocity_);
+    row(4, hardware_, &volumeDb_);
+    hardwareNote_.setBounds(r.removeFromTop(48).withTrimmedLeft(180));
+    r.removeFromTop(4);
     r.removeFromTop(4);
     note_.setBounds(r.removeFromTop(22));
     r.removeFromTop(6);
