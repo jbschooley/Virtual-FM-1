@@ -8,6 +8,10 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **MIDI files for the sequencer**: export this pattern or all 16 (one track
+  each) as a standard MIDI file with the notes as they play, including
+  ratchets, accents, ties and transpose; import a MIDI file's notes into the
+  selected pattern on its note-value grid, with held notes tied.
 - **Settings tab**: pitch-bend range, the MIDI channel the plugin plays
   from the host, and a fixed velocity for the on-screen keyboard (and step
   recording with it). Changes take effect at once and are saved with the

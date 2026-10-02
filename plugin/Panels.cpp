@@ -528,14 +528,15 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     addAndMakeVisible(fileStatus_);
     fileStatus_.setFont(juce::FontOptions(13.0f));
     fileStatus_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
-    importPatterns_.setTooltip("Load patterns from a .json file (presets in it are left alone)");
-    exportPatterns_.setTooltip("Save this pattern or all 16 as .json, with every step setting");
+    importPatterns_.setTooltip("Load patterns from a .json file (presets in it are left alone), or a MIDI file into this pattern");
+    exportPatterns_.setTooltip("Save this pattern or all 16 as .json, with every step setting, or as a MIDI file");
     importPatterns_.onClick = [this] {
-        chooser_ = std::make_unique<juce::FileChooser>("Import patterns (.json)", documents(), "*.json");
+        chooser_ = std::make_unique<juce::FileChooser>("Import patterns (.json), or a MIDI file into this pattern (.mid)", documents(), "*.json;*.mid;*.midi");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
             auto f = fc.getResult();
             if (!f.existsAsFile()) return;
-            showImportResult(this, proc_.importJson(f, false, true), [this](const juce::String& m) { fileStatus_.setText(m, juce::dontSendNotification); });
+            if (f.hasFileExtension("mid;midi")) fileStatus_.setText(proc_.importPatternMidi(f), juce::dontSendNotification);
+            else showImportResult(this, proc_.importJson(f, false, true), [this](const juce::String& m) { fileStatus_.setText(m, juce::dontSendNotification); });
             loadPatternControls();
             loadStepControls();
             repaint();
@@ -855,13 +856,23 @@ void ArpPanel::resized() {
 void SeqPanel::showExportMenu() {
     int current = proc_.sequencer.selected.load();
     juce::PopupMenu m;
+    m.addSectionHeader("JSON (every setting)");
     m.addItem(1, "This pattern (" + juce::String(current + 1) + ")...");
     m.addItem(2, "All 16 patterns...");
+    m.addSectionHeader("MIDI file (the notes as they play)");
+    m.addItem(3, "This pattern (" + juce::String(current + 1) + ") as .mid...");
+    m.addItem(4, "All 16 patterns as .mid, one track each...");
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&exportPatterns_), [this, current](int id) {
         if (id == 0) return;
         std::vector<int> pats;
-        if (id == 1) pats.push_back(current);
+        if (id == 1 || id == 3) pats.push_back(current);
         else for (int i = 0; i < Sequencer::kPatterns; ++i) pats.push_back(i);
+        if (id >= 3) {
+            juce::String name = id == 3 ? "fm1-pattern-" + juce::String(current + 1) + ".mid" : "fm1-patterns.mid";
+            saveAs(chooser_, "Export patterns as a MIDI file", name, [this, pats](const juce::File& f) { return proc_.exportPatternsMidi(f, pats); },
+                   [this](const juce::String& msg) { fileStatus_.setText(msg, juce::dontSendNotification); });
+            return;
+        }
         juce::String name = id == 1 ? "fm1-pattern-" + juce::String(current + 1) + ".json" : "fm1-patterns.json";
         saveAs(chooser_, "Export patterns as JSON", name, [this, pats](const juce::File& f) { return proc_.exportJson(f, {}, pats); },
                [this](const juce::String& msg) { fileStatus_.setText(msg, juce::dontSendNotification); });

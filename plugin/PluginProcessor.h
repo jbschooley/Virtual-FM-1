@@ -121,6 +121,11 @@ public:
     struct ImportResult { bool ok = false; juce::String summary; juce::StringArray errors; };
     ImportResult importJson(const juce::File& f, bool presets, bool patterns, Placement placement = Placement::OwnSlots);
 
+    // Standard MIDI files (plugin/SeqMidi.h): export patterns (0..15) as the
+    // sequencer plays them; import a file's notes into the selected pattern.
+    bool exportPatternsMidi(const juce::File& f, const std::vector<int>& patterns);
+    juce::String importPatternMidi(const juce::File& f);
+
     std::function<void(const juce::String&)> onStatus;   // message thread
     juce::MidiMessageCollector keyboardMidi;             // notes from the editor's keyboard
 

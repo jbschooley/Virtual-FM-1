@@ -89,6 +89,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/Fm1Json.cpp
         plugin/Effects.cpp
         plugin/Sequencer.cpp
+        plugin/SeqMidi.cpp
         plugin/Arpeggiator.cpp
         plugin/BankModel.cpp
         plugin/dexed_ui/DXLookNFeel.cpp
@@ -155,7 +156,7 @@ if(FM1_BUILD_PLUGIN)
 
     # sequencer and arpeggiator timing
     juce_add_console_app(seq_test PRODUCT_NAME "seq_test")
-    target_sources(seq_test PRIVATE tests/seq_test.cpp plugin/Sequencer.cpp plugin/Arpeggiator.cpp)
+    target_sources(seq_test PRIVATE tests/seq_test.cpp plugin/Sequencer.cpp plugin/SeqMidi.cpp plugin/Arpeggiator.cpp)
     target_include_directories(seq_test PRIVATE sync plugin)
     target_compile_definitions(seq_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(seq_test PRIVATE fm1_sync juce::juce_audio_processors juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)

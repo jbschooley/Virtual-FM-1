@@ -28,53 +28,58 @@ void Sequencer::startPattern(int pat, double atTick, bool first) {
 
 }
 
-void Sequencer::fireStep(double atTick) {
-    const fm1::seq::Step& s = cur_.steps[size_t(stepIx_)];
-    const fm1::seq::StepTime& t = times_.steps[size_t(stepIx_)];
-    const int n = cur_.length;
+void Sequencer::stepEvents(const fm1::seq::Pattern& p, const fm1::seq::Times& times, int stepIx, double atTick, std::vector<Event>& out) {
+    const fm1::seq::Step& s = p.steps[size_t(stepIx)];
+    const fm1::seq::StepTime& t = times.steps[size_t(stepIx)];
+    const int n = p.length;
     auto tiedFrom = [&](int i, int note) {   // does step i hold `note` into step i+1, which plays it too?
         if (i + 1 >= n) return false;
-        const auto& a = cur_.steps[size_t(i)];
-        const auto& b = cur_.steps[size_t(i + 1)];
+        const auto& a = p.steps[size_t(i)];
+        const auto& b = p.steps[size_t(i + 1)];
         bool tied = a.slide;
         for (const auto& x : a.notes) if (x.note == note && x.tie) tied = true;
         bool has = false;
         for (const auto& x : b.notes) if (x.note == note) has = true;
         return tied && has;
     };
-    bool play = s.chance >= 100 || int(rng_() % 100) < s.chance;
-    if (play && !s.notes.empty()) {
-        int hits = s.ratchet;
-        double hitDur = double(t.dur) / hits;
-        int gatePct = s.gate > 0 ? s.gate : cur_.gate;
-        double gate = std::max(1.0, hitDur * gatePct / 100.0);
-        for (int h = 0; h < hits; ++h) {
-            double on = atTick + h * hitDur;
-            for (const auto& nt : s.notes) {
-                // a continuation of a tie from the previous step is already sounding
-                if (h == 0 && stepIx_ > 0 && tiedFrom(stepIx_ - 1, nt.note)) continue;
-                int note = juce::jlimit(0, 127, nt.note + cur_.transpose + s.transpose);
-                int vel = s.accent ? 127 : nt.vel;
-                double len = gate;
-                if (h == hits - 1) {
-                    // held through every following step it is tied into
-                    double extra = 0.0;
-                    int i = stepIx_;
-                    bool any = false;
-                    while (tiedFrom(i, nt.note)) { any = true; extra += times_.steps[size_t(i)].dur; ++i; }
-                    if (any) {
-                        const auto& last = cur_.steps[size_t(i)];
-                        int lastGate = last.gate > 0 ? last.gate : cur_.gate;
-                        len = (double(t.dur) - h * hitDur) + (extra - t.dur) + std::max(1.0, times_.steps[size_t(i)].dur * lastGate / 100.0);
-                    } else if (s.slide && stepIx_ + 1 < n) {
-                        len = double(t.dur) + 2.0;   // Tie & Slide into a different note: legato overlap
-                    }
+    if (s.notes.empty()) return;
+    int hits = s.ratchet;
+    double hitDur = double(t.dur) / hits;
+    int gatePct = s.gate > 0 ? s.gate : p.gate;
+    double gate = std::max(1.0, hitDur * gatePct / 100.0);
+    for (int h = 0; h < hits; ++h) {
+        double on = atTick + h * hitDur;
+        for (const auto& nt : s.notes) {
+            // a continuation of a tie from the previous step is already sounding
+            if (h == 0 && stepIx > 0 && tiedFrom(stepIx - 1, nt.note)) continue;
+            int note = juce::jlimit(0, 127, nt.note + p.transpose + s.transpose);
+            int vel = s.accent ? 127 : nt.vel;
+            double len = gate;
+            if (h == hits - 1) {
+                // held through every following step it is tied into
+                double extra = 0.0;
+                int i = stepIx;
+                bool any = false;
+                while (tiedFrom(i, nt.note)) { any = true; extra += times.steps[size_t(i)].dur; ++i; }
+                if (any) {
+                    const auto& last = p.steps[size_t(i)];
+                    int lastGate = last.gate > 0 ? last.gate : p.gate;
+                    len = (double(t.dur) - h * hitDur) + (extra - t.dur) + std::max(1.0, times.steps[size_t(i)].dur * lastGate / 100.0);
+                } else if (s.slide && stepIx + 1 < n) {
+                    len = double(t.dur) + 2.0;   // Tie & Slide into a different note: legato overlap
                 }
-                pending_.push_back({on, note, true, vel});
-                pending_.push_back({on + len, note, false, 0});
             }
+            out.push_back({on, note, true, vel});
+            out.push_back({on + len, note, false, 0});
         }
     }
+}
+
+void Sequencer::fireStep(double atTick) {
+    const fm1::seq::Step& s = cur_.steps[size_t(stepIx_)];
+    const fm1::seq::StepTime& t = times_.steps[size_t(stepIx_)];
+    bool play = s.chance >= 100 || int(rng_() % 100) < s.chance;
+    if (play) stepEvents(cur_, times_, stepIx_, atTick, pending_);
     playingStep_ = stepIx_;
     lastStep_ = stepIx_;
     lastStepTick_ = atTick;

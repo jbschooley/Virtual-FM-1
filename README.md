@@ -57,8 +57,9 @@ Logic needs a restart to pick up a new Audio Unit.
    Save as default for new instances.
 7. **Export...** saves presets as JSON: one, a group (Shift- or Cmd-click the
    list), a bank, all 128, or everything with the patterns. The Sequencer
-   tab's **Export...** saves one pattern or all 16. **Import...** reads them
-   back, and `.syx` files too.
+   tab's **Export...** saves one pattern or all 16, as JSON or as a MIDI
+   file. **Import...** reads them back, `.syx` files too, and puts a MIDI
+   file's notes into the selected pattern.
 
 Every sound setting is a host parameter, so it can be automated, and a host
 project saves its own current preset, edits, patterns and arpeggiator.

@@ -8,6 +8,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "Arpeggiator.h"
+#include "SeqMidi.h"
 #include "Sequencer.h"
 
 static int g_fail = 0, g_pass = 0;
@@ -212,6 +213,84 @@ int main() {
         for (int b = 0; b < 30; ++b) { buf.clear(); a.process(nullptr, 480, buf); for (const auto m : buf) if (m.getMessage().isNoteOn()) order.push_back(m.getMessage().getNoteNumber()); }
         CHECK(!order.empty() && order[0] == 48, "latch keeps the arp running after keys are released");
     }
+    // ---- MIDI files ----
+    {
+        using namespace fm1::seq;
+        auto roundTrip = [](const juce::MidiFile& mf) {   // through bytes, as a file would go
+            juce::MemoryOutputStream os; mf.writeTo(os, 1);
+            juce::MemoryInputStream in(os.getData(), os.getDataSize(), false);
+            juce::MidiFile back; back.readFrom(in); return back;
+        };
+        // notes, velocities and ties come back on the same steps, at gate 50 and 30
+        for (int gate : {50, 30}) {
+            Pattern p; p.length = 16; p.rate = 6; p.gate = gate; p.tempo = 97;
+            for (auto& st : p.steps) st.rate = p.rate;
+            p.steps[0].notes = {{60, 90, false}, {64, 114, false}};
+            p.steps[3].notes = {{67, 70, true}};
+            p.steps[4].notes = {{67, 70, true}};
+            p.steps[5].notes = {{67, 70, false}};
+            p.steps[9].notes = {{48, 127, false}};
+            p.steps[15].notes = {{72, 1, false}};
+            auto mf = roundTrip(seqmidi::toMidi({{2, p}}));
+            CHECK(mf.getTimeFormat() == kStepTicksPerQuarter && mf.getNumTracks() == 1, "MIDI export: 96 ticks per quarter, one track");
+            Pattern base; base.rate = 6;
+            auto r = seqmidi::fromMidi(mf, base);
+            bool same = r.pattern.length == 16 && r.pattern.tempo == 97;
+            for (int i = 0; i < 16; ++i) {
+                const auto& a = p.steps[size_t(i)].notes; const auto& b = r.pattern.steps[size_t(i)].notes;
+                if (a.size() != b.size()) { same = false; std::printf("  gate %d step %d: %zu notes, back %zu\n", gate, i + 1, a.size(), b.size()); continue; }
+                for (size_t k = 0; k < a.size(); ++k)
+                    if (a[k].note != b[k].note || a[k].vel != b[k].vel || a[k].tie != b[k].tie) {
+                        same = false; std::printf("  gate %d step %d: %d/%d/%d back %d/%d/%d\n", gate, i + 1, a[k].note, a[k].vel, int(a[k].tie), b[k].note, b[k].vel, int(b[k].tie));
+                    }
+            }
+            CHECK(same && r.notes == 5 && r.tempoFromFile, gate == 50 ? "MIDI round trip at gate 50: notes, velocities, ties, length, tempo" : "MIDI round trip at gate 30");
+        }
+        // what plays: ratchet, accent, transpose; a step's chance does not drop it
+        {
+            Pattern p; p.length = 4; p.rate = 6; p.transpose = 2;
+            for (auto& st : p.steps) st.rate = p.rate;
+            p.steps[0].notes = {{60, 80, false}}; p.steps[0].ratchet = 3;
+            p.steps[1].notes = {{62, 80, false}}; p.steps[1].accent = true; p.steps[1].transpose = 12;
+            p.steps[2].notes = {{64, 80, false}}; p.steps[2].chance = 5;
+            auto mf = roundTrip(seqmidi::toMidi({{0, p}}));
+            std::vector<std::pair<int, int>> ons;
+            const auto* tr = mf.getTrack(0);
+            for (int i = 0; i < tr->getNumEvents(); ++i) {
+                const auto& m = tr->getEventPointer(i)->message;
+                if (m.isNoteOn()) ons.push_back({m.getNoteNumber(), m.getVelocity()});
+            }
+            int at62 = 0, at76 = 0, at66 = 0; bool accent = false;
+            for (auto [n, v] : ons) { if (n == 62) ++at62; if (n == 76) { ++at76; accent = v == 127; } if (n == 66) ++at66; }
+            CHECK(ons.size() == 5 && at62 == 3, "MIDI export: ratchet 3 plays three notes (transposed by the pattern)");
+            CHECK(at76 == 1 && accent, "MIDI export: accent at 127, step transpose added");
+            CHECK(at66 == 1, "MIDI export: a step with low chance is still written");
+        }
+        // all patterns: one track each, named
+        {
+            Pattern a, b; a.steps[0].notes = {{60, 100, false}}; b.steps[0].notes = {{61, 100, false}};
+            auto mf = roundTrip(seqmidi::toMidi({{0, a}, {5, b}}));
+            bool named = false;
+            const auto* tr = mf.getTrack(1);
+            for (int i = 0; i < tr->getNumEvents(); ++i)
+                if (tr->getEventPointer(i)->message.isTrackNameEvent() && tr->getEventPointer(i)->message.getTextFromTextMetaEvent() == "Pattern 6") named = true;
+            CHECK(mf.getNumTracks() == 2 && named, "MIDI export: one named track per pattern");
+        }
+        // import: grid from the pattern's note value, notes past step 64 left out
+        {
+            juce::MidiMessageSequence seq;
+            for (int i = 0; i < 70; ++i) {   // eighth notes at 480 ticks per quarter
+                seq.addEvent(juce::MidiMessage::noteOn(1, 60 + i % 12, (juce::uint8) 100), i * 240.0);
+                seq.addEvent(juce::MidiMessage::noteOff(1, 60 + i % 12), i * 240.0 + 120.0);
+            }
+            juce::MidiFile mf; mf.setTicksPerQuarterNote(480); mf.addTrack(seq);
+            Pattern base; base.rate = 4;   // 1/8
+            auto r = seqmidi::fromMidi(roundTrip(mf), base);
+            CHECK(r.notes == 64 && r.pastEnd == 6 && r.pattern.length == 64, "MIDI import: an eighth-note line on a 1/8 grid, 64 steps, the rest reported");
+            CHECK(r.pattern.steps[1].notes.size() == 1 && r.pattern.steps[1].notes[0].note == 61 && !r.pattern.steps[1].notes[0].tie, "MIDI import: notes land on their steps");
+        }
+    }
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

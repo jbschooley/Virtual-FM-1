@@ -55,8 +55,14 @@ public:
     void recordNoteOn(int note, int vel);   // audio thread
     void recordNoteOff(int note);           // audio thread
 
+    // The notes step `stepIx` of `p` plays when it fires at `atTick` (ratchet,
+    // gate, accent, transpose, ties and slide applied; chance not), in the
+    // pattern's ticks (fm1::seq::stepTimes). Used for playback and MIDI export.
+    struct Event { double tick; int note; bool on; int vel; };
+    static void stepEvents(const fm1::seq::Pattern& p, const fm1::seq::Times& t, int stepIx, double atTick, std::vector<Event>& out);
+
 private:
-    struct Pending { double tick; int note; bool on; int vel; };
+    using Pending = Event;
     struct Held { int note, vel, step; };
     std::vector<Held> recHeld_;
     std::array<bool, fm1::seq::kSteps> recTouched_{};   // steps replaced in this pass

@@ -3,6 +3,7 @@
 #include <set>
 
 #include "Fm1Json.h"
+#include "SeqMidi.h"
 #include "PluginEditor.h"
 
 FM1Processor::FM1Processor()
@@ -777,6 +778,42 @@ FM1Processor::ImportResult FM1Processor::importJson(const juce::File& f, bool pr
                                : "Loaded " + done.joinIntoString(" and ") + " from " + f.getFileName();
     if (!ignored.isEmpty()) r.summary << "; skipped " << ignored.joinIntoString(", ");
     return r;
+}
+
+bool FM1Processor::exportPatternsMidi(const juce::File& f, const std::vector<int>& patterns) {
+    std::vector<seqmidi::Entry> list;
+    {
+        const juce::SpinLock::ScopedLockType l(sequencer.lock);
+        for (int i : patterns)
+            if (i >= 0 && i < Sequencer::kPatterns) list.push_back({i, sequencer.patterns[size_t(i)]});
+    }
+    if (list.empty()) return false;
+    juce::MidiFile mf = seqmidi::toMidi(list);
+    f.deleteFile();
+    juce::FileOutputStream os(f);
+    return os.openedOk() && mf.writeTo(os, 1);
+}
+
+juce::String FM1Processor::importPatternMidi(const juce::File& f) {
+    juce::FileInputStream in(f);
+    juce::MidiFile mf;
+    if (!in.openedOk() || !mf.readFrom(in)) return "Could not read " + f.getFileName() + " as a MIDI file";
+    if (mf.getTimeFormat() <= 0) return f.getFileName() + " uses SMPTE time, which has no beat grid";
+    int pat = sequencer.selected.load();
+    seqmidi::ImportResult r;
+    {
+        const juce::SpinLock::ScopedLockType l(sequencer.lock);
+        r = seqmidi::fromMidi(mf, sequencer.patterns[size_t(pat)]);
+        if (r.notes > 0) sequencer.patterns[size_t(pat)] = r.pattern;
+    }
+    if (r.notes == 0) return "No notes in " + f.getFileName() + "; pattern " + juce::String(pat + 1) + " is unchanged";
+    ++patternsVersion;
+    juce::String msg = "Pattern " + juce::String(pat + 1) + ": " + juce::String(r.notes) + " notes from " + f.getFileName()
+                     + " on a " + fm1::seq::kNoteValueNames[r.pattern.rate] + " grid, " + juce::String(r.pattern.length) + " steps";
+    if (r.tempoFromFile) msg << ", tempo " << r.pattern.tempo;
+    if (r.pastEnd) msg << "; " << r.pastEnd << " past step 64 left out";
+    if (r.crowded) msg << "; " << r.crowded << " left out where a step already had nine notes";
+    return msg;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new FM1Processor(); }
