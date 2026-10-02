@@ -4,7 +4,7 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-10-02
 
 ### Added
 
