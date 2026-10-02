@@ -27,7 +27,7 @@ public:
     Fm1Session(Fm1Link& link);
     ~Fm1Session() override;
 
-    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent, SendEdit };
+    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent, SendEdit, ReadGlobals };
 
     struct Progress {
         Op op = Op::None;
@@ -65,6 +65,7 @@ public:
     void cancel() { cancel_ = true; }
 
     void identify();
+    bool readSettings();   // the GLOBE settings again (onGlobals); false when busy or not connected
     void pull(std::vector<int> slots);
     void push(std::vector<fm1::Sound> sounds, bool showLastOnDevice = false);   // each with its slot
     void select(int slot, int midiChannel = 0);  // program change, not queued; 0 = the synth's channel
@@ -100,7 +101,7 @@ private:
     int discoveredForVersion_ = -1;
     // The edit buffer's address for this synth (known table, cached search, or a new search).
     std::optional<uint32_t> editBufferAddr(juce::String& err, int* slotOut);
-    void readGlobals();
+    bool readGlobals();
     fm1::Sound editSound_;
     fm1::edit::Channels editCh_;
     bool editSelect_ = true;

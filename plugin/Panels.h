@@ -178,8 +178,10 @@ public:
     void resized() override;
     void refresh();      // from the processor's settings
     void showSynth();    // the FM-1's GLOBE settings, once read
+    void visibilityChanged() override;   // shown: read the FM-1's settings again
 
 private:
+    bool copyPending_ = false;
     void apply();        // the controls into the processor's settings
     FM1Processor& proc_;
     juce::Slider bendUp_, bendDown_, velocity_;

@@ -15,6 +15,7 @@ bool Fm1Session::start(Op op) {
 }
 
 void Fm1Session::identify() { start(Op::Identify); }
+bool Fm1Session::readSettings() { return start(Op::ReadGlobals); }
 void Fm1Session::pull(std::vector<int> slots) { pullSlots_ = std::move(slots); start(Op::Pull); }
 void Fm1Session::push(std::vector<fm1::Sound> sounds, bool showLastOnDevice) { pushSounds_ = std::move(sounds); showLast_ = showLastOnDevice; start(Op::Push); }
 
@@ -93,13 +94,13 @@ std::optional<Fm1Session::CurrentAddrs> Fm1Session::knownAddrs(int version) {
 //   +0 MIDI channel (0 = All)  +1 FX channel - 1  +2 bend up  +3 bend down
 //   +4 Keyboard > Velocity     +0x82 glide time   +0x83 glide mode (1 = Fingered)
 // Drive, Ext Ctrl CC7 Vol and Overdub Rec are not located yet.
-void Fm1Session::readGlobals() {
-    if (!identity_) return;
+bool Fm1Session::readGlobals() {
+    if (!identity_) return false;
     auto a = knownAddrs(identity_->version);
-    if (!a) return;
+    if (!a) return false;
     fm1::Bytes b;
     juce::String err;
-    if (!readBlock(a->globals, 0x84, b, err) || b.size() < 0x84) return;
+    if (!readBlock(a->globals, 0x84, b, err) || b.size() < 0x84) return false;
     Globals g;
     g.midiChannel = b[0];
     g.fxChannel = b[1] + 1;
@@ -111,8 +112,9 @@ void Fm1Session::readGlobals() {
     // a different layout (an unknown build) shows up as values out of range: ignore it
     if (g.midiChannel > 16 || g.fxChannel > 16 || g.bendUp > 48 || g.bendDown > 48 || g.keyVelocity < 1 || g.keyVelocity > 127
         || g.glideTime > 100 || b[0x83] > 1)
-        return;
+        return false;
     juce::MessageManager::callAsync([this, g] { if (onGlobals) onGlobals(g); });
+    return true;
 }
 
 bool Fm1Session::readBlock(uint32_t addr, int n, fm1::Bytes& out, juce::String& error) {
@@ -312,6 +314,17 @@ void Fm1Session::run() {
             juce::MessageManager::callAsync([this, pat] { if (onPatternWritten) onPatternWritten(pat); });
         }
         report(total, total, juce::String(total) + (total == 1 ? " pattern written." : " patterns written."), true);
+        return;
+    }
+    case Op::ReadGlobals: {
+        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (!readGlobals()) {
+            report(0, 1, identity_->isStock() || !knownAddrs(identity_->version)
+                             ? "The plugin can read the FM-1's GLOBE settings on FM-1_093 only."
+                             : "Could not read the FM-1's GLOBE settings.", true, true);
+            return;
+        }
+        report(1, 1, "Read the FM-1's GLOBE settings.", true);
         return;
     }
     case Op::PullCurrent: {

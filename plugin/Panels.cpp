@@ -912,7 +912,9 @@ SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
     };
     copy_.setTooltip("Copies the FM-1's pitch-bend range and its Keyboard > Velocity into these settings");
     copy_.onClick = [this] {
-        if (proc_.copyGlobalsToSettings()) note_.setText("Copied the FM-1's bend range and key velocity. Save as default to keep them for new instances.", juce::dontSendNotification);
+        copyPending_ = proc_.readSynthSettings(true);
+        note_.setText(copyPending_ ? "Reading the FM-1's settings..." : "The FM-1 is busy or not connected; try again in a moment.",
+                      juce::dontSendNotification);
     };
     refresh();
     showSynth();
@@ -941,7 +943,15 @@ void SettingsPanel::apply() {
     proc_.setSettings(s);
 }
 
+void SettingsPanel::visibilityChanged() {
+    if (isShowing()) proc_.readSynthSettings();
+}
+
 void SettingsPanel::showSynth() {
+    if (copyPending_) {
+        copyPending_ = false;
+        note_.setText("Copied the FM-1's bend range and key velocity. Save as default to keep them for new instances.", juce::dontSendNotification);
+    }
     auto g = proc_.synthGlobals();
     copy_.setEnabled(g.has_value());
     if (!g) {

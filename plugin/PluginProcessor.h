@@ -87,7 +87,9 @@ public:
     void revertSettingsToDefault();
     static PluginSettings defaultSettings();      // the shared file, or the factory values
     static juce::File defaultSettingsFile();
-    bool copyGlobalsToSettings();                 // bend range and key velocity from the FM-1
+    // Read the FM-1's GLOBE settings again; with `thenCopy`, take its bend range
+    // and key velocity into the settings once they arrive. False when not connected or busy.
+    bool readSynthSettings(bool thenCopy = false);
     std::function<void()> onSettingsChanged;      // message thread
 
     bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
@@ -135,6 +137,8 @@ private:
     std::atomic<int> bendUp_{12}, bendDown_{12};   // semitones, for the audio thread
     std::atomic<int> inputChannel_{0};             // 0 = every channel
     std::atomic<bool> settingsNotify_{false};
+    bool copyPending_ = false;
+    void copyGlobalsToSettings();
     void loadCurrentIntoParams();
     void writeDiagnostics();
 

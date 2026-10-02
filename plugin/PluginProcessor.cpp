@@ -20,6 +20,7 @@ FM1Processor::FM1Processor()
         channels.fx = g.fxChannel;
         channels.midi = g.midiChannel == 0 ? 1 : g.midiChannel;   // "All" hears every channel
         session.setMidiChannel(channels.midi);
+        if (copyPending_) { copyPending_ = false; copyGlobalsToSettings(); }
         if (onGlobals) onGlobals();
     };
     session.onCurrentRead = [this](const fm1::Sound& live, const fm1::Sound& stored) {
@@ -675,15 +676,20 @@ bool FM1Processor::saveSettingsAsDefault() {
 
 void FM1Processor::revertSettingsToDefault() { setSettings(defaultSettings()); }
 
-bool FM1Processor::copyGlobalsToSettings() {
-    if (!globals_) return false;
+bool FM1Processor::readSynthSettings(bool thenCopy) {
+    if (!link.isOpen() || !session.readSettings()) return false;
+    copyPending_ = thenCopy;
+    return true;
+}
+
+void FM1Processor::copyGlobalsToSettings() {
+    if (!globals_) return;
     PluginSettings s = settings_;
     s.bendUp = globals_->bendUp;
     s.bendDown = globals_->bendDown;
     s.fixedVelocity = true;               // the FM-1's keys play at its Keyboard > Velocity
     s.velocity = globals_->keyVelocity;
     setSettings(s);
-    return true;
 }
 
 bool FM1Processor::exportJson(const juce::File& f, const std::vector<int>& slots, const std::vector<int>& patterns) {
