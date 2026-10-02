@@ -150,11 +150,6 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     exportFile_.setTooltip("Save presets (the selected ones, a bank, all) and patterns. Shift- or Cmd-click the list to select several presets.");
     list_.setRowHeight(20);
     list_.setMultipleSelectionEnabled(true);
-    addAndMakeVisible(synthSettings_);
-    synthSettings_.setFont(juce::FontOptions(13.0f));
-    synthSettings_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
-    synthSettings_.setJustificationType(juce::Justification::topLeft);
-    showSynthSettings();
     list_.selectRow(proc_.bank.currentSlot());
     currentName_.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     startTimerHz(10);
@@ -229,8 +224,6 @@ void LibraryPanel::resized() {
     row(pushAll_, &cancel_);
     r.removeFromTop(10);
     row(importFile_, &exportFile_);
-    r.removeFromTop(10);
-    synthSettings_.setBounds(r.removeFromTop(54));
 }
 
 void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) {
@@ -308,15 +301,8 @@ void LibraryPanel::importJson(const juce::File& f) {
     });
 }
 
-void LibraryPanel::showSynthSettings() {
-    auto g = proc_.synthGlobals();
-    if (!g) { synthSettings_.setText({}, juce::dontSendNotification); return; }
+void LibraryPanel::refreshFxChannel() {
     fxChannel_.setSelectedId(proc_.channels.fx, juce::dontSendNotification);
-    synthSettings_.setText("Read from the FM-1's GLOBE settings: MIDI channel " + (g->midiChannel == 0 ? juce::String("All") : juce::String(g->midiChannel))
-        + ", FX channel " + juce::String(g->fxChannel) + ", pitch bend +" + juce::String(g->bendUp) + " / -" + juce::String(g->bendDown)
-        + " semitones, key velocity " + juce::String(g->keyVelocity) + ", glide " + (g->glideFingered ? "Fingered" : "Full Time")
-        + " " + juce::String(g->glideTime) + ". The plugin uses the channels and bend range; it has no glide yet.",
-        juce::dontSendNotification);
 }
 
 std::vector<int> LibraryPanel::selectedSlots() const {
@@ -880,4 +866,124 @@ void SeqPanel::showExportMenu() {
         saveAs(chooser_, "Export patterns as JSON", name, [this, pats](const juce::File& f) { return proc_.exportJson(f, {}, pats); },
                [this](const juce::String& msg) { fileStatus_.setText(msg, juce::dontSendNotification); });
     });
+}
+
+// ---- SettingsPanel ------------------------------------------------------------------
+
+SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
+    for (auto* c : std::initializer_list<juce::Component*>{&bendUp_, &bendDown_, &velocity_, &channel_, &velocityMode_, &save_, &revert_, &copy_, &note_, &synth_})
+        addAndMakeVisible(c);
+    makeLabel(headers_, *this, "Playing", 14.0f, true);
+    makeLabel(headers_, *this, "FM-1", 14.0f, true);
+    for (const char* n : {"Pitch bend up", "Pitch bend down", "MIDI input channel", "On-screen keyboard"})
+        makeLabel(labels_, *this, n, 13.0f);
+    setupLinear(bendUp_, 0, 24);
+    setupLinear(bendDown_, 0, 24);
+    bendUp_.setTextValueSuffix(" semitones");
+    bendDown_.setTextValueSuffix(" semitones");
+    bendUp_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 100, 20);
+    bendDown_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 100, 20);
+    setupLinear(velocity_, 1, 127);
+    channel_.addItem("Every channel", 1);
+    for (int ch = 1; ch <= 16; ++ch) channel_.addItem("Channel " + juce::String(ch), ch + 1);
+    channel_.setTooltip("Which of the host's MIDI channels the plugin plays. The on-screen keyboard always plays. "
+                        "This is the plugin's own setting, not the FM-1's MIDI channel.");
+    velocityMode_.addItem("Velocity by where a key is clicked", 1);
+    velocityMode_.addItem("Fixed velocity", 2);
+    velocityMode_.setTooltip("The velocity of notes played and step-recorded with the on-screen keyboard, "
+                             "like the FM-1's Keyboard > Velocity for its own keys");
+    for (auto* sl : {&bendUp_, &bendDown_, &velocity_}) sl->onValueChange = [this] { apply(); };
+    channel_.onChange = [this] { apply(); };
+    velocityMode_.onChange = [this] { apply(); };
+    for (auto* l : {&note_, &synth_}) {
+        l->setFont(juce::FontOptions(13.0f));
+        l->setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+        l->setJustificationType(juce::Justification::topLeft);
+    }
+    note_.setText("Changes take effect now and are saved with your project. New instances start from the defaults.", juce::dontSendNotification);
+    save_.onClick = [this] {
+        note_.setText(proc_.saveSettingsAsDefault() ? "Saved as the defaults for new instances."
+                                                    : "Could not write " + FM1Processor::defaultSettingsFile().getFullPathName(),
+                      juce::dontSendNotification);
+    };
+    revert_.onClick = [this] {
+        proc_.revertSettingsToDefault();
+        note_.setText("Back to the defaults.", juce::dontSendNotification);
+    };
+    copy_.setTooltip("Copies the FM-1's pitch-bend range and its Keyboard > Velocity into these settings");
+    copy_.onClick = [this] {
+        if (proc_.copyGlobalsToSettings()) note_.setText("Copied the FM-1's bend range and key velocity. Save as default to keep them for new instances.", juce::dontSendNotification);
+    };
+    refresh();
+    showSynth();
+}
+
+void SettingsPanel::refresh() {
+    loading_ = true;
+    const auto& s = proc_.settings();
+    bendUp_.setValue(s.bendUp, juce::dontSendNotification);
+    bendDown_.setValue(s.bendDown, juce::dontSendNotification);
+    channel_.setSelectedId(s.midiChannel + 1, juce::dontSendNotification);
+    velocityMode_.setSelectedId(s.fixedVelocity ? 2 : 1, juce::dontSendNotification);
+    velocity_.setValue(s.velocity, juce::dontSendNotification);
+    velocity_.setEnabled(s.fixedVelocity);
+    loading_ = false;
+}
+
+void SettingsPanel::apply() {
+    if (loading_) return;
+    PluginSettings s = proc_.settings();
+    s.bendUp = int(bendUp_.getValue());
+    s.bendDown = int(bendDown_.getValue());
+    s.midiChannel = channel_.getSelectedId() - 1;
+    s.fixedVelocity = velocityMode_.getSelectedId() == 2;
+    s.velocity = int(velocity_.getValue());
+    proc_.setSettings(s);
+}
+
+void SettingsPanel::showSynth() {
+    auto g = proc_.synthGlobals();
+    copy_.setEnabled(g.has_value());
+    if (!g) {
+        synth_.setText("Not read yet. With an FM-1 running FM-1_093 connected, the plugin reads its GLOBE settings and "
+                       "uses its MIDI and FX channels to talk to it.", juce::dontSendNotification);
+        return;
+    }
+    synth_.setText("Read from the FM-1's GLOBE settings: MIDI channel " + (g->midiChannel == 0 ? juce::String("All") : juce::String(g->midiChannel))
+        + ", FX channel " + juce::String(g->fxChannel) + ", pitch bend +" + juce::String(g->bendUp) + " / -" + juce::String(g->bendDown)
+        + " semitones, key velocity " + juce::String(g->keyVelocity) + ", glide " + (g->glideFingered ? "Fingered" : "Full Time") + " "
+        + juce::String(g->glideTime) + ".\nThe plugin talks to the FM-1 on its MIDI and FX channels. The plugin has no glide yet.",
+        juce::dontSendNotification);
+}
+
+void SettingsPanel::resized() {
+    auto r = getLocalBounds().reduced(14);
+    auto row = [&](int labelIndex, juce::Component& c, juce::Component* extra = nullptr) {
+        auto rr = r.removeFromTop(28);
+        labels_[size_t(labelIndex)]->setBounds(rr.removeFromLeft(180));
+        c.setBounds(rr.removeFromLeft(extra ? 300 : 420));
+        if (extra) { rr.removeFromLeft(10); extra->setBounds(rr.removeFromLeft(240)); }
+        r.removeFromTop(8);
+    };
+    headers_[0]->setBounds(r.removeFromTop(24));
+    r.removeFromTop(6);
+    row(0, bendUp_);
+    row(1, bendDown_);
+    row(2, channel_);
+    row(3, velocityMode_, &velocity_);
+    r.removeFromTop(4);
+    note_.setBounds(r.removeFromTop(22));
+    r.removeFromTop(6);
+    {
+        auto rr = r.removeFromTop(28);
+        save_.setBounds(rr.removeFromLeft(160));
+        rr.removeFromLeft(8);
+        revert_.setBounds(rr.removeFromLeft(160));
+    }
+    r.removeFromTop(28);
+    headers_[1]->setBounds(r.removeFromTop(24));
+    r.removeFromTop(6);
+    synth_.setBounds(r.removeFromTop(40));
+    r.removeFromTop(6);
+    copy_.setBounds(r.removeFromTop(28).removeFromLeft(160));
 }

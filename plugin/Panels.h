@@ -38,7 +38,7 @@ public:
     void refresh();
     void setStatus(const juce::String& s) { status_.setText(s, juce::dontSendNotification); }
     void setIdentity(const juce::String& s) { identity_.setText(s, juce::dontSendNotification); }
-    void showSynthSettings();   // the FM-1's GLOBE settings, once read
+    void refreshFxChannel();   // after the FM-1's GLOBE settings are read
 
 private:
     int getNumRows() override { return BankModel::kSlots; }
@@ -65,7 +65,7 @@ private:
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
                      selectOnDevice_{"Show on FM-1"}, cancel_{"Stop"},
                      importFile_{"Import..."}, exportFile_{"Export..."};
-    juce::Label status_, synthSettings_;
+    juce::Label status_;
     std::unique_ptr<juce::FileChooser> chooser_;
     bool wasBusy_ = false;
     bool wasOpen_ = false;
@@ -167,4 +167,25 @@ private:
     juce::Slider octaves_, tempo_, gate_, swing_;
     juce::ToggleButton latch_{"Latch"}, sync_{"Sync to host"};
     std::vector<std::unique_ptr<juce::Label>> labels_;
+};
+
+// How this instance plays: bend range, MIDI input channel, on-screen keyboard
+// velocity. Changes apply at once and are saved with the project; Save as
+// default makes them what new instances start with.
+class SettingsPanel : public juce::Component {
+public:
+    explicit SettingsPanel(FM1Processor&);
+    void resized() override;
+    void refresh();      // from the processor's settings
+    void showSynth();    // the FM-1's GLOBE settings, once read
+
+private:
+    void apply();        // the controls into the processor's settings
+    FM1Processor& proc_;
+    juce::Slider bendUp_, bendDown_, velocity_;
+    juce::ComboBox channel_, velocityMode_;
+    juce::TextButton save_{"Save as default"}, revert_{"Revert to default"}, copy_{"Copy from FM-1"};
+    juce::Label note_, synth_;
+    std::vector<std::unique_ptr<juce::Label>> labels_, headers_;
+    bool loading_ = false;
 };

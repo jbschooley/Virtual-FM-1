@@ -1,7 +1,7 @@
 #include "PluginEditor.h"
 
 FM1Editor::FM1Editor(FM1Processor& p)
-    : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p) {
+    : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p), settings_(p) {
     setSize(1100, 770);
     auto bg = juce::Colour(0xff26262e);
     tabs_.addTab("Library & Sync", bg, &library_, false);
@@ -9,6 +9,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     tabs_.addTab("Effects & Envelope", bg, &fx_, false);
     tabs_.addTab("Sequencer", bg, &seq_, false);
     tabs_.addTab("Arpeggiator", bg, &arp_, false);
+    tabs_.addTab("Settings", bg, &settings_, false);
     addAndMakeVisible(tabs_);
     addAndMakeVisible(keyboard_);
     keyState_.addListener(this);
@@ -20,7 +21,9 @@ FM1Editor::FM1Editor(FM1Processor& p)
         t += id.isStock() ? "  (M-VAVE firmware: DX7 dumps only, no read-back)" : "  (FM-1+VA: full two-way sync)";
         library_.setIdentity(t);
     };
-    proc_.onGlobals = [this] { library_.showSynthSettings(); };
+    proc_.onGlobals = [this] { library_.refreshFxChannel(); settings_.showSynth(); };
+    proc_.onSettingsChanged = [this] { settings_.refresh(); applyKeyboardVelocity(); };
+    applyKeyboardVelocity();
     proc_.bank.onChange();
     // debugging aid: FM1_TAB=n opens the editor on tab n
     tabs_.setComponentID("tabs");
@@ -38,6 +41,12 @@ FM1Editor::~FM1Editor() {
     proc_.bank.onChange = nullptr;
     proc_.session.onIdentity = nullptr;
     proc_.onGlobals = nullptr;
+    proc_.onSettingsChanged = nullptr;
+}
+
+void FM1Editor::applyKeyboardVelocity() {
+    const auto& s = proc_.settings();
+    keyboard_.setVelocity(s.fixedVelocity ? float(s.velocity) / 127.0f : 1.0f, !s.fixedVelocity);
 }
 
 void FM1Editor::handleNoteOn(juce::MidiKeyboardState*, int ch, int note, float vel) {

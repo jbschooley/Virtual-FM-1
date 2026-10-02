@@ -25,6 +25,8 @@ private:
     FxPanel fx_;
     SeqPanel seq_;
     ArpPanel arp_;
+    SettingsPanel settings_;
+    void applyKeyboardVelocity();
     juce::MidiKeyboardState keyState_;
     juce::MidiKeyboardComponent keyboard_{keyState_, juce::MidiKeyboardComponent::horizontalKeyboard};
 };

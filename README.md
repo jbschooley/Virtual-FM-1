@@ -52,6 +52,9 @@ Logic needs a restart to pick up a new Audio Unit.
    preset on the synth. **Push changed** writes every preset that differs.
 6. The **Sequencer** tab pulls and pushes patterns; **Arpeggiator** works like
    the FM-1's. Both follow your host's tempo and transport.
+   **Settings** holds the pitch-bend range, the MIDI channel the plugin
+   plays and the on-screen keyboard's velocity, saved with the project, with
+   Save as default for new instances.
 7. **Export...** saves presets as JSON: one, a group (Shift- or Cmd-click the
    list), a bank, all 128, or everything with the patterns. The Sequencer
    tab's **Export...** saves one pattern or all 16. **Import...** reads them

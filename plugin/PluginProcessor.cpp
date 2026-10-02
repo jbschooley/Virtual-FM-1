@@ -20,8 +20,6 @@ FM1Processor::FM1Processor()
         channels.fx = g.fxChannel;
         channels.midi = g.midiChannel == 0 ? 1 : g.midiChannel;   // "All" hears every channel
         session.setMidiChannel(channels.midi);
-        bendUp_ = g.bendUp;
-        bendDown_ = g.bendDown;
         if (onGlobals) onGlobals();
     };
     session.onCurrentRead = [this](const fm1::Sound& live, const fm1::Sound& stored) {
@@ -58,6 +56,7 @@ FM1Processor::FM1Processor()
     bank.onLibraryChange = [this] { libraryDirty_ = true; };
     loadLibrary();
     loadCurrentIntoParams();
+    setSettings(defaultSettings());
     writeDiagnostics();
     background_.startTimer(1000);
 }
@@ -105,6 +104,7 @@ static void diag(const juce::String& line) {
 }
 
 void FM1Processor::backgroundTick() {
+    if (settingsNotify_.exchange(false) && onSettingsChanged) onSettingsChanged();
     // the shared library: save our changes, or pick up another instance's
     if (libraryDirty_) saveLibrary();
     else if (libraryFile().getLastModificationTime() > libraryLoadedTime_) {
@@ -162,6 +162,7 @@ void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     mono_.setSize(1, std::max(1, samplesPerBlock));
     generated_.ensureSize(4096);
     synthEvents_.ensureSize(4096);
+    filtered_.ensureSize(4096);
     params.changed = true;
 }
 
@@ -212,6 +213,15 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
     synth_.setPitchBendRange(bendUp_.load(), bendDown_.load());
 
+    // the host's MIDI on the chosen channel only (SysEx and the on-screen keyboard always pass)
+    if (int ch = inputChannel_.load(); ch > 0) {
+        filtered_.clear();
+        for (const auto meta : midi) {
+            const auto m = meta.getMessage();
+            if (m.getChannel() == 0 || m.getChannel() == ch) filtered_.addEvent(m, meta.samplePosition);
+        }
+        midi.swapWith(filtered_);
+    }
     keyboardMidi.removeNextBlockOfMessages(midi, numSamples);
 
     juce::AudioPlayHead::PositionInfo posInfo;
@@ -432,6 +442,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     ar.setProperty("rate", arp.rate.load(), nullptr); ar.setProperty("tempo", arp.tempo.load(), nullptr); ar.setProperty("gate", arp.gate.load(), nullptr);
     ar.setProperty("swing", arp.swing.load(), nullptr); ar.setProperty("latch", arp.latch.load(), nullptr); ar.setProperty("sync", arp.syncToHost.load(), nullptr);
     v.addChild(ar, -1, nullptr);
+    v.addChild(settings_.toTree(), -1, nullptr);
     juce::MemoryOutputStream os(dest, false);
     v.writeToStream(os);
 }
@@ -482,6 +493,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
         arp.rate = int(ar.getProperty("rate", 6)); arp.tempo = int(ar.getProperty("tempo", 120)); arp.gate = int(ar.getProperty("gate", 50));
         arp.swing = int(ar.getProperty("swing", 50)); arp.latch = bool(ar.getProperty("latch", false)); arp.syncToHost = bool(ar.getProperty("sync", true));
     }
+    // a project saved before settings existed keeps the defaults this instance started with
+    if (auto st = v.getChildWithName("Settings"); st.isValid()) setSettings(PluginSettings::fromTree(st));
     juce::String in = v.getProperty("midiIn").toString(), out = v.getProperty("midiOut").toString();
     if (in.isNotEmpty() && out.isNotEmpty()) connect(in, out);
 }
@@ -631,6 +644,46 @@ bool FM1Processor::exportSyx(const juce::File& f, const std::vector<int>& slots)
     }
     fm1::Bytes bytes = fm1::toSyx(all);
     return f.replaceWithData(bytes.data(), bytes.size());
+}
+
+// ---- settings ------------------------------------------------------------------
+
+juce::File FM1Processor::defaultSettingsFile() { return libraryFile().getSiblingFile("settings.json"); }
+
+PluginSettings FM1Processor::defaultSettings() {
+    auto f = defaultSettingsFile();
+    if (!f.existsAsFile()) return {};
+    return PluginSettings::fromJson(juce::JSON::parse(f.loadFileAsString()));
+}
+
+void FM1Processor::setSettings(const PluginSettings& s) {
+    settings_ = s.clamped();
+    bendUp_ = settings_.bendUp;
+    bendDown_ = settings_.bendDown;
+    inputChannel_ = settings_.midiChannel;
+    // hosts may restore state off the message thread; then the editor hears of it
+    // from the background timer (backgroundTick), on the message thread
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onSettingsChanged) onSettingsChanged(); }
+    else settingsNotify_ = true;
+}
+
+bool FM1Processor::saveSettingsAsDefault() {
+    auto f = defaultSettingsFile();
+    f.getParentDirectory().createDirectory();
+    return f.replaceWithText(juce::JSON::toString(settings_.toJson()) + "\n");
+}
+
+void FM1Processor::revertSettingsToDefault() { setSettings(defaultSettings()); }
+
+bool FM1Processor::copyGlobalsToSettings() {
+    if (!globals_) return false;
+    PluginSettings s = settings_;
+    s.bendUp = globals_->bendUp;
+    s.bendDown = globals_->bendDown;
+    s.fixedVelocity = true;               // the FM-1's keys play at its Keyboard > Velocity
+    s.velocity = globals_->keyVelocity;
+    setSettings(s);
+    return true;
 }
 
 bool FM1Processor::exportJson(const juce::File& f, const std::vector<int>& slots, const std::vector<int>& patterns) {

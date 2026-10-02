@@ -8,10 +8,16 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **Settings tab**: pitch-bend range, the MIDI channel the plugin plays
+  from the host, and a fixed velocity for the on-screen keyboard (and step
+  recording with it). Changes take effect at once and are saved with the
+  project; **Save as default** makes them what new instances start with,
+  and **Revert to default** goes back to them.
 - **Reads the FM-1's GLOBE settings** when it connects (FM-1_093): its MIDI
-  and FX channels, pitch-bend range, key velocity and glide. They are shown
-  on the Library & Sync tab, and the plugin uses the channels and the bend
-  range, so the FX channel no longer has to be set by hand.
+  and FX channels, pitch-bend range, key velocity and glide, shown on the
+  Settings tab. The plugin talks to the FM-1 on its channels, so the FX
+  channel no longer has to be set by hand. **Copy from FM-1** takes its
+  bend range and key velocity into the plugin's settings.
 
 ### Changed
 

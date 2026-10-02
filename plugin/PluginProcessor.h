@@ -13,6 +13,7 @@
 #include "FmSynth.h"
 #include "Params.h"
 #include "Sequencer.h"
+#include "Settings.h"
 
 class FM1Processor : public juce::AudioProcessor, private juce::Timer {
 public:
@@ -73,9 +74,21 @@ public:
     fm1::edit::Channels channels;                 // FX channel must match the synth's GLOBE setting
 
     // The FM-1's GLOBE settings, once read from it (FM-1_093). Reading them sets
-    // the MIDI and FX channels used to talk to it and the engine's bend range.
+    // the MIDI and FX channels used to talk to it; copyGlobalsToSettings() takes
+    // the playing settings (bend range, key velocity) on request.
     std::optional<Fm1Session::Globals> synthGlobals() const { return globals_; }
     std::function<void()> onGlobals;              // message thread
+
+    // How this instance plays (message thread). A change takes effect at once and
+    // is saved with the project; new instances start from the shared defaults.
+    const PluginSettings& settings() const { return settings_; }
+    void setSettings(const PluginSettings& s);
+    bool saveSettingsAsDefault();                 // this instance's settings become the defaults
+    void revertSettingsToDefault();
+    static PluginSettings defaultSettings();      // the shared file, or the factory values
+    static juce::File defaultSettingsFile();
+    bool copyGlobalsToSettings();                 // bend range and key velocity from the FM-1
+    std::function<void()> onSettingsChanged;      // message thread
 
     bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
     bool autoConnect();
@@ -118,7 +131,10 @@ public:
 
 private:
     std::optional<Fm1Session::Globals> globals_;
+    PluginSettings settings_;
     std::atomic<int> bendUp_{12}, bendDown_{12};   // semitones, for the audio thread
+    std::atomic<int> inputChannel_{0};             // 0 = every channel
+    std::atomic<bool> settingsNotify_{false};
     void loadCurrentIntoParams();
     void writeDiagnostics();
 
@@ -158,7 +174,7 @@ private:
     juce::AbstractFifo noteFifo_{64};
     std::array<NoteEvent, 64> noteFifoData_{};
 
-    juce::MidiBuffer generated_, synthEvents_;
+    juce::MidiBuffer generated_, synthEvents_, filtered_;
     juce::AudioBuffer<float> mono_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FM1Processor)
