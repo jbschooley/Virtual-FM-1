@@ -13,7 +13,8 @@ It works on its own as a synth too; the FM-1 is only needed for syncing.
 
 ## What you need
 
-- **macOS 11 or later** (Apple Silicon or Intel) or **Windows 10/11** (64-bit).
+- **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
+  **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)**. Two-way sync uses
   features only that firmware has. On M-VAVE's own firmware the plugin still
@@ -32,6 +33,12 @@ Download the installer for your system from the
 - **Windows**: run `Virtual-FM-1-…-Windows.exe` and choose the **Standalone
   app** and/or the **VST3 plugin**. Windows SmartScreen may warn about an
   unknown publisher: click **More info › Run anyway**.
+- **Linux**: unpack `Virtual-FM-1-…-Linux-x86_64.tar.gz` and run
+  `./install.sh` for your own account, or `sudo ./install.sh --system` for
+  everyone. It installs the **Standalone app**, the **VST3** and the **LV2**;
+  leave any out with `--no-app`, `--no-vst3` or `--no-lv2`. `./uninstall.sh`
+  removes them. Syncing with an FM-1 on Linux has not been tested with the
+  hardware yet.
 
 Then rescan plugins in your host. It appears as **Virtual FM-1** by Bockage.
 Logic needs a restart to pick up a new Audio Unit.

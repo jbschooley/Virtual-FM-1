@@ -64,8 +64,14 @@ FM1Processor::FM1Processor()
 }
 
 juce::File FM1Processor::libraryFile() {
+   #if JUCE_LINUX
+    // ~/.config/Virtual FM-1 (userApplicationDataDirectory is ~/.config there)
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Virtual FM-1").getChildFile("library.fm1lib");
+   #else
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
         .getChildFile("Application Support").getChildFile("Virtual FM-1").getChildFile("library.fm1lib");
+   #endif
 }
 
 bool FM1Processor::loadLibrary() {

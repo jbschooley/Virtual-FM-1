@@ -6,8 +6,11 @@ project(VirtualFM1 VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# the engine and sync libraries end up in the plugins, which are shared libraries
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(FM1_BUILD_PLUGIN "Build the JUCE plugin" ON)
 option(FM1_BUILD_AU "Also build the AudioUnit" ON)
+option(FM1_BUILD_LV2 "Build the LV2 plugin (Linux)" ON)
 option(FM1_BUILD_AAX "Also build the AAX plugin (Pro Tools; macOS and Windows; off until signing is set up, see docs/AAX.md)" OFF)
 option(FM1_COPY_PLUGIN "Copy the built plugins into the user plug-in folders" ON)
 
@@ -58,6 +61,9 @@ if(FM1_BUILD_PLUGIN)
     if(FM1_BUILD_AAX AND (APPLE OR WIN32))
         list(APPEND FM1_FORMATS AAX)
     endif()
+    if(FM1_BUILD_LV2 AND UNIX AND NOT APPLE)
+        list(APPEND FM1_FORMATS LV2)
+    endif()
 
     file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
     juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
@@ -80,7 +86,9 @@ if(FM1_BUILD_PLUGIN)
         COPY_PLUGIN_AFTER_BUILD ${FM1_COPY_PLUGIN}
         VST3_CATEGORIES Instrument Synth
         AU_MAIN_TYPE kAudioUnitType_MusicDevice
-        AAX_CATEGORY AAX_ePlugInCategory_SWGenerators)
+        AAX_CATEGORY AAX_ePlugInCategory_SWGenerators
+        # hosts identify the LV2 plugin by this URI: it must never change
+        LV2URI "urn:bockage:virtualfm1")
 
     target_sources(VirtualFM1 PRIVATE
         plugin/PluginProcessor.cpp
@@ -141,11 +149,17 @@ if(FM1_BUILD_PLUGIN)
     juce_add_console_app(host_test PRODUCT_NAME "host_test")
     target_sources(host_test PRIVATE tests/host_test.cpp)
     target_compile_definitions(host_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_VST3=1
-        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>)
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1> $<$<PLATFORM_ID:Linux>:JUCE_PLUGINHOST_LV2=1>)
     target_link_libraries(host_test PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags
         $<$<PLATFORM_ID:Darwin>:-framework\ CoreAudioKit>)
     add_dependencies(host_test VirtualFM1_VST3)
     add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/VST3/Virtual FM-1.vst3" 2)
+    if(FM1_BUILD_LV2 AND UNIX AND NOT APPLE)
+        # LV2 hosts find plugins by URI on LV2_PATH
+        add_dependencies(host_test VirtualFM1_LV2)
+        add_test(NAME host_test_lv2 COMMAND host_test "urn:bockage:virtualfm1" 2)
+        set_tests_properties(host_test_lv2 PROPERTIES ENVIRONMENT "LV2_PATH=${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/LV2")
+    endif()
 
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")
