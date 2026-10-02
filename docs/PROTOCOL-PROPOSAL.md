@@ -49,7 +49,8 @@ The most useful single addition. Data, all ASCII text NUL-terminated:
 - a capability bitmask: read presets, write presets, read and write the edit
   buffer, read and write patterns, read and write global settings
 - counts: preset slots, patterns, steps per pattern, notes per step
-- the preset format it uses (next section)
+- the preset format it uses, and whether a slot holds a preset or a project
+  (next section)
 
 With Hello, a tool picks the right profile by name instead of guessing from a
 version number, and greys out what the firmware cannot do.
@@ -61,6 +62,12 @@ models) reads and writes its presets as an opaque block with a format id and a
 format version. A tool stores the block as it is (Virtual FM-1's JSON format
 keeps raw bytes for exactly this) and only interprets it when it has a profile
 that knows the format. FM-1+VA's `10`/`04` stay as they are for its format.
+
+A firmware also says in Hello what one slot holds, since not every firmware
+splits sounds and sequences the way FM-1+VA does: a *preset* (a sound only, with
+patterns stored apart) or a *project* (a sound and its sequence saved together,
+as Felucca does). A project travels as one block through the same commands, and
+such a firmware reports no separate patterns.
 
 ### 3. The edit buffer: what is playing, unsaved (*proposed* `15` read, `16` write)
 
