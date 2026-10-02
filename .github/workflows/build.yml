@@ -173,8 +173,14 @@ jobs:
       - name: Release notes from CHANGELOG.md
         run: |
           v="${GITHUB_REF_NAME#v}"
-          # the lines under "## [<version>]", up to the next "## [" heading
-          awk -v v="$v" '/^## \[/ { p = index($0, "[" v "]") > 0; next } /^\[[^]]*\]: / { next } p' CHANGELOG.md > notes.md
+          # the lines under "## [<version>]", up to the next "## [" heading, each
+          # entry joined onto one line: GitHub shows a release's line breaks as breaks
+          awk -v v="$v" '/^## \[/ { p = index($0, "[" v "]") > 0; next } /^\[[^]]*\]: / { next } p' CHANGELOG.md |
+            awk 'function flush() { if (buf != "") print buf; buf = "" }
+                 /^[[:space:]]*$/ { flush(); print ""; next }
+                 /^#/ || /^- / { flush(); buf = $0; next }
+                 { line = $0; sub(/^[[:space:]]+/, "", line); buf = (buf == "" ? line : buf " " line) }
+                 END { flush() }' > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then echo "CHANGELOG.md has no section for $v"; exit 1; fi
       - uses: softprops/action-gh-release@v2
         with:
