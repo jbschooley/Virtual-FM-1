@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(FM1_BUILD_PLUGIN "Build the JUCE plugin" ON)
 option(FM1_BUILD_AU "Also build the AudioUnit" ON)
+option(FM1_BUILD_AAX "Also build the AAX plugin (Pro Tools; macOS and Windows; off until signing is set up, see docs/AAX.md)" OFF)
 option(FM1_COPY_PLUGIN "Copy the built plugins into the user plug-in folders" ON)
 
 if(MSVC)
@@ -50,6 +51,12 @@ if(FM1_BUILD_PLUGIN)
     if(FM1_BUILD_AU AND APPLE)
         list(APPEND FM1_FORMATS AU)
     endif()
+    # AAX uses the AAX SDK bundled with JUCE (modules/juce_audio_plugin_client/AAX/SDK),
+    # which Avid licenses under the GPLv3 as one option. Unsigned builds load in
+    # Pro Tools Developer; other Pro Tools versions need a PACE signature (docs/AAX.md).
+    if(FM1_BUILD_AAX AND (APPLE OR WIN32))
+        list(APPEND FM1_FORMATS AAX)
+    endif()
 
     file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
     juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
@@ -71,7 +78,8 @@ if(FM1_BUILD_PLUGIN)
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
         COPY_PLUGIN_AFTER_BUILD ${FM1_COPY_PLUGIN}
         VST3_CATEGORIES Instrument Synth
-        AU_MAIN_TYPE kAudioUnitType_MusicDevice)
+        AU_MAIN_TYPE kAudioUnitType_MusicDevice
+        AAX_CATEGORY AAX_ePlugInCategory_SWGenerators)
 
     target_sources(VirtualFM1 PRIVATE
         plugin/PluginProcessor.cpp

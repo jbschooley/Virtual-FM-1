@@ -1,41 +1,46 @@
-# Adding AAX (Pro Tools)
+# AAX (Pro Tools)
 
-AAX is not built yet. Avid offers the AAX SDK under the GPLv3 as well as a
-commercial license, and this project is GPL-3.0-or-later with JUCE under the
-AGPLv3, so an AAX build can be distributed under the GPL as long as its source
-stays published. Pro Tools itself (other than Pro Tools Developer) only loads
-AAX plugins signed with PACE's tools.
+The build can make an AAX plugin, but it is off until signing is set up:
 
-## Prerequisites (one time)
+```
+cmake -B build -DFM1_BUILD_AAX=ON
+```
 
-1. Create an Avid developer account and join the AAX developer program
-   (developer.avid.com). This involves Avid's developer agreement/NDA.
-2. Download the AAX SDK. Use it under its GPLv3 option.
-3. Request PACE signing access through the program (PACE "Eden" tools,
-   `wraptool`) and get a signing account and a code-signing certificate (on
-   macOS, a Developer ID Application certificate; on Windows, a code-signing
-   certificate).
-4. For testing before signing: Pro Tools Developer (free with the program)
-   loads unsigned AAX builds.
+## The SDK
 
-## Build changes (to make once the SDK is in hand)
+Nothing has to be downloaded. JUCE 9 ships the AAX SDK 2.9 in
+`third_party/JUCE/modules/juce_audio_plugin_client/AAX/SDK`, and its
+`LICENSE.txt` offers it under Avid's commercial terms or the GPLv3. This
+project uses it under the GPLv3, like the rest of its code. With the option
+on, the build was checked with JUCE 9.0.3 on macOS: it compiles and puts an
+AAX build next to the AU and VST3 (category: software instrument). It has
+not been loaded in Pro Tools yet.
 
-- `CMakeLists.txt`: an `FM1_BUILD_AAX` option that calls
-  `juce_set_aax_sdk_path(<path>)` and adds `AAX` to the formats. The AAX
-  category is a software instrument (`AAX_CATEGORIES AAX_ePlugInCategory_SWGenerators`).
-  The plugin and manufacturer codes stay `Fm1c` / `Jscn`.
-- `scripts/package-macos.sh`: the commented `component aax ...` line installs
-  to `/Library/Application Support/Avid/Audio/Plug-Ins`, plus an `aax` choice
-  in the distribution.
-- `scripts/installer.iss`: the commented `aax` component installs to
-  `{commoncf64}\Avid\Audio\Plug-Ins`.
-- CI: the SDK cannot be committed (its download terms), so CI fetches it from
-  a private location given as a secret, builds AAX only when the secret is
-  present, and signs with `wraptool sign` using the PACE account and
-  certificate from secrets. The host test does not load AAX; check it in Pro
-  Tools.
+## Making Pro Tools load it
 
-## Signing in CI, in short
+Pro Tools only loads AAX plugins signed with PACE's tools, except the
+developer edition:
+
+1. **Pro Tools Developer** loads unsigned plugins, for testing. With an
+   Avid developer account, ask `devauth@avid.com` for a Pro Tools Developer
+   activation code, then download it from the developer account's AAX
+   toolkit page.
+2. **Signing for every Pro Tools.** Write to `audiosdk@avid.com` saying who
+   you are, what the plugin is (with a link to the repository) and that you
+   want to ship AAX. Once Avid agrees, PACE sets up an account for its Eden
+   signing tools (`wraptool`); signing needs a physical iLok.
+
+## When signing is available
+
+- `CMakeLists.txt`: turn `FM1_BUILD_AAX` on (or pass it in CI).
+- `scripts/package-macos.sh`: enable the commented `component aax ...` line,
+  which installs to `/Library/Application Support/Avid/Audio/Plug-Ins`, and
+  add an `aax` choice to the distribution.
+- `scripts/installer.iss`: enable the commented `aax` component, installing
+  to `{commoncf64}\Avid\Audio\Plug-Ins`.
+- CI: sign with `wraptool` from repository secrets (the PACE account, and on
+  macOS the Developer ID certificate), and check the installed `.aaxplugin`
+  like the other formats. The host test does not load AAX; test in Pro Tools.
 
 ```
 wraptool sign --verbose --account "$PACE_ACCOUNT" --password "$PACE_PASSWORD" \
@@ -43,5 +48,5 @@ wraptool sign --verbose --account "$PACE_ACCOUNT" --password "$PACE_PASSWORD" \
     --in "Virtual FM-1.aaxplugin" --out "Virtual FM-1.aaxplugin"
 ```
 
-(on Windows, `--keyfile` and `--keypassword` take the place of `--signid`).
-The exact options come with PACE's documentation once access is granted.
+(On Windows, `--keyfile` and `--keypassword` take the place of `--signid`.
+The exact options come with PACE's documentation.)
