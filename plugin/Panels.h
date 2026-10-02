@@ -38,6 +38,7 @@ public:
     void refresh();
     void setStatus(const juce::String& s) { status_.setText(s, juce::dontSendNotification); }
     void setIdentity(const juce::String& s) { identity_.setText(s, juce::dontSendNotification); }
+    void showSynthSettings();   // the FM-1's GLOBE settings, once read
 
 private:
     int getNumRows() override { return BankModel::kSlots; }
@@ -64,7 +65,7 @@ private:
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
                      selectOnDevice_{"Show on FM-1"}, cancel_{"Stop"},
                      importFile_{"Import..."}, exportFile_{"Export..."};
-    juce::Label status_;
+    juce::Label status_, synthSettings_;
     std::unique_ptr<juce::FileChooser> chooser_;
     bool wasBusy_ = false;
     bool wasOpen_ = false;

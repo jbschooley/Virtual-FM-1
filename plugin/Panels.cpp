@@ -150,6 +150,11 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     exportFile_.setTooltip("Save presets (the selected ones, a bank, all) and patterns. Shift- or Cmd-click the list to select several presets.");
     list_.setRowHeight(20);
     list_.setMultipleSelectionEnabled(true);
+    addAndMakeVisible(synthSettings_);
+    synthSettings_.setFont(juce::FontOptions(13.0f));
+    synthSettings_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+    synthSettings_.setJustificationType(juce::Justification::topLeft);
+    showSynthSettings();
     list_.selectRow(proc_.bank.currentSlot());
     currentName_.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     startTimerHz(10);
@@ -224,6 +229,8 @@ void LibraryPanel::resized() {
     row(pushAll_, &cancel_);
     r.removeFromTop(10);
     row(importFile_, &exportFile_);
+    r.removeFromTop(10);
+    synthSettings_.setBounds(r.removeFromTop(54));
 }
 
 void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) {
@@ -299,6 +306,17 @@ void LibraryPanel::importJson(const juce::File& f) {
         if (r == 1) run(FM1Processor::Placement::OwnSlots);
         else if (r == 2) run(FM1Processor::Placement::FromSelected);
     });
+}
+
+void LibraryPanel::showSynthSettings() {
+    auto g = proc_.synthGlobals();
+    if (!g) { synthSettings_.setText({}, juce::dontSendNotification); return; }
+    fxChannel_.setSelectedId(proc_.channels.fx, juce::dontSendNotification);
+    synthSettings_.setText("Read from the FM-1's GLOBE settings: MIDI channel " + (g->midiChannel == 0 ? juce::String("All") : juce::String(g->midiChannel))
+        + ", FX channel " + juce::String(g->fxChannel) + ", pitch bend +" + juce::String(g->bendUp) + " / -" + juce::String(g->bendDown)
+        + " semitones, key velocity " + juce::String(g->keyVelocity) + ", glide " + (g->glideFingered ? "Fingered" : "Full Time")
+        + " " + juce::String(g->glideTime) + ". The plugin uses the channels and bend range; it has no glide yet.",
+        juce::dontSendNotification);
 }
 
 std::vector<int> LibraryPanel::selectedSlots() const {

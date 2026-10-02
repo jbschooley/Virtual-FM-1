@@ -31,8 +31,8 @@ FmSynth::FmSynth() : tuning_(createStandardTuning()) {
     initTables();
     std::memset(controllers_.values_, 0, sizeof controllers_.values_);
     controllers_.values_[kControllerPitch] = 0x2000;
-    controllers_.values_[kControllerPitchRangeUp] = 2;
-    controllers_.values_[kControllerPitchRangeDn] = 2;
+    controllers_.values_[kControllerPitchRangeUp] = 12;   // the FM-1's default bend range
+    controllers_.values_[kControllerPitchRangeDn] = 12;
     controllers_.values_[kControllerPitchStep] = 0;
     controllers_.masterTune = 0;
     controllers_.modwheel_cc = 0;

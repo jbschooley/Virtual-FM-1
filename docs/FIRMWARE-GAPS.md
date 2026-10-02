@@ -47,6 +47,27 @@ note values, length, tempo, gate and swing (`sync/Fm1Seq.cpp`). Not covered:
 | Pattern transpose | Plugin-side only | Whether the firmware has one per pattern |
 | Per-pattern preset | Plugin-side only; the synth stopped storing it at FM-1_060 | Nothing; confirm it is gone |
 
+## 2a. Global settings (the GLOBE screen)
+
+The GLOBE screen holds the synth-wide settings: the MIDI, Keyboard and Glide
+groups, Drive, Theme and Overdub Rec. Her protocol has no message that reads
+or writes them, so the plugin cannot see them. Some matter to it:
+
+| Setting | Why it matters to the plugin | Today | Look for in her source |
+|---|---|---|---|
+| MIDI channels, including FX Channel | Send to FM-1 and Live send effect CCs on the FX channel; a mismatch silently stops effects following edits | Read on connect on FM-1_093 (RAM, see HARDWARE-NOTES) and used for every message to the synth; other builds: set by hand | A read and write message, so other builds work too |
+| Pitch bend up and down | The plugin's bend range should match | Read on FM-1_093 and applied to the engine; otherwise ±12, the FM-1's default | Same |
+| Keyboard › Velocity | Sets how hard the FM-1's own keys play, which is what a recorded step gets | Read and shown on FM-1_093 | Same |
+| Glide group | Changes the sound if it is global; the plugin's engine has no glide yet | Mode and time read and shown on FM-1_093; not modelled | The glide curve, so the engine (msfa's portamento) can match it |
+| Drive | Changes the sound if it is global; not modelled | Not located: it changed together with other settings in the test dump | Its byte, range and the drive curve |
+| Ext Ctrl CC7 Vol | Whether CC 7 from the plugin changes the synth's volume | Not located | Its byte |
+| Overdub Rec | The plugin has its own Overdub switch | Separate | Nothing needed |
+
+Reading these without her source: each setting's RAM address was found by
+changing it on the synth between memory dumps (`fm1_probe mem`), as was
+done for the edit buffer. The addresses need checking for each firmware
+build (section 3). Writing them needs a message in her firmware.
+
 ## 3. Addresses that depend on the firmware build
 
 | What | FM-1_093 | Today on other builds |

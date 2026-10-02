@@ -72,6 +72,11 @@ public:
     bool isLive() const { return live_; }
     fm1::edit::Channels channels;                 // FX channel must match the synth's GLOBE setting
 
+    // The FM-1's GLOBE settings, once read from it (FM-1_093). Reading them sets
+    // the MIDI and FX channels used to talk to it and the engine's bend range.
+    std::optional<Fm1Session::Globals> synthGlobals() const { return globals_; }
+    std::function<void()> onGlobals;              // message thread
+
     bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
     bool autoConnect();
     void disconnect();
@@ -112,6 +117,8 @@ public:
     bool popNoteOn(NoteEvent& e);
 
 private:
+    std::optional<Fm1Session::Globals> globals_;
+    std::atomic<int> bendUp_{12}, bendDown_{12};   // semitones, for the audio thread
     void loadCurrentIntoParams();
     void writeDiagnostics();
 

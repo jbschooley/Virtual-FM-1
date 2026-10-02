@@ -80,11 +80,39 @@ std::optional<uint32_t> Fm1Session::editBufferAddr(juce::String& err, int* slotO
 }
 
 std::optional<Fm1Session::CurrentAddrs> Fm1Session::knownAddrs(int version) {
-    // Located on FM-1_093 by dumping RAM around program changes (tests/fm1_probe.cpp
-    // "mem" and "select"); other builds move them, so they are found by search.
+    // Located on FM-1_093 by dumping RAM around program changes and GLOBE changes
+    // (tests/fm1_probe.cpp "mem" and "select"); other builds move them, so the edit
+    // buffer is found by search there and the GLOBE settings are not read.
     if (std::getenv("FM1_SEARCH_EDIT_BUFFER") != nullptr) return std::nullopt;   // test the search path
-    if (version == 93) return CurrentAddrs{0x01C10070, 0x01C0FEFA};
+    if (version == 93) return CurrentAddrs{0x01C10070, 0x01C0FEFA, 0x01C0FEFD};
     return std::nullopt;
+}
+
+// GLOBE settings on FM-1_093, from the MIDI channel byte on (offsets found by
+// changing each setting between memory dumps):
+//   +0 MIDI channel (0 = All)  +1 FX channel - 1  +2 bend up  +3 bend down
+//   +4 Keyboard > Velocity     +0x82 glide time   +0x83 glide mode (1 = Fingered)
+// Drive, Ext Ctrl CC7 Vol and Overdub Rec are not located yet.
+void Fm1Session::readGlobals() {
+    if (!identity_) return;
+    auto a = knownAddrs(identity_->version);
+    if (!a) return;
+    fm1::Bytes b;
+    juce::String err;
+    if (!readBlock(a->globals, 0x84, b, err) || b.size() < 0x84) return;
+    Globals g;
+    g.midiChannel = b[0];
+    g.fxChannel = b[1] + 1;
+    g.bendUp = b[2];
+    g.bendDown = b[3];
+    g.keyVelocity = b[4];
+    g.glideTime = b[0x82];
+    g.glideFingered = b[0x83] == 1;
+    // a different layout (an unknown build) shows up as values out of range: ignore it
+    if (g.midiChannel > 16 || g.fxChannel > 16 || g.bendUp > 48 || g.bendDown > 48 || g.keyVelocity < 1 || g.keyVelocity > 127
+        || g.glideTime > 100 || b[0x83] > 1)
+        return;
+    juce::MessageManager::callAsync([this, g] { if (onGlobals) onGlobals(g); });
 }
 
 bool Fm1Session::readBlock(uint32_t addr, int n, fm1::Bytes& out, juce::String& error) {
@@ -138,6 +166,7 @@ std::optional<uint32_t> Fm1Session::discoverEditBuffer(int& slotOut, juce::Strin
 void Fm1Session::select(int slot, int midiChannel) {
     if (!link_.isOpen()) return;
     // Program Change 0 = preset 001, per the FM-1+VA manual.
+    if (midiChannel <= 0) midiChannel = midiChannel_.load();
     link_.sendRaw({uint8_t(0xC0 | ((midiChannel - 1) & 0x0F)), uint8_t(slot & 0x7F)});
 }
 
@@ -181,6 +210,7 @@ void Fm1Session::run() {
         if (!id) { report(0, 1, "The FM-1 did not answer. Check the cable and close other programs using its MIDI port.", true, true); return; }
         juce::String text = juce::String(id->name());
         if (id->isStock()) text += " (M-VAVE firmware: can receive DX7 dumps, cannot be read back)";
+        else readGlobals();
         report(1, 1, text, true);
         return;
     }

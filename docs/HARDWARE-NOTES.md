@@ -13,6 +13,14 @@ On an FM-1 running FM-1_093 (`tests/fm1_probe.cpp`, `tests/compare_audio.py`):
   and pulling the synth's current sound all work.
 - The synth's live edit buffer is at `0x01C10070` and its current preset
   number at `0x01C0FEFA` on FM-1_093; other versions are found by searching RAM.
+- GLOBE settings on FM-1_093, found by changing each on the synth between
+  RAM dumps: MIDI channel at `0x01C0FEFD` (0 = All), FX channel at `+1`
+  (stored minus one), bend up `+2` and down `+3` (semitones), Keyboard ›
+  Velocity `+4`, glide time `+0x82` (0-100) and glide mode `+0x83` (0 Full
+  Time, 1 Fingered). A second copy of the bend and glide values sits near
+  `0x01C61D57`. The plugin reads these on connect (FM-1_093 only). Drive,
+  Ext Ctrl CC7 Vol and Overdub Rec changed in the same dump and are not
+  placed yet.
 - Pitch, transpose, detune beating and LFO speed match the synth. The
   firmware's LFO table is Dexed's, entry for entry.
 - The FM-1 scales incoming MIDI velocity by 100/127 before its engine; the

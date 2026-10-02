@@ -15,6 +15,15 @@ FM1Processor::FM1Processor()
         if (s.slot == bank.currentSlot()) loadCurrentIntoParams();
     };
     session.onSoundWritten = [this](const fm1::Sound& s) { bank.markOnDevice(s.slot, s); };
+    session.onGlobals = [this](const Fm1Session::Globals& g) {
+        globals_ = g;
+        channels.fx = g.fxChannel;
+        channels.midi = g.midiChannel == 0 ? 1 : g.midiChannel;   // "All" hears every channel
+        session.setMidiChannel(channels.midi);
+        bendUp_ = g.bendUp;
+        bendDown_ = g.bendDown;
+        if (onGlobals) onGlobals();
+    };
     session.onCurrentRead = [this](const fm1::Sound& live, const fm1::Sound& stored) {
         // the slot takes what the synth has stored; the editor takes what it is playing,
         // so its unsaved changes show up as edits here too
@@ -201,6 +210,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
 
     if (params.changed.exchange(false)) applyParamsToEngine();
     for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
+    synth_.setPitchBendRange(bendUp_.load(), bendDown_.load());
 
     keyboardMidi.removeNextBlockOfMessages(midi, numSamples);
 

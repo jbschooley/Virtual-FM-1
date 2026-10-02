@@ -20,6 +20,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
         t += id.isStock() ? "  (M-VAVE firmware: DX7 dumps only, no read-back)" : "  (FM-1+VA: full two-way sync)";
         library_.setIdentity(t);
     };
+    proc_.onGlobals = [this] { library_.showSynthSettings(); };
     proc_.bank.onChange();
     // debugging aid: FM1_TAB=n opens the editor on tab n
     tabs_.setComponentID("tabs");
@@ -36,6 +37,7 @@ FM1Editor::~FM1Editor() {
     proc_.onStatus = nullptr;
     proc_.bank.onChange = nullptr;
     proc_.session.onIdentity = nullptr;
+    proc_.onGlobals = nullptr;
 }
 
 void FM1Editor::handleNoteOn(juce::MidiKeyboardState*, int ch, int note, float vel) {

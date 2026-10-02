@@ -47,6 +47,17 @@ public:
     // voice edits included), with the slot's stored settings record.
     // `live` has the edit buffer's voice and the live settings record; `stored` is the slot as saved.
     std::function<void(const fm1::Sound& live, const fm1::Sound& stored)> onCurrentRead;
+    // The synth's GLOBE settings the plugin uses, read with identify on firmware
+    // builds whose addresses are known (see knownAddrs).
+    struct Globals {
+        int midiChannel = 0;           // 0 = All, else 1..16
+        int fxChannel = 2;             // 1..16
+        int bendUp = 12, bendDown = 12;   // semitones
+        int keyVelocity = 90;          // Keyboard > Velocity
+        int glideTime = 0;             // 0..100
+        bool glideFingered = false;    // Glide mode: Full Time or Fingered
+    };
+    std::function<void(const Globals&)> onGlobals;
 
     static constexpr int kPaceMs = 3000;
 
@@ -56,7 +67,8 @@ public:
     void identify();
     void pull(std::vector<int> slots);
     void push(std::vector<fm1::Sound> sounds, bool showLastOnDevice = false);   // each with its slot
-    void select(int slot, int midiChannel = 1);  // program change, not queued
+    void select(int slot, int midiChannel = 0);  // program change, not queued; 0 = the synth's channel
+    void setMidiChannel(int ch) { midiChannel_ = juce::jlimit(1, 16, ch); }   // where program changes go
     void pullPatterns(std::vector<int> pats);
     void pushPatterns(std::vector<std::pair<int, fm1::seq::Pattern>> pats, bool save);
     void pullCurrent();   // read whatever the synth is playing (FM-1+VA only)
@@ -66,9 +78,9 @@ public:
     // Send messages straight away (live editing); not queued, no read-back.
     void sendNow(const std::vector<fm1::Bytes>& msgs);
 
-    // Where the live edit buffer (155-byte VCED) and the current preset number
-    // live in RAM for a firmware version, if known.
-    struct CurrentAddrs { uint32_t editBuffer; uint32_t slotByte; };
+    // Where the live edit buffer (155-byte VCED), the current preset number and
+    // the GLOBE settings live in RAM for a firmware version, if known.
+    struct CurrentAddrs { uint32_t editBuffer; uint32_t slotByte; uint32_t globals; };
     static std::optional<CurrentAddrs> knownAddrs(int version);
 
     std::optional<fm1::Identity> lastIdentity() const { return identity_; }
@@ -88,9 +100,11 @@ private:
     int discoveredForVersion_ = -1;
     // The edit buffer's address for this synth (known table, cached search, or a new search).
     std::optional<uint32_t> editBufferAddr(juce::String& err, int* slotOut);
+    void readGlobals();
     fm1::Sound editSound_;
     fm1::edit::Channels editCh_;
     bool editSelect_ = true;
+    std::atomic<int> midiChannel_{1};
 
     Fm1Link& link_;
     Op op_ = Op::None;

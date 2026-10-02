@@ -4,6 +4,26 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Added
+
+- **Reads the FM-1's GLOBE settings** when it connects (FM-1_093): its MIDI
+  and FX channels, pitch-bend range, key velocity and glide. They are shown
+  on the Library & Sync tab, and the plugin uses the channels and the bend
+  range, so the FX channel no longer has to be set by hand.
+
+### Changed
+
+- The pitch-bend range defaults to ±12 semitones, the FM-1's default; it
+  was ±2.
+
+### Fixed
+
+- On FM-1_093, Show on FM-1, Store to FM-1 and Send to FM-1 select the
+  preset on the synth's own MIDI channel, so they work when the FM-1
+  listens on a channel other than 1.
+
 ## [0.2.0] - 2026-10-01
 
 ### Added
@@ -57,5 +77,6 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
+[Unreleased]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jbschooley/Virtual-FM-1/releases/tag/v0.1.0
