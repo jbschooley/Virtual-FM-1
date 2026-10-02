@@ -30,8 +30,14 @@ void Fm1Session::sendEdit(const fm1::Sound& snd, fm1::edit::Channels ch, bool se
     start(Op::SendEdit);
 }
 
-void Fm1Session::sendNow(const std::vector<fm1::Bytes>& msgs) {
+void Fm1Session::sendChange(const fm1::Sound& from, const fm1::Sound& to, fm1::edit::Channels ch) {
     if (!link_.isOpen()) return;
+    std::vector<fm1::Bytes> msgs;
+    {
+        std::lock_guard<std::mutex> lock(firmwareLock_);
+        if (!firmware_) return;
+        msgs = firmware_->editChanges(from, to, ch);
+    }
     for (const auto& m : msgs) link_.sendRaw(m);
 }
 
@@ -67,8 +73,11 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
         [](const fm1::Bytes& f) { return fm1::parseIdentity(f.data(), f.size()); }, 1000, 3);
     if (id) {
         // a new profile only for a different firmware, so what it found (a searched edit buffer) is kept
-        if (!firmware_ || !identity_ || identity_->isStock() != id->isStock() || identity_->version != id->version)
-            firmware_ = fm1::firmwareFor(*id);
+        if (!firmware_ || !identity_ || identity_->isStock() != id->isStock() || identity_->version != id->version) {
+            auto f = fm1::firmwareFor(*id);
+            std::lock_guard<std::mutex> lock(firmwareLock_);
+            firmware_ = std::move(f);
+        }
         identity_ = id;
         juce::MessageManager::callAsync([this, i = *id] { if (onIdentity) onIdentity(i); });
     }

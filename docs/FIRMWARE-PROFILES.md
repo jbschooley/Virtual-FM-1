@@ -24,6 +24,7 @@ back) and asks the profile for everything that depends on the firmware.
      shown when something is missing,
    - the operations it supports: `readPreset`, `writePreset`, `readPattern`,
      `writePattern`, `readCurrent`, `readLive`, `readGlobals`, `editMessages`,
+     `editChanges` (live editing),
    - `writePaceMs()` if writes need spacing.
    Operations get a `Port` with the MIDI link, a cancel check and a progress
    callback. They return nothing (or false) with a reason on failure.

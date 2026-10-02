@@ -32,6 +32,7 @@ public:
     int identityVersion = 89;
     int dropNextReplies = 0;      // simulate lost frames to exercise the retry
     int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0;
+    std::atomic<int> received{0};   // every message, SysEx or not
     std::map<uint32_t, uint8_t> ram;   // sparse RAM for the memory-read command
     fm1::Bytes gset = fm1::Bytes(fm1::seq::kGsetLen, 0);
     void putPattern(int pat, const fm1::seq::Pattern& p) {
@@ -75,6 +76,7 @@ private:
     }
 
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) override {
+        ++received;
         if (!m.isSysEx()) return;
         fm1::Bytes f(m.getRawData(), m.getRawData() + m.getRawDataSize());
         if (f == fm1::kIdentityQuery) {
@@ -265,6 +267,20 @@ int main(int argc, char** argv) {
     progress.clear(); read.clear();
     session.pull({0}); waitIdle(session, 5000);
     CHECK(read.empty() && progress.back().failed && progress.back().text.contains("Felucca"), "pull on Felucca refused with explanation");
+    // live edits reach FM-1+VA but not Felucca, whose parameters are not FM-1+VA's
+    fm1::Sound liveFrom = fake.store[0], liveTo = liveFrom;
+    liveTo.voice[0] = uint8_t((liveTo.voice[0] + 1) % 100);
+    CHECK(!fm1::edit::delta(liveFrom, liveTo, fm1::edit::Channels{}).empty(), "the live change has messages to send");
+    int before = fake.received.load();
+    session.sendChange(liveFrom, liveTo, fm1::edit::Channels{});
+    juce::Thread::sleep(300);
+    CHECK(fake.received.load() == before, "live edit sends Felucca nothing");
+    fake.identityVersion = 89; identity.reset();
+    session.identify(); waitIdle(session, 5000);
+    before = fake.received.load();
+    session.sendChange(liveFrom, liveTo, fm1::edit::Channels{});
+    juce::Thread::sleep(300);
+    CHECK(fake.received.load() > before, "live edit reaches FM-1+VA");
 
     // no device answering: the session fails within the retry budget
     fake.identityVersion = 89; identity.reset();

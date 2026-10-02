@@ -77,6 +77,8 @@ public:
 
     // The messages that make the synth's edit buffer play `s`, unsaved.
     virtual std::vector<Bytes> editMessages(const Sound& s, edit::Channels ch) const { return edit::fullSound(s, ch); }
+    // The messages that take the edit buffer from `from` to `to` (live editing).
+    virtual std::vector<Bytes> editChanges(const Sound& from, const Sound& to, edit::Channels ch) const { return edit::delta(from, to, ch); }
 };
 
 // The profile for an identified synth (never null).

@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <vector>
 
 #include <juce_core/juce_core.h>
@@ -68,8 +69,10 @@ public:
     // Put `s` into the synth's edit buffer without storing it: program change to
     // s.slot (when selectFirst), then parameter changes and CCs, then read back.
     void sendEdit(const fm1::Sound& s, fm1::edit::Channels ch, bool selectFirst);
-    // Send messages straight away (live editing); not queued, no read-back.
-    void sendNow(const std::vector<fm1::Bytes>& msgs);
+    // Live editing: send what takes the synth's edit buffer from `from` to `to`, as
+    // the firmware's profile says, straight away; not queued, no read-back. Sends
+    // nothing until the synth has been identified.
+    void sendChange(const fm1::Sound& from, const fm1::Sound& to, fm1::edit::Channels ch);
 
     std::optional<fm1::Identity> lastIdentity() const { return identity_; }
 
@@ -78,8 +81,10 @@ private:
     bool start(Op op);
     void report(int done, int total, const juce::String& text, bool finished = false, bool failed = false);
     std::optional<fm1::Identity> doIdentify();
-    // The connected firmware's profile, made by doIdentify (session thread only).
+    // The connected firmware's profile, made by doIdentify on the session thread.
+    // sendChange reads it from the message thread, so replacing it takes firmwareLock_.
     std::unique_ptr<fm1::Firmware> firmware_;
+    std::mutex firmwareLock_;
     fm1::Port port();
     void readGlobals();
     fm1::Sound editSound_;

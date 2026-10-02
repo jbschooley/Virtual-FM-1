@@ -79,6 +79,7 @@ public:
         return Firmware::cannot(f);
     }
     std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
+    std::vector<Bytes> editChanges(const Sound&, const Sound&, edit::Channels) const override { return {}; }
 };
 
 // ---- baud girl's FM-1+VA --------------------------------------------------------------

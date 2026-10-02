@@ -555,7 +555,7 @@ void FM1Processor::timerCallback() {
     if (!live_ || !link.isOpen() || !haveLastSent_ || session.busy()) return;
     fm1::Sound now = editedSound();
     if (now.voice == lastSent_.voice && now.record == lastSent_.record) return;
-    session.sendNow(fm1::edit::delta(lastSent_, now, channels));
+    session.sendChange(lastSent_, now, channels);
     lastSent_ = now;
 }
 
