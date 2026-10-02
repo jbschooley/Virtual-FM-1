@@ -3,11 +3,10 @@
 //   pull slot(s)      read presets from the synth into the plugin
 //   push slot(s)      write presets to the synth, verified by reading back
 //   select slot       make the synth show a preset (program change)
-// Reads and writes use FM-1+VA's own read-back protocol; stock M-VAVE
-// firmware only accepts DX7 dumps and cannot be read, which identify reports.
-//
-// Writes are paced 3 s apart, as her bank.js does: each write rebuilds the
-// effects and writes flash, and closer spacing was heard as crackling.
+// What each operation can do and how it talks to the synth depends on the
+// firmware, and comes from its profile (sync/Firmware.h): FM-1+VA's read-back
+// protocol, or stock M-VAVE firmware, which only takes DX7 data. This class does
+// the threading, progress, cancelling, pacing and read-back checks around it.
 
 #pragma once
 
@@ -21,6 +20,7 @@
 #include "Fm1Link.h"
 #include "Fm1Edit.h"
 #include "Fm1Seq.h"
+#include "Firmware.h"
 
 class Fm1Session : private juce::Thread {
 public:
@@ -47,22 +47,11 @@ public:
     // voice edits included), with the slot's stored settings record.
     // `live` has the edit buffer's voice and the live settings record; `stored` is the slot as saved.
     std::function<void(const fm1::Sound& live, const fm1::Sound& stored)> onCurrentRead;
-    // The synth's GLOBE settings the plugin uses, read with identify on firmware
-    // builds whose addresses are known (see knownAddrs).
-    struct Globals {
-        int midiChannel = 0;           // 0 = All, else 1..16
-        int fxChannel = 2;             // 1..16
-        int bendUp = 12, bendDown = 12;   // semitones
-        int keyVelocity = 90;          // Keyboard > Velocity
-        int glideTime = 0;             // 0..100
-        bool glideFingered = false;    // Glide mode: Full Time or Fingered
-        bool driveMinus6 = false;      // Drive: 0 or -6
-        bool cc7Volume = true;         // MIDI > Ext Ctrl CC7 Vol
-        bool overdubRec = false;       // Overdub Rec
-    };
+    // The synth's GLOBE settings the plugin uses, read with identify when the
+    // firmware's profile can (sync/Firmware.h).
+    using Globals = fm1::Globals;
     std::function<void(const Globals&)> onGlobals;
 
-    static constexpr int kPaceMs = 3000;
 
     bool busy() const { return isThreadRunning(); }
     void cancel() { cancel_ = true; }
@@ -82,11 +71,6 @@ public:
     // Send messages straight away (live editing); not queued, no read-back.
     void sendNow(const std::vector<fm1::Bytes>& msgs);
 
-    // Where the live edit buffer (155-byte VCED), the current preset number and
-    // the GLOBE settings live in RAM for a firmware version, if known.
-    struct CurrentAddrs { uint32_t editBuffer; uint32_t slotByte; uint32_t globals; };
-    static std::optional<CurrentAddrs> knownAddrs(int version);
-
     std::optional<fm1::Identity> lastIdentity() const { return identity_; }
 
 private:
@@ -94,17 +78,10 @@ private:
     bool start(Op op);
     void report(int done, int total, const juce::String& text, bool finished = false, bool failed = false);
     std::optional<fm1::Identity> doIdentify();
-    // nullopt when nothing usable came back; `error` set when the synth refused
-    std::optional<fm1::Sound> readSound(int slot, juce::String& error);
-    std::optional<fm1::Bytes> readMem(uint32_t addr, int n, juce::String& error);
-    bool writePatternPart(const fm1::Bytes& msg, juce::String& error);
-    bool readBlock(uint32_t addr, int n, fm1::Bytes& out, juce::String& error);
-    std::optional<uint32_t> discoverEditBuffer(int& slotOut, juce::String& error);
-    std::optional<uint32_t> discoveredEditBuffer_;
-    int discoveredForVersion_ = -1;
-    // The edit buffer's address for this synth (known table, cached search, or a new search).
-    std::optional<uint32_t> editBufferAddr(juce::String& err, int* slotOut);
-    bool readGlobals();
+    // The connected firmware's profile, made by doIdentify (session thread only).
+    std::unique_ptr<fm1::Firmware> firmware_;
+    fm1::Port port();
+    void readGlobals();
     fm1::Sound editSound_;
     fm1::edit::Channels editCh_;
     bool editSelect_ = true;

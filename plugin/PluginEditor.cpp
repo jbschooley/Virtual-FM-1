@@ -17,8 +17,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     proc_.onStatus = [this](const juce::String& s) { library_.setStatus(s); };
     proc_.bank.onChange = [this] { library_.refresh(); fm_.refreshName(); };
     proc_.session.onIdentity = [this](const fm1::Identity& id) {
-        juce::String t = juce::String(id.name());
-        t += id.isStock() ? "  (M-VAVE firmware: DX7 dumps only, no read-back)" : "  (FM-1+VA: full two-way sync)";
+        juce::String t = juce::String(id.name()) + "  (" + fm1::firmwareFor(id)->summary() + ")";
         library_.setIdentity(t);
     };
     proc_.onGlobals = [this] { library_.refreshFxChannel(); settings_.showSynth(); };

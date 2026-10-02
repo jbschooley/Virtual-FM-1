@@ -107,7 +107,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/dexed_ui/OperatorPanel.cpp
         plugin/dexed_ui/GlobalPanel.cpp
         sync/Fm1Link.cpp
-        sync/Fm1Session.cpp)
+        sync/Fm1Session.cpp sync/Firmware.cpp)
 
     target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui sync engine)
 
@@ -129,7 +129,7 @@ if(FM1_BUILD_PLUGIN)
     # end-to-end sync test over virtual CoreMIDI ports (no hardware; macOS only, JUCE cannot create virtual ports on Windows)
     if(APPLE)
     juce_add_console_app(sync_test PRODUCT_NAME "sync_test")
-    target_sources(sync_test PRIVATE tests/sync_test.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
+    target_sources(sync_test PRIVATE tests/sync_test.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp sync/Firmware.cpp)
     target_include_directories(sync_test PRIVATE sync)
     target_compile_definitions(sync_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(sync_test PRIVATE fm1_sync juce::juce_audio_devices juce::juce_events
@@ -138,7 +138,7 @@ if(FM1_BUILD_PLUGIN)
 
     # hardware probe (not a ctest: needs a connected FM-1)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
-    target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp)
+    target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp sync/Firmware.cpp)
     target_include_directories(fm1_probe PRIVATE sync)
     target_compile_definitions(fm1_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags)
