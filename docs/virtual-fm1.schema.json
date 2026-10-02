@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jbschooley/Virtual-FM-1/main/docs/virtual-fm1.schema.json",
+  "title": "Virtual FM-1 presets and patterns",
+  "description": "A file of M-VAVE FM-1 (FM-1+VA firmware) presets and/or sequencer patterns, as written and read by Virtual FM-1. One preset, a group of presets, one pattern, all patterns, or everything at once. See docs/JSON-FORMAT.md.",
+  "type": "object",
+  "required": ["format", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": "virtual-fm1" },
+    "version": { "const": 1, "description": "Format version. Files from a newer version are refused rather than misread." },
+    "presets": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/preset" }
+    },
+    "patterns": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/pattern" }
+    }
+  },
+  "$defs": {
+    "level99": { "type": "integer", "minimum": 0, "maximum": 99 },
+    "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "four99": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/level99" },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "curve": { "enum": ["-lin", "-exp", "+exp", "+lin"] },
+    "noteValue": { "enum": ["1/1", "1/2", "1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T"] },
+
+    "preset": {
+      "type": "object",
+      "description": "One sound. Every field is optional. Reading starts from raw (or an INIT VOICE without it) and changes only the settings given here that differ from it, so a hand edit changes just what was edited.",
+      "additionalProperties": false,
+      "properties": {
+        "slot": { "type": "integer", "minimum": 1, "maximum": 128, "description": "1 = A01 ... 128 = D32. Without it, imported presets fill from the selected slot on." },
+        "name": { "type": "string", "maxLength": 10, "pattern": "^[ -~]*$", "description": "Up to 10 plain ASCII characters, as the FM-1's screen shows them." },
+        "engine": { "enum": ["FM", "VA"], "description": "Read only: which engine the preset uses. Virtual Analog settings live in raw.settings." },
+        "algorithm": { "type": "integer", "minimum": 1, "maximum": 32, "description": "DX7 algorithm 1-32." },
+        "feedback": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "oscKeySync": { "type": "boolean", "description": "Restart the operators' oscillators on each note." },
+        "transpose": { "type": "integer", "minimum": -24, "maximum": 24, "description": "Semitones; 0 = no transpose (C3 plays C3)." },
+        "lfo": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wave": { "enum": ["triangle", "saw down", "saw up", "square", "sine", "sample and hold"] },
+            "speed": { "$ref": "#/$defs/level99" },
+            "delay": { "$ref": "#/$defs/level99" },
+            "pitchModDepth": { "$ref": "#/$defs/level99" },
+            "ampModDepth": { "$ref": "#/$defs/level99" },
+            "keySync": { "type": "boolean" },
+            "pitchModSensitivity": { "type": "integer", "minimum": 0, "maximum": 7 }
+          }
+        },
+        "pitchEnvelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Pitch envelope: rates 1-4 and levels 1-4 (50 = no pitch change).",
+          "properties": {
+            "rates": { "$ref": "#/$defs/four99" },
+            "levels": { "$ref": "#/$defs/four99" }
+          }
+        },
+        "operators": {
+          "type": "array",
+          "description": "Exactly six operators, OP1 first.",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/operator" }
+        },
+        "effects": {
+          "type": "array",
+          "description": "All six effects, in the order the sound passes through them.",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/effect" }
+        },
+        "noteFilter": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The per-note filter (FM-1_092 and later for FM presets; always on for VA presets).",
+          "properties": {
+            "on": { "type": "boolean" },
+            "type": { "enum": ["LP12", "LP24", "BP", "HP"] },
+            "keyTracking": { "enum": [0, 33, 67, 100], "description": "Percent." },
+            "cutoff": { "$ref": "#/$defs/percent" },
+            "resonance": { "$ref": "#/$defs/percent" },
+            "envelope": { "$ref": "#/$defs/percent", "description": "Envelope amount on the cutoff." },
+            "decay": { "$ref": "#/$defs/percent" },
+            "shape": { "$ref": "#/$defs/percent" },
+            "velocity": { "$ref": "#/$defs/percent", "description": "Velocity amount on the cutoff." },
+            "lfo": { "$ref": "#/$defs/percent", "description": "LFO amount on the cutoff." }
+          }
+        },
+        "envelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The FM-1's global amplitude envelope, applied on top of the operator envelopes when on.",
+          "properties": {
+            "on": { "type": "boolean" },
+            "attack": { "$ref": "#/$defs/percent" },
+            "decay": { "$ref": "#/$defs/percent" },
+            "sustain": { "$ref": "#/$defs/percent" },
+            "release": { "$ref": "#/$defs/percent" }
+          }
+        },
+        "raw": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The preset's bytes, which keep everything the readable fields do not cover. Leave out to build a sound from scratch.",
+          "properties": {
+            "voice": { "type": "string", "pattern": "^[0-9a-fA-F]{256}$", "description": "128-byte DX7 packed voice (VMEM), hex." },
+            "settings": { "type": "string", "pattern": "^[0-9a-fA-F]{118}$", "description": "59-byte FM-1+VA settings record, hex." }
+          }
+        }
+      }
+    },
+
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["ratio", "fixed"] },
+        "coarse": { "type": "integer", "minimum": 0, "maximum": 31, "description": "Ratio mode: 0 = 0.5, 1 = 1, 2 = 2 ... Fixed mode: 1, 10, 100, 1000 Hz (0-3, repeating)." },
+        "fine": { "$ref": "#/$defs/level99" },
+        "detune": { "type": "integer", "minimum": -7, "maximum": 7 },
+        "level": { "$ref": "#/$defs/level99", "description": "Output level." },
+        "velocitySensitivity": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "ampModSensitivity": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "envelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rates": { "$ref": "#/$defs/four99" },
+            "levels": { "$ref": "#/$defs/four99" }
+          }
+        },
+        "keyScaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "breakpoint": { "$ref": "#/$defs/level99", "description": "0 = A-1 ... 39 = C3 ... 99 = C8." },
+            "leftDepth": { "$ref": "#/$defs/level99" },
+            "rightDepth": { "$ref": "#/$defs/level99" },
+            "leftCurve": { "$ref": "#/$defs/curve" },
+            "rightCurve": { "$ref": "#/$defs/curve" },
+            "rate": { "type": "integer", "minimum": 0, "maximum": 7, "description": "Rate scaling." }
+          }
+        }
+      }
+    },
+
+    "effect": {
+      "type": "object",
+      "required": ["effect"],
+      "properties": {
+        "effect": { "enum": ["filter", "reverb", "delay", "distortion", "chorus", "phaser"] },
+        "on": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "effect": { "const": "filter" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "effect": true, "on": true,
+              "type": { "enum": ["low pass", "band pass", "high pass"] },
+              "cutoff": { "type": "integer", "minimum": 0, "maximum": 107 },
+              "resonance": { "type": "integer", "minimum": 0, "maximum": 10 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "effect": { "const": "reverb" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "effect": true, "on": true,
+              "type": { "enum": ["room", "hall", "plate"] },
+              "decay": { "$ref": "#/$defs/percent" },
+              "mix": { "$ref": "#/$defs/percent" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "effect": { "const": "delay" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "effect": true, "on": true,
+              "feedback": { "$ref": "#/$defs/percent" },
+              "rate": { "$ref": "#/$defs/percent" },
+              "mix": { "$ref": "#/$defs/percent" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "effect": { "const": "distortion" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "effect": true, "on": true,
+              "type": { "enum": ["soft clip", "hard clip", "foldback"] },
+              "gain": { "$ref": "#/$defs/percent" },
+              "tone": { "$ref": "#/$defs/percent" },
+              "level": { "$ref": "#/$defs/percent" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "effect": { "enum": ["chorus", "phaser"] } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "effect": true, "on": true,
+              "rate": { "$ref": "#/$defs/percent" },
+              "depth": { "$ref": "#/$defs/percent" },
+              "mix": { "$ref": "#/$defs/percent" }
+            }
+          }
+        }
+      ]
+    },
+
+    "pattern": {
+      "type": "object",
+      "required": ["pattern"],
+      "additionalProperties": false,
+      "description": "One sequencer pattern. Settings left out take their defaults; steps left out are empty.",
+      "properties": {
+        "pattern": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "length": { "type": "integer", "minimum": 1, "maximum": 64, "default": 16, "description": "Steps played." },
+        "noteValue": { "$ref": "#/$defs/noteValue", "default": "1/16", "description": "Length of a step." },
+        "tempo": { "type": "integer", "minimum": 30, "maximum": 300, "default": 120 },
+        "gate": { "type": "integer", "minimum": 5, "maximum": 100, "default": 50, "description": "Percent of a step a note sounds." },
+        "swing": { "type": "integer", "minimum": 50, "maximum": 75, "default": 50 },
+        "transpose": { "type": "integer", "minimum": -24, "maximum": 24, "default": 0, "description": "Semitones (kept in the plugin)." },
+        "chain": {
+          "oneOf": [ { "const": "repeat" }, { "type": "integer", "minimum": 1, "maximum": 16 } ],
+          "default": "repeat",
+          "description": "What plays after this pattern: itself again, or another pattern (FM-1_093)."
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/step" }
+        }
+      }
+    },
+
+    "step": {
+      "type": "object",
+      "required": ["step"],
+      "additionalProperties": false,
+      "properties": {
+        "step": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "notes": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "type": "object",
+            "required": ["note"],
+            "additionalProperties": false,
+            "properties": {
+              "note": { "type": "integer", "minimum": 0, "maximum": 127, "description": "MIDI note; 60 = C3 on the FM-1." },
+              "velocity": { "type": "integer", "minimum": 1, "maximum": 127, "default": 100 },
+              "tie": { "type": "boolean", "default": false, "description": "Hold this note into the next step." }
+            }
+          }
+        },
+        "noteValue": { "$ref": "#/$defs/noteValue", "description": "This step's length; the pattern's when left out." },
+        "ratchet": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "Repeats within the step (kept in the plugin)." },
+        "gate": {
+          "type": "integer", "default": 0,
+          "description": "0 = the pattern's gate, else 5-100 percent (kept in the plugin).",
+          "anyOf": [ { "const": 0 }, { "minimum": 5, "maximum": 100 } ]
+        },
+        "chance": { "type": "integer", "minimum": 5, "maximum": 100, "default": 100, "description": "Percent chance the step plays (kept in the plugin)." },
+        "transpose": { "type": "integer", "minimum": -24, "maximum": 24, "default": 0, "description": "Semitones (kept in the plugin)." },
+        "accent": { "type": "boolean", "default": false, "description": "Kept in the plugin." },
+        "tieSlide": { "type": "boolean", "default": false, "description": "Tie & Slide: every note held into the next step (kept in the plugin)." }
+      }
+    }
+  }
+}

@@ -67,11 +67,46 @@ void ParamGrid::resized() {
     }
 }
 
+// ---- file helpers -------------------------------------------------------------------
+
+namespace {
+
+juce::File documents() { return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory); }
+
+juce::String safeFileName(const juce::String& name) {
+    auto n = juce::File::createLegalFileName(name.trim());
+    return n.isEmpty() ? "preset" : n;
+}
+
+void saveAs(std::unique_ptr<juce::FileChooser>& chooser, const juce::String& title, const juce::String& fileName,
+            std::function<bool(const juce::File&)> write, std::function<void(const juce::String&)> status) {
+    chooser = std::make_unique<juce::FileChooser>(title, documents().getChildFile(fileName), "*" + juce::File(fileName).getFileExtension());
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+        [write, status](const juce::FileChooser& fc) {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            status(write(f) ? "Saved " + f.getFileName() : "Could not write " + f.getFileName());
+        });
+}
+
+}  // namespace
+
+static void showImportResult(juce::Component* near, const FM1Processor::ImportResult& r, std::function<void(const juce::String&)> status) {
+    status(r.summary);
+    if (r.errors.isEmpty()) return;
+    juce::StringArray shown;
+    for (int i = 0; i < std::min(20, r.errors.size()); ++i) shown.add(r.errors[i]);
+    if (r.errors.size() > 20) shown.add("... and " + juce::String(r.errors.size() - 20) + " more");
+    auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon)
+        .withTitle("Nothing was imported").withMessage(shown.joinIntoString("\n")).withButton("OK").withAssociatedComponent(near);
+    juce::AlertWindow::showAsync(opts, nullptr);
+}
+
 // ---- LibraryPanel -------------------------------------------------------------------
 
 LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_, &list_, &currentName_,
-            &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &cancel_, &importSyx_, &exportSyx_, &status_,
+            &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &status_,
             &sendEdit_, &live_, &fxChannel_})
         addAndMakeVisible(c);
     refreshPorts();
@@ -99,18 +134,22 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     };
     selectOnDevice_.onClick = [this] { proc_.selectOnDevice(); };
     cancel_.onClick = [this] { proc_.session.cancel(); };
-    importSyx_.onClick = [this] {
-        chooser_ = std::make_unique<juce::FileChooser>("Import a .syx (FM-1 backup, DX7 bank or voice)", juce::File(), "*.syx;*.SYX");
-        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this](const juce::FileChooser& fc) { auto f = fc.getResult(); if (f.existsAsFile()) setStatus(proc_.importSyx(f)); });
+    importFile_.onClick = [this] {
+        chooser_ = std::make_unique<juce::FileChooser>("Import presets and patterns (.json), or an FM-1 backup, DX7 bank or voice (.syx)",
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.json;*.syx;*.SYX");
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
+            auto f = fc.getResult();
+            if (!f.existsAsFile()) return;
+            if (f.hasFileExtension("json")) importJson(f);
+            else setStatus(proc_.importSyx(f));
+            refresh();
+        });
     };
-    exportSyx_.onClick = [this] {
-        chooser_ = std::make_unique<juce::FileChooser>("Export all 128 presets as .syx",
-            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("fm1-presets.syx"), "*.syx");
-        chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
-            [this](const juce::FileChooser& fc) { auto f = fc.getResult(); if (f != juce::File()) setStatus(proc_.exportSyx(f) ? "Saved " + f.getFileName() : "Could not write " + f.getFileName()); });
-    };
+    importFile_.setTooltip("A .json file of presets and/or patterns, or a .syx of FM-1 presets or DX7 voices");
+    exportFile_.onClick = [this] { showExportMenu(); };
+    exportFile_.setTooltip("Save presets (the selected ones, a bank, all) and patterns. Shift- or Cmd-click the list to select several presets.");
     list_.setRowHeight(20);
+    list_.setMultipleSelectionEnabled(true);
     list_.selectRow(proc_.bank.currentSlot());
     currentName_.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     startTimerHz(10);
@@ -122,7 +161,7 @@ LibraryPanel::~LibraryPanel() = default;
 void LibraryPanel::refresh() {
     list_.updateContent();
     list_.repaint();
-    if (list_.getSelectedRow() != proc_.bank.currentSlot()) list_.selectRow(proc_.bank.currentSlot(), true, true);
+    if (!list_.isRowSelected(proc_.bank.currentSlot()) && list_.getNumSelectedRows() <= 1) list_.selectRow(proc_.bank.currentSlot(), true, true);
     currentName_.setText(proc_.bank.slotLabel(proc_.bank.currentSlot()), juce::dontSendNotification);
 }
 
@@ -184,7 +223,7 @@ void LibraryPanel::resized() {
     row(pullAll_, &pushChanged_);
     row(pushAll_, &cancel_);
     r.removeFromTop(10);
-    row(importSyx_, &exportSyx_);
+    row(importFile_, &exportFile_);
 }
 
 void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) {
@@ -202,7 +241,8 @@ void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
 }
 
 void LibraryPanel::selectedRowsChanged(int row) {
-    if (row < 0 || row == proc_.bank.currentSlot()) return;
+    // Shift- or Cmd-click builds a group to export; only a single selection switches the preset
+    if (row < 0 || row == proc_.bank.currentSlot() || list_.getNumSelectedRows() > 1) return;
     if (!proc_.isEdited()) { proc_.selectSlot(row); return; }
     int from = proc_.bank.currentSlot();
     auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon)
@@ -218,6 +258,98 @@ void LibraryPanel::selectedRowsChanged(int row) {
 void LibraryPanel::listBoxItemDoubleClicked(int row, const juce::MouseEvent&) {
     proc_.selectSlot(row);
     proc_.selectOnDevice();
+}
+
+// A .json file: when any of its presets carries a slot number, ask whether
+// they go back to their own slots or in from the selected slot.
+void LibraryPanel::importJson(const juce::File& f) {
+    auto status = [this](const juce::String& m) { setStatus(m); };
+    auto pv = proc_.previewJson(f);
+    if (!pv.errors.isEmpty()) {
+        FM1Processor::ImportResult r;
+        r.summary = "Nothing imported: " + f.getFileName() + " has " + juce::String(pv.errors.size()) + (pv.errors.size() == 1 ? " problem" : " problems");
+        r.errors = pv.errors;
+        showImportResult(this, r, status);
+        return;
+    }
+    auto run = [this, f, status](FM1Processor::Placement where) {
+        showImportResult(this, proc_.importJson(f, true, true, where), status);
+        refresh();
+    };
+    if (pv.slots.empty()) { run(FM1Processor::Placement::FromSelected); return; }
+    juce::String selected = BankModel::bankName(proc_.bank.currentSlot());
+    juce::StringArray own;
+    for (size_t i = 0; i < pv.slots.size() && i < 6; ++i) own.add(BankModel::bankName(pv.slots[i]));
+    if (pv.slots.size() > 6) own.add("...");
+    juce::String message;
+    if (pv.presets == 1)
+        message = "This preset was saved from " + own[0] + ".";
+    else if (int(pv.slots.size()) == pv.presets)
+        message = "These " + juce::String(pv.presets) + " presets were saved from their own slots (" + own.joinIntoString(", ") + ").";
+    else
+        message = juce::String(int(pv.slots.size())) + " of these " + juce::String(pv.presets) + " presets have their own slots ("
+                  + own.joinIntoString(", ") + "). With their own slots, the others fill the free slots from " + selected + " on.";
+    if (pv.patterns > 0) message << "\n\nThe file's " << pv.patterns << (pv.patterns == 1 ? " pattern goes" : " patterns go") << " to its own number.";
+    auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("Where should the presets go?").withMessage(message)
+        .withButton(pv.presets == 1 ? "Into " + own[0] : "Their own slots")
+        .withButton(pv.presets == 1 ? "Into " + selected + " (selected)" : "From " + selected + " (selected) on")
+        .withButton("Cancel").withAssociatedComponent(this);
+    juce::AlertWindow::showAsync(opts, [run](int r) {
+        if (r == 1) run(FM1Processor::Placement::OwnSlots);
+        else if (r == 2) run(FM1Processor::Placement::FromSelected);
+    });
+}
+
+std::vector<int> LibraryPanel::selectedSlots() const {
+    std::vector<int> out;
+    auto rows = list_.getSelectedRows();
+    for (int i = 0; i < rows.size(); ++i) out.push_back(rows[i]);
+    if (out.empty()) out.push_back(proc_.bank.currentSlot());
+    return out;
+}
+
+void LibraryPanel::showExportMenu() {
+    auto sel = selectedSlots();
+    int bankStart = (proc_.bank.currentSlot() / fm1::kBankSlots) * fm1::kBankSlots;
+    juce::String bankLetter = BankModel::bankName(bankStart).substring(0, 1);
+    juce::PopupMenu m;
+    m.addSectionHeader("JSON (readable, editable)");
+    m.addItem(1, sel.size() == 1 ? "This preset: " + proc_.bank.slotLabel(sel[0]) + "..." : "Selected presets (" + juce::String(int(sel.size())) + ")...");
+    m.addItem(2, "Bank " + bankLetter + " (32 presets)...");
+    m.addItem(3, "All 128 presets...");
+    m.addItem(4, "Everything: 128 presets and 16 patterns...");
+    m.addSectionHeader("SysEx (FM-1+VA)");
+    m.addItem(6, sel.size() == 1 ? "This preset as .syx..." : "Selected presets (" + juce::String(int(sel.size())) + ") as .syx...");
+    m.addItem(5, "All 128 presets as .syx...");
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&exportFile_), [this, sel, bankStart, bankLetter](int id) {
+        auto status = [this](const juce::String& msg) { setStatus(msg); };
+        std::vector<int> all(BankModel::kSlots), pats(Sequencer::kPatterns);
+        for (int i = 0; i < BankModel::kSlots; ++i) all[size_t(i)] = i;
+        for (int i = 0; i < Sequencer::kPatterns; ++i) pats[size_t(i)] = i;
+        auto json = [this, status](const juce::String& title, const juce::String& name, std::vector<int> slots, std::vector<int> patterns) {
+            saveAs(chooser_, title, name, [this, slots, patterns](const juce::File& f) { return proc_.exportJson(f, slots, patterns); }, status);
+        };
+        if (id == 1) {
+            juce::String name = sel.size() == 1 ? safeFileName(BankModel::bankName(sel[0]) + " " + juce::String(fm1::voiceName(proc_.bank.slot(sel[0]).sound.voice)).trim())
+                                               : "fm1-presets-selected";
+            json("Export presets as JSON", name + ".json", sel, {});
+        } else if (id == 2) {
+            std::vector<int> bank;
+            for (int i = 0; i < fm1::kBankSlots; ++i) bank.push_back(bankStart + i);
+            json("Export bank " + bankLetter + " as JSON", "fm1-bank-" + bankLetter + ".json", bank, {});
+        } else if (id == 3) {
+            json("Export all presets as JSON", "fm1-presets.json", all, {});
+        } else if (id == 4) {
+            json("Export everything as JSON", "fm1-everything.json", all, pats);
+        } else if (id == 6) {
+            juce::String name = sel.size() == 1 ? safeFileName(BankModel::bankName(sel[0]) + " " + juce::String(fm1::voiceName(proc_.bank.slot(sel[0]).sound.voice)).trim())
+                                                : "fm1-presets-selected";
+            saveAs(chooser_, "Export presets as .syx", name + ".syx", [this, sel](const juce::File& f) { return proc_.exportSyx(f, sel); }, status);
+        } else if (id == 5) {
+            saveAs(chooser_, "Export all 128 presets as .syx", "fm1-presets.syx", [this](const juce::File& f) { return proc_.exportSyx(f); }, status);
+        }
+    });
 }
 
 // ---- FmEditorPanel ------------------------------------------------------------------
@@ -387,6 +519,25 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     for (auto* s : {&stepGate_, &stepChance_, &stepTranspose_}) s->onValueChange = applyS;
     accent_.onClick = applyS; slide_.onClick = applyS;
     clearStep_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = fm1::seq::Step{}; pattern().steps[size_t(selectedStep_)].rate = pattern().rate; } loadStepControls(); repaint(); };
+    addAndMakeVisible(importPatterns_);
+    addAndMakeVisible(exportPatterns_);
+    addAndMakeVisible(fileStatus_);
+    fileStatus_.setFont(juce::FontOptions(13.0f));
+    fileStatus_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+    importPatterns_.setTooltip("Load patterns from a .json file (presets in it are left alone)");
+    exportPatterns_.setTooltip("Save this pattern or all 16 as .json, with every step setting");
+    importPatterns_.onClick = [this] {
+        chooser_ = std::make_unique<juce::FileChooser>("Import patterns (.json)", documents(), "*.json");
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
+            auto f = fc.getResult();
+            if (!f.existsAsFile()) return;
+            showImportResult(this, proc_.importJson(f, false, true), [this](const juce::String& m) { fileStatus_.setText(m, juce::dontSendNotification); });
+            loadPatternControls();
+            loadStepControls();
+            repaint();
+        });
+    };
+    exportPatterns_.onClick = [this] { showExportMenu(); };
     clearPattern_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); int r = pattern().rate; for (auto& s : pattern().steps) { s = fm1::seq::Step{}; s.rate = r; } } loadStepControls(); repaint(); };
     copyStep_.onClick = [this] { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); clipboard_ = pattern().steps[size_t(selectedStep_)]; };
     pasteStep_.onClick = [this] { if (!clipboard_) return; { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = *clipboard_; } loadStepControls(); repaint(); };
@@ -640,6 +791,10 @@ void SeqPanel::resized() {
     auto rr = mid.removeFromTop(26); labels_[6]->setBounds(rr.removeFromLeft(96)); rate_.setBounds(rr.removeFromLeft(90));
     mid.removeFromTop(10);
     rr = mid.removeFromTop(26); clearPattern_.setBounds(rr.removeFromLeft(120));
+    mid.removeFromTop(6);
+    rr = mid.removeFromTop(26); importPatterns_.setBounds(rr.removeFromLeft(100)); rr.removeFromLeft(6); exportPatterns_.setBounds(rr.removeFromLeft(100));
+    fileStatus_.setBounds(mid.removeFromTop(40));
+    fileStatus_.setMinimumHorizontalScale(1.0f);
     right.removeFromLeft(20);
     stepNotes_.setBounds(right.removeFromTop(26)); right.removeFromTop(4);
     {   // the step's notes, under the grid
@@ -691,4 +846,20 @@ void ArpPanel::resized() {
     auto area = r.removeFromLeft(420);
     auto rowOf = [&](juce::Label& l, juce::Component& c, int w = 320) { auto rr = area.removeFromTop(26); l.setBounds(rr.removeFromLeft(90)); c.setBounds(rr.removeFromLeft(w)); area.removeFromTop(6); };
     rowOf(*labels_[0], mode_, 140); rowOf(*labels_[1], rate_, 100); rowOf(*labels_[2], octaves_); rowOf(*labels_[3], tempo_); rowOf(*labels_[4], gate_); rowOf(*labels_[5], swing_);
+}
+
+void SeqPanel::showExportMenu() {
+    int current = proc_.sequencer.selected.load();
+    juce::PopupMenu m;
+    m.addItem(1, "This pattern (" + juce::String(current + 1) + ")...");
+    m.addItem(2, "All 16 patterns...");
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&exportPatterns_), [this, current](int id) {
+        if (id == 0) return;
+        std::vector<int> pats;
+        if (id == 1) pats.push_back(current);
+        else for (int i = 0; i < Sequencer::kPatterns; ++i) pats.push_back(i);
+        juce::String name = id == 1 ? "fm1-pattern-" + juce::String(current + 1) + ".json" : "fm1-patterns.json";
+        saveAs(chooser_, "Export patterns as JSON", name, [this, pats](const juce::File& f) { return proc_.exportJson(f, {}, pats); },
+               [this](const juce::String& msg) { fileStatus_.setText(msg, juce::dontSendNotification); });
+    });
 }

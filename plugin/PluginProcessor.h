@@ -86,7 +86,20 @@ public:
     void pushPatterns(bool save);
 
     juce::String importSyx(const juce::File& f);
-    bool exportSyx(const juce::File& f);
+    bool exportSyx(const juce::File& f, const std::vector<int>& slots = {});   // empty: all 128
+
+    // JSON (docs/JSON-FORMAT.md): any mix of presets and patterns. Export writes
+    // the given slots (0..127; the current one with its unsaved edits) and
+    // patterns (0..15). Import applies the presets and/or patterns in the file.
+    // Presets go to their own slots (those without one fill the free slots from
+    // the selected one on, skipping slots the file uses) or, FromSelected, all
+    // in file order from the selected slot on. Patterns go to their numbers.
+    bool exportJson(const juce::File& f, const std::vector<int>& slots, const std::vector<int>& patterns);
+    struct JsonPreview { int presets = 0, patterns = 0; std::vector<int> slots; juce::StringArray errors; };   // slots: those given
+    JsonPreview previewJson(const juce::File& f) const;
+    enum class Placement { OwnSlots, FromSelected };
+    struct ImportResult { bool ok = false; juce::String summary; juce::StringArray errors; };
+    ImportResult importJson(const juce::File& f, bool presets, bool patterns, Placement placement = Placement::OwnSlots);
 
     std::function<void(const juce::String&)> onStatus;   // message thread
     juce::MidiMessageCollector keyboardMidi;             // notes from the editor's keyboard

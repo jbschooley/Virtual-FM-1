@@ -24,8 +24,8 @@ which writes the whole preset with her exact-write SysEx and saves it to flash.
 | Distortion type (soft clip, hard clip, foldback) | 29+3k for the distortion's chain position | Store only; `kTypeCc` has no entry (`sync/Fm1Edit.cpp`) | A free FX-channel CC, or the live-record write above |
 | Effect order | 27+3k (effect id per chain position) | Store only; the editor shows the stored order and cannot change it | Same |
 | Envelope off | 58 (see 4.1) | Envelope CCs 73/75/70/72 switch it on; nothing switches it off | A CC for the ENV hold, or the live-record write |
-| VA oscillator, level, mono, glide | 19-22, 45-46, 48, others unknown | Not edited in the plugin yet (no VA engine); VA CCs 24-30 exist | Level and Mono bytes; whether Mono and Glide are per preset |
-| Knob assignments (KNOB1-4) | Unknown; likely in 45-53 or 58 | Kept as stored, not edited | Where the four choices live and their ids |
+| VA oscillator, level, mono, glide | 19-22, 45-46, 48, others unknown | Not edited in the plugin yet (no VA engine); VA CCs 24-30 exist. JSON exports VA presets without FM settings; their VA settings travel only in `raw` | Level and Mono bytes; whether Mono and Glide are per preset; every VA setting's byte and range, for readable VA fields in the JSON format (`plugin/Fm1Json.cpp`, `docs/virtual-fm1.schema.json`) |
+| Knob assignments (KNOB1-4), per preset | Unknown; likely in 45-53 or 58 | Kept as stored, not edited or shown. JSON exports carry them only inside `raw` | Where the four choices live, the list of assignable targets and their ids, and whether each knob also stores a range; then show them in the editor, send them with Store, and add a readable `knobs` field to the JSON format |
 
 The cleanest fix for all of these is one SysEx message that writes the live
 settings record (the 59 bytes at edit buffer + 156) the way her exact-write

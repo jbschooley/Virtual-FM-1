@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jbschooley/Virtual-FM-1/main/docs/virtual-fm1.schema.json",
+  "format": "virtual-fm1",
+  "version": 1,
+  "presets": [
+    {
+      "name": "GLASS EP",
+      "algorithm": 5,
+      "feedback": 6,
+      "operators": [
+        { "coarse": 1, "level": 99, "velocitySensitivity": 2, "envelope": { "rates": [96, 25, 25, 67], "levels": [99, 75, 0, 0] } },
+        { "coarse": 14, "level": 58, "velocitySensitivity": 7, "envelope": { "rates": [95, 50, 35, 78], "levels": [99, 75, 0, 0] } },
+        { "coarse": 1, "level": 99, "detune": -2, "velocitySensitivity": 2, "envelope": { "rates": [95, 20, 20, 50], "levels": [99, 95, 0, 0] } },
+        { "coarse": 1, "level": 86, "velocitySensitivity": 6, "envelope": { "rates": [95, 29, 20, 50], "levels": [99, 95, 0, 0] } },
+        { "coarse": 1, "level": 99, "detune": 2, "velocitySensitivity": 2, "envelope": { "rates": [95, 20, 20, 50], "levels": [99, 95, 0, 0] } },
+        { "coarse": 1, "level": 79, "velocitySensitivity": 6, "envelope": { "rates": [95, 29, 20, 50], "levels": [99, 95, 0, 0] } }
+      ],
+      "effects": [
+        { "effect": "chorus", "on": true, "rate": 30, "depth": 40, "mix": 35 },
+        { "effect": "reverb", "on": true, "type": "hall", "decay": 55, "mix": 25 },
+        { "effect": "filter", "on": false },
+        { "effect": "delay", "on": false },
+        { "effect": "distortion", "on": false },
+        { "effect": "phaser", "on": false }
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "pattern": 16,
+      "length": 8,
+      "noteValue": "1/8",
+      "tempo": 96,
+      "steps": [
+        { "step": 1, "notes": [{ "note": 48, "velocity": 100 }, { "note": 60, "velocity": 80 }] },
+        { "step": 2, "notes": [{ "note": 64, "velocity": 70 }] },
+        { "step": 3, "notes": [{ "note": 67, "velocity": 75 }], "chance": 50 },
+        { "step": 4, "notes": [{ "note": 72, "velocity": 90 }], "ratchet": 2 },
+        { "step": 5, "notes": [{ "note": 45, "velocity": 100 }, { "note": 57, "velocity": 80 }] },
+        { "step": 6, "notes": [{ "note": 60, "velocity": 70 }] },
+        { "step": 7, "notes": [{ "note": 64, "velocity": 75 }], "accent": true },
+        { "step": 8, "notes": [{ "note": 69, "velocity": 90, "tie": true }] }
+      ]
+    }
+  ]
+}

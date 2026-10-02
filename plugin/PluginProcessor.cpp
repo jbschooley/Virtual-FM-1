@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 
+#include <set>
+
+#include "Fm1Json.h"
 #include "PluginEditor.h"
 
 FM1Processor::FM1Processor()
@@ -606,11 +609,105 @@ juce::String FM1Processor::importSyx(const juce::File& f) {
     return "Loaded " + juce::String(n) + " sounds from " + f.getFileName() + (c.skipped.empty() ? "" : ", skipped " + juce::String(int(c.skipped.size())));
 }
 
-bool FM1Processor::exportSyx(const juce::File& f) {
+bool FM1Processor::exportSyx(const juce::File& f, const std::vector<int>& slots) {
     std::vector<fm1::Sound> all;
-    for (int i = 0; i < BankModel::kSlots; ++i) all.push_back(bank.slot(i).sound);
+    std::vector<int> which = slots;
+    if (which.empty()) for (int i = 0; i < BankModel::kSlots; ++i) which.push_back(i);
+    for (int i : which) {
+        if (i < 0 || i >= BankModel::kSlots) continue;
+        fm1::Sound s = i == bank.currentSlot() ? editedSound() : bank.slot(i).sound;   // as in exportJson
+        s.slot = i;
+        all.push_back(s);
+    }
     fm1::Bytes bytes = fm1::toSyx(all);
     return f.replaceWithData(bytes.data(), bytes.size());
+}
+
+bool FM1Processor::exportJson(const juce::File& f, const std::vector<int>& slots, const std::vector<int>& patterns) {
+    fm1json::Document d;
+    for (int slot : slots) {
+        if (slot < 0 || slot >= BankModel::kSlots) continue;
+        fm1::Sound s = slot == bank.currentSlot() ? editedSound() : bank.slot(slot).sound;
+        s.slot = slot;
+        d.presets.push_back(s);
+    }
+    {
+        const juce::SpinLock::ScopedLockType l(sequencer.lock);
+        for (int i : patterns) {
+            if (i < 0 || i >= Sequencer::kPatterns) continue;
+            fm1json::PatternEntry e{i, sequencer.patterns[size_t(i)]};
+            e.pattern.chain = sequencer.chain[size_t(i)];
+            d.patterns.push_back(e);
+        }
+    }
+    return f.replaceWithText(fm1json::write(d));
+}
+
+FM1Processor::JsonPreview FM1Processor::previewJson(const juce::File& f) const {
+    JsonPreview p;
+    if (!f.existsAsFile()) { p.errors.add("could not read " + f.getFileName()); return p; }
+    fm1json::Document d = fm1json::read(f.loadFileAsString(), p.errors);
+    p.presets = int(d.presets.size());
+    p.patterns = int(d.patterns.size());
+    for (const auto& s : d.presets) if (s.slot >= 0) p.slots.push_back(s.slot);
+    return p;
+}
+
+FM1Processor::ImportResult FM1Processor::importJson(const juce::File& f, bool presets, bool patterns, Placement placement) {
+    ImportResult r;
+    if (!f.existsAsFile()) { r.summary = "Could not read " + f.getFileName(); return r; }
+    fm1json::Document d = fm1json::read(f.loadFileAsString(), r.errors);
+    if (!r.errors.isEmpty()) {
+        r.summary = "Nothing imported: " + f.getFileName() + " has " + juce::String(r.errors.size()) + (r.errors.size() == 1 ? " problem" : " problems");
+        return r;
+    }
+    juce::StringArray done, ignored;
+    if (presets && !d.presets.empty()) {
+        std::set<int> taken;   // slots the file's own slot numbers claim
+        if (placement == Placement::OwnSlots)
+            for (const auto& s : d.presets) if (s.slot >= 0) taken.insert(s.slot);
+        int next = bank.currentSlot(), n = 0, dropped = 0;
+        bool currentChanged = false;
+        for (auto s : d.presets) {
+            int slot;
+            if (placement == Placement::OwnSlots && s.slot >= 0) {
+                slot = s.slot;
+            } else {
+                while (next < BankModel::kSlots && taken.count(next)) ++next;
+                slot = next++;
+            }
+            if (slot >= BankModel::kSlots) { ++dropped; continue; }
+            s.slot = slot;
+            bank.setSound(slot, s, false);
+            currentChanged |= slot == bank.currentSlot();
+            ++n;
+        }
+        if (currentChanged) loadCurrentIntoParams();
+        done.add(juce::String(n) + (n == 1 ? " preset" : " presets"));
+        if (dropped) ignored.add(juce::String(dropped) + " past slot 128");
+    } else if (!d.presets.empty()) {
+        ignored.add(juce::String(int(d.presets.size())) + " presets (import them from the Library tab)");
+    }
+    if (patterns && !d.patterns.empty()) {
+        {
+            const juce::SpinLock::ScopedLockType l(sequencer.lock);
+            for (const auto& e : d.patterns) {
+                auto p = e.pattern;
+                sequencer.chain[size_t(e.index)] = p.chain;
+                p.sound = -1;
+                sequencer.patterns[size_t(e.index)] = p;
+            }
+        }
+        ++patternsVersion;
+        done.add(juce::String(int(d.patterns.size())) + (d.patterns.size() == 1 ? " pattern" : " patterns"));
+    } else if (!d.patterns.empty()) {
+        ignored.add(juce::String(int(d.patterns.size())) + " patterns (import them from the Sequencer tab)");
+    }
+    r.ok = true;
+    r.summary = done.isEmpty() ? "Nothing to import in " + f.getFileName()
+                               : "Loaded " + done.joinIntoString(" and ") + " from " + f.getFileName();
+    if (!ignored.isEmpty()) r.summary << "; skipped " << ignored.joinIntoString(", ");
+    return r;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new FM1Processor(); }

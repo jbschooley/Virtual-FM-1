@@ -47,6 +47,9 @@ private:
     void timerCallback() override;
     void refreshPorts();
     void refreshButtons();
+    void showExportMenu();
+    std::vector<int> selectedSlots() const;
+    void importJson(const juce::File& f);
 
     FM1Processor& proc_;
     juce::ComboBox inPorts_, outPorts_;
@@ -60,7 +63,7 @@ private:
     juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Store to FM-1 (saves the preset)"},
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
                      selectOnDevice_{"Show on FM-1"}, cancel_{"Stop"},
-                     importSyx_{"Import .syx..."}, exportSyx_{"Export .syx..."};
+                     importFile_{"Import..."}, exportFile_{"Export..."};
     juce::Label status_;
     std::unique_ptr<juce::FileChooser> chooser_;
     bool wasBusy_ = false;
@@ -117,6 +120,10 @@ private:
 
     FM1Processor& proc_;
     int selectedStep_ = 0;
+    juce::TextButton importPatterns_{"Import..."}, exportPatterns_{"Export..."};
+    juce::Label fileStatus_;
+    std::unique_ptr<juce::FileChooser> chooser_;
+    void showExportMenu();
     juce::TextButton enable_{"SEQ"}, play_{"Play"}, rec_{"Rec"}, clearStep_{"Clear step"}, clearPattern_{"Clear pattern"},
                      copyStep_{"Copy step"}, pasteStep_{"Paste step"}, pull_{"Pull patterns from FM-1"}, push_{"Push patterns to FM-1"};
     juce::ToggleButton sync_{"Sync to host"}, overdub_{"Overdub"};

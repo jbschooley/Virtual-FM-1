@@ -78,6 +78,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/PluginEditor.cpp
         plugin/Panels.cpp
         plugin/Params.cpp
+        plugin/Fm1Json.cpp
         plugin/Effects.cpp
         plugin/Sequencer.cpp
         plugin/Arpeggiator.cpp
@@ -151,4 +152,12 @@ if(FM1_BUILD_PLUGIN)
     target_compile_definitions(seq_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(seq_test PRIVATE fm1_sync juce::juce_audio_processors juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     add_test(NAME seq_test COMMAND seq_test)
+
+    # presets and patterns as JSON: exact round trips, single-byte edits, error places
+    juce_add_console_app(json_test PRODUCT_NAME "json_test")
+    target_sources(json_test PRIVATE tests/json_test.cpp plugin/Fm1Json.cpp)
+    target_include_directories(json_test PRIVATE sync plugin)
+    target_compile_definitions(json_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(json_test PRIVATE fm1_sync juce::juce_core juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    add_test(NAME json_test COMMAND json_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 endif()

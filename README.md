@@ -52,6 +52,10 @@ Logic needs a restart to pick up a new Audio Unit.
    preset on the synth. **Push changed** writes every preset that differs.
 6. The **Sequencer** tab pulls and pushes patterns; **Arpeggiator** works like
    the FM-1's. Both follow your host's tempo and transport.
+7. **Export...** saves presets as JSON: one, a group (Shift- or Cmd-click the
+   list), a bank, all 128, or everything with the patterns. The Sequencer
+   tab's **Export...** saves one pattern or all 16. **Import...** reads them
+   back, and `.syx` files too.
 
 Every sound setting is a host parameter, so it can be automated, and a host
 project saves its own current preset, edits, patterns and arpeggiator.
@@ -75,6 +79,9 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **Sync**: identify, pull and push one preset or all 128, push only what
   changed, send unsaved edits, show a preset on the synth, `.syx` import and
   export (FM-1+VA backups, DX7 banks and voices).
+- **JSON presets and patterns**: a readable, editable format for backups and
+  for writing sounds and patterns by hand or by script, with a JSON Schema
+  editors can check against. See [`docs/JSON-FORMAT.md`](docs/JSON-FORMAT.md).
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
 
@@ -125,7 +132,8 @@ Source layout:
   simulated FM-1, a host test that loads the built plugin like a DAW, and the
   hardware probe used to study the synth
 - `docs/` [hardware notes](docs/HARDWARE-NOTES.md),
-  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md)
+  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md),
+  [JSON format](docs/JSON-FORMAT.md)
 
 ## Credits
 
