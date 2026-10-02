@@ -166,13 +166,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          # the lines under "## [<version>]", up to the next "## [" heading
+          awk -v v="$v" '/^## \[/ { p = index($0, "[" v "]") > 0; next } /^\[[^]]*\]: / { next } p' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then echo "CHANGELOG.md has no section for $v"; exit 1; fi
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/macos-installer/*.pkg
             dist/windows-installer/*.exe
-          generate_release_notes: true
+          body_path: notes.md
           draft: true          # published by hand from the Releases page

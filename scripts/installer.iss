@@ -1,5 +1,5 @@
 ; Inno Setup script for the Windows installer.
-;   ISCC.exe /DVersion=0.1.0 /DBuildDir=..\build /DOutDir=..\dist scripts\installer.iss
+;   ISCC.exe /DVersion=0.2.0 /DBuildDir=..\build /DOutDir=..\dist scripts\installer.iss
 #ifndef Version
   #define Version "0.0.0"
 #endif
