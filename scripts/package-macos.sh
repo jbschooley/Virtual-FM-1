@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the macOS installer from a finished build: one package per format,
-# combined into an installer whose "Customize" step lets the user pick the
+# combined into an installer whose Installation Type step lets the user pick the
 # Standalone app, the VST3 and the AU (all selected by default).
 #   scripts/package-macos.sh <build dir> <output dir> <version>
 # Signing and notarization happen in CI when the certificates are available
@@ -43,17 +43,26 @@ component vst3 "$ART/VST3/$NAME.vst3"           /Library/Audio/Plug-Ins/VST3
 component au   "$ART/AU/$NAME.component"        /Library/Audio/Plug-Ins/Components
 # component aax "$ART/AAX/$NAME.aaxplugin"      "/Library/Application Support/Avid/Audio/Plug-Ins"   (see docs/AAX.md)
 
-cp "$(dirname "$0")/../LICENSE" "$WORK/resources/LICENSE.txt"
+# The license pane wraps text itself, so give it one line per paragraph: the
+# GPL's own line breaks would otherwise split lines in odd places. Centered
+# headings (deeply indented lines) keep their own lines.
+awk '
+    function flush() { if (p != "") print p; p = "" }
+    /^[[:space:]]*$/ { flush(); print ""; next }
+    /^          / { flush(); line = $0; sub(/^[[:space:]]+/, "", line); print line; next }
+    { line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line); p = (p == "" ? line : p " " line) }
+    END { flush() }
+' "$(dirname "$0")/../LICENSE" > "$WORK/resources/LICENSE.txt"
 cat > "$WORK/distribution.xml" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
     <title>$NAME $VERSION</title>
     <license file="LICENSE.txt"/>
     <!-- customize="always": the Installation Type step shows the checkboxes directly.
-         rootVolumeOnly + one domain: no "Select Destination" step; everything goes on
-         the startup disk, the only place plugins and apps are looked for. -->
+         rootVolumeOnly and no <domains>: everything goes on the startup disk, the only
+         place plugins and apps are looked for. Any <domains> element, even with one
+         domain, makes Installer ask "How do you want to install this software?". -->
     <options customize="always" rootVolumeOnly="true" require-scripts="false" hostArchitectures="x86_64,arm64"/>
-    <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
     <choices-outline>
         <line choice="app"/>
         <line choice="vst3"/>

@@ -24,9 +24,9 @@ It works on its own as a synth too; the FM-1 is only needed for syncing.
 Download the installer for your system from the
 [Releases](https://github.com/jbschooley/Virtual-FM-1/releases) page.
 
-- **macOS**: open `Virtual-FM-1-…-macOS.pkg`. Under **Customize** you can
-  choose the **Standalone app**, the **VST3 plugin** and the **Audio Unit
-  plugin**; all three are installed by default. The installer is not signed
+- **macOS**: open `Virtual-FM-1-…-macOS.pkg`. The **Installation Type** step
+  lists the **Standalone app**, the **VST3 plugin** and the **Audio Unit
+  plugin**, all ticked; untick any you don't want. The installer is not signed
   yet, so macOS will say it cannot verify it: open **System Settings ›
   Privacy & Security** and click **Open Anyway**.
 - **Windows**: run `Virtual-FM-1-…-Windows.exe` and choose the **Standalone
