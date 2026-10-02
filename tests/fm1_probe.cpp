@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
     std::vector<fm1::Sound> read, written;
     std::vector<std::pair<int, fm1::seq::Pattern>> pats;
     Fm1Session::Progress last;
-    session.onIdentity = [](const fm1::Identity& id) { std::printf("identity: %s (%s)\n", id.name().c_str(), id.isStock() ? "M-VAVE stock" : "FM-1+VA"); };
+    session.onIdentity = [](const fm1::Identity& id) { std::printf("identity: %s (%s)\n", id.name().c_str(), fm1::firmwareFor(id)->name().toRawUTF8()); };
     session.onSoundRead = [&](const fm1::Sound& s) { read.push_back(s); };
     session.onSoundWritten = [&](const fm1::Sound& s) { written.push_back(s); };
     session.onPatternRead = [&](int p, const fm1::seq::Pattern& pp) { pats.emplace_back(p, pp); };

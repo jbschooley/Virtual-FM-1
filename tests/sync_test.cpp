@@ -255,6 +255,17 @@ int main(int argc, char** argv) {
     session.pull({0}); waitIdle(session, 5000);
     CHECK(read.empty() && progress.back().failed && progress.back().text.contains("cannot send presets back"), "pull on stock firmware refused with explanation");
 
+    // Felucca answers the identity request as FM-1_904 and is not taken for FM-1+VA
+    CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 904})->name() == "Felucca", "FM-1_904 is Felucca");
+    CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 93})->name() == "FM-1+VA", "FM-1_093 is FM-1+VA");
+    CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 19})->name() == "M-VAVE", "FM-1_019 is M-VAVE");
+    fake.identityVersion = 904; identity.reset();
+    session.identify(); waitIdle(session, 5000);
+    CHECK(identity && identity->version == 904 && progress.back().text.contains("Felucca"), "Felucca identity reported");
+    progress.clear(); read.clear();
+    session.pull({0}); waitIdle(session, 5000);
+    CHECK(read.empty() && progress.back().failed && progress.back().text.contains("Felucca"), "pull on Felucca refused with explanation");
+
     // no device answering: the session fails within the retry budget
     fake.identityVersion = 89; identity.reset();
     fake.dropNextReplies = 100;

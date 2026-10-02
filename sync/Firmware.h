@@ -10,6 +10,7 @@
 // Profiles today:
 //   FM-1+VA (baud girl)  read-back protocol: presets, patterns, memory reads
 //   M-VAVE (stock)       takes DX7 voices and parameter changes, sends nothing back
+//   Felucca              identity only; no preset or pattern transfer
 
 #pragma once
 
@@ -55,7 +56,7 @@ public:
     virtual ~Firmware() = default;
 
     int version = 0;                                 // the identity's version number
-    virtual juce::String name() const = 0;           // "FM-1+VA", "M-VAVE"
+    virtual juce::String name() const = 0;           // "FM-1+VA", "M-VAVE", "Felucca"
     virtual juce::String summary() const = 0;        // a few words on what it can do, for the identity line
     virtual bool has(Feature f) const = 0;
     // Why a feature is missing, as a sentence for the status line.

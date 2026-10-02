@@ -8,8 +8,9 @@ back) and asks the profile for everything that depends on the firmware.
 
 | Profile | Chosen when | Can do |
 |---|---|---|
-| FM-1+VA | identity version 20 or later | Everything: presets, patterns, current sound, unsaved edits checked by read-back; GLOBE settings on FM-1_093 |
+| FM-1+VA | identity version 20 to 899 | Everything: presets, patterns, current sound, unsaved edits checked by read-back; GLOBE settings on FM-1_093 |
 | M-VAVE | identity version 19 or earlier | Nothing read back; sends unsaved edits unchecked |
+| Felucca | identity version 900 or later (0.4 beta is FM-1_904) | Nothing: its SysEx covers identity and firmware updates only |
 
 ## Adding a firmware
 

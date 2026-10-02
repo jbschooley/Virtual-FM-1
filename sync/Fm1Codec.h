@@ -37,7 +37,7 @@ constexpr uint8_t kMarkFM = 0xA5;
 constexpr uint8_t kSubId  = 0x7D;
 constexpr size_t  kExactLen = 231;
 
-constexpr int kLastStockVersion = 19;  // FM-1_020 and up is FM-1+VA
+constexpr int kLastStockVersion = 19;  // FM-1_020 and up is FM-1+VA, or Felucca from FM-1_900 (sync/Firmware.cpp)
 
 using Bytes  = std::vector<uint8_t>;
 using Voice  = std::array<uint8_t, kVoiceBytes>;
