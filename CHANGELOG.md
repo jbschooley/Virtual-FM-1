@@ -4,10 +4,16 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
-## [Unreleased]
+## [0.3.0] - unreleased
 
 ### Added
 
+- **Linux**: the Standalone app, VST3 and LV2 for x86-64, in a `.tar.gz`
+  with an install script that installs for your account or system-wide and
+  lets you leave parts out. LV2 hosts list the 128 slots as presets; picking
+  one loads that slot from your library, though the names in the host's
+  list are placeholders. Syncing with an FM-1 on Linux is untested with the
+  hardware.
 - **Hardware character** (Settings tab, saved with the project): makes the
   plugin sound like the FM-1's USB audio, with 16-bit output at the FM-1's
   level and its slightly softer high end, both measured from the hardware.
@@ -24,10 +30,10 @@ for the code. New work goes under the next version at the top.
   and **Revert to default** goes back to them.
 - **Reads the FM-1's GLOBE settings** when it connects (FM-1_093): its MIDI
   and FX channels, pitch-bend range, key velocity, glide, drive, CC7 volume
-  and overdub setting, shown on the
-  Settings tab. The plugin talks to the FM-1 on its channels, so the FX
-  channel no longer has to be set by hand. **Copy from FM-1** takes its
-  bend range and key velocity into the plugin's settings.
+  and overdub setting, shown on the Settings tab. The plugin talks to the
+  FM-1 on its channels, so the FX channel no longer has to be set by hand.
+  **Copy from FM-1** takes its bend range and key velocity into the
+  plugin's settings.
 
 ### Changed
 
@@ -93,6 +99,6 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
-[Unreleased]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.2.0...HEAD
+[0.3.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jbschooley/Virtual-FM-1/releases/tag/v0.1.0
