@@ -4,6 +4,19 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Added
+
+- **iPad**: the app and an AUv3 build from source for iOS and iPadOS and
+  sync with the FM-1 over USB-C. Not distributed yet; see `docs/IOS.md`.
+
+### Fixed
+
+- An FM-1 running **Felucca** is recognised as Felucca instead of being
+  taken for FM-1+VA: the plugin no longer tries to pull from it, and live
+  editing sends it nothing, since Felucca does not take FM-1+VA presets.
+
 ## [0.3.0] - 2026-10-02
 
 ### Added
