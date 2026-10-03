@@ -88,6 +88,8 @@ if(FM1_BUILD_PLUGIN)
         NEEDS_MIDI_OUTPUT TRUE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        # iOS app: keeps playing when another app is in front (a sound module for other apps)
+        BACKGROUND_AUDIO_ENABLED TRUE
         COPY_PLUGIN_AFTER_BUILD ${FM1_COPY_PLUGIN}
         VST3_CATEGORIES Instrument Synth
         AU_MAIN_TYPE kAudioUnitType_MusicDevice
