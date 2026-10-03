@@ -108,6 +108,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   written.
 - Knob assignments and mono/glide are kept as stored but not edited.
 - **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
+- **iPad**: the app and AUv3 build from source and sync with the FM-1 over
+  USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
@@ -144,7 +146,7 @@ Source layout:
   simulated FM-1, a host test that loads the built plugin like a DAW, and the
   hardware probe used to study the synth
 - `docs/` [hardware notes](docs/HARDWARE-NOTES.md),
-  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md),
+  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md), [iOS](docs/IOS.md),
   [JSON format](docs/JSON-FORMAT.md), [firmware profiles](docs/FIRMWARE-PROFILES.md)
   and a [shared protocol proposal](docs/PROTOCOL-PROPOSAL.md) for FM-1 firmwares
 
