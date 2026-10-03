@@ -190,6 +190,9 @@ private:
     juce::Slider volumeDb_;
     juce::Label hardwareNote_;
     juce::TextButton save_{"Save as default"}, revert_{"Revert to default"}, copy_{"Copy from FM-1"};
+    // the standalone app's audio and MIDI settings: on iOS and Android, JUCE's
+    // window has no title bar, so no Options button to open them
+    juce::TextButton audioSettings_{"Audio/MIDI settings..."};
     juce::Label note_, synth_;
     std::vector<std::unique_ptr<juce::Label>> labels_, headers_;
     bool loading_ = false;

@@ -1,5 +1,9 @@
 #include "Panels.h"
 
+#if JUCE_IOS || JUCE_ANDROID
+ #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
+
 #include "Fm1Record.h"
 
 namespace {
@@ -941,6 +945,38 @@ SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
         note_.setText(copyPending_ ? "Reading the FM-1's settings..." : "The FM-1 is busy or not connected; try again in a moment.",
                       juce::dontSendNotification);
     };
+   #if JUCE_IOS || JUCE_ANDROID
+    // only in the app: in a host (AUv3), the host chooses the audio and MIDI devices
+    if (juce::StandalonePluginHolder::getInstance() != nullptr) {
+        makeLabel(headers_, *this, "Audio and MIDI", 14.0f, true);
+        addAndMakeVisible(audioSettings_);
+        audioSettings_.setTooltip("The audio output, sample rate, buffer size and the MIDI inputs that play the synth");
+        audioSettings_.onClick = [] {
+            auto* holder = juce::StandalonePluginHolder::getInstance();
+            if (holder == nullptr) return;
+            // JUCE's showAudioSettingsDialog asks for a native title bar, which iOS
+            // does not draw, leaving no way to close it; this is the same settings with
+            // JUCE's own title bar and close button
+            int outs = 2;
+            if (auto* bus = holder->processor->getBus(false, 0)) outs = std::max(0, bus->getDefaultLayout().size());
+            // the selector JUCE's own window shows: outputs, rate, buffer, MIDI inputs (and Bluetooth MIDI)
+            auto content = std::make_unique<juce::AudioDeviceSelectorComponent>(holder->deviceManager, 0, 0, 0, outs, true, false, true, false);
+            content->setSize(500, 550);
+            juce::DialogWindow::LaunchOptions o;
+            o.content.setOwned(content.release());
+            o.dialogTitle = "Audio/MIDI Settings";
+            o.dialogBackgroundColour = o.content->getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+            o.escapeKeyTriggersCloseButton = true;
+            o.useNativeTitleBar = false;
+            o.resizable = false;
+            if (auto* window = o.launchAsync())
+                // saved now: iOS can end the app without the shutdown that would save it
+                juce::ModalComponentManager::getInstance()->attachCallback(window, juce::ModalCallbackFunction::create([](int) {
+                    if (auto* h = juce::StandalonePluginHolder::getInstance()) h->saveAudioDeviceState();
+                }));
+        };
+    }
+   #endif
     refresh();
     showSynth();
 }
@@ -1031,4 +1067,10 @@ void SettingsPanel::resized() {
     synth_.setBounds(r.removeFromTop(40));
     r.removeFromTop(6);
     copy_.setBounds(r.removeFromTop(28).removeFromLeft(160));
+    if (headers_.size() > 2) {
+        r.removeFromTop(28);
+        headers_[2]->setBounds(r.removeFromTop(24));
+        r.removeFromTop(6);
+        audioSettings_.setBounds(r.removeFromTop(28).removeFromLeft(200));
+    }
 }
