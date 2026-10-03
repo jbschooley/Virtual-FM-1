@@ -37,8 +37,9 @@ if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()
 
-# ---- tests ----------------------------------------------------------------------
+# ---- tests (desktop only) -------------------------------------------------------
 enable_testing()
+if(NOT IOS)
 add_executable(codec_test tests/codec_test.cpp)
 target_link_libraries(codec_test PRIVATE fm1_sync)
 add_test(NAME codec_test COMMAND codec_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
@@ -47,13 +48,16 @@ add_executable(engine_test tests/engine_test.cpp)
 target_link_libraries(engine_test PRIVATE fm1_engine fm1_sync)
 target_include_directories(engine_test PRIVATE plugin)   # HardwareCharacter.h
 add_test(NAME engine_test COMMAND engine_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
+endif()
 
 # ---- plugin ---------------------------------------------------------------------
 if(FM1_BUILD_PLUGIN)
     add_subdirectory(third_party/JUCE)
 
     set(FM1_FORMATS VST3 Standalone)
-    if(FM1_BUILD_AU AND APPLE)
+    if(IOS)
+        set(FM1_FORMATS Standalone AUv3)
+    elseif(FM1_BUILD_AU AND APPLE)
         list(APPEND FM1_FORMATS AU)
     endif()
     # AAX uses the AAX SDK bundled with JUCE (modules/juce_audio_plugin_client/AAX/SDK),
@@ -127,6 +131,7 @@ if(FM1_BUILD_PLUGIN)
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+    if(NOT IOS)
     # The JUCE modules the test programs use, compiled once into one library they
     # all link, rather than once per program. The tests share these JUCE settings.
     add_library(fm1_test_juce STATIC)
@@ -194,4 +199,5 @@ if(FM1_BUILD_PLUGIN)
     target_include_directories(json_test PRIVATE sync plugin)
     target_link_libraries(json_test PRIVATE fm1_sync fm1_test_juce juce::juce_recommended_warning_flags)
     add_test(NAME json_test COMMAND json_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
+    endif()
 endif()
