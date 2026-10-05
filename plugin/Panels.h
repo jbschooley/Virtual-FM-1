@@ -100,6 +100,7 @@ private:
     juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
+    juce::TextButton selectMode_{"Select"};   // touch: each tap adds or removes a preset (shift / cmd-click on a desktop)
     juce::Label currentName_;
     juce::TextButton init_{"Init..."};
     juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};

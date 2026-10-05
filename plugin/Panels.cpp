@@ -167,6 +167,14 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     exportFile_.setTooltip("Save presets (the selected ones, a bank, all) and patterns. Shift- or Cmd-click the list to select several presets.");
     list_.setRowHeight(20);
     list_.setMultipleSelectionEnabled(true);
+    addAndMakeVisible(selectMode_);
+    selectMode_.setClickingTogglesState(true);
+    selectMode_.setTooltip("Select several presets: each tap adds or removes one (for Push, Export...). On a computer, shift-click and cmd-click do it too.");
+    selectMode_.onClick = [this] {
+        const bool on = selectMode_.getToggleState();
+        list_.setClickingTogglesRowSelection(on);
+        if (!on) list_.selectRow(proc_.bank.currentSlot());   // back to the one playing
+    };
     list_.selectRow(proc_.bank.currentSlot());
     currentName_.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     startTimerHz(10);
@@ -217,7 +225,10 @@ void LibraryPanel::resized() {
     auto r = getLocalBounds().reduced(6);
     status_.setBounds(r.removeFromBottom(24));
     r.removeFromBottom(4);
-    list_.setBounds(r.removeFromLeft(270));
+    auto left = r.removeFromLeft(270);
+    selectMode_.setBounds(left.removeFromTop(26).removeFromRight(90));
+    left.removeFromTop(4);
+    list_.setBounds(left);
     r.removeFromLeft(8);
     pages_.setBounds(r);
 }
