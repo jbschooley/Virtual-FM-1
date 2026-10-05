@@ -37,6 +37,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#if FM1_FELUCCA
+ #include "FeluccaDevice.h"
+#endif
 
 static int g_fail = 0, g_pass = 0;
 #define CHECK(cond, msg) do { if (cond) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, juce::String(msg).toRawUTF8()); } } while (0)
@@ -341,6 +344,53 @@ static int checks() {
                 CHECK(!replies.empty() && replies.back().size() == 7 && replies.back()[4] == 25, "the host's SysEx reaches Felucca's editor protocol");
             }
             tp.setPlayHead(nullptr);
+        }
+
+        // the device's stored objects in the library, as Felucca's web editor writes a backup;
+        // every instance plays the same device
+        {
+            auto file = juce::File::createTempFile(".json");
+            FeluccaEngine a, b;
+            felucca::DeviceStore sa(file), sb(file);
+            sa.load(a);
+            sb.load(b);
+            std::vector<uint8_t> music, slot;
+            a.setEngine(1, 6);
+            a.object(0, music);
+            CHECK(a.putObject(2, music) == 0 && a.object(2, slot) && slot == music, "a project saved into slot 1 of A");
+            CHECK(sa.tick(a).isEmpty() && file.existsAsFile(), "A's change is saved to the library");
+            felucca::Objects o;
+            juce::String err;
+            CHECK(felucca::readBackup(file, o, err) && o[2] == music && !o[0].empty() && !o[1].empty(),
+                  "as a complete Felucca backup (the music, settings and the slot)");
+            const auto t0 = file.getLastModificationTime();
+            juce::Thread::sleep(20);
+            sa.tick(a);
+            CHECK(file.getLastModificationTime() == t0, "nothing changed: nothing written");
+            sb.tick(b);
+            CHECK(b.object(2, slot) && slot == music, "B takes what A saved");
+            // both change a different slot before either saves: neither change is lost
+            b.putObject(3, music);
+            a.putObject(4, music);
+            juce::Thread::sleep(20);
+            sa.tick(a);
+            juce::Thread::sleep(20);
+            sb.tick(b);
+            juce::Thread::sleep(20);
+            sa.tick(a);
+            std::vector<uint8_t> a3, b4;
+            CHECK(a.object(3, a3) && a3 == music && b.object(4, b4) && b4 == music
+                  && felucca::readBackup(file, o, err) && o[3] == music && o[4] == music,
+                  "two instances' changes to different slots both survive");
+            FeluccaEngine c;
+            felucca::DeviceStore sc(file);
+            sc.load(c);
+            std::vector<uint8_t> c2;
+            CHECK(c.object(2, c2) && c2 == music, "a new instance loads the device");
+            // (a copy for checking with Felucca's web editor, tests/felucca_backup_check.mjs)
+            if (auto keep = juce::SystemStats::getEnvironmentVariable("FM1_FELUCCA_BACKUP_OUT", {}); keep.isNotEmpty())
+                file.copyFileTo(juce::File(keep));
+            file.deleteFile();
         }
 
         // with no copy free, a Felucca project still keeps (and saves) its Felucca sound

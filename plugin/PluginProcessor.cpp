@@ -171,6 +171,16 @@ void FM1Processor::backgroundTick() {
         bool edited = isEdited();
         if (loadLibrary() && !edited) loadCurrentIntoParams();
     }
+   #if FM1_FELUCCA
+    if (auto f = felucca()) {   // the Felucca device: save what changed here, take what another instance saved
+        juce::String msg;
+        {
+            std::lock_guard<std::mutex> g(felDeviceLock_);
+            msg = felDevice_.tick(*f);
+        }
+        if (msg.isNotEmpty()) status(msg);
+    }
+   #endif
     // the synth: connect when it appears, let go when it disappears
     if (session.busy()) return;
     if (link.isOpen()) {
@@ -1048,9 +1058,15 @@ void FM1Processor::setFirmware(const juce::String& id) {
             if (!next->valid()) {
                 next.reset();
                 status("All " + juce::String(FeluccaEngine::copies()) + " Felucca instances are in use; this one is silent.");
-            } else if (feluccaSaved_.isValid()) {
-                applyFeluccaState(*next, feluccaSaved_);   // before the audio thread sees it
-                feluccaSaved_ = {};
+            } else {
+                {   // the device's projects, user presets, FM6 bank and settings, from the library
+                    std::lock_guard<std::mutex> g(felDeviceLock_);
+                    felDevice_.load(*next);
+                }
+                if (feluccaSaved_.isValid()) {
+                    applyFeluccaState(*next, feluccaSaved_);   // before the audio thread sees it
+                    feluccaSaved_ = {};
+                }
             }
         }
         if (!want && felucca_) feluccaSaved_ = feluccaState();

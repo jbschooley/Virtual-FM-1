@@ -17,6 +17,7 @@
 #include "LibraryStore.h"
 #if FM1_FELUCCA
  #include "FeluccaEngine.h"
+ #include "FeluccaDevice.h"
 #endif
 #include "Params.h"
 #include "Sequencer.h"
@@ -178,6 +179,8 @@ private:
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
+    felucca::DeviceStore felDevice_;                  // the device's stored objects, in the library
+    std::mutex felDeviceLock_;
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;
     bool felConvert_ = false;

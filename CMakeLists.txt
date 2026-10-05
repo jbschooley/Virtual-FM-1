@@ -208,6 +208,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/LibraryStore.cpp
         plugin/FeluccaPanel.cpp
         plugin/FeluccaParams.cpp
+        plugin/FeluccaDevice.cpp
         plugin/dexed_ui/DXLookNFeel.cpp
         plugin/dexed_ui/DXComponents.cpp
         plugin/dexed_ui/AlgoDisplay.cpp
