@@ -4,7 +4,7 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
-## [Unreleased]
+## [0.4.0] - unreleased
 
 ### Changed
 
@@ -22,6 +22,14 @@ for the code. New work goes under the next version at the top.
   tapping; Effects & Envelope wraps to the screen and scrolls; drop-down
   lists open below their box instead of hiding items behind a scroll
   arrow.
+- **On a phone, or an iPad upright**: the editor fits a narrow window. The
+  top bar takes two lines (the firmware and Audio/MIDI, then the MIDI
+  in and out, Connect and Find FM-1); the library shows the preset list or
+  the preset's pages, switched with Presets and Sound; the FM page shows
+  one of Algorithm, LFO, Pitch EG and OP1 to OP6 at a time; the sequencer
+  is one column that scrolls. The app stays clear of the Dynamic Island
+  and the home indicator. Tried in the iPhone simulator; turned sideways,
+  a phone does not fit yet.
 - **Your presets are a folder**: the shared library moved to
   Documents/Virtual FM-1/Banks/FM-1, one readable JSON file per preset, so
   it can be backed up and synced with ordinary tools. The first run copies
@@ -46,11 +54,15 @@ for the code. New work goes under the next version at the top.
   four parts, as on the FM-1; the on-screen keyboard plays the selected
   part. Any number of instances can play Felucca; beyond sixteen, each
   costs a little more CPU.
-  - Its editor shows each part's engine, preset and every parameter by
-    Felucca's own names (the modulation matrix and chords too), and the
-    global settings. DEVICE shows Felucca's own screen, buttons, knobs and
-    keys: its sequencer, projects and user presets work there as on the
-    device.
+  - Its editor has two tabs. **Library**: the 32 user presets and four
+    projects in a list, beside the Sound page (each part's engine, preset
+    and every parameter by Felucca's own names, the modulation matrix and
+    chords too, and the global settings) and the Sync page. Load a user
+    preset into the selected part or a project into all four; save the
+    selected part's sound as a user preset with a name, or the music as a
+    project; rename and erase user presets. **Device**: Felucca's own
+    screen, buttons, knobs and keys, where its sequencer, projects and
+    user presets work as on the device.
   - The project keeps the music playing as Felucca saves a project. The
     device's four project slots, 32 user presets, FM6 bank and settings
     are kept in the library folder (Felucca/Felucca device.json, the file
@@ -69,6 +81,15 @@ for the code. New work goes under the next version at the top.
     plugin, arriving on the other side. Send has not been tried on a real
     FM-1.
   - Not yet: user sample slots, and the Windows build.
+- **Firmware versions**: the firmware list says which release of each the
+  plugin plays and syncs with. When an FM-1 connects, the line beside Find
+  FM-1 (not shown on a phone yet) says what its release means for syncing if it is not one the plugin
+  has tried: a newer one is synced as the newest known, an older one may
+  lack something (the note says what), and a Felucca before 1.0 does not
+  sync (update it with Felucca's installer). A project remembers the
+  release it was made for and says so when loaded where the plugin plays
+  another. Felucca music a project holds that this Felucca cannot read
+  (from a newer Felucca, say) is kept in the project, not replaced.
 - **Init...** starts the current preset over from a blank FM sound, as an
   unsaved change.
 - **Bluetooth MIDI**: the iPad app can pair with Bluetooth MIDI devices,
@@ -77,8 +98,9 @@ for the code. New work goes under the next version at the top.
 - **FM-1_094** (baud girl's beta): reading the current sound and the GLOBE
   settings works as on FM-1_093. 094 changes only the identity reply's
   checksum, which M-VAVE's own updater rejected on 093.
-- **iPad**: the app and an AUv3 build from source for iOS and iPadOS and
-  sync with the FM-1 over USB-C. Not distributed yet; see `docs/IOS.md`.
+- **iPad and iPhone**: the app and an AUv3 build from source for iOS and
+  iPadOS and sync with the FM-1 over USB-C. Not distributed yet; see
+  `docs/IOS.md` to build and install them yourself.
 
 ### Fixed
 
@@ -189,6 +211,7 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
+[0.4.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jbschooley/Virtual-FM-1/releases/tag/v0.1.0
