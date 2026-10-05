@@ -192,6 +192,21 @@ int main() {
         CHECK(f.fm6Patch(1) != patch, "a preset brings its own patch");
     }
 
+    // ---- more MIDI in one block than Felucca's queue holds: no note left hanging ----
+    {
+        FeluccaEngine f;
+        noteOn(f, 1, 60, 100);
+        for (int i = 0; i < 1000; ++i) { uint8_t cc[3] = {0xB0, 1, uint8_t(i & 127)}; f.midi(cc, 3); }   // a mod wheel flood
+        noteOff(f, 1, 60);   // past the full queue: lost
+        std::vector<float> l(256), r(256);
+        double tail = 0;
+        for (int k = 0; k < 400; ++k) {   // about 2.3 s
+            f.render(l.data(), r.data(), 256);
+            if (k >= 300) for (float v : l) tail = std::max(tail, double(std::fabs(v)));
+        }
+        CHECK(tail < 1e-4, "an overflowing queue stops every note, as on the device (no stuck note)");
+    }
+
     // ---- a copy given back is as good as new ----
     {
         {   // leave a copy in a mess: other engines, edited values, tempo, notes still held, tails

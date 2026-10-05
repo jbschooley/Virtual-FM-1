@@ -317,7 +317,7 @@ void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* after PTCH (P_
     }
 }
 
-void FEL(midi)(uint32_t pkt) { if (mi_w - mi_r < MQ) midi_in_q[mi_w++ % MQ] = pkt; }
+void FEL(midi)(uint32_t pkt) { midi_enqueue(pkt, 1u); }   /* as usb.c: a full ring flushes and panics (no stuck note) */
 
 void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames a multiple of CTL */
 {
