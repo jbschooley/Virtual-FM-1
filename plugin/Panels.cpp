@@ -107,6 +107,10 @@ static void showImportResult(juce::Component* near, const FM1Processor::ImportRe
 LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_})
         bar_.addAndMakeVisible(c);
+    inPorts_.setTextWhenNothingSelected("MIDI in");
+    outPorts_.setTextWhenNothingSelected("MIDI out");
+    inPorts_.setTextWhenNoChoicesAvailable("No MIDI in");
+    outPorts_.setTextWhenNoChoicesAvailable("No MIDI out");
     for (auto* c : std::initializer_list<juce::Component*>{&currentName_, &init_, &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_,
             &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &sendEdit_, &live_, &fxChannel_})
         syncPage_.addAndMakeVisible(c);
@@ -164,6 +168,14 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     list_.setRowHeight(20);
     list_.setMultipleSelectionEnabled(true);
     addAndMakeVisible(selectMode_);
+    for (auto* b : {&showList_, &showPages_}) {
+        addChildComponent(b);
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(4802);
+    }
+    showList_.setToggleState(true, juce::dontSendNotification);
+    showList_.onClick = [this] { if (showList_.getToggleState()) { showingPages_ = false; resized(); } };
+    showPages_.onClick = [this] { if (showPages_.getToggleState()) { showingPages_ = true; resized(); } };
     selectMode_.setClickingTogglesState(true);
     selectMode_.setTooltip("Select several presets: each tap adds or removes one (for Push, Export...). On a computer, shift-click and cmd-click do it too.");
     selectMode_.onClick = [this] {
@@ -221,6 +233,26 @@ void LibraryPanel::resized() {
     auto r = getLocalBounds().reduced(6);
     status_.setBounds(r.removeFromBottom(24));
     r.removeFromBottom(4);
+    const bool narrow = getWidth() < 760;   // a phone: the list or the pages, at full width
+    showList_.setVisible(narrow);
+    showPages_.setVisible(narrow);
+    if (narrow) {
+        auto head = r.removeFromTop(30);
+        showList_.setBounds(head.removeFromLeft(90));
+        head.removeFromLeft(4);
+        showPages_.setBounds(head.removeFromLeft(90));
+        selectMode_.setBounds(head.removeFromRight(90));
+        selectMode_.setVisible(!showingPages_);
+        r.removeFromTop(4);
+        list_.setVisible(!showingPages_);
+        pages_.setVisible(showingPages_);
+        list_.setBounds(r);
+        pages_.setBounds(r);
+        return;
+    }
+    selectMode_.setVisible(true);
+    list_.setVisible(true);
+    pages_.setVisible(true);
     auto left = r.removeFromLeft(270);
     selectMode_.setBounds(left.removeFromTop(26).removeFromRight(90));
     left.removeFromTop(4);
@@ -231,6 +263,15 @@ void LibraryPanel::resized() {
 
 void LibraryPanel::layoutBar() {
     auto top = bar_.getLocalBounds();
+    const bool narrow = top.getWidth() < 600;   // a phone: a line of its own, without the identity text
+    identity_.setVisible(!narrow);
+    if (narrow) {
+        autoConnect_.setBounds(top.removeFromRight(76)); top.removeFromRight(4);
+        connect_.setBounds(top.removeFromRight(70)); top.removeFromRight(4);
+        inPorts_.setBounds(top.removeFromLeft(top.getWidth() / 2 - 2)); top.removeFromLeft(4);
+        outPorts_.setBounds(top);
+        return;
+    }
     inPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
     outPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
     connect_.setBounds(top.removeFromLeft(80)); top.removeFromLeft(6);

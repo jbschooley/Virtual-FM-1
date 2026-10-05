@@ -101,6 +101,9 @@ private:
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
     juce::TextButton selectMode_{"Select"};   // touch: each tap adds or removes a preset (shift / cmd-click on a desktop)
+    // narrow (a phone): the list or the preset's pages, one at a time
+    juce::TextButton showList_{"Presets"}, showPages_{"Sound"};
+    bool showingPages_ = false;
     juce::Label currentName_;
     juce::TextButton init_{"Init..."};
     juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};

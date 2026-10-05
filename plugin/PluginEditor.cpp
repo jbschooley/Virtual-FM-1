@@ -207,10 +207,17 @@ void FM1Editor::showAudioSettings() {
 void FM1Editor::resized() {
     auto r = getLocalBounds().reduced(8);
     auto top = r.removeFromTop(28);
-    firmware_.setBounds(top.removeFromLeft(260));   // wide enough for "FM-1+VA (baud girl) 0.94"
-    if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(100)); top.removeFromRight(8); }
-    top.removeFromLeft(10);
-    library_.connectionBar().setBounds(top);
+    const bool narrow = getWidth() < 1040;   // a phone or an iPad upright: the FM-1 connection on a line of its own
+    if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(narrow ? 90 : 100)); top.removeFromRight(narrow ? 4 : 8); }
+    if (narrow) {
+        firmware_.setBounds(top);
+        r.removeFromTop(6);
+        library_.connectionBar().setBounds(r.removeFromTop(28));
+    } else {
+        firmware_.setBounds(top.removeFromLeft(260));   // wide enough for "FM-1+VA (baud girl) 0.94"
+        top.removeFromLeft(10);
+        library_.connectionBar().setBounds(top);
+    }
     r.removeFromTop(6);
     keyboard_.setBounds(r.removeFromBottom(64));
     r.removeFromBottom(6);
