@@ -269,6 +269,10 @@ void FeluccaEngine::applyPreset(int track, int preset) {
 void FeluccaEngine::sysex(const uint8_t* b, int n) {
     if (!core_ || n < 2 || b[0] != 0xF0 || b[n - 1] != 0xF7) return;
     auto g = bind();
+    feed(b, n);
+}
+
+void FeluccaEngine::feed(const uint8_t* b, int n) {
     // USB-MIDI SysEx packets: CIN 4 for three bytes that go on, 5/6/7 for the last one/two/three
     for (int i = 0; i < n; i += 3) {
         const int left = n - i, k = left > 3 ? 3 : left;
@@ -283,6 +287,12 @@ std::vector<std::vector<uint8_t>> FeluccaEngine::takeSysex() {
     std::vector<std::vector<uint8_t>> out;
     if (!core_) return out;
     auto g = bind();
+    drain();
+    out.swap(sxDone_);
+    return out;
+}
+
+void FeluccaEngine::drain() {
     uint32_t pkts[64];
     for (;;) {
         const uint32_t got = core_->midi_out(pkts, 64);
@@ -301,8 +311,8 @@ std::vector<std::vector<uint8_t>> FeluccaEngine::takeSysex() {
         }
         if (got < 64) break;
     }
-    out.swap(sxDone_);
-    return out;
+    // what nobody took (pushes after ask(), with no live sync reading them): the newest only
+    if (sxDone_.size() > 256) sxDone_.erase(sxDone_.begin(), sxDone_.end() - 256);
 }
 
 std::vector<std::string> FeluccaEngine::buttonNames() const {
@@ -375,16 +385,33 @@ int FeluccaEngine::putObject(int id, const std::vector<uint8_t>& bytes) {
 }
 
 std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8_t>& m) {
-    if (core_) {   // a frame from the host still waiting would make Felucca drop this one: serve it first
-        auto g = bind();
-        core_->service_ready();
-    }
-    sysex(m.data(), int(m.size()));
-    if (core_) {
-        auto g = bind();
-        core_->service();
-    }
-    return takeSysex();
+    std::vector<std::vector<uint8_t>> out;
+    if (!core_ || m.size() < 2 || m.front() != 0xF0 || m.back() != 0xF7) return out;
+    auto g = bind();   // (held throughout: another thread's request cannot take this one's reply)
+    core_->service_ready();   // a frame from the host still waiting would make Felucca drop this one: serve it first
+    feed(m.data(), int(m.size()));
+    core_->service();
+    drain();
+    out.swap(sxDone_);
+    return out;
+}
+
+std::optional<std::vector<uint8_t>> FeluccaEngine::ask(const std::vector<uint8_t>& m) {
+    if (!core_ || m.size() < 6 || m.front() != 0xF0 || m.back() != 0xF7) return std::nullopt;
+    auto g = bind();
+    core_->service_ready();
+    feed(m.data(), int(m.size()));
+    core_->service();
+    drain();
+    // the reply: the first message of the same command (F0 7D 46 4C cmd ..); the rest stays
+    // for takeSysex (pushes it made, and what its main loop sent meanwhile)
+    for (auto it = sxDone_.begin(); it != sxDone_.end(); ++it)
+        if (it->size() >= 6 && std::equal(m.begin(), m.begin() + 5, it->begin())) {
+            auto reply = std::move(*it);
+            sxDone_.erase(it);
+            return reply;
+        }
+    return std::nullopt;
 }
 
 int FeluccaEngine::selected() const {

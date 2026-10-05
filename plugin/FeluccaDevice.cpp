@@ -8,13 +8,7 @@
 namespace felucca {
 
 std::optional<Bytes> VirtualEndpoint::ask(const Bytes& request, int) {
-    const int cmd = commandOf(request);
-    std::optional<Bytes> reply;
-    for (auto& m : f_->request(request)) {
-        if (isPush(commandOf(m))) pushes_.push_back(m);
-        else if (commandOf(m) == cmd && !reply) reply = m;
-    }
-    return reply;
+    return f_->ask(request);   // (its pushes come with pushes(): the library's requests leave them too)
 }
 
 std::vector<Bytes> VirtualEndpoint::pushes() {

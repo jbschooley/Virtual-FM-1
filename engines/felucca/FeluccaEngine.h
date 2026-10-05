@@ -19,6 +19,7 @@
 #include <array>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,9 @@ public:
     std::vector<std::vector<uint8_t>> takeSysex();
     // A whole editor request, answered now (not at the next main loop pass): what came out.
     std::vector<std::vector<uint8_t>> request(const std::vector<uint8_t>& sysex);
+    // The same, but only its reply (the first message of its command); what else came out
+    // (pushes) stays for takeSysex. Atomic: two threads asking never get each other's replies.
+    std::optional<std::vector<uint8_t>> ask(const std::vector<uint8_t>& sysex);
     // The front panel, by Felucca's own labels (FX, SCL ... OCT+) and knob roles (SELECT ...
     // KNOB 4); the 27 keys from the lowest. The main loop sees them within 16 ms of audio.
     std::vector<std::string> buttonNames() const;
@@ -117,6 +121,8 @@ public:
 
 private:
     std::unique_lock<std::mutex> bind() const; // its state in its copy, the copy's lock held
+    void feed(const uint8_t* bytes, int size); // (bind() held) a SysEx message into its USB port
+    void drain();                              // (bind() held) what it sent, into sxDone_
     const FeluccaCopy* core_ = nullptr;
     int index_ = -1;
     mutable std::vector<uint8_t> saved_;       // its state while another instance plays in its copy
