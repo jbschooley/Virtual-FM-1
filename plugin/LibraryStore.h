@@ -33,11 +33,18 @@ public:
     bool exists() const { return bankDir().getChildFile("bank.json").existsAsFile(); }
 
     // Read every slot into `bank` (the current slot is left alone). False when there is no bank yet.
+    // A slot file that cannot be read (damaged, from a newer version, not downloaded yet)
+    // leaves the slot as it was and is listed in unreadable(); it is never written over.
     bool load(BankModel& bank);
     // Write the slots that changed since the last load or save. Returns how many were written.
-    int save(const BankModel& bank);
+    // If another instance wrote meanwhile, its slots are read back in after (reloaded() says so).
+    int save(BankModel& bank);
     // True when another instance wrote since this one last loaded or saved.
     bool changedElsewhere() const;
+    const juce::Array<int>& unreadable() const { return unreadable_; }   // slots, from the last load
+    bool reloaded() const { return reloaded_; }                        // the last save also read others' writes
+    // The old single-file library changed after it was copied in (an older version still writing it).
+    bool oldLibraryNewer(const juce::File& oldLibrary) const;
 
     // The first run: the bank from the old single-file library (left untouched).
     bool migrateFrom(const juce::File& oldLibrary, BankModel& scratch);
@@ -51,8 +58,11 @@ public:
 private:
     struct Known { fm1::Voice voice{}; fm1::Record record{}; std::optional<std::pair<fm1::Voice, fm1::Record>> dev; int rev = 0; bool valid = false; };
     std::array<Known, BankModel::kSlots> known_{};   // what this instance last read or wrote, per slot
-    juce::int64 generation_ = -1;                    // the .generation this instance last saw
-    static juce::int64 readGeneration();
+    std::array<bool, BankModel::kSlots> locked_{};  // the file could not be read: never write over it
+    juce::Array<int> unreadable_;
+    bool reloaded_ = false;
+    juce::String generation_;                        // the .generation token this instance last saw
+    static juce::String readGeneration();
     void bumpGeneration();
     static void writeAtomically(const juce::File& f, const juce::String& text);
     static Known knownOf(const BankModel::Slot& s, int rev);

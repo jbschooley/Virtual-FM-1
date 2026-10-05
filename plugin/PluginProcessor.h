@@ -182,7 +182,9 @@ private:
     LibraryStore store_;
     bool loadLibrary();          // false when there is no shared library yet
     void saveLibrary();
-    bool libraryDirty_ = false;
+    std::atomic<bool> libraryDirty_{false};
+    void reportLibrary();
+    juce::String lastLibraryReport_;
     bool autoConnect_ = true;    // off after the user disconnects by hand
     Background background_{*this};
     void timerCallback() override;               // live sending

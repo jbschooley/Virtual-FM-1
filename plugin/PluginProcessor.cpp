@@ -107,12 +107,36 @@ bool FM1Processor::loadLibrary() {
     bool ok = store_.load(bank);
     bank.setCurrentSlot(cur);            // each instance keeps its own current preset
     bank.onLibraryChange = onLib;
+    reportLibrary();
     return ok;
 }
 
+// What the library folder could not give us, said once per change.
+void FM1Processor::reportLibrary() {
+    juce::StringArray msgs;
+    if (!store_.unreadable().isEmpty()) {
+        juce::StringArray names;
+        for (int s : store_.unreadable()) names.add(BankModel::bankName(s));
+        msgs.add(juce::String(names.size()) + " preset file(s) could not be read (" + names.joinIntoString(", ")
+                 + "): damaged, from a newer version, or not downloaded yet. They are left as they are.");
+    }
+    if (store_.oldLibraryNewer(libraryFile()))
+        msgs.add("library.fm1lib changed after your presets moved to " + store_.bankDir().getFullPathName()
+                 + ": an older version of the plugin may still be using it.");
+    auto text = msgs.joinIntoString(" ");
+    if (text.isNotEmpty() && text != lastLibraryReport_) {
+        lastLibraryReport_ = text;
+        if (onStatus) onStatus(text);
+    }
+}
+
 void FM1Processor::saveLibrary() {
-    store_.save(bank);
     libraryDirty_ = false;
+    store_.save(bank);
+    if (store_.reloaded()) {   // another instance had written meanwhile: its slots are in now
+        if (!isEdited()) loadCurrentIntoParams();
+        reportLibrary();
+    }
 }
 
 static void diag(const juce::String& line) {
@@ -547,7 +571,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (probe.slot(i).onDevice || probe.slot(i).sound.voice != init) return true;
         return false;
     };
-    if (!store_.exists() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); saveLibrary(); }
+    // (hosts may restore state off the message thread: the library is written from there, by backgroundTick)
+    if (!store_.exists() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); libraryDirty_ = true; }
     else if (saved.isValid()) bank.setCurrentSlot(int(saved.getProperty("current", 0)));
     // since version 4: the current slot as the project stored it
     auto cur = v.getChildWithName("Current");

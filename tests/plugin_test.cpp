@@ -415,6 +415,20 @@ static int library(const juce::File& golden) {
         }
         CHECK(exact == int(sounds.size()), "every golden preset round-trips through a slot file byte for byte");
 
+        // a slot file this version cannot read (from a newer version) is never written over
+        {
+            auto f = store.slotFile(9);
+            auto text = f.loadFileAsString().replace("\"version\": 1", "\"version\": 99");
+            f.replaceWithText(text, false, false, "\n");
+            BankModel b; LibraryStore s; s.load(b);
+            CHECK(s.unreadable().contains(9), "a newer slot file is reported as unreadable");
+            auto s3 = sounds[3]; s3.slot = 3; s3.voice[2] = uint8_t((s3.voice[2] + 7) % 100);
+            b.setSound(3, s3, false);
+            b.setSound(9, sounds[0], false);   // even a change to that very slot
+            s.save(b);
+            CHECK(f.loadFileAsString() == text, "and survives saves, untouched");
+        }
+
         // a project keeps its sound when its library slot changes afterwards
         {
             juce::MemoryBlock project;

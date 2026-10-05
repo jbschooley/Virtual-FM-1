@@ -68,14 +68,16 @@ LibraryStore::Known LibraryStore::knownOf(const BankModel::Slot& s, int rev) {
     return k;
 }
 
-juce::int64 LibraryStore::readGeneration() {
+// A new random token after every write: unlike a counter, two instances writing at
+// once cannot end up with the same value and miss each other's write.
+juce::String LibraryStore::readGeneration() {
     auto f = root().getChildFile(".generation");
-    return f.existsAsFile() ? f.loadFileAsString().trim().getLargeIntValue() : 0;
+    return f.existsAsFile() ? f.loadFileAsString().trim() : juce::String();
 }
 
 void LibraryStore::bumpGeneration() {
-    generation_ = std::max(readGeneration(), generation_) + 1;
-    writeAtomically(root().getChildFile(".generation"), juce::String(generation_));
+    generation_ = juce::Uuid().toString();
+    writeAtomically(root().getChildFile(".generation"), generation_);
 }
 
 void LibraryStore::writeAtomically(const juce::File& f, const juce::String& text) {
@@ -84,26 +86,43 @@ void LibraryStore::writeAtomically(const juce::File& f, const juce::String& text
     if (tmp.getFile().replaceWithText(text, false, false, "\n")) tmp.overwriteTargetFileWithTemporary();
 }
 
-bool LibraryStore::changedElsewhere() const { return readGeneration() != generation_; }
+bool LibraryStore::changedElsewhere() const { return exists() && readGeneration() != generation_; }
 
 bool LibraryStore::load(BankModel& bank) {
     if (!exists()) return false;
     generation_ = readGeneration();
+    unreadable_.clear();
     for (int i = 0; i < BankModel::kSlots; ++i) {
         auto f = slotFile(i);
-        if (!f.existsAsFile()) { known_[size_t(i)] = {}; continue; }
         int rev = 0;
-        if (auto s = slotFromText(f.loadFileAsString(), i, &rev)) {
+        std::optional<BankModel::Slot> s;
+        if (f.existsAsFile()) s = slotFromText(f.loadFileAsString(), i, &rev);
+        if (s) {
             auto& dst = bank.slot(i);
             dst.sound = s->sound;
             dst.onDevice = s->onDevice;
             known_[size_t(i)] = knownOf(dst, rev);
+            locked_[size_t(i)] = false;
+        } else {
+            // missing or unreadable: the slot stays as this instance has it, counts as
+            // unchanged, and an unreadable file is never written over
+            known_[size_t(i)] = knownOf(bank.slot(i), 0);
+            locked_[size_t(i)] = f.existsAsFile() || f.getSiblingFile("." + f.getFileName() + ".icloud").existsAsFile();
+            if (locked_[size_t(i)]) unreadable_.add(i);
         }
     }
     return true;
 }
 
-int LibraryStore::save(const BankModel& bank) {
+bool LibraryStore::oldLibraryNewer(const juce::File& oldLibrary) const {
+    auto marker = root().getChildFile("migrated-from.txt");
+    return marker.existsAsFile() && oldLibrary.existsAsFile()
+           && oldLibrary.getLastModificationTime() > marker.getLastModificationTime();
+}
+
+int LibraryStore::save(BankModel& bank) {
+    const bool foreign = exists() && readGeneration() != generation_;   // another instance wrote since we read
+    reloaded_ = false;
     auto dir = bankDir();
     dir.createDirectory();
     auto info = dir.getChildFile("bank.json");
@@ -117,7 +136,7 @@ int LibraryStore::save(const BankModel& bank) {
         const bool same = k.valid && k.voice == s.sound.voice && k.record == s.sound.record
                           && (k.dev.has_value() == s.onDevice.has_value())
                           && (!k.dev || (k.dev->first == s.onDevice->voice && k.dev->second == s.onDevice->record));
-        if (same) continue;
+        if (same || locked_[size_t(i)]) continue;
         auto f = slotFile(i);
         int diskRev = 0;
         if (f.existsAsFile()) {
@@ -136,6 +155,10 @@ int LibraryStore::save(const BankModel& bank) {
         ++written;
     }
     if (written > 0) bumpGeneration();
+    if (foreign) {   // take in the other instance's writes (ours are on disk too, so they stay)
+        load(bank);
+        reloaded_ = true;
+    }
     return written;
 }
 
