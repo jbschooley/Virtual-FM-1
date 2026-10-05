@@ -106,7 +106,9 @@ public:
     void setFirmware(const juce::String& id);           // message thread
     bool emulates() const;                               // false: the plugin cannot play this firmware yet
    #if FM1_FELUCCA
-    FeluccaEngine* felucca() const { return felucca_.get(); }   // while set to Felucca (null if no copy was free)
+    // While set to Felucca (null if no copy was free). Shared: a caller holding it keeps the
+    // engine alive while a switch away (perhaps on another thread) lets go of it.
+    std::shared_ptr<FeluccaEngine> felucca() const { return std::atomic_load(&felucca_); }
    #endif
     std::function<void()> onFirmwareChanged;            // message thread
     // A synth connected that runs another firmware: the connection was closed
@@ -162,7 +164,8 @@ public:
 private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
-    std::unique_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
+    std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
+    juce::ValueTree feluccaSaved_;                    // Felucca's state while it has no engine: kept, saved
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;
     bool felConvert_ = false;
@@ -170,6 +173,9 @@ private:
     void renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos);
     juce::ValueTree feluccaState() const;
     void setFeluccaState(const juce::ValueTree& t);
+    static void applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t);
+    void status(const juce::String& text);           // onStatus, on the message thread
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
    #endif
     std::optional<fm1::Identity> pendingMismatch_;
     std::optional<Fm1Session::Globals> globals_;

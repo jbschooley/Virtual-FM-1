@@ -126,7 +126,7 @@ void FM1Processor::reportLibrary() {
     auto text = msgs.joinIntoString(" ");
     if (text.isNotEmpty() && text != lastLibraryReport_) {
         lastLibraryReport_ = text;
-        if (onStatus) onStatus(text);
+        status(text);
     }
 }
 
@@ -289,8 +289,14 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
     synth_.setPitchBendRange(bendUp_.load(), bendDown_.load());
 
+   #if FM1_FELUCCA
+    const bool isFelucca = felucca_ != nullptr;
+   #else
+    const bool isFelucca = false;
+   #endif
     // the host's MIDI on the chosen channel only (SysEx and the on-screen keyboard always pass)
-    if (int ch = inputChannel_.load(); ch > 0) {
+    // (not for Felucca, which routes channels itself: 1-3 its parts, 10 its drums)
+    if (int ch = inputChannel_.load(); ch > 0 && !isFelucca) {
         filtered_.clear();
         for (const auto meta : midi) {
             const auto m = meta.getMessage();
@@ -304,7 +310,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const juce::AudioPlayHead::PositionInfo* pos = nullptr;
     if (auto* ph = getPlayHead()) if (auto p = ph->getPosition()) { posInfo = *p; pos = &posInfo; }
    #if FM1_FELUCCA
-    if (felucca_) { renderFelucca(buffer, midi, pos); return; }
+    if (isFelucca) { renderFelucca(buffer, midi, pos); return; }
    #endif
 
     // 1. incoming MIDI: notes go to the arp when it is on, otherwise straight to the synth
@@ -530,7 +536,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     v.setProperty("editName", editName_, nullptr);
     v.setProperty("firmware", firmwareId(), nullptr);
    #if FM1_FELUCCA
-    if (felucca_) v.addChild(feluccaState(), -1, nullptr);
+    if (felucca_ || feluccaSaved_.isValid()) v.addChild(feluccaState(), -1, nullptr);
    #endif
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
@@ -631,9 +637,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
         }
         params.load(*stored);
         editName_ = juce::String(fm1::voiceName(stored->voice)).trimEnd();
-        if (onStatus)
-            onStatus(BankModel::bankName(bank.currentSlot()) + " has changed in the library since this project was saved; "
-                     "the project's sound is loaded as unsaved changes.");
+        status(BankModel::bankName(bank.currentSlot()) + " has changed in the library since this project was saved; "
+               "the project's sound is loaded as unsaved changes.");
     }
     // the saved parameters (edits since the slot was loaded) win over the slot's bytes
     auto ps = v.getChildWithName(apvts.state.getType());
@@ -889,6 +894,7 @@ void FM1Processor::prepareFelucca() {
 void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos) {
     auto& f = *felucca_;
     const int n = buffer.getNumSamples();
+    if (buffer.getNumChannels() == 0) { midi.clear(); return; }
     if (settings_.hostTempo && pos)
         if (auto bpm = pos->getBpm(); bpm && *bpm > 0) f.setGlobal(0 /* G_BPM */, int(std::lround(*bpm)));
     const int need = felConvert_ ? felL_.inputNeeded(n) : n;
@@ -923,28 +929,64 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 }
 
 juce::ValueTree FM1Processor::feluccaState() const {
+    auto engine = felucca();
+    if (!engine) return feluccaSaved_.isValid() ? feluccaSaved_.createCopy() : juce::ValueTree("Felucca");
     juce::ValueTree t("Felucca");
-    if (!felucca_) return t;
-    auto& f = *felucca_;
+    auto& f = *engine;
+    // the version of Felucca it was saved with, and each value's label: a later Felucca with
+    // parameters added or moved gets each value by its name (plan: match by label)
+    t.setProperty("version", "0.9-beta", nullptr);
     for (int k = 0; k < f.tracks(); ++k) {
         juce::ValueTree tr("Track");
         tr.setProperty("i", k, nullptr);
         tr.setProperty("engine", f.engineOf(k), nullptr);
         tr.setProperty("preset", f.presetOf(k), nullptr);
-        juce::StringArray ps;
-        for (int id = 0; id < f.paramCount(); ++id) ps.add(juce::String(f.param(k, id)));
+        juce::StringArray ps, ls;
+        for (int id = 0; id < f.paramCount(); ++id) {
+            ps.add(juce::String(f.param(k, id)));
+            ls.add(id >= f.firstEngineParam() ? "E" + juce::String(id - f.firstEngineParam()) : juce::String(f.paramDesc(k, id).label));
+        }
         tr.setProperty("params", ps.joinIntoString(","), nullptr);
+        tr.setProperty("labels", ls.joinIntoString(","), nullptr);
         t.addChild(tr, -1, nullptr);
     }
-    juce::StringArray gs;
-    for (int id = 0; id < f.globalCount(); ++id) gs.add(juce::String(f.global(id)));
+    juce::StringArray gs, gl;
+    for (int id = 0; id < f.globalCount(); ++id) { gs.add(juce::String(f.global(id))); gl.add(f.globalDesc(id).label); }
     t.setProperty("globals", gs.joinIntoString(","), nullptr);
+    t.setProperty("globalLabels", gl.joinIntoString(","), nullptr);
     return t;
 }
 
 void FM1Processor::setFeluccaState(const juce::ValueTree& t) {
-    if (!felucca_ || !t.isValid()) return;
-    auto& f = *felucca_;
+    if (!t.isValid()) return;
+    auto engine = felucca();
+    if (!engine) { feluccaSaved_ = t.createCopy(); return; }   // no copy free: kept for later, and saved
+    feluccaSaved_ = {};
+    applyFeluccaState(*engine, t);
+}
+
+void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t) {
+    // values by label where the project has labels (some repeat, e.g. RATE: the n-th of a
+    // label goes to the n-th parameter with it), else by position
+    auto apply = [](const juce::String& values, const juce::String& labels, int count,
+                    std::function<juce::String(int)> labelOf, std::function<void(int, int)> set) {
+        auto vs = juce::StringArray::fromTokens(values, ",", "");
+        auto ls = juce::StringArray::fromTokens(labels, ",", "");
+        if (ls.size() != vs.size()) {
+            for (int id = 0; id < std::min(vs.size(), count); ++id) set(id, vs[id].getIntValue());
+            return;
+        }
+        std::map<juce::String, std::vector<int>> byLabel;
+        for (int i = 0; i < ls.size(); ++i) byLabel[ls[i]].push_back(vs[i].getIntValue());
+        std::map<juce::String, size_t> used;
+        for (int id = 0; id < count; ++id) {
+            auto label = labelOf(id);
+            auto it = byLabel.find(label);
+            if (it == byLabel.end()) continue;   // new in this version: keeps its default
+            auto& n = used[label];
+            if (n < it->second.size()) set(id, it->second[n++]);
+        }
+    };
     for (const auto& tr : t) {
         const int k = tr.getProperty("i", -1);
         if (k < 0 || k >= f.tracks()) continue;
@@ -952,11 +994,18 @@ void FM1Processor::setFeluccaState(const juce::ValueTree& t) {
             f.setEngine(k, int(tr.getProperty("engine", 0)));
             f.applyPreset(k, int(tr.getProperty("preset", 0)));
         }
-        auto ps = juce::StringArray::fromTokens(tr.getProperty("params").toString(), ",", "");
-        for (int id = 0; id < std::min(ps.size(), f.paramCount()); ++id) f.setParam(k, id, ps[id].getIntValue());
+        apply(tr.getProperty("params").toString(), tr.getProperty("labels").toString(), f.paramCount(),
+              [&](int id) { return id >= f.firstEngineParam() ? "E" + juce::String(id - f.firstEngineParam()) : juce::String(f.paramDesc(k, id).label); },
+              [&](int id, int v) { f.setParam(k, id, v); });
     }
-    auto gs = juce::StringArray::fromTokens(t.getProperty("globals").toString(), ",", "");
-    for (int id = 0; id < std::min(gs.size(), f.globalCount()); ++id) f.setGlobal(id, gs[id].getIntValue());
+    apply(t.getProperty("globals").toString(), t.getProperty("globalLabels").toString(), f.globalCount(),
+          [&](int id) { return juce::String(f.globalDesc(id).label); }, [&](int id, int v) { f.setGlobal(id, v); });
+}
+
+void FM1Processor::status(const juce::String& text) {
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onStatus) onStatus(text); return; }
+    std::weak_ptr<bool> alive = alive_;   // the instance may be gone by the time it runs
+    juce::MessageManager::callAsync([this, alive, text] { if (alive.lock() && onStatus) onStatus(text); });
 }
 #endif
 
@@ -970,19 +1019,24 @@ void FM1Processor::setFirmware(const juce::String& id) {
     pendingMismatch_.reset();
    #if FM1_FELUCCA
     {
-        // Felucca plays from a copy of its own, taken now and given back when switching away
+        // Felucca plays from a copy of its own, taken now and given back when switching away;
+        // its sound is kept meanwhile (and saved), and comes back with the next copy
         const bool want = juce::String(choices[size_t(index)].id) == "felucca";
-        std::unique_ptr<FeluccaEngine> next;
+        std::shared_ptr<FeluccaEngine> next;
         if (want && !felucca_) {
-            next = std::make_unique<FeluccaEngine>();
+            next = std::make_shared<FeluccaEngine>();
             if (!next->valid()) {
                 next.reset();
-                if (onStatus) onStatus("All " + juce::String(FeluccaEngine::copies()) + " Felucca instances are in use; this one is silent.");
+                status("All " + juce::String(FeluccaEngine::copies()) + " Felucca instances are in use; this one is silent.");
+            } else if (feluccaSaved_.isValid()) {
+                applyFeluccaState(*next, feluccaSaved_);   // before the audio thread sees it
+                feluccaSaved_ = {};
             }
         }
+        if (!want && felucca_) feluccaSaved_ = feluccaState();
         if ((want && next) || (!want && felucca_)) {
             suspendProcessing(true);
-            felucca_ = std::move(next);
+            std::atomic_store(&felucca_, next);
             if (felucca_) prepareFelucca(); else if (prepared_) prepareEngine();
             suspendProcessing(false);
         }
@@ -996,7 +1050,7 @@ void FM1Processor::setFirmware(const juce::String& id) {
             link.close();
             if (live_) setLive(false);
             autoConnect_ = false;
-            if (onStatus) onStatus("Disconnected: the FM-1 runs another firmware than " + juce::String(choices[size_t(index)].name) + ".");
+            status("Disconnected: the FM-1 runs another firmware than " + juce::String(choices[size_t(index)].name) + ".");
         } else if (!synth) {
             session.identify();   // not identified yet: it is checked against the new choice
         }

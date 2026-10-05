@@ -230,9 +230,51 @@ static int checks() {
             CHECK(FeluccaEngine::copiesInUse() == inUse, "switching away gives the copy back");
             CHECK(p.getLatencySamples() == 0, "and the latency goes with it");
         }
+        // with no copy free, a Felucca project still keeps (and saves) its Felucca sound
+        {
+            std::vector<std::unique_ptr<FeluccaEngine>> taken;
+            while (FeluccaEngine::copiesInUse() < FeluccaEngine::copies()) taken.push_back(std::make_unique<FeluccaEngine>());
+            juce::MemoryBlock again;
+            {
+                FM1Processor busy;
+                busy.setStateInformation(project.getData(), int(project.getSize()));
+                CHECK(busy.felucca() == nullptr && !busy.emulates(), "no copy free: the instance is silent");
+                busy.getStateInformation(again);
+            }
+            taken.clear();
+            FM1Processor later;
+            later.setStateInformation(again.getData(), int(again.getSize()));
+            CHECK(later.felucca() != nullptr && later.felucca()->engineOf(1) == 6
+                  && later.felucca()->param(1, later.felucca()->firstEngineParam() + 2) == felParamValue,
+                  "and saving it keeps the Felucca sound for when a copy is free");
+        }
         FM1Processor q;
         q.setStateInformation(project.getData(), int(project.getSize()));
         CHECK(q.firmwareId() == "felucca" && q.felucca() != nullptr, "a Felucca project opens set to Felucca");
+        // switching away and back keeps the sound
+        q.setFirmware("baudgirl_fm1va");
+        q.setFirmware("felucca");
+        CHECK(q.felucca() != nullptr && q.felucca()->engineOf(1) == 6, "switching away and back keeps Felucca's sound");
+        // values find their parameters by label: the saved list shifted by one still lands right
+        {
+            auto tree = juce::ValueTree::readFromData(project.getData(), project.getSize()).getChildWithName("Felucca").createCopy();
+            auto tr = tree.getChildWithProperty("i", 1);
+            auto vs = juce::StringArray::fromTokens(tr.getProperty("params").toString(), ",", "");
+            auto ls = juce::StringArray::fromTokens(tr.getProperty("labels").toString(), ",", "");
+            vs.insert(0, "7"); ls.insert(0, "NEWPARAM");   // as if a later Felucca had saved a parameter we do not have
+            tr.setProperty("params", vs.joinIntoString(","), nullptr);
+            tr.setProperty("labels", ls.joinIntoString(","), nullptr);
+            FM1Processor shifted;
+            shifted.setFirmware("felucca");
+            juce::ValueTree st("FM1Companion");
+            st.setProperty("firmware", "felucca", nullptr);
+            st.addChild(tree, -1, nullptr);
+            juce::MemoryOutputStream os;
+            st.writeToStream(os);
+            shifted.setStateInformation(os.getData(), int(os.getDataSize()));
+            CHECK(shifted.felucca() != nullptr && shifted.felucca()->param(1, shifted.felucca()->firstEngineParam() + 2) == felParamValue,
+                  "a saved value finds its parameter by label when the positions moved");
+        }
         if (q.felucca() != nullptr) {
             CHECK(q.felucca()->engineOf(1) == 6, "with each part's engine");
             CHECK(q.felucca()->param(1, q.felucca()->firstEngineParam() + 2) == felParamValue, "its parameters");
