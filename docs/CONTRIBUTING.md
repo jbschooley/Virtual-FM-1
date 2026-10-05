@@ -22,7 +22,7 @@ so when an instance is set to it.
 | Option | Default | What |
 |---|---|---|
 | `FM1_BUILD_FELUCCA` | on with Clang | Felucca's engines |
-| `FELUCCA_COPIES` | 8 | Felucca copies compiled in: up to that many instances play without sharing one (more share, at some CPU) |
+| `FELUCCA_COPIES` | 16 | Felucca copies compiled in: up to that many instances play without sharing one (more share, at some CPU) |
 | `FM1_BUILD_PLUGIN` / `_AU` / `_LV2` / `_AAX` | on / on / on / off | the formats ([`AAX.md`](AAX.md)) |
 | `FM1_BUILD_TOOLS` | on | `fm1_probe`, the command-line check against a real FM-1 (macOS) |
 | `FM1_COPY_PLUGIN` | on | copy the plugins into your plug-in folders after building |
