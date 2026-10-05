@@ -8,7 +8,7 @@ proposal is about saving everyone that work: a firmware that speaks it works
 with the plugin, and with any other tool that speaks it, without new code.
 
 It builds on baud girl's FM-1+VA protocol, which is already in use and works
-well. Her messages stay exactly as they are; FM-1+VA already speaks the core
+well, and on what Felucca's editor protocol does (below). Her messages stay exactly as they are; FM-1+VA already speaks the core
 of this. The additions fill the gaps listed in
 [`FIRMWARE-GAPS.md`](FIRMWARE-GAPS.md) and let a firmware say what it can do.
 The command numbers marked *proposed* are suggestions to agree with her, since
@@ -90,6 +90,55 @@ chance, step gate, step transpose, accent, per-pattern Chain.
 A list of `(id, value)` pairs, so new settings need no new messages. Proposed
 ids: MIDI channel, FX channel, bend up, bend down, key velocity, glide mode,
 glide time, drive, CC7 volume, overdub. A firmware sends the ones it has.
+
+## What Felucca's editor protocol shows
+
+Felucca has its own protocol (`F0 7D 46 4C`, documented in its
+`web/EDITOR_PROTOCOL.md`), and Virtual FM-1 syncs with it fully: backup and
+restore, and live sync both ways. Building that showed which ideas are worth
+having in any firmware's protocol, whatever its framing:
+
+### 6. Parameters that describe themselves
+
+Felucca answers `DESC` for every parameter: its label, unit, display format,
+range, default and, for a list, each value's name. A tool builds an editor
+from that with no code for the firmware, and a newer release's new parameters
+show up by themselves. `INFO` gives the counts (parameters, engines, globals,
+steps) and where each block starts, so a tool knows the layout before reading
+values. Labels stay the same across releases, so stored values are matched by
+label, and Felucca's own files survive its updates.
+
+*Proposed:* a `DESC` request (`1A`, reply `57`) answering the same fields for
+a parameter id, and a count in Hello.
+
+### 7. Changes pushed while a tool watches
+
+With `WATCH` on, Felucca sends what changes on the device (a knob, a step, a
+part selected, a preset loaded) without being asked, at most one message per
+value every 20 ms, and never for the tool's own writes; `PING` keeps watching
+alive. A tool and the device then stay the same without polling. Two lessons
+from implementing the other side:
+
+- Asking to watch again must not reset what the device counts as known, or a
+  change made just before is never sent. Keep a separate keep-alive.
+- A load the tool asked for (a preset) is pushed back as a reload, so a tool
+  mirroring two devices has to recognise its own loads. A push should say
+  whether a tool's request caused it.
+
+*Proposed:* `WATCH` (`1B`) and a push kind (`58`) carrying the parameter id
+and value, or the slot loaded, with a flag for "caused by your request".
+
+### 8. A full backup by named objects
+
+`BACKUP_LIST` names each stored object (the music playing, settings, project
+slots, user presets, patch bank) with its size and CRC; `BACKUP_GET` reads
+one in pieces; `BACKUP_PUT` writes one, checks its length, CRC and content,
+and only then commits it. No flash addresses go over the wire, a failed
+transfer changes nothing, and a tool can back up and restore a synth
+completely without knowing its storage layout.
+
+*Proposed:* the same three requests (`1C` to `1E`) for any firmware's stored
+objects.
 
 ## Rules that keep it compatible
 
