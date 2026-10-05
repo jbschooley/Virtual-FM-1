@@ -143,6 +143,7 @@ void FeluccaDeviceView::timerCallback() {
 
 void FeluccaDeviceView::paint(juce::Graphics& g) {
     g.fillAll(juce::Colour(0xff26262e));
+    g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);   // pixels stay sharp
     g.drawImage(screen_, screenArea_.toFloat(), juce::RectanglePlacement::stretchToFit);
     g.setColour(juce::Colour(0xff50505c));
     g.drawRect(screenArea_.expanded(1));
@@ -152,8 +153,14 @@ void FeluccaDeviceView::resized() {
     auto r = getLocalBounds().reduced(8);
     auto keys = r.removeFromBottom(std::min(70, r.getHeight() / 5));
     r.removeFromBottom(8);
-    // the screen at a whole multiple of 240 that fits, the controls beside it
-    const int side = std::max(240, std::min(r.getHeight(), r.getWidth() * 3 / 5) / 240 * 240);
+    // the screen at a whole multiple of its 240 pixels on the display's own pixels (sharp at
+    // any display scale), at most about 360 points so the controls keep their room
+    const float scale = std::max(1.0f, float(juce::Component::getApproximateScaleFactorForComponent(this))
+                                         * float(juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()) != nullptr
+                                                     ? juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds())->scale : 1.0));
+    const float room = float(std::min({r.getHeight(), r.getWidth() / 2, 360}));
+    const int k = std::max(1, int(room * scale / 240.0f));
+    const int side = int(std::round(240.0f * float(k) / scale));
     screenArea_ = r.removeFromLeft(side).withHeight(side);
     r.removeFromLeft(12);
     auto knobRow = r.removeFromTop(std::min(90, r.getHeight() / 3));
