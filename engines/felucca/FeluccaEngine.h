@@ -64,6 +64,8 @@ public:
     std::string enginePage(int e, int page) const;   // the titles of its two edit pages
     std::vector<std::string> presetNames(int e) const;
     Desc paramDesc(int track, int id) const;   // engine parameters are the track's engine's
+    bool paramRange(int track, int id, int& min, int& max) const;   // without allocating (audio thread)
+    bool globalRange(int id, int& min, int& max) const;
     Desc globalDesc(int id) const;
     int param(int track, int id) const;
     void setParam(int track, int id, int value);

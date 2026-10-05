@@ -127,6 +127,20 @@ FeluccaEngine::Desc FeluccaEngine::paramDesc(int track, int id) const {
     return core_->param_desc(uint32_t(track), uint32_t(id), &d) ? toDesc(d) : Desc{};
 }
 
+bool FeluccaEngine::paramRange(int track, int id, int& min, int& max) const {
+    fel_desc_t d{};
+    if (!core_ || !core_->param_desc(uint32_t(track), uint32_t(id), &d)) return false;
+    min = d.min; max = d.max;
+    return true;
+}
+
+bool FeluccaEngine::globalRange(int id, int& min, int& max) const {
+    fel_desc_t d{};
+    if (!core_ || !core_->global_desc(uint32_t(id), &d)) return false;
+    min = d.min; max = d.max;
+    return true;
+}
+
 FeluccaEngine::Desc FeluccaEngine::globalDesc(int id) const {
     fel_desc_t d{};
     if (!core_) return {};

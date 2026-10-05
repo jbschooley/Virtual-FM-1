@@ -65,7 +65,7 @@ const int kFilterByte[10] = {26, 26, 26, 23, 24, 25, 51, 49, 47, 50};
 const char* const kKeyTrack[4] = {"0", "33", "67", "100"};
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout Params::layout() {
+juce::AudioProcessorValueTreeState::ParameterLayout Params::layout(std::shared_ptr<felparams::TextSource> felText) {
     juce::AudioProcessorValueTreeState::ParameterLayout l;
     for (int op = 0; op < 6; ++op) {
         auto group = std::make_unique<juce::AudioProcessorParameterGroup>("op" + juce::String(6 - op), opName(op).trim(), " | ");
@@ -109,6 +109,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Params::layout() {
     const int envDefs[4] = {0, 0, 100, 0};
     for (int i = 0; i < 4; ++i) env->addChild(makeParam(envId(i), envNames[i], 100, nullptr, 0, envDefs[i]));
     l.add(std::move(env));
+    felparams::addTo(l, felText);   // after the FM-1's, which keep their order
     return l;
 }
 

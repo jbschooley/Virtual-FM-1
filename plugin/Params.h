@@ -13,6 +13,7 @@
 
 #include "Fm1Codec.h"
 #include "Fm1Record.h"
+#include "FeluccaParams.h"
 
 class Params : private juce::AudioProcessorValueTreeState::Listener {
 public:
@@ -25,7 +26,9 @@ public:
         juce::RangedAudioParameter* param = nullptr;
     };
 
-    static juce::AudioProcessorValueTreeState::ParameterLayout layout();
+    // Every host parameter: the FM-1's sound, then Felucca's (FeluccaParams.h), whose text
+    // comes from `felText` once the instance sets it.
+    static juce::AudioProcessorValueTreeState::ParameterLayout layout(std::shared_ptr<felparams::TextSource> felText = nullptr);
     explicit Params(juce::AudioProcessorValueTreeState& apvts);
     ~Params() override;
 

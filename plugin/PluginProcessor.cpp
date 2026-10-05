@@ -8,7 +8,7 @@
 
 FM1Processor::FM1Processor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "params", Params::layout()),
+      apvts(*this, nullptr, "params", Params::layout(felText_)),
       params(apvts),
       session(link) {
     session.onSoundRead = [this](const fm1::Sound& s) {
@@ -67,6 +67,21 @@ FM1Processor::FM1Processor()
         dst = merged;
         ++patternsVersion;
     };
+    // Felucca's host parameters: their text is Felucca's own, from this instance's engine
+    for (const auto& e : felparams::entries()) felParams_.push_back(apvts.getParameter(e.id));
+    felApplied_.assign(felParams_.size(), 0.0f);
+   #if FM1_FELUCCA
+    felText_->text = [this](int entry, float v) -> juce::String {
+        auto f = felucca();
+        const auto& e = felparams::entries()[size_t(entry)];
+        if (!f) return juce::String(v, 3);
+        auto d = e.track < 0 ? f->globalDesc(e.index) : f->paramDesc(e.track, e.index);
+        if (d.max <= d.min) return {};
+        const int value = d.min + int(std::lround(v * float(d.max - d.min)));
+        if (!d.names.empty() && value - d.min < int(d.names.size())) return d.names[size_t(value - d.min)];
+        return juce::String(value) + (d.unit.empty() ? "" : " " + juce::String(d.unit));
+    };
+   #endif
     // the 128-preset library is shared by every instance: start from it if it exists
     bank.onLibraryChange = [this] { libraryDirty_ = true; };
     loadLibrary();
@@ -675,6 +690,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     setFirmware(v.getProperty("firmware", fm1::kDefaultFirmwareId).toString());
    #if FM1_FELUCCA
     setFeluccaState(v.getChildWithName("Felucca"));
+    feluccaChanged();
    #endif
     juce::String in = v.getProperty("midiIn").toString(), out = v.getProperty("midiOut").toString();
     if (in.isNotEmpty() && out.isNotEmpty()) connect(in, out);
@@ -895,6 +911,7 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     auto& f = *felucca_;
     const int n = buffer.getNumSamples();
     if (buffer.getNumChannels() == 0) { midi.clear(); return; }
+    applyHostToFelucca(f);
     if (settings_.hostTempo && pos)
         if (auto bpm = pos->getBpm(); bpm && *bpm > 0) f.setGlobal(0 /* G_BPM */, int(std::lround(*bpm)));
     const int need = felConvert_ ? felL_.inputNeeded(n) : n;
@@ -1002,6 +1019,37 @@ void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
           [&](int id) { return juce::String(f.globalDesc(id).label); }, [&](int id, int v) { f.setGlobal(id, v); });
 }
 
+// Host automation into Felucca: each value the host changed since the last block, spread
+// over the parameter's range in Felucca now.
+void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
+    const auto& all = felparams::entries();
+    for (size_t i = 0; i < all.size(); ++i) {
+        const float v = felParams_[i]->getValue();
+        if (v == felApplied_[i]) continue;
+        felApplied_[i] = v;
+        const auto& e = all[i];
+        int min = 0, max = 0;
+        if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
+        const int value = min + int(std::lround(v * float(max - min)));
+        if (e.track < 0) f.setGlobal(e.index, value); else f.setParam(e.track, e.index, value);
+    }
+}
+
+void FM1Processor::feluccaChanged(int track) {
+    auto f = felucca();
+    if (!f) return;
+    const auto& all = felparams::entries();
+    for (size_t i = 0; i < all.size(); ++i) {
+        const auto& e = all[i];
+        if (track >= 0 && e.track != track) continue;
+        int min = 0, max = 0;
+        if (!(e.track < 0 ? f->globalRange(e.index, min, max) : f->paramRange(e.track, e.index, min, max)) || max <= min) continue;
+        const int value = e.track < 0 ? f->global(e.index) : f->param(e.track, e.index);
+        const float v = float(value - min) / float(max - min);
+        if (std::abs(felParams_[i]->getValue() - v) > 1.0e-6f) felParams_[i]->setValueNotifyingHost(v);
+    }
+}
+
 void FM1Processor::status(const juce::String& text) {
     if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onStatus) onStatus(text); return; }
     std::weak_ptr<bool> alive = alive_;   // the instance may be gone by the time it runs
@@ -1039,6 +1087,7 @@ void FM1Processor::setFirmware(const juce::String& id) {
             std::atomic_store(&felucca_, next);
             if (felucca_) prepareFelucca(); else if (prepared_) prepareEngine();
             suspendProcessing(false);
+            if (felucca_) feluccaChanged();
         }
     }
    #endif

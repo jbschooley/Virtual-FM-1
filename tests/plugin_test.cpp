@@ -230,6 +230,42 @@ static int checks() {
             CHECK(FeluccaEngine::copiesInUse() == inUse, "switching away gives the copy back");
             CHECK(p.getLatencySamples() == 0, "and the latency goes with it");
         }
+        // host automation of Felucca's parameters
+        {
+            FM1Processor au;
+            au.setPlayConfigDetails(0, 2, 44100.0, 128);
+            au.prepareToPlay(44100.0, 128);
+            au.setFirmware("felucca");
+            auto f = au.felucca();
+            CHECK(f != nullptr, "an instance for automation");
+            if (f) {
+                auto* level = au.apvts.getParameter("fel_t1_level");
+                auto* wave = au.apvts.getParameter("fel_t1_e0");   // ANALOG's WAVE on part 1
+                auto* bpm = au.apvts.getParameter("fel_bpm");
+                CHECK(level && wave && bpm, "Felucca's parameters are host parameters");
+                if (level && wave && bpm) {
+                    auto ld = f->paramDesc(0, 0);
+                    CHECK(std::abs(level->getValue() - float(f->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
+                          "the host sees Felucca's values once the instance is set to Felucca");
+                    level->setValueNotifyingHost(0.25f);
+                    juce::AudioBuffer<float> b(2, 128);
+                    juce::MidiBuffer m;
+                    au.processBlock(b, m);
+                    CHECK(f->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches Felucca");
+                    f->setParam(0, 0, ld.min + 7);
+                    au.feluccaChanged(0);
+                    CHECK(std::abs(level->getValue() - 7.0f / float(ld.max - ld.min)) < 1e-5f, "an edit in Felucca reaches the host");
+                    auto wd = f->paramDesc(0, f->firstEngineParam());
+                    wave->setValueNotifyingHost(float(1) / float(wd.max - wd.min));
+                    au.processBlock(b, m);
+                    CHECK(wave->getText(wave->getValue(), 32) == juce::String(wd.names.size() > 1 ? wd.names[1] : std::string("?")),
+                          "the host shows Felucca's own value names");
+                    std::printf("  host text: %s = %s, %s = %s\n", wave->getName(32).toRawUTF8(), wave->getText(wave->getValue(), 32).toRawUTF8(),
+                                bpm->getName(32).toRawUTF8(), bpm->getText(bpm->getValue(), 32).toRawUTF8());
+                }
+            }
+        }
+
         // with no copy free, a Felucca project still keeps (and saves) its Felucca sound
         {
             std::vector<std::unique_ptr<FeluccaEngine>> taken;

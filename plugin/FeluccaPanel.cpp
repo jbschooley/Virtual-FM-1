@@ -44,6 +44,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
         auto e = engine();
         if (loading_ || !e) return;
         e->setEngine(track_, engineBox_.getSelectedId() - 1);
+        proc_.feluccaChanged(track_);
         build();
     };
     presetBox_.setTooltip("Felucca's built-in presets for this engine");
@@ -51,6 +52,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
         auto e = engine();
         if (loading_ || !e) return;
         e->applyPreset(track_, presetBox_.getSelectedId() - 1);
+        proc_.feluccaChanged(track_);
         loadValues();
     };
     hostTempo_.setTooltip("On: Felucca's tempo is the host's. Off: its own BPM (Global > BPM). Saved with the project.");
@@ -130,6 +132,7 @@ void FeluccaPanel::build() {
                 if (loading_ || !e) return;
                 const int v = min + box->getSelectedId() - 1;
                 if (global) e->setGlobal(id, v); else e->setParam(track_, id, v);
+                proc_.feluccaChanged(global ? -1 : track_);   // the host's parameter follows
             };
             content_.addAndMakeVisible(*c.box);
         } else {
@@ -143,6 +146,7 @@ void FeluccaPanel::build() {
                 if (loading_ || !e) return;
                 const int v = int(std::lround(sl->getValue()));
                 if (global) e->setGlobal(id, v); else e->setParam(track_, id, v);
+                proc_.feluccaChanged(global ? -1 : track_);   // the host's parameter follows
             };
             content_.addAndMakeVisible(*c.slider);
         }

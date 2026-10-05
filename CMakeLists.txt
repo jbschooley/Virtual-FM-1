@@ -207,6 +207,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/BankModel.cpp
         plugin/LibraryStore.cpp
         plugin/FeluccaPanel.cpp
+        plugin/FeluccaParams.cpp
         plugin/dexed_ui/DXLookNFeel.cpp
         plugin/dexed_ui/DXComponents.cpp
         plugin/dexed_ui/AlgoDisplay.cpp
@@ -297,7 +298,7 @@ if(FM1_BUILD_PLUGIN)
 
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")
-    target_sources(params_test PRIVATE tests/params_test.cpp plugin/Params.cpp)
+    target_sources(params_test PRIVATE tests/params_test.cpp plugin/Params.cpp plugin/FeluccaParams.cpp)
     target_include_directories(params_test PRIVATE plugin)
     target_link_libraries(params_test PRIVATE fm1_sync fm1_test_juce)
     target_compile_definitions(params_test PRIVATE FM1_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

@@ -52,6 +52,7 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     // ---- model -------------------------------------------------------------------
+    std::shared_ptr<felparams::TextSource> felText_ = std::make_shared<felparams::TextSource>();   // before apvts
     juce::AudioProcessorValueTreeState apvts;
     Params params;
     BankModel bank;
@@ -109,6 +110,9 @@ public:
     // While set to Felucca (null if no copy was free). Shared: a caller holding it keeps the
     // engine alive while a switch away (perhaps on another thread) lets go of it.
     std::shared_ptr<FeluccaEngine> felucca() const { return std::atomic_load(&felucca_); }
+    // Felucca's sound changed other than by automation (its editor, a preset, a project):
+    // the host's parameters follow (track -1: all). Message thread.
+    void feluccaChanged(int track = -1);
    #endif
     std::function<void()> onFirmwareChanged;            // message thread
     // A synth connected that runs another firmware: the connection was closed
@@ -166,6 +170,7 @@ private:
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
     juce::ValueTree feluccaSaved_;                    // Felucca's state while it has no engine: kept, saved
+    std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;
     bool felConvert_ = false;
@@ -174,8 +179,10 @@ private:
     juce::ValueTree feluccaState() const;
     void setFeluccaState(const juce::ValueTree& t);
     static void applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t);
+    void applyHostToFelucca(FeluccaEngine& f);       // audio thread: automation into Felucca
     void status(const juce::String& text);           // onStatus, on the message thread
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    std::vector<juce::RangedAudioParameter*> felParams_;   // felparams::entries(), in order
    #endif
     std::optional<fm1::Identity> pendingMismatch_;
     std::optional<Fm1Session::Globals> globals_;
