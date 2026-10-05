@@ -80,6 +80,12 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
 // is written; an empty one empties that slot.
 bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juce::String& error);
 
+// One track's sound from one side to the other, as Live carries a load: its engine and preset
+// (that track selected on `to` for it), every value that differs, its FM6 patch. *loaded says
+// whether it loaded a preset on `to`.
+struct Loaded { bool did = false; uint8_t engine = 0, preset = 0; };
+bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded = nullptr);
+
 class Mirror {
 public:
     Mirror(Endpoint& a, Endpoint& b) : a_{a}, b_{b} {}

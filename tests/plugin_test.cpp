@@ -570,6 +570,19 @@ static int checks() {
                 CHECK(lossy.lastCut, "and the music's last piece was cut short (" + juce::String((*all)[0].size()) + " bytes)");
             }
 
+            {   // one part's sound copied (the Sound page's from/to FM-1 buttons): only that part
+                auto x = std::make_shared<FeluccaEngine>(), y = std::make_shared<FeluccaEngine>();
+                felucca::VirtualEndpoint ex(x), ey(y);
+                x->setEngine(2, 6);
+                x->setParam(2, 9, 77);
+                x->setParam(3, 9, 33);
+                const int before = y->param(3, 9);
+                juce::String cerr;
+                felucca::Loaded loaded;
+                const bool ok = felucca::copySound(ex, ey, 2, cerr, &loaded);
+                CHECK(ok && loaded.did && y->engineOf(2) == 6 && y->param(2, 9) == 77 && y->param(3, 9) == before,
+                      "a part's sound copied to the other side, its engine loaded there; another part left alone (" + cerr + ")");
+            }
             felucca::Mirror mirror(ea, eb);
             CHECK(mirror.start(err), "live: both watched");
             auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };

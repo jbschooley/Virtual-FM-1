@@ -400,30 +400,40 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
     return true;
 }
 
-// A track's sound from one side to the other: its engine and preset (a load: the other side's
-// RELOAD is expected), then every value that differs, then its FM6 patch.
 bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error) {
-    auto dump = [&](Side& s) { auto r = s.ep.ask(frame(kTrackDump, {uint8_t(track)}), kAsk); return r ? argsOf(*r) : std::vector<uint8_t>{}; };
+    Loaded loaded;
+    const bool ok = copySound(from.ep, to.ep, track, error, &loaded);
+    if (loaded.did)   // (a load: the other side's RELOAD is expected, not carried back)
+        to.echoes.push_back({frame(kReload, {loaded.engine, loaded.preset, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+    return ok;
+}
+
+// A track's sound from one side to the other: its engine and preset (a load), then every value
+// that differs, then its FM6 patch.
+bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded) {
+    auto dump = [&](Endpoint& s) { auto r = s.ask(frame(kTrackDump, {uint8_t(track)}), kAsk); return r ? argsOf(*r) : std::vector<uint8_t>{}; };
     const auto src = dump(from);
     if (src.size() < 5) { error = "no answer to TRACK_DUMP"; return false; }
     auto dst = dump(to);
     if (dst.size() < 3) { error = "no answer to TRACK_DUMP"; return false; }
     if (dst[1] != src[1] || dst[2] != src[2]) {
-        if (!to.ep.ask(frame(kPreset, {src[1], src[2]}), kFlash)) { error = "no answer to PRESET"; return false; }
-        to.echoes.push_back({frame(kReload, {src[1], src[2], uint8_t(track)}), juce::Time::getMillisecondCounter()});
+        // PRESET loads into the selected part: that track is selected first
+        if (!to.ask(frame(kTrack, {uint8_t(track)}), kAsk)) { error = "no answer to TRACK"; return false; }
+        if (!to.ask(frame(kPreset, {src[1], src[2]}), kFlash)) { error = "no answer to PRESET"; return false; }
+        if (loaded) *loaded = {true, src[1], src[2]};
         dst = dump(to);
     }
     for (size_t i = 3; i + 1 < src.size(); i += 2) {
         if (i + 1 < dst.size() && src[i] == dst[i] && src[i + 1] == dst[i + 1]) continue;
         std::vector<uint8_t> q = {uint8_t(track), uint8_t((i - 3) / 2), src[i], src[i + 1]};
-        if (!to.ep.ask(frame(kTrackParam, q), kAsk)) { error = "no answer to TRACK_PARAM"; return false; }
+        if (!to.ask(frame(kTrackParam, q), kAsk)) { error = "no answer to TRACK_PARAM"; return false; }
     }
-    auto p = from.ep.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
+    auto p = from.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
     auto pa = p ? argsOf(*p) : std::vector<uint8_t>{};
     if (pa.size() == 3 + 128 && pa[2] == 0) {
         std::vector<uint8_t> q = {0, uint8_t(track)};
         q.insert(q.end(), pa.begin() + 3, pa.end());
-        if (!to.ep.ask(frame(kFm6Put, q), kAsk)) { error = "no answer to FM6_PUT"; return false; }
+        if (!to.ask(frame(kFm6Put, q), kAsk)) { error = "no answer to FM6_PUT"; return false; }
     }
     return true;
 }
