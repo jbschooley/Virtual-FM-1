@@ -175,8 +175,11 @@ static const param_desc_t *track_param_desc(uint32_t track, uint32_t id)
 {
     if (track >= NTRK || id >= P_COUNT)
         return 0;
-    if (id >= P_E0)
-        return &ENGINES[trk[track].eng_req % NENGINES]->edit[id - P_E0];
+    if (id >= P_E0) {   /* as params.c's track_desc: an engine's mode-dependent label and names first */
+        const engine_t *e = ENGINES[trk[track].eng_req % NENGINES];
+        const param_desc_t *d = e->desc ? e->desc(&trk[track], id - P_E0) : 0;
+        return d ? d : &e->edit[id - P_E0];
+    }
     return &TP[id];
 }
 

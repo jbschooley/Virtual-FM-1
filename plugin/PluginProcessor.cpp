@@ -69,7 +69,8 @@ FM1Processor::FM1Processor()
     };
     // Felucca's host parameters: their text is Felucca's own, from this instance's engine
     for (const auto& e : felparams::entries()) felParams_.push_back(apvts.getParameter(e.id));
-    felApplied_.assign(felParams_.size(), 0.0f);
+    felApplied_.resize(felParams_.size());
+    for (size_t i = 0; i < felParams_.size(); ++i) felApplied_[i] = felParams_[i]->getValue();
    #if FM1_FELUCCA
     felText_->text = [this](int entry, float v) -> juce::String {
         auto f = felucca();
@@ -609,6 +610,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
 void FM1Processor::setStateInformation(const void* data, int size) {
     auto v = juce::ValueTree::readFromData(data, size_t(size));
     if (!v.isValid() || !v.hasType("FM1Companion")) return;
+    felResync_ = true;   // the project's Felucca sound, not its saved host values, is what plays
     // The library is shared; the project's copy is used only where there is none yet
     // (first run after updating, or a project opened on another computer).
     auto saved = v.getChildWithName("FM1Bank");
@@ -1023,11 +1025,18 @@ void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
 // over the parameter's range in Felucca now.
 void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
     const auto& all = felparams::entries();
+    // just after a project loaded or an engine arrived, Felucca's own sound is the truth
+    // (feluccaChanged gives it to the host): what the host holds now counts as given
+    if (felResync_.exchange(false)) {
+        for (size_t i = 0; i < all.size(); ++i) felApplied_[i] = felParams_[i]->getValue();
+        return;
+    }
     for (size_t i = 0; i < all.size(); ++i) {
         const float v = felParams_[i]->getValue();
         if (v == felApplied_[i]) continue;
         felApplied_[i] = v;
         const auto& e = all[i];
+        if (e.track < 0 && e.index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
         int min = 0, max = 0;
         if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
         const int value = min + int(std::lround(v * float(max - min)));
@@ -1086,6 +1095,7 @@ void FM1Processor::setFirmware(const juce::String& id) {
             suspendProcessing(true);
             std::atomic_store(&felucca_, next);
             if (felucca_) prepareFelucca(); else if (prepared_) prepareEngine();
+            felResync_ = true;
             suspendProcessing(false);
             if (felucca_) feluccaChanged();
         }

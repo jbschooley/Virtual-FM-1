@@ -24,10 +24,12 @@ struct Entry {
     juce::String id;      // the host parameter's id
     int track = -1;       // 0..3 (3 = drums), -1 for a global
     int index = 0;        // Felucca 0.9-beta's parameter number (P_* or G_*)
+    float def = 0.0f;     // Felucca's default, 0..1 (0 for an engine's own eight)
 };
 
 const std::vector<Entry>& entries();
 int indexOf(const juce::String& id);   // -1 if not one of these
+int entryFor(int track, int index);    // the entry for Felucca's parameter (track -1: global), or -1
 
 // What the host shows for an entry at a 0..1 value: set by the instance once it exists.
 struct TextSource { std::function<juce::String(int entry, float value01)> text; };

@@ -247,9 +247,10 @@ static int checks() {
                     auto ld = f->paramDesc(0, 0);
                     CHECK(std::abs(level->getValue() - float(f->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
                           "the host sees Felucca's values once the instance is set to Felucca");
-                    level->setValueNotifyingHost(0.25f);
                     juce::AudioBuffer<float> b(2, 128);
                     juce::MidiBuffer m;
+                    au.processBlock(b, m);   // the first block takes the host's values as they are
+                    level->setValueNotifyingHost(0.25f);
                     au.processBlock(b, m);
                     CHECK(f->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches Felucca");
                     f->setParam(0, 0, ld.min + 7);
@@ -260,6 +261,30 @@ static int checks() {
                     au.processBlock(b, m);
                     CHECK(wave->getText(wave->getValue(), 32) == juce::String(wd.names.size() > 1 ? wd.names[1] : std::string("?")),
                           "the host shows Felucca's own value names");
+                    // defaults are Felucca's own; the drum track has what it has on the device
+                    CHECK(std::abs(bpm->getDefaultValue() - (120.0f - 40.0f) / 200.0f) < 1e-6f, "fel_bpm's default is Felucca's 120");
+                    int drums = 0;
+                    for (const auto& en : felparams::entries()) if (en.track == 3) ++drums;
+                    CHECK(drums == 10 && au.apvts.getParameter("fel_t4_pan") && !au.apvts.getParameter("fel_t4_atk"),
+                          "the drum track: pattern, slicer, pan and mute only");
+                    // a project's Felucca sound wins over host values saved stale
+                    f->setParam(0, 0, ld.min + 30);
+                    au.feluccaChanged(0);
+                    level->setValueNotifyingHost(0.9f);   // a host value never applied
+                    juce::MemoryBlock pj;
+                    au.getStateInformation(pj);
+                    FM1Processor lo;
+                    lo.setPlayConfigDetails(0, 2, 44100.0, 128);
+                    lo.prepareToPlay(44100.0, 128);
+                    lo.setStateInformation(pj.getData(), int(pj.getSize()));
+                    juce::AudioBuffer<float> b2(2, 128);
+                    for (int k = 0; k < 3; ++k) lo.processBlock(b2, m);
+                    auto lf = lo.felucca();
+                    CHECK(lf && lf->param(0, 0) == ld.min + 30, "a loaded project plays its Felucca sound, not stale host values");
+                    if (lf) {
+                        auto* lv = lo.apvts.getParameter("fel_t1_level");
+                        CHECK(std::abs(lv->getValue() - 30.0f / float(ld.max - ld.min)) < 1e-5f, "and the host's value follows it");
+                    }
                     std::printf("  host text: %s = %s, %s = %s\n", wave->getName(32).toRawUTF8(), wave->getText(wave->getValue(), 32).toRawUTF8(),
                                 bpm->getName(32).toRawUTF8(), bpm->getText(bpm->getValue(), 32).toRawUTF8());
                 }

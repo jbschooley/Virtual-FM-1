@@ -113,6 +113,11 @@ public:
     // Felucca's sound changed other than by automation (its editor, a preset, a project):
     // the host's parameters follow (track -1: all). Message thread.
     void feluccaChanged(int track = -1);
+    // The host parameter of Felucca's parameter (track -1: a global), or null: for change gestures.
+    juce::RangedAudioParameter* feluccaParam(int track, int index) const {
+        const int e = felparams::entryFor(track, index);
+        return e >= 0 ? felParams_[size_t(e)] : nullptr;
+    }
    #endif
     std::function<void()> onFirmwareChanged;            // message thread
     // A synth connected that runs another firmware: the connection was closed
@@ -171,6 +176,7 @@ private:
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
     juce::ValueTree feluccaSaved_;                    // Felucca's state while it has no engine: kept, saved
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
+    std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;
     bool felConvert_ = false;

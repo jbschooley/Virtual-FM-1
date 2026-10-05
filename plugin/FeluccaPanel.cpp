@@ -17,9 +17,10 @@ const GroupDef kTrackGroups[] = {
     {"Arpeggiator", 17, 24, true, false},
     {"Scale", 25, 28, true, false},
     {"Sequencer", 29, 32, true, true},
-    {"Sends", 33, 36, true, true},
+    {"Sends", 33, 36, true, false},
     {"Slicer", 45, 48, true, true},
-    {"Mix", 0, 0, true, true},
+    {"Mix", 0, 0, true, false},
+    {"Mix", 39, 40, false, true},   // the drum track: PAN and MUTE (its level and reverb are globals)
 };
 // the global settings worth editing here (the rest are the device's own pages and actions)
 const int kGlobals[] = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24, 25, 26};
@@ -69,6 +70,11 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
     view_.setScrollBarsShown(true, false);
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
     refresh();
+    startTimerHz(10);   // automation shows as it plays
+}
+
+void FeluccaPanel::timerCallback() {
+    if (isShowing() && !isMouseButtonDownAnywhere()) loadValues();
 }
 
 void FeluccaPanel::refresh() {
@@ -131,8 +137,11 @@ void FeluccaPanel::build() {
                 auto e = engine();
                 if (loading_ || !e) return;
                 const int v = min + box->getSelectedId() - 1;
+                auto* hp = proc_.feluccaParam(global ? -1 : track_, id);
+                if (hp) hp->beginChangeGesture();
                 if (global) e->setGlobal(id, v); else e->setParam(track_, id, v);
                 proc_.feluccaChanged(global ? -1 : track_);   // the host's parameter follows
+                if (hp) hp->endChangeGesture();
             };
             content_.addAndMakeVisible(*c.box);
         } else {
@@ -141,6 +150,9 @@ void FeluccaPanel::build() {
             c.slider->setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
             c.slider->setDoubleClickReturnValue(true, d.def);
             auto* sl = c.slider.get();
+            // a drag is one change for the host (automation in Touch or Latch mode records it)
+            sl->onDragStart = [this, id, global] { if (auto* hp = proc_.feluccaParam(global ? -1 : track_, id)) hp->beginChangeGesture(); };
+            sl->onDragEnd = [this, id, global] { if (auto* hp = proc_.feluccaParam(global ? -1 : track_, id)) hp->endChangeGesture(); };
             sl->onValueChange = [this, sl, id, global] {
                 auto e = engine();
                 if (loading_ || !e) return;

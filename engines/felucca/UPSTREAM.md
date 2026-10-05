@@ -34,13 +34,9 @@ plugin may carry them is still to be asked of the author.
   functions it needs from `ui.c` (not built: it needs the display), marked as
   such.
 - `FeluccaEngine` hands each plugin instance a copy of its own.
-- Differences from the device, known and small:
-  - applying a preset does not load its 16-step pattern into an empty
-    sequencer (`load_pat16`), since the plugin does not show Felucca's
-    sequencer yet; add it when it does
-  - engine parameter names are the static ones, as Felucca's editor
-    protocol reports them; on the device LOFI shows other names in some
-    modes (`eng_lofi.c`'s `desc` hook), same ranges
+- One known difference from the device: applying a preset does not load
+  its 16-step pattern into an empty sequencer (`load_pat16`), since the
+  plugin does not show Felucca's sequencer yet; add it when it does.
 
 ## Updating
 
