@@ -1027,7 +1027,14 @@ bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
 
 bool FM1Processor::feluccaSynth() const {
     auto id = session.lastIdentity();
-    return link.isOpen() && id && juce::String(fm1::firmwareIdFor(*id)) == "felucca";
+    return link.isOpen() && id && juce::String(fm1::firmwareIdFor(*id)) == "felucca" && feluccaSynthProblem().isEmpty();
+}
+
+juce::String FM1Processor::feluccaSynthProblem() const {
+    auto id = session.lastIdentity();
+    if (!link.isOpen() || !id || juce::String(fm1::firmwareIdFor(*id)) != "felucca") return {};
+    const auto check = fm1::checkVersion(*id);   // a release too old to sync: why, and what to do
+    return check.support == fm1::Support::Deprecated ? juce::String(check.text) : juce::String();
 }
 
 // The synth's own objects, kept in the library before anything is written to it.

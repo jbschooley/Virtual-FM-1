@@ -27,6 +27,7 @@ const GroupDef kTrackGroups[] = {
 // the global settings worth editing here (the rest are the device's own pages and actions)
 const int kGlobals[] = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 
+const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
@@ -250,7 +251,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
     };
     info_.setColour(juce::Label::textColourId, kDim);
     info_.setFont(juce::FontOptions(12.0f));
-    info_.setText("The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).", juce::dontSendNotification);
+    info_.setText(kInfoText, juce::dontSendNotification);
     view_.setViewedComponent(&content_, false);
     view_.setScrollBarsShown(true, false);
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
@@ -271,6 +272,12 @@ void FeluccaPanel::showDevice(bool on) {
 void FeluccaPanel::updateSyncButtons() {
     const bool synth = proc_.feluccaSynth(), live = proc_.feluccaLiveOn(), busy = proc_.session.busy();
     pullButton_.setEnabled(synth && !busy);
+    const auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
+    if (problem != syncProblem_) {
+        syncProblem_ = problem;
+        if (problem.isNotEmpty()) info_.setText(problem, juce::dontSendNotification);
+        else info_.setText(kInfoText, juce::dontSendNotification);
+    }
     sendButton_.setEnabled(synth && !busy);
     liveButton_.setEnabled(synth && (live || !busy));
     liveButton_.setToggleState(live, juce::dontSendNotification);

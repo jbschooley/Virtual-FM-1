@@ -76,6 +76,7 @@ private:
     juce::TextButton deviceButton_{"DEVICE"};   // Felucca's own front panel instead of the parameters
     juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};   // a synth running Felucca
     void updateSyncButtons();
+    juce::String syncProblem_;
     FeluccaDeviceView device_;
     juce::Label info_;
     juce::Viewport view_;

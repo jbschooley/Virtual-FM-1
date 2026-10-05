@@ -117,7 +117,8 @@ public:
     // A connected FM-1 running Felucca, synced through Felucca's editor protocol (session jobs):
     // pull everything from it, send everything to it (after saving its own backup in the
     // library), or mirror both ways live until stopped.
-    bool feluccaSynth() const;
+    bool feluccaSynth() const;                 // connected, a Felucca it can sync with
+    juce::String feluccaSynthProblem() const;  // connected to a Felucca too old to sync with: why
     bool feluccaPull();
     bool feluccaSend();
     bool feluccaLive(bool on);
