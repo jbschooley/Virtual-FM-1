@@ -30,7 +30,9 @@ using fm1::Bytes;
 using Objects = std::map<int, std::vector<uint8_t>>;   // backup id -> bytes (empty: an empty object)
 
 enum Cmd : int {
-    kInfo = 1, kSet = 3, kPreset = 8, kWatch = 22, kChanged = 23, kReload = 24, kPing = 25, kStepChanged = 26,
+    kInfo = 1, kSet = 3, kPreset = 8, kProject = 9,
+    kUpList = 16, kUpGet = 17, kUpPut = 18, kUpStore = 19, kUpLoad = 20, kUpErase = 21,   // user presets
+    kWatch = 22, kChanged = 23, kReload = 24, kPing = 25, kStepChanged = 26,
     kTrack = 27, kTrackDump = 29, kTrackStep = 30, kTrackParam = 31, kTrackChanged = 32,
     kBackupList = 65, kBackupGet = 66, kBackupPut = 67, kFm6Get = 68, kFm6Put = 69
 };

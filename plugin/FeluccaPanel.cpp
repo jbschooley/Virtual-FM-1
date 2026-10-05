@@ -1,5 +1,7 @@
 #include "FeluccaPanel.h"
 
+#include "FeluccaDevice.h"
+
 #if FM1_FELUCCA
 
 namespace {
@@ -205,7 +207,7 @@ void FeluccaDeviceView::resized() {
 
 // ---- the parameters ---------------------------------------------------------------------------
 
-FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
+FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     for (int i = 0; i < 4; ++i) {
         auto& b = trackButtons_[i];
         b.setButtonText("PART " + juce::String(i + 1));
@@ -214,32 +216,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
         b.onClick = [this, i] { if (trackButtons_[i].getToggleState()) selectTrack(i); };
         addAndMakeVisible(b);
     }
-    for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_, &deviceButton_}) addAndMakeVisible(c);
-    addChildComponent(device_);
-    for (auto* b : {&pullButton_, &sendButton_, &liveButton_}) addAndMakeVisible(b);
-    pullButton_.setTooltip("Everything from the connected FM-1 running Felucca into this instance: the music, its four projects, "
-                           "user presets and FM6 bank (its backup is also kept in the library, Felucca/Backups)");
-    pullButton_.onClick = [this] { proc_.feluccaPull(); updateSyncButtons(); };
-    sendButton_.setTooltip("This instance's Felucca to the connected FM-1: the music, projects, user presets and FM6 bank, "
-                           "replacing the synth's (not its settings or samples). Its own are backed up to the library first.");
-    sendButton_.onClick = [this] {
-        juce::Component::SafePointer<FeluccaPanel> self(this);
-        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
-            "The FM-1's music, four projects, user presets and FM6 bank will be replaced by this instance's. "
-            "They are backed up to the library (Felucca/Backups) first. Its settings and user samples are not touched.",
-            "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
-                if (ok && self) { self->proc_.feluccaSend(); self->updateSyncButtons(); }
-            }));
-    };
-    liveButton_.setClickingTogglesState(true);
-    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as Felucca's web editor follows it. "
-                           "Pull or send first so both start the same.");
-    liveButton_.onClick = [this] { proc_.feluccaLive(liveButton_.getToggleState()); updateSyncButtons(); };
-    proc_.onFeluccaLive = [this] { updateSyncButtons(); };
-    updateSyncButtons();
-    deviceButton_.setClickingTogglesState(true);
-    deviceButton_.setTooltip("Felucca's own screen, buttons, knobs and keys: its sequencer, projects and user presets as on the device");
-    deviceButton_.onClick = [this] { showDevice(deviceButton_.getToggleState()); };
+    for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_}) addAndMakeVisible(c);
     engineBox_.setTooltip("The part's engine: its own defaults and first preset");
     engineBox_.onChange = [this] {
         auto e = engine();
@@ -273,49 +250,29 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
     startTimerHz(10);   // automation shows as it plays
 }
 
-void FeluccaPanel::showDevice(bool on) {
-    device_.setVisible(on);
-    view_.setVisible(!on);
-    info_.setVisible(!on);
-    for (auto& b : trackButtons_) b.setVisible(!on);
-    engineBox_.setVisible(!on);
-    presetBox_.setVisible(!on);
-    if (getWidth() < kNarrow) resized();   // the device takes the rows it hides
-    if (!on) refresh();   // what the device changed
+void FeluccaSoundPage::visibilityChanged() {
+    if (isVisible()) refresh();   // what the device (or the library) changed meanwhile
 }
 
-void FeluccaPanel::updateSyncButtons() {
-    const bool synth = proc_.feluccaSynth(), live = proc_.feluccaLiveOn(), busy = proc_.session.busy();
-    pullButton_.setEnabled(synth && !busy);
-    const auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
-    if (problem != syncProblem_) {
-        syncProblem_ = problem;
-        if (problem.isNotEmpty()) info_.setText(problem, juce::dontSendNotification);
-        else info_.setText(kInfoText, juce::dontSendNotification);
-    }
-    sendButton_.setEnabled(synth && !busy);
-    liveButton_.setEnabled(synth && (live || !busy));
-    liveButton_.setToggleState(live, juce::dontSendNotification);
-}
-
-void FeluccaPanel::timerCallback() {
-    updateSyncButtons();
+void FeluccaSoundPage::timerCallback() {
     if (auto e = engine(); e && e->selected() != track_ && e->selected() < 4) {   // chosen on the device (its panel, a synced FM-1)
         track_ = e->selected();
         trackButtons_[track_].setToggleState(true, juce::dontSendNotification);
-        if (!device_.isVisible()) build();
     }
+    // the part, or its engine, changed (on the Device tab, by a loaded project or user preset,
+    // or on a synced FM-1): the controls again, once they show
+    if (auto e = engine(); e && isShowing() && (builtTrack_ != track_ || builtEngine_ != e->engineOf(track_))) refresh();
     if (isShowing() && !isMouseButtonDownAnywhere()) loadValues();
 }
 
-void FeluccaPanel::refresh() {
+void FeluccaSoundPage::refresh() {
     hostTempo_.setToggleState(proc_.settings().hostTempo, juce::dontSendNotification);
     const auto scroll = view_.getViewPosition();
     build();
     view_.setViewPosition(scroll);
 }
 
-void FeluccaPanel::updateTempoControl() {
+void FeluccaSoundPage::updateTempoControl() {
     for (auto& g : groups_)
         for (auto& c : g.controls)
             if (c.global && c.id == 0 && c.slider) {   // G_BPM
@@ -324,13 +281,13 @@ void FeluccaPanel::updateTempoControl() {
             }
 }
 
-void FeluccaPanel::selectTrack(int t) {
+void FeluccaSoundPage::selectTrack(int t) {
     track_ = t;
     if (auto e = engine()) e->select(t);   // Felucca's selected part too: the keys play it
     build();
 }
 
-void FeluccaPanel::build() {
+void FeluccaSoundPage::build() {
     auto held = engine();
     auto* f = held.get();
     groups_.clear();
@@ -340,6 +297,8 @@ void FeluccaPanel::build() {
     presetBox_.clear(juce::dontSendNotification);
     if (f == nullptr) { loading_ = false; return; }
     if (track_ >= f->parts()) track_ = 0;
+    builtTrack_ = track_;
+    builtEngine_ = f->engineOf(track_);
     for (int e : f->enginesShown()) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
     engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
     auto presets = f->presetNames(f->engineOf(track_));
@@ -427,7 +386,7 @@ void FeluccaPanel::build() {
     layoutContent();
 }
 
-void FeluccaPanel::loadValues() {
+void FeluccaSoundPage::loadValues() {
     auto held = engine();
     auto* f = held.get();
     if (!f) return;
@@ -445,31 +404,23 @@ void FeluccaPanel::loadValues() {
     loading_ = false;
 }
 
-void FeluccaPanel::paint(juce::Graphics& g) {
+void FeluccaSoundPage::paint(juce::Graphics& g) {
     g.fillAll(kBg);
 }
 
-void FeluccaPanel::resized() {
+void FeluccaSoundPage::resized() {
     auto r = getLocalBounds().reduced(10);
-    if (getWidth() < kNarrow) {   // a phone or a narrow iPad: the top controls on four rows
+    if (getWidth() < kNarrow) {   // a phone or a narrow iPad: the top controls on three rows
         auto row = [&](int h = 30) { auto rr = r.removeFromTop(h); r.removeFromTop(4); return rr; };
         auto even = [](juce::Rectangle<int> rr, std::initializer_list<juce::Component*> cs) {
             const int w = rr.getWidth() / int(cs.size());
             for (auto* c : cs) c->setBounds(rr.removeFromLeft(w).reduced(2, 0));
         };
-        if (!device_.isVisible()) {   // (the device view hides these: its room goes to the device)
-            even(row(), {&trackButtons_[0], &trackButtons_[1], &trackButtons_[2], &trackButtons_[3]});
-            even(row(), {&engineBox_, &presetBox_});
-        }
-        {
-            auto rr = row();
-            deviceButton_.setBounds(rr.removeFromRight(84));
-            hostTempo_.setBounds(rr);
-        }
-        even(row(26), {&pullButton_, &sendButton_, &liveButton_});
-        if (!device_.isVisible()) info_.setBounds(row(30));
+        even(row(), {&trackButtons_[0], &trackButtons_[1], &trackButtons_[2], &trackButtons_[3]});
+        even(row(), {&engineBox_, &presetBox_});
+        hostTempo_.setBounds(row(26));
+        info_.setBounds(row(30));
         view_.setBounds(r);
-        device_.setBounds(r);
         layoutContent();
         return;
     }
@@ -479,27 +430,20 @@ void FeluccaPanel::resized() {
     engineBox_.setBounds(top.removeFromLeft(140));
     top.removeFromLeft(6);
     presetBox_.setBounds(top.removeFromLeft(170));
-    top.removeFromLeft(12);
-    hostTempo_.setBounds(top.removeFromLeft(200));
-    deviceButton_.setBounds(top.removeFromRight(84));
     r.removeFromTop(4);
     {
-        auto row = r.removeFromTop(22);
-        liveButton_.setBounds(row.removeFromRight(56));
-        row.removeFromRight(4);
-        sendButton_.setBounds(row.removeFromRight(110));
-        row.removeFromRight(4);
-        pullButton_.setBounds(row.removeFromRight(120));
+        auto row = r.removeFromTop(30);
+        hostTempo_.setBounds(row.removeFromLeft(200));
+        row.removeFromLeft(8);
         info_.setBounds(row);
     }
     r.removeFromTop(6);
     view_.setBounds(r);
-    device_.setBounds(r);
     layoutContent();
 }
 
 // The groups in columns, as many as fit, each a header and a row per control.
-void FeluccaPanel::layoutContent() {
+void FeluccaSoundPage::layoutContent() {
     const int width = std::max(300, view_.getWidth() - 12);
     const int colW = 280, rowH = 24, gap = 14;
     const int cols = std::max(1, width / colW);
@@ -519,6 +463,374 @@ void FeluccaPanel::layoutContent() {
         colY[size_t(c)] = y + gap;
     }
     content_.setSize(width, *std::max_element(colY.begin(), colY.end()) + 10);
+}
+
+// ---- the Sync page ---------------------------------------------------------------------------
+
+FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
+    for (auto* c : std::initializer_list<juce::Component*>{&pullButton_, &sendButton_, &liveButton_, &about_, &problem_}) addAndMakeVisible(c);
+    about_.setText("An FM-1 running Felucca, connected with Find FM-1 (or the MIDI menus): pull everything from it, "
+                   "send everything to it, or follow it live.", juce::dontSendNotification);
+    about_.setColour(juce::Label::textColourId, kDim);
+    about_.setFont(juce::FontOptions(13.0f));
+    about_.setJustificationType(juce::Justification::topLeft);
+    problem_.setColour(juce::Label::textColourId, juce::Colours::orange);
+    problem_.setFont(juce::FontOptions(13.0f));
+    problem_.setJustificationType(juce::Justification::topLeft);
+    pullButton_.setTooltip("Everything from the connected FM-1 running Felucca into this instance: the music, its four projects, "
+                           "user presets and FM6 bank (its backup is also kept in the library, Felucca/Backups)");
+    pullButton_.onClick = [this] { proc_.feluccaPull(); update(); };
+    sendButton_.setTooltip("This instance's Felucca to the connected FM-1: the music, projects, user presets and FM6 bank, "
+                           "replacing the synth's (not its settings or samples). Its own are backed up to the library first.");
+    sendButton_.onClick = [this] {
+        juce::Component::SafePointer<FeluccaSyncPage> self(this);
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
+            "The FM-1's music, four projects, user presets and FM6 bank will be replaced by this instance's. "
+            "They are backed up to the library (Felucca/Backups) first. Its settings and user samples are not touched.",
+            "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
+                if (ok && self) { self->proc_.feluccaSend(); self->update(); }
+            }));
+    };
+    liveButton_.setClickingTogglesState(true);
+    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as Felucca's web editor follows it. "
+                           "Pull or send first so both start the same.");
+    liveButton_.onClick = [this] { proc_.feluccaLive(liveButton_.getToggleState()); update(); };
+    proc_.onFeluccaLive = [this] { update(); };
+    update();
+    startTimerHz(4);
+}
+
+void FeluccaSyncPage::update() {
+    const bool synth = proc_.feluccaSynth(), live = proc_.feluccaLiveOn(), busy = proc_.session.busy();
+    pullButton_.setEnabled(synth && !busy);
+    sendButton_.setEnabled(synth && !busy);
+    liveButton_.setEnabled(synth && (live || !busy));
+    liveButton_.setToggleState(live, juce::dontSendNotification);
+    const auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
+    if (problem != problem_.getText()) problem_.setText(problem, juce::dontSendNotification);
+}
+
+void FeluccaSyncPage::resized() {
+    auto r = getLocalBounds().reduced(12).withTrimmedRight(std::max(0, getWidth() - 640));
+    about_.setBounds(r.removeFromTop(40));
+    r.removeFromTop(8);
+    auto row = r.removeFromTop(30);
+    const int w = (row.getWidth() - 12) / 3;
+    pullButton_.setBounds(row.removeFromLeft(w)); row.removeFromLeft(6);
+    sendButton_.setBounds(row.removeFromLeft(w)); row.removeFromLeft(6);
+    liveButton_.setBounds(row);
+    r.removeFromTop(10);
+    problem_.setBounds(r.removeFromTop(60));
+}
+
+// ---- the library: user presets and projects ------------------------------------------------------
+
+FeluccaLibraryList::FeluccaLibraryList(FM1Processor& p) : proc_(p) {
+    for (auto* c : std::initializer_list<juce::Component*>{&list_, &nameLabel_, &name_, &loadButton_, &saveButton_, &renameButton_,
+                                                           &eraseButton_, &status_}) addAndMakeVisible(c);
+    list_.setRowHeight(22);
+    list_.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff1e1e24));
+    nameLabel_.setColour(juce::Label::textColourId, kDim);
+    name_.setInputRestrictions(12, " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~");
+    name_.setTextToShowWhenEmpty("(automatic)", kDim);
+    name_.setTooltip("The user preset's name: up to 12 characters, upper case (as on the device). Empty: Felucca names it.");
+    loadButton_.setTooltip("Load the selected user preset into the selected part (its sound; its pattern is offered by SEQ > PATTERNS "
+                           "on the device), or the selected project into all four parts");
+    saveButton_.setTooltip("Save the selected part's sound as the selected user preset, or the music (all four parts) as the selected "
+                           "project. Felucca stops its sequencer to save, as on the device.");
+    renameButton_.setTooltip("Give the selected user preset the name above (its sound is kept)");
+    eraseButton_.setTooltip("Empty the selected user preset slot");
+    loadButton_.onClick = [this] { load(list_.getSelectedRow()); };
+    saveButton_.onClick = [this] { save(list_.getSelectedRow()); };
+    renameButton_.onClick = [this] { rename(list_.getSelectedRow()); };
+    eraseButton_.onClick = [this] { erase(list_.getSelectedRow()); };
+    status_.setColour(juce::Label::textColourId, kDim);
+    status_.setFont(juce::FontOptions(12.0f));
+    status_.setJustificationType(juce::Justification::topLeft);
+    reload();
+    list_.selectRow(0);
+    startTimer(1000);   // what the device's own SAVE pages or another instance saved
+}
+
+std::optional<std::vector<uint8_t>> FeluccaLibraryList::ask(int cmd, const std::vector<uint8_t>& args) {
+    auto f = engine();
+    if (!f) return std::nullopt;
+    auto reply = f->ask(felucca::frame(cmd, args));
+    if (!reply) return std::nullopt;
+    return felucca::argsOf(*reply);
+}
+
+void FeluccaLibraryList::reload() {
+    readUsers(0);
+    readUsers(16);
+    readProjects();
+    list_.updateContent();
+    list_.repaint();
+    updateButtons();
+}
+
+void FeluccaLibraryList::readUsers(int start) {
+    {   // UP_LIST: start, count -> start, count, total, (used, engine, name 0) each
+        auto a = ask(felucca::kUpList, {uint8_t(start), 16});
+        if (!a || a->size() < 3) return;
+        size_t k = 3;
+        for (int i = 0; i < (*a)[1] && start + i < kUser; ++i) {
+            if (k + 2 > a->size()) break;
+            auto& r = rows_[start + i];
+            r.used = (*a)[k] != 0;
+            r.engine = (*a)[k + 1];
+            k += 2;
+            juce::String n;
+            while (k < a->size() && (*a)[k] != 0) n += juce::String::charToString(juce::juce_wchar((*a)[k++]));
+            ++k;   // (its 0)
+            r.name = n;
+        }
+    }
+}
+
+void FeluccaLibraryList::readProjects() {
+    if (auto f = engine())
+        for (int i = 0; i < kProjects; ++i) {   // the project slots: their names are their last 12 bytes before the hash
+            auto& r = rows_[kUser + i];
+            std::vector<uint8_t> b;
+            r.used = f->object(2 + i, b) && b.size() > 16;
+            juce::String n;
+            for (size_t k = b.size() - std::min<size_t>(b.size(), 16); r.used && k < b.size() - 4 && b[k] != 0; ++k)
+                n += juce::String::charToString(juce::juce_wchar(b[k] >= 32 && b[k] <= 126 ? b[k] : '?'));
+            r.name = n;
+        }
+}
+
+// one read a second, in turn (each request runs Felucca's main loop, which advances its clock
+// when no audio has played since the last: two at once would run it ahead)
+void FeluccaLibraryList::timerCallback() {
+    if (!isShowing() || isMouseButtonDownAnywhere()) return;
+    const int step = tick_++ % 3;
+    if (step < 2) readUsers(16 * step); else readProjects();
+    list_.updateContent();
+    list_.repaint();
+    updateButtons();
+}
+
+juce::String FeluccaLibraryList::partText() const {
+    auto f = engine();
+    return "PART " + juce::String(f ? f->selected() + 1 : 1);
+}
+
+void FeluccaLibraryList::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) {
+    if (selected) g.fillAll(juce::Colour(0xff3a4a6a));
+    if (row == kUser) {   // the projects start here
+        g.setColour(kDim.withAlpha(0.5f));
+        g.drawHorizontalLine(0, 0.0f, float(w));
+    }
+    const auto& r = rows_[row];
+    const bool user = row < kUser;
+    const juce::String number = user ? "U" + juce::String(row + 1).paddedLeft('0', 2) : "PROJ " + juce::String::charToString(juce::juce_wchar('A' + row - kUser));
+    g.setFont(juce::FontOptions(14.0f));
+    g.setColour(kDim);
+    g.drawText(number, 8, 0, user ? 36 : 56, h, juce::Justification::centredLeft);
+    g.setColour(r.used ? kText : kDim.withAlpha(0.6f));
+    const juce::String name = !r.used ? "(empty)" : r.name.isNotEmpty() ? r.name : (user ? "(no name)" : "PROJECT " + juce::String::charToString(juce::juce_wchar('A' + row - kUser)));
+    g.drawText(name, user ? 48 : 68, 0, w - (user ? 48 : 68) - 70, h, juce::Justification::centredLeft);
+    if (user && r.used)
+        if (auto f = engine()) {
+            g.setColour(kAccent);
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawText(f->engineName(r.engine), w - 74, 0, 66, h, juce::Justification::centredRight);
+        }
+}
+
+void FeluccaLibraryList::selectedRowsChanged(int row) {
+    if (row >= 0 && row < kUser + kProjects) name_.setText(rows_[row].used && row < kUser ? rows_[row].name : juce::String(), false);
+    updateButtons();
+}
+
+// a click selects (to save over, rename or erase it without touching the part's sound);
+// Load or a double click loads
+void FeluccaLibraryList::listBoxItemDoubleClicked(int row, const juce::MouseEvent&) { load(row); }
+
+void FeluccaLibraryList::updateButtons() {
+    const int row = list_.getSelectedRow();
+    const bool ok = row >= 0 && row < kUser + kProjects, user = ok && row < kUser, used = ok && rows_[row].used;
+    loadButton_.setEnabled(used);
+    saveButton_.setEnabled(ok);
+    renameButton_.setEnabled(user && used);
+    eraseButton_.setEnabled(user && used);
+    name_.setEnabled(user);
+    saveButton_.setButtonText(user ? "Save " + partText() : "Save");
+    loadButton_.setButtonText(user ? "Load to " + partText() : "Load");
+}
+
+void FeluccaLibraryList::say(const juce::String& text, bool problem) {
+    status_.setColour(juce::Label::textColourId, problem ? juce::Colours::orange : kDim);
+    status_.setText(text, juce::dontSendNotification);
+}
+
+juce::String FeluccaLibraryList::cleanName(const juce::String& s) {
+    juce::String out;
+    for (auto c : s.toUpperCase().trim())
+        if (c >= 32 && c <= 126 && out.length() < 12) out += juce::String::charToString(c);
+    return out;
+}
+
+void FeluccaLibraryList::load(int row) {
+    if (row < 0 || row >= kUser + kProjects || !rows_[row].used) return;
+    auto f = engine();
+    if (!f) return;
+    if (row < kUser) {
+        const int part = f->selected();
+        auto a = ask(felucca::kUpLoad, {uint8_t(row)});   // -> slot, rc (0 loaded)
+        if (!a || a->size() < 2 || (*a)[1] != 0) { say("U" + juce::String(row + 1).paddedLeft('0', 2) + " did not load.", true); return; }
+        proc_.feluccaChanged(part);   // the host's parameters follow
+        say(rows_[row].name + " loaded into PART " + juce::String(part + 1) + ".");
+        if (onLoaded) onLoaded();
+        return;
+    }
+    const int slot = row - kUser;
+    juce::Component::SafePointer<FeluccaLibraryList> self(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Load the project?",
+        "The music now (all four parts, their patterns and the song) is replaced by project " + juce::String::charToString(juce::juce_wchar('A' + slot)) + ".",
+        "Load", "Cancel", this, juce::ModalCallbackFunction::create([self, slot](int ok) {
+            if (!ok || !self) return;
+            auto a = self->ask(felucca::kProject, {0, uint8_t(slot)});   // -> 0, slot, used
+            if (!a || a->size() < 3 || (*a)[2] == 0) { self->say("The project did not load.", true); return; }
+            self->proc_.feluccaChanged(-1);
+            self->say("Project " + juce::String::charToString(juce::juce_wchar('A' + slot)) + " loaded.");
+            if (self->onLoaded) self->onLoaded();
+        }));
+}
+
+void FeluccaLibraryList::save(int row) {
+    if (row < 0 || row >= kUser + kProjects) return;
+    const bool user = row < kUser;
+    const juce::String name = cleanName(name_.getText());
+    const juce::String what = user ? "U" + juce::String(row + 1).paddedLeft('0', 2) : "project " + juce::String::charToString(juce::juce_wchar('A' + row - kUser));
+    auto doSave = [this, row, user, name, what] {
+        std::optional<std::vector<uint8_t>> a;
+        if (user) {
+            std::vector<uint8_t> args{uint8_t(row)};
+            for (auto c : name) args.push_back(uint8_t(c));
+            args.push_back(0);   // (empty: Felucca's automatic name)
+            a = ask(felucca::kUpStore, args);   // -> slot, rc (0 saved; 2 storage, or the sequencer would not stop)
+        } else {
+            a = ask(felucca::kProject, {1, uint8_t(row - kUser)});   // -> 1, slot, used; no reply: not saved
+        }
+        const bool ok = user ? (a && a->size() >= 2 && (*a)[1] == 0) : (a && a->size() >= 3);
+        reload();
+        if (ok) say((user ? partText() + "'s sound" : juce::String("The music")) + " saved as " + what + ".");
+        else say(what + " was not saved (Felucca could not stop its sequencer, or could not write).", true);
+    };
+    if (!rows_[row].used) { doSave(); return; }
+    juce::Component::SafePointer<FeluccaLibraryList> self(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Save over " + what + "?",
+        (rows_[row].name.isNotEmpty() ? rows_[row].name : what) + " is replaced.",
+        "Save", "Cancel", this, juce::ModalCallbackFunction::create([self, doSave](int ok) { if (ok && self) doSave(); }));
+}
+
+void FeluccaLibraryList::rename(int row) {
+    if (row < 0 || row >= kUser || !rows_[row].used) return;
+    const juce::String name = cleanName(name_.getText());
+    if (name.isEmpty()) { say("Type a name first.", true); return; }
+    auto f = engine();
+    auto a = ask(felucca::kUpGet, {uint8_t(row)});   // -> slot, used, engine, name 0, values, pattern, kind [, 16 hi]
+    if (!f || !a || a->size() < 4 || (*a)[1] == 0) { say("The user preset could not be read.", true); return; }
+    size_t k = 3;
+    while (k < a->size() && (*a)[k] != 0) ++k;
+    std::vector<uint8_t> rest(a->begin() + std::ptrdiff_t(std::min(a->size(), k + 1)), a->end());
+    // PUT takes the same values and pattern, with the kind only for a drum grid (kind 1 and its 16 bytes)
+    const size_t plain = size_t(2 * f->paramCount() + 32);
+    if (rest.size() == plain + 1) rest.pop_back();
+    std::vector<uint8_t> put{uint8_t(row), (*a)[2]};
+    for (auto c : name) put.push_back(uint8_t(c));
+    put.push_back(0);
+    put.insert(put.end(), rest.begin(), rest.end());
+    auto r = ask(felucca::kUpPut, put);   // -> slot, rc
+    reload();
+    if (r && r->size() >= 2 && (*r)[1] == 0) say("Renamed " + name + ".");
+    else say("It was not renamed (Felucca could not stop its sequencer, or could not write).", true);
+}
+
+void FeluccaLibraryList::erase(int row) {
+    if (row < 0 || row >= kUser || !rows_[row].used) return;
+    juce::Component::SafePointer<FeluccaLibraryList> self(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Erase " + rows_[row].name + "?",
+        "The user preset slot U" + juce::String(row + 1).paddedLeft('0', 2) + " is emptied.",
+        "Erase", "Cancel", this, juce::ModalCallbackFunction::create([self, row](int ok) {
+            if (!ok || !self) return;
+            auto a = self->ask(felucca::kUpErase, {uint8_t(row)});   // -> slot, rc
+            self->reload();
+            if (a && a->size() >= 2 && (*a)[1] == 0) self->say("Erased.");
+            else self->say("It was not erased (Felucca could not stop its sequencer, or could not write).", true);
+        }));
+}
+
+void FeluccaLibraryList::paint(juce::Graphics& g) { g.fillAll(kBg); }
+
+void FeluccaLibraryList::resized() {
+    auto r = getLocalBounds();
+    status_.setBounds(r.removeFromBottom(34));
+    auto buttons2 = r.removeFromBottom(28);
+    r.removeFromBottom(4);
+    auto buttons1 = r.removeFromBottom(28);
+    r.removeFromBottom(4);
+    auto nameRow = r.removeFromBottom(28);
+    r.removeFromBottom(6);
+    list_.setBounds(r);
+    nameLabel_.setBounds(nameRow.removeFromLeft(48));
+    name_.setBounds(nameRow);
+    const int w = (buttons1.getWidth() - 4) / 2;
+    loadButton_.setBounds(buttons1.removeFromLeft(w)); buttons1.removeFromLeft(4); saveButton_.setBounds(buttons1);
+    renameButton_.setBounds(buttons2.removeFromLeft(w)); buttons2.removeFromLeft(4); eraseButton_.setBounds(buttons2);
+}
+
+// ---- the editor: Library and Device tabs ---------------------------------------------------------
+
+FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), sound_(p), sync_(p), list_(p), device_(p) {
+    const auto bg = kBg;
+    pages_.addTab("Sound", bg, &sound_, false);
+    pages_.addTab("Sync", bg, &sync_, false);
+    library_.addAndMakeVisible(list_);
+    library_.addAndMakeVisible(pages_);
+    for (auto* b : {&showList_, &showPages_}) {
+        library_.addChildComponent(b);
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(4803);
+    }
+    showList_.setToggleState(true, juce::dontSendNotification);
+    showList_.onClick = [this] { if (showList_.getToggleState()) { showingPages_ = false; layoutLibrary(); } };
+    showPages_.onClick = [this] { if (showPages_.getToggleState()) { showingPages_ = true; layoutLibrary(); } };
+    library_.layout = [this] { layoutLibrary(); };
+    list_.onLoaded = [this] { sound_.refresh(); };
+    tabs_.addTab("Library", bg, &library_, false);
+    tabs_.addTab("Device", bg, &device_, false);
+    tabs_.setComponentID("felucca tabs");
+    addAndMakeVisible(tabs_);
+}
+
+void FeluccaPanel::resized() { tabs_.setBounds(getLocalBounds()); }
+
+void FeluccaPanel::layoutLibrary() {
+    auto r = library_.getLocalBounds().reduced(6);
+    const bool narrow = library_.getWidth() < kNarrow;   // a phone: the list or the pages, at full width
+    showList_.setVisible(narrow);
+    showPages_.setVisible(narrow);
+    if (narrow) {
+        auto head = r.removeFromTop(30);
+        showList_.setBounds(head.removeFromLeft(90));
+        head.removeFromLeft(4);
+        showPages_.setBounds(head.removeFromLeft(90));
+        r.removeFromTop(4);
+        list_.setVisible(!showingPages_);
+        pages_.setVisible(showingPages_);
+        list_.setBounds(r);
+        pages_.setBounds(r);
+        return;
+    }
+    list_.setVisible(true);
+    pages_.setVisible(true);
+    list_.setBounds(r.removeFromLeft(270));
+    r.removeFromLeft(6);
+    pages_.setBounds(r);
 }
 
 #endif

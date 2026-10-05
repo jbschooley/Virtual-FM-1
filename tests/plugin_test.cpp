@@ -49,6 +49,9 @@
 #include "Firmwares.h"
 #include "Panels.h"
 #if FM1_FELUCCA
+ #include "FeluccaSync.h"
+#endif
+#if FM1_FELUCCA
  #include "FeluccaDevice.h"
  #include "FeluccaPanel.h"
 #endif
@@ -844,25 +847,32 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
         p.setFirmware("felucca");
         save("firmware-felucca");
        #if FM1_FELUCCA
-        {   // Felucca's own front panel, its screen drawn
-            juce::Button* device = nullptr;
-            std::function<void(juce::Component*)> findButton = [&](juce::Component* c) {
+        {   // Felucca's Library tab (its user presets and projects, the Sound and Sync pages) and its Device tab
+            juce::TabbedComponent* fel = nullptr;
+            juce::TabbedComponent* felPages = nullptr;
+            std::function<void(juce::Component*)> findTabs = [&](juce::Component* c) {
                 for (auto* ch : c->getChildren()) {
-                    if (auto* b = dynamic_cast<juce::Button*>(ch); b != nullptr && b->getButtonText() == "DEVICE") device = b;
-                    findButton(ch);
+                    if (auto* t = dynamic_cast<juce::TabbedComponent*>(ch)) {
+                        if (t->getComponentID() == "felucca tabs") fel = t;
+                        else if (t->getNumTabs() == 2 && t->getTabNames()[0] == "Sound") felPages = t;
+                    }
+                    findTabs(ch);
                 }
             };
-            findButton(ed.get());
-            CHECK(device != nullptr, "the Felucca editor has its DEVICE view");
-            auto press = [](juce::Button* b) { b->setToggleState(!b->getToggleState(), juce::dontSendNotification); if (b->onClick) b->onClick(); };
-            if (device != nullptr) {
-                press(device);
-                std::function<void(juce::Component*)> draw = [&](juce::Component* c) {
-                    for (auto* ch : c->getChildren()) {
-                        if (auto* v = dynamic_cast<FeluccaDeviceView*>(ch)) v->refreshScreen();
-                        draw(ch);
-                    }
-                };
+            findTabs(ed.get());
+            CHECK(fel != nullptr && fel->getNumTabs() == 2 && fel->getTabNames()[1] == "Device", "the Felucca editor has its Library and Device tabs");
+            CHECK(felPages != nullptr, "Felucca's library has its Sound and Sync pages");
+            std::function<void(juce::Component*)> draw = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) {
+                    if (auto* v = dynamic_cast<FeluccaDeviceView*>(ch)) v->refreshScreen();
+                    draw(ch);
+                }
+            };
+            if (fel != nullptr && felPages != nullptr) {
+                felPages->setCurrentTabIndex(1);
+                save("felucca-sync");
+                felPages->setCurrentTabIndex(0);
+                fel->setCurrentTabIndex(1);
                 draw(ed.get());
                 save("felucca-device");
                 {   // on a phone
@@ -870,12 +880,22 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                     ed->setSize(402, 780);
                     draw(ed.get());
                     save("phone-felucca-device");
-                    press(device);
+                    fel->setCurrentTabIndex(0);
+                    save("phone-felucca-library");
+                    std::function<void(juce::Component*)> pressSound = [&](juce::Component* c) {
+                        for (auto* ch : c->getChildren()) {
+                            if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText() == "Sound" && b->isVisible()) {
+                                b->setToggleState(true, juce::dontSendNotification);
+                                if (b->onClick) b->onClick();
+                            }
+                            pressSound(ch);
+                        }
+                    };
+                    pressSound(ed.get());
                     save("phone-felucca");
-                    press(device);
                     ed->setBounds(desk);
                 }
-                press(device);
+                fel->setCurrentTabIndex(0);
             }
         }
        #endif
@@ -1019,6 +1039,107 @@ static int library(const juce::File& golden) {
     return 0;
 }
 
+#if FM1_FELUCCA
+// Felucca's library tab: Save, Rename and Load by its buttons, read back through Felucca's own
+// editor protocol (a sound preset, and a DRUM one whose pattern is a grid).
+static int feluccaLibrary() {
+    auto dir = freshDataDir();
+    {
+        FM1Processor p;
+        p.setFirmware("felucca");
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        ed->setVisible(true);
+        auto f = p.felucca();
+        CHECK(f != nullptr, "an instance set to Felucca plays it");
+        if (!f) return 1;
+        FeluccaLibraryList* list = nullptr;
+        std::function<void(juce::Component*)> find = [&](juce::Component* c) {
+            for (auto* ch : c->getChildren()) { if (auto* l = dynamic_cast<FeluccaLibraryList*>(ch)) list = l; find(ch); }
+        };
+        find(ed.get());
+        CHECK(list != nullptr, "the Felucca editor has its library list");
+        if (!list) return 1;
+        juce::TextEditor* name = nullptr;
+        juce::ListBox* box = nullptr;
+        for (auto* ch : list->getChildren()) {
+            if (auto* t = dynamic_cast<juce::TextEditor*>(ch)) name = t;
+            if (auto* b = dynamic_cast<juce::ListBox*>(ch)) box = b;
+        }
+        auto press = [&](const juce::String& prefix) {
+            for (auto* ch : list->getChildren())
+                if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText().startsWith(prefix)) { if (b->onClick) b->onClick(); return true; }
+            return false;
+        };
+        // a user preset's slot, engine and name, as Felucca lists it (UP_LIST)
+        auto listed = [&](int slot, int& engine, juce::String& n) {
+            auto r = f->ask(felucca::frame(felucca::kUpList, {uint8_t(slot), 1}));
+            if (!r) return false;
+            auto a = felucca::argsOf(*r);
+            if (a.size() < 6 || a[3] == 0) return false;
+            engine = a[4];
+            n.clear();
+            for (size_t k = 5; k < a.size() && a[k]; ++k) n += juce::String::charToString(juce::juce_wchar(a[k]));
+            return true;
+        };
+        if (!name || !box) { CHECK(false, "the library list has its name box and list"); return 1; }
+        const int e0 = f->engineOf(0);
+        f->select(0);
+        box->selectRow(0);
+        name->setText("my bass");
+        CHECK(press("Save PART"), "the library has Save");
+        int engine = -1;
+        juce::String n;
+        CHECK(listed(0, engine, n) && n == "MY BASS" && engine == e0, "Save stored PART 1's sound as U01, named (upper case): " + n);
+        name->setText("renamed");
+        CHECK(press("Rename"), "the library has Rename");
+        CHECK(listed(0, engine, n) && n == "RENAMED" && engine == e0, "Rename renamed U01 and kept its sound: " + n);
+        int other = -1;
+        for (int e : f->enginesShown()) if (e != e0) { other = e; break; }
+        f->setEngine(0, other);
+        CHECK(f->engineOf(0) == other, "PART 1 changed to another engine");
+        box->selectRow(0);
+        CHECK(press("Load to PART"), "the library has Load");
+        CHECK(f->engineOf(0) == e0, "Load put U01's sound back into PART 1");
+
+        f->select(3);   // PART 4: DRUM, whose pattern is a grid: lane 0 on step 1, lane 7 (a high bit) on step 2
+        const int drum = f->engineOf(3);
+        // TRACK_STEP: track, index, n, 4 notes, time, flags, vel, hit, accent, high bits
+        f->ask(felucca::frame(felucca::kTrackStep, {3, 0, 0, 0, 0, 0, 0, 0, 0, 100, 1, 0, 0}));
+        f->ask(felucca::frame(felucca::kTrackStep, {3, 1, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 1}));
+        box->selectRow(1);
+        name->setText("kit");
+        press("Save PART");
+        CHECK(listed(1, engine, n) && n == "KIT" && engine == drum, "PART 4's DRUM sound stored as U02: " + n);
+        auto kindOf = [&](int slot) {   // UP_GET: slot, used, engine, name 0, values, pattern, kind [, 16 hi]
+            auto r = f->ask(felucca::frame(felucca::kUpGet, {uint8_t(slot)}));
+            if (!r) return -1;
+            auto a = felucca::argsOf(*r);
+            size_t k = 3;
+            while (k < a.size() && a[k]) ++k;
+            k += 1 + size_t(2 * f->paramCount() + 32);
+            return k < a.size() ? int(a[k]) : -1;
+        };
+        CHECK(kindOf(1) == 1, "U02's pattern is a drum grid (kind " + juce::String(kindOf(1)) + ")");
+        auto afterName = [&](int slot) {   // UP_GET's reply after the name: the values and the pattern
+            auto r = f->ask(felucca::frame(felucca::kUpGet, {uint8_t(slot)}));
+            if (!r) return std::vector<uint8_t>{};
+            auto a = felucca::argsOf(*r);
+            size_t k = 3;
+            while (k < a.size() && a[k]) ++k;
+            return std::vector<uint8_t>(a.begin() + std::ptrdiff_t(std::min(a.size(), k + 1)), a.end());
+        };
+        const auto before = afterName(1);
+        name->setText("kit two");
+        press("Rename");
+        CHECK(listed(1, engine, n) && n == "KIT TWO" && engine == drum, "a DRUM user preset renames too: " + n);
+        CHECK(!before.empty() && afterName(1) == before, "renaming kept its values and its grid, high bits too");
+        f->select(0);
+    }
+    dir.deleteRecursively();
+    return 0;
+}
+#endif
+
 // Moving a real library: a copy of <old.fm1lib> in a scratch folder (the file
 // given is only read), then every slot compared with the original.
 static int migrate(const juce::File& source) {
@@ -1057,6 +1178,9 @@ int main(int argc, char** argv) {
     else if (cmd == "checks") rc = checks();
     else if (cmd == "library" && argc == 3) rc = library(juce::File(argv[2]));
     else if (cmd == "migrate" && argc == 3) rc = migrate(juce::File(argv[2]));
+   #if FM1_FELUCCA
+    else if (cmd == "felucca-library") rc = feluccaLibrary();
+   #endif
     else if (cmd == "snapshot" && argc == 4) rc = snapshots(juce::File(argv[3]), juce::File(argv[2]));
     else if (cmd == "state-write" && argc == 4) rc = stateWrite(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "state-check" && argc >= 3) { for (int i = 2; i < argc; ++i) stateCheck(juce::File(argv[i])); rc = 0; }

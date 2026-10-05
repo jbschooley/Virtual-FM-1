@@ -324,6 +324,9 @@ if(FM1_BUILD_PLUGIN)
     add_test(NAME state_test COMMAND plugin_test state-check ${CMAKE_SOURCE_DIR}/tests/states/v3 ${CMAKE_SOURCE_DIR}/tests/states/v4)
     add_test(NAME plugin_checks COMMAND plugin_test checks)
     add_test(NAME library_test COMMAND plugin_test library ${CMAKE_SOURCE_DIR}/tests/golden.json)
+    if(FM1_BUILD_FELUCCA)
+        add_test(NAME felucca_library_test COMMAND plugin_test felucca-library)
+    endif()
     add_test(NAME render_smoke COMMAND plugin_test render ${CMAKE_SOURCE_DIR}/tests/golden.json ${CMAKE_BINARY_DIR}/render.txt)
 
     # editor parameters: load/commit round trip

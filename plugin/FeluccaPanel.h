@@ -1,8 +1,10 @@
-// FeluccaPanel -- the editor for an instance set to Felucca: a track's engine, preset
-// and every parameter, and the global settings, built from what Felucca says about
-// them (names, ranges, value names), so a new Felucca version's changes show up
-// without changes here. The groups follow Felucca 1.0's parameter order.
+// FeluccaPanel -- the editor for an instance set to Felucca: its library (the user presets
+// and projects), a part's engine, preset and every parameter, and the global settings, built
+// from what Felucca says about them (names, ranges, value names), so a new Felucca version's
+// changes show up without changes here. The groups follow Felucca 1.0's parameter order.
 #pragma once
+
+#include <optional>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -35,14 +37,16 @@ private:
     juce::OwnedArray<Key> keys_;
 };
 
-class FeluccaPanel : public juce::Component, private juce::Timer {
+// One part's sound and the global settings: the part, its engine and preset, every
+// parameter. (The Library tab's Sound page.)
+class FeluccaSoundPage : public juce::Component, private juce::Timer {
 public:
-    static constexpr int kNarrow = 1040;   // narrower: the top controls on rows (a phone, an iPad upright)
-    explicit FeluccaPanel(FM1Processor&);
-    ~FeluccaPanel() override { proc_.onFeluccaLive = nullptr; }
+    static constexpr int kNarrow = 720;   // narrower: the top controls on rows (a phone, an iPad upright)
+    explicit FeluccaSoundPage(FM1Processor&);
     void resized() override;
     void paint(juce::Graphics&) override;
-    void refresh();   // the engine, presets and values again (after a project loads, say)
+    void visibilityChanged() override;
+    void refresh();   // the engine, presets and values again (after a project or user preset loads, say)
 
 private:
     struct Control {
@@ -67,23 +71,102 @@ private:
     void build();          // the groups and their controls for the selected track
     void loadValues();
     void layoutContent();
-    void showDevice(bool on);
 
     FM1Processor& proc_;
     int track_ = 0;
+    int builtTrack_ = -1, builtEngine_ = -1;   // what the controls are for (the device can change either)
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;
     juce::ToggleButton hostTempo_{"Tempo follows the host"};
-    juce::TextButton deviceButton_{"DEVICE"};   // Felucca's own front panel instead of the parameters
-    juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};   // a synth running Felucca
-    void updateSyncButtons();
-    juce::String syncProblem_;
-    FeluccaDeviceView device_;
     juce::Label info_;
     juce::Viewport view_;
     juce::Component content_;
     std::vector<Group> groups_;
     bool loading_ = false;
+};
+
+// A synth running Felucca: pull everything from it, send everything to it, or follow it live.
+// (The Library tab's Sync page.)
+class FeluccaSyncPage : public juce::Component, private juce::Timer {
+public:
+    explicit FeluccaSyncPage(FM1Processor&);
+    ~FeluccaSyncPage() override { proc_.onFeluccaLive = nullptr; }
+    void resized() override;
+
+private:
+    void timerCallback() override { update(); }
+    void update();
+    FM1Processor& proc_;
+    juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};
+    juce::Label about_, problem_;
+};
+
+// The virtual FM-1's stored sounds and songs: its 32 user presets and four projects (shared by
+// every instance set to Felucca), loaded, saved, renamed and erased through Felucca's editor
+// protocol, as its web editor does (and as SAVE > USER and SAVE > PROJECT do on the device).
+class FeluccaLibraryList : public juce::Component, private juce::ListBoxModel, private juce::Timer {
+public:
+    static constexpr int kUser = 32, kProjects = 4;   // rows: the user presets, then the projects
+    explicit FeluccaLibraryList(FM1Processor&);
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    std::function<void()> onLoaded;   // a user preset or project was loaded: the sound changed
+    void reload();                    // the names again, from the device
+
+private:
+    struct Row { bool used = false; int engine = 0; juce::String name; };
+    int getNumRows() override { return kUser + kProjects; }
+    void paintListBoxItem(int row, juce::Graphics&, int w, int h, bool selected) override;
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
+    void selectedRowsChanged(int row) override;
+    void timerCallback() override;
+    void readUsers(int start);         // 16 user presets' names (UP_LIST takes at most 16)
+    void readProjects();
+    int tick_ = 0;
+    std::shared_ptr<FeluccaEngine> engine() const { return proc_.felucca(); }
+    std::optional<std::vector<uint8_t>> ask(int cmd, const std::vector<uint8_t>& args);   // the reply's arguments
+    juce::String partText() const;     // "PART 2": what Save stores, what Load loads into
+    void load(int row);
+    void save(int row);
+    void rename(int row);
+    void erase(int row);
+    void updateButtons();
+    void say(const juce::String& text, bool problem = false);
+    static juce::String cleanName(const juce::String&);   // what Felucca takes: upper case ASCII, at most 12
+
+    FM1Processor& proc_;
+    Row rows_[kUser + kProjects];
+    juce::ListBox list_{"felucca library", this};
+    juce::Label nameLabel_{{}, "Name"};
+    juce::TextEditor name_;
+    juce::TextButton loadButton_{"Load"}, saveButton_{"Save"}, renameButton_{"Rename"}, eraseButton_{"Erase"};
+    juce::Label status_;
+};
+
+// The editor for an instance set to Felucca: a Library tab (the stored sounds and songs, and
+// the sound being edited) and a Device tab (Felucca's own front panel).
+class FeluccaPanel : public juce::Component {
+public:
+    static constexpr int kNarrow = 760;   // narrower (a phone): the list or the pages, one at a time
+    explicit FeluccaPanel(FM1Processor&);
+    void resized() override;
+    void refresh() { sound_.refresh(); list_.reload(); }   // after a project loads, say
+
+private:
+    FM1Processor& proc_;
+    FeluccaSoundPage sound_;
+    FeluccaSyncPage sync_;
+    FeluccaLibraryList list_;
+    juce::TabbedComponent pages_{juce::TabbedButtonBar::TabsAtTop};
+    struct Holder : juce::Component {   // its children laid out by the panel
+        std::function<void()> layout;
+        void resized() override { if (layout) layout(); }
+    } library_;
+    juce::TextButton showList_{"Presets"}, showPages_{"Sound"};
+    bool showingPages_ = false;
+    FeluccaDeviceView device_;
+    juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
+    void layoutLibrary();
 };
 
 #endif
