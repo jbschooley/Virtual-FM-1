@@ -19,7 +19,10 @@
  * one), every writable variable of the copy (some of them static inside
  * functions) is placed in sections of its own (FEL_BSS_SECTION, FEL_DATA_SECTION),
  * whose image is kept from the start and put back by FEL(restore). That needs Clang's
- * section pragma; CMakeLists.txt builds Felucca only with Clang. */
+ * section pragma; CMakeLists.txt builds Felucca only with Clang. Where the sections start
+ * and stop comes from the linker (macOS, Linux), or on Windows, whose linker gives no such
+ * symbols, from a variable in a section sorted before them and one sorted after: its linker
+ * puts "felb3$a", "felb3$m" and "felb3$z" together in that order, as one section. */
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>   /* Felucca's code past libc.c uses the C library's memcpy and memset */
@@ -41,6 +44,11 @@
 #endif
 #define FEL_PRAGMA(x) _Pragma(#x)
 #define FEL_SECTIONS(b, d) FEL_PRAGMA(clang section bss = b data = d)
+#ifdef FEL_BSS_FIRST                     /* Windows: where the sections start */
+FEL_SECTIONS(FEL_BSS_FIRST, FEL_DATA_FIRST)
+__attribute__((used)) static uint8_t fel_bss_start;
+__attribute__((used)) static uint8_t fel_data_start = 1;
+#endif
 FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 
 #define __attribute__(x)
@@ -257,14 +265,31 @@ static uint64_t fel_served_at;
 #undef __attribute__                     /* Felucca's code is done: attributes mean something again */
 static uint8_t fel_bss_marker;          /* make sure both sections exist */
 static uint8_t fel_data_marker = 1;
+#ifdef FEL_BSS_LAST                      /* Windows: where they stop */
+FEL_SECTIONS(FEL_BSS_LAST, FEL_DATA_LAST)
+__attribute__((used)) static uint8_t fel_bss_stop;
+__attribute__((used)) static uint8_t fel_data_stop = 1;
+#endif
 #pragma clang section bss = "" data = ""
 
 /* ---- the copy's state, as the program started ----------------------------------------------- */
+#ifndef FEL_BSS_LAST
 extern uint8_t fel_bss_start __asm(FEL_BSS_START);
 extern uint8_t fel_bss_stop __asm(FEL_BSS_STOP);
 extern uint8_t fel_data_start __asm(FEL_DATA_START);
 extern uint8_t fel_data_stop __asm(FEL_DATA_STOP);
+#endif
 static uint8_t *fel_pristine;            /* outside the sections: kept across restores */
+
+/* a bound's address, hidden from the optimizer: to it, each bound is a 1-byte variable that
+ * nothing may be read or written beyond */
+static uint8_t *fel_at(uint8_t *p)
+{
+    __asm__ volatile("" : "+r"(p));
+    return p;
+}
+#define FEL_NB ((size_t)(fel_at(&fel_bss_stop) - fel_at(&fel_bss_start)))
+#define FEL_ND ((size_t)(fel_at(&fel_data_stop) - fel_at(&fel_data_start)))
 
 void *malloc(size_t);
 
@@ -272,40 +297,37 @@ void *malloc(size_t);
  * the optimizer, which must not move reads of the state across the copy */
 __attribute__((noinline)) void FEL(restore)(void)
 {
-    const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
-    const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
+    const size_t nb = FEL_NB, nd = FEL_ND;
     (void)fel_bss_marker; (void)fel_data_marker;
     if (!fel_pristine) {                 /* the first time: nothing has run yet, keep the image */
         fel_pristine = (uint8_t *)malloc(nd ? nd : 1);
         if (fel_pristine)
-            FEL(memcpy)(fel_pristine, &fel_data_start, nd);
-        FEL(memset)(&fel_bss_start, 0, nb);
+            FEL(memcpy)(fel_pristine, fel_at(&fel_data_start), nd);
+        FEL(memset)(fel_at(&fel_bss_start), 0, nb);
         return;
     }
-    FEL(memset)(&fel_bss_start, 0, nb);
-    FEL(memcpy)(&fel_data_start, fel_pristine, nd);
+    FEL(memset)(fel_at(&fel_bss_start), 0, nb);
+    FEL(memcpy)(fel_at(&fel_data_start), fel_pristine, nd);
     __asm__ volatile("" ::: "memory");
 }
 
-uint32_t FEL(state_bytes)(void) { return (uint32_t)((&fel_bss_stop - &fel_bss_start) + (&fel_data_stop - &fel_data_start)); }
+uint32_t FEL(state_bytes)(void) { return (uint32_t)(FEL_NB + FEL_ND); }
 
 /* an instance's whole state out of the copy, and back (state_bytes of it): an instance that
  * shares this copy with others is put back before it plays. Only into this same copy: the state
  * holds pointers into the copy's own variables and tables */
 __attribute__((noinline)) void FEL(state_get)(uint8_t *out)
 {
-    const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
-    const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
+    const size_t nb = FEL_NB, nd = FEL_ND;
     __asm__ volatile("" ::: "memory");
-    FEL(memcpy)(out, &fel_bss_start, nb);
-    FEL(memcpy)(out + nb, &fel_data_start, nd);
+    FEL(memcpy)(out, fel_at(&fel_bss_start), nb);
+    FEL(memcpy)(out + nb, fel_at(&fel_data_start), nd);
 }
 __attribute__((noinline)) void FEL(state_put)(const uint8_t *in)
 {
-    const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
-    const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
-    FEL(memcpy)(&fel_bss_start, in, nb);
-    FEL(memcpy)(&fel_data_start, in + nb, nd);
+    const size_t nb = FEL_NB, nd = FEL_ND;
+    FEL(memcpy)(fel_at(&fel_bss_start), in, nb);
+    FEL(memcpy)(fel_at(&fel_data_start), in + nb, nd);
     __asm__ volatile("" ::: "memory");
 }
 

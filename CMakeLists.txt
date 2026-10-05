@@ -62,8 +62,8 @@ endif()
 # in sections of its own, so that it can be put back to how it started, and an instance's
 # state saved out and put back in when it shares the copy;
 # that uses Clang's section pragma, so Felucca is built only with Clang (macOS and iOS
-# always; Linux with CC=clang). MSVC also cannot parse Felucca's inline assembly.
-if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
+# always; Linux with CC=clang; Windows with clang-cl: Visual Studio's ClangCL toolset, -T ClangCL).
+if(CMAKE_C_COMPILER_ID MATCHES "Clang")
     set(FM1_FELUCCA_DEFAULT ON)
 else()
     set(FM1_FELUCCA_DEFAULT OFF)
@@ -101,7 +101,54 @@ if(FM1_BUILD_FELUCCA)
          "const uint8_t fel_no_samples[3][0x14000] = {{0}};\n${felArray}\n")
     string(REPLACE "${felSmpDecl}" "extern const uint8_t fel_smp_data[];\n#define SMP_DATA fel_smp_data\nstatic const uint8_t fel_smp_data_unused[" felHeader "${felS}")
     file(WRITE ${CMAKE_BINARY_DIR}/felucca/shared/felucca_samples.h "${felHeader}")
+    if(WIN32)
+        # Windows: Clang loses the section pragma's names in COFF (Clang 18 and 19: every such
+        # variable goes to one section with no name). Each copy is compiled to LLVM IR, given its
+        # sections explicitly by fel_sections, and then compiled to an object.
+        add_executable(fel_sections engines/felucca/fel_sections.cpp)
+        if(MSVC)   # clang-cl: the clang driver beside it
+            get_filename_component(felClangDir "${CMAKE_C_COMPILER}" DIRECTORY)
+            find_program(FEL_CLANG NAMES clang clang.exe HINTS "${felClangDir}" NO_DEFAULT_PATH)
+            if(CMAKE_VS_PLATFORM_NAME STREQUAL "ARM64")
+                set(felTarget aarch64-pc-windows-msvc)
+            else()
+                set(felTarget x86_64-pc-windows-msvc)
+            endif()
+        else()
+            set(FEL_CLANG "${CMAKE_C_COMPILER}")
+            set(felTarget "${CMAKE_C_COMPILER_TARGET}")
+        endif()
+        if(NOT FEL_CLANG)
+            message(FATAL_ERROR "Felucca on Windows: no clang beside ${CMAKE_C_COMPILER}")
+        endif()
+    endif()
     foreach(i RANGE 0 ${felLast})
+        string(APPEND felDecl "#define FEL_PREFIX fel${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
+        string(APPEND felTable "#define FEL_PREFIX fel${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
+        if(WIN32)
+            set(felDir ${CMAKE_BINARY_DIR}/felucca/copy${i})
+            file(MAKE_DIRECTORY ${felDir})
+            set(felObj ${felDir}/felucca_core${CMAKE_C_OUTPUT_EXTENSION})
+            add_custom_command(OUTPUT ${felObj}
+                COMMAND ${FEL_CLANG} --target=${felTarget} -std=c11 -O2 -w -S -emit-llvm
+                        -DFEL_PREFIX=fel${i}_
+                        "-DFEL_BSS_SECTION=\"felb${i}$m\"" "-DFEL_DATA_SECTION=\"feld${i}$m\""
+                        "-DFEL_BSS_FIRST=\"felb${i}$a\"" "-DFEL_BSS_LAST=\"felb${i}$z\""
+                        "-DFEL_DATA_FIRST=\"feld${i}$a\"" "-DFEL_DATA_LAST=\"feld${i}$z\""
+                        -I${CMAKE_BINARY_DIR}/felucca/shared -I${CMAKE_SOURCE_DIR}/engines/felucca/generated
+                        -I${CMAKE_SOURCE_DIR}/engines/felucca
+                        -MD -MF ${felDir}/felucca_core.d -MT ${felObj}
+                        -o ${felDir}/felucca_core.ll ${CMAKE_SOURCE_DIR}/engines/felucca/felucca_core.c
+                COMMAND fel_sections ${felDir}/felucca_core.ll ${felDir}/felucca_core.sections.ll
+                COMMAND ${FEL_CLANG} --target=${felTarget} -O2 -c -o ${felObj} ${felDir}/felucca_core.sections.ll
+                DEPENDS engines/felucca/felucca_core.c fel_sections
+                DEPFILE ${felDir}/felucca_core.d
+                COMMENT "Felucca copy ${i}"
+                VERBATIM)
+            set_source_files_properties(${felObj} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+            list(APPEND felObjects ${felObj})
+            continue()
+        endif()
         add_library(felucca_core_${i} OBJECT engines/felucca/felucca_core.c)
         # the copy's own sections, and the linker's symbols for where they start and stop
         if(APPLE)
@@ -126,8 +173,6 @@ if(FM1_BUILD_FELUCCA)
         target_include_directories(felucca_core_${i} PRIVATE ${CMAKE_BINARY_DIR}/felucca/shared engines/felucca/generated engines/felucca)
         set_target_properties(felucca_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
         target_compile_options(felucca_core_${i} PRIVATE -w -O2)   # Felucca's own code, as upstream builds it
-        string(APPEND felDecl "#define FEL_PREFIX fel${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
-        string(APPEND felTable "#define FEL_PREFIX fel${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
         list(APPEND felObjects $<TARGET_OBJECTS:felucca_core_${i}>)
     endforeach()
     file(WRITE ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new
