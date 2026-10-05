@@ -196,6 +196,11 @@ private:
     void handleDx7Sysex(const uint8_t* data, int size);
     void applyParamsToEngine();
     void pushNoteOn(int note, int vel);
+    // What the editor's parameters edit: the current slot, or the project's own copy of it
+    // when the library's has changed since the project was saved (until stored or reverted).
+    const fm1::Sound& base() const { return projectBase_ ? *projectBase_ : bank.current(); }
+    std::optional<fm1::Sound> projectBase_;        // changed under nameLock_
+    fm1::Record baseRecord_{};                     // the base's record for the audio thread
     void prepareEngine();
     void renderEngine(float* out, int numSamples, const juce::MidiBuffer& events);
 

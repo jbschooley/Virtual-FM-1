@@ -257,9 +257,10 @@ void FM1Processor::applyParamsToEngine() {
         const juce::SpinLock::ScopedTryLockType l(nameLock_);
         if (!l.isLocked()) { params.changed = true; return; }
         params.fillVced(vced_.data());
+        baseRecord_ = base().record;
     }
     synth_.setPatch(vced_.data());
-    fx_.setChain(params.fxChain(fm1::fxFromRecord(bank.current().record)));
+    fx_.setChain(params.fxChain(fm1::fxFromRecord(baseRecord_)));
     fm1::Envelope e = params.envelope();
     synth_.setEnvelope(e.on, e.a, e.d, e.s, e.r);
     fm1::VaFilter f = params.filter();
@@ -389,6 +390,10 @@ juce::AudioProcessorEditor* FM1Processor::createEditor() { return new FM1Editor(
 
 void FM1Processor::loadCurrentIntoParams() {
     loadedSlot_ = bank.currentSlot();
+    {
+        const juce::SpinLock::ScopedLockType l(nameLock_);
+        projectBase_.reset();   // the library's slot is what is edited again
+    }
     const fm1::Sound& s = bank.current();
     editName_ = juce::String(fm1::voiceName(s.voice)).trimEnd();
     {
@@ -400,18 +405,18 @@ void FM1Processor::loadCurrentIntoParams() {
 }
 
 void FM1Processor::applyEditName() {
-    fm1::Voice named = fm1::withName(bank.current().voice, editName_.toStdString());
+    fm1::Voice named = fm1::withName(base().voice, editName_.toStdString());
     const juce::SpinLock::ScopedLockType l(nameLock_);
     for (int i = 0; i < 10; ++i) vced_[size_t(145 + i)] = named[size_t(118 + i)];
 }
 
 bool FM1Processor::isEdited() const {
     if (loadedSlot_ != bank.currentSlot()) return false;
-    return params.isEdited() || editName_ != juce::String(fm1::voiceName(bank.current().voice)).trimEnd();
+    return projectBase_.has_value() || params.isEdited() || editName_ != juce::String(fm1::voiceName(bank.current().voice)).trimEnd();
 }
 
 fm1::Sound FM1Processor::editedSound() const {
-    fm1::Sound s = bank.current();
+    fm1::Sound s = base();
     Params& p = const_cast<Params&>(params);
     // commit into a copy without moving the editor's baseline
     auto snapshot = p.snapshot();
@@ -422,11 +427,14 @@ fm1::Sound FM1Processor::editedSound() const {
 }
 
 fm1::Sound& FM1Processor::commitCurrent() {
-    fm1::Sound& s = bank.current();
     if (loadedSlot_ == bank.currentSlot()) {
-        fm1::Sound c = s;
+        fm1::Sound c = base();
         params.commit(c);
         c.voice = fm1::withName(c.voice, editName_.toStdString());
+        {
+            const juce::SpinLock::ScopedLockType l(nameLock_);
+            projectBase_.reset();   // stored: the library's slot is the project's sound now
+        }
         bank.setSound(bank.currentSlot(), c, false);
     }
     return bank.current();
@@ -455,7 +463,7 @@ const juce::String FM1Processor::getProgramName(int index) {
 }
 
 void FM1Processor::initCurrent() {
-    fm1::Sound s = bank.current();
+    fm1::Sound s = base();
     s.voice = fm1::packVoice(fm1::kInitEdit);
     s.record = fm1::defaultRecord();
     params.applyEdit(s);
@@ -526,6 +534,12 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
         v.addChild(cur, -1, nullptr);
     }
     if (settings_.embedBank) v.addChild(bank.toState(), -1, nullptr);
+    else {
+        // no presets, only which one is current: versions before 4 look for it here
+        juce::ValueTree b("FM1Bank");
+        b.setProperty("current", bank.currentSlot(), nullptr);
+        v.addChild(b, -1, nullptr);
+    }
     v.addChild(apvts.copyState(), -1, nullptr);
     juce::ValueTree sq("Sequencer");
     sq.setProperty("enabled", sequencer.enabled.load(), nullptr);
@@ -590,15 +604,24 @@ void FM1Processor::setStateInformation(const void* data, int size) {
         }
         bank.setCurrentSlot(slot);
         // a computer without a library yet starts it with what the project used
-        if (stored && !store_.exists()) { bank.setSound(slot, *stored, false); saveLibrary(); }
+        if (stored && !store_.exists()) { bank.setSound(slot, *stored, false); libraryDirty_ = true; }
     }
     loadedSlot_ = -1;
     loadCurrentIntoParams();
-    // The project's parameters (below) make it sound as saved even when the library's
-    // slot has changed since; the difference then shows as unsaved changes.
-    if (stored && (bank.current().voice != stored->voice || bank.current().record != stored->record) && onStatus)
-        onStatus(BankModel::bankName(bank.currentSlot()) + " has changed in the library since this project was saved; "
-                 "the project's sound is loaded as unsaved changes.");
+    // The library's slot changed since the project was saved: the project's own copy is
+    // what this instance edits and plays (effect order and settings the parameters do not
+    // cover included), shown as unsaved changes until stored or reverted.
+    if (stored && (bank.current().voice != stored->voice || bank.current().record != stored->record)) {
+        {
+            const juce::SpinLock::ScopedLockType l(nameLock_);
+            projectBase_ = *stored;
+        }
+        params.load(*stored);
+        editName_ = juce::String(fm1::voiceName(stored->voice)).trimEnd();
+        if (onStatus)
+            onStatus(BankModel::bankName(bank.currentSlot()) + " has changed in the library since this project was saved; "
+                     "the project's sound is loaded as unsaved changes.");
+    }
     // the saved parameters (edits since the slot was loaded) win over the slot's bytes
     auto ps = v.getChildWithName(apvts.state.getType());
     if (ps.isValid()) { apvts.replaceState(ps); params.changed = true; }

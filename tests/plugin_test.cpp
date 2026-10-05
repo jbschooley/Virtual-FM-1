@@ -283,7 +283,7 @@ static int stateWrite(const juce::File& golden, const juce::File& dir) {
         // a project without the whole bank promises only the slot it uses, not the rest of
         // the library (which lives in the library folder) or what the synth held
         auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
-        if (!tree.getChildWithName("FM1Bank").isValid()) {
+        if (tree.getChildWithName("FM1Bank").getNumChildren() == 0) {   // only which slot is current
             const juce::String keep = "slot " + juce::String(p.bank.currentSlot()) + " ";
             juce::StringArray kept;
             for (auto& line : expect)
@@ -434,16 +434,20 @@ static int library(const juce::File& golden) {
             juce::MemoryBlock project;
             int slot;
             std::vector<int> paramsSaved;
+            fm1::Sound projectSound;
             {
                 FM1Processor q;
                 q.selectSlot(2);
                 slot = q.bank.currentSlot();
+                projectSound = q.editedSound();
                 q.getStateInformation(project);
                 for (auto* prm : q.getParameters()) paramsSaved.push_back(int(std::lrint(dynamic_cast<juce::RangedAudioParameter*>(prm)->convertFrom0to1(prm->getValue()))));
             }
-            {   // the library's slot changes (another instance stores something else there)
+            {   // the library's slot changes (another instance stores something else there,
+                // with another effect order and a different record)
                 BankModel lib; LibraryStore ls; ls.load(lib);
                 auto other = sounds[7]; other.slot = slot;
+                std::swap(other.record[27], other.record[30]);   // effect order: first two positions
                 lib.setSound(slot, other, false); ls.save(lib);
             }
             FM1Processor r;
@@ -453,6 +457,9 @@ static int library(const juce::File& golden) {
             std::vector<int> paramsLoaded;
             for (auto* prm : r.getParameters()) paramsLoaded.push_back(int(std::lrint(dynamic_cast<juce::RangedAudioParameter*>(prm)->convertFrom0to1(prm->getValue()))));
             CHECK(paramsLoaded == paramsSaved, "the project's sound is restored though its library slot changed");
+            auto playing = r.editedSound();
+            CHECK(playing.voice == projectSound.voice && playing.record == projectSound.record,
+                  "including what the parameters do not hold: the effect order and the rest of the record");
             CHECK(r.isEdited(), "the difference from the library shows as unsaved changes");
             CHECK(status.contains("changed in the library"), "and the user is told");
             CHECK(r.bank.slot(slot).sound.voice == sounds[7].voice, "the library's slot is left as the library has it");
