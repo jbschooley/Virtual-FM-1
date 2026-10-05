@@ -4,7 +4,7 @@ namespace fm1 {
 
 const std::vector<FirmwareChoice>& firmwareChoices() {
     static const std::vector<FirmwareChoice> choices = {
-        {"fm1_stock", "M-VAVE (stock)", false, true, ""},
+        {"fm1_stock", "M-VAVE (stock)", false, true, "V15"},             // M-VAVE's FM-1.fwsc (sha256 db1642b2...)
         {"baudgirl_fm1va", "FM-1+VA (baud girl)", true, true, "0.94"},   // FM-1_093 and FM-1_094
         {"felucca", "Felucca", false, false, "1.0"},
     };
