@@ -8,6 +8,9 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **FM-1_094** (baud girl's beta): reading the current sound and the GLOBE
+  settings works as on FM-1_093. 094 changes only the identity reply's
+  checksum, which M-VAVE's own updater rejected on 093.
 - **iPad**: the app and an AUv3 build from source for iOS and iPadOS and
   sync with the FM-1 over USB-C. Not distributed yet; see `docs/IOS.md`.
 

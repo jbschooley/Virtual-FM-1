@@ -1021,7 +1021,7 @@ void SettingsPanel::showSynth() {
     auto g = proc_.synthGlobals();
     copy_.setEnabled(g.has_value());
     if (!g) {
-        synth_.setText("Not read yet. With an FM-1 running FM-1_093 connected, the plugin reads its GLOBE settings and "
+        synth_.setText("Not read yet. With an FM-1 running FM-1_093 or FM-1_094 connected, the plugin reads its GLOBE settings and "
                        "uses its MIDI and FX channels to talk to it.", juce::dontSendNotification);
         return;
     }

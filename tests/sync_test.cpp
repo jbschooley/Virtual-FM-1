@@ -260,6 +260,7 @@ int main(int argc, char** argv) {
     // Felucca answers the identity request as FM-1_904 and is not taken for FM-1+VA
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 904})->name() == "Felucca", "FM-1_904 is Felucca");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 93})->name() == "FM-1+VA", "FM-1_093 is FM-1+VA");
+    CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 94})->has(fm1::Firmware::Feature::ReadGlobals), "FM-1_094 reads GLOBE settings like 093");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 19})->name() == "M-VAVE", "FM-1_019 is M-VAVE");
     fake.identityVersion = 904; identity.reset();
     session.identify(); waitIdle(session, 5000);

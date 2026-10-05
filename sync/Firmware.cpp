@@ -48,7 +48,7 @@ public:
             case Feature::ReadPatterns:  return "This FM-1 runs M-VAVE's firmware, which cannot send patterns back.";
             case Feature::WritePatterns: return "This FM-1 runs M-VAVE's firmware, which does not take patterns over MIDI.";
             case Feature::ReadCurrent:   return "This FM-1 runs M-VAVE's firmware, which cannot send its sound back.";
-            case Feature::ReadGlobals:   return "The plugin can read the FM-1's GLOBE settings on FM-1_093 only.";
+            case Feature::ReadGlobals:   return "The plugin can read the FM-1's GLOBE settings on FM-1_093 and FM-1_094 only.";
             case Feature::CheckEdit:     return Firmware::cannot(f);
         }
         return Firmware::cannot(f);
@@ -96,7 +96,7 @@ public:
         return true;
     }
     juce::String cannot(Feature f) const override {
-        if (f == Feature::ReadGlobals) return "The plugin can read the FM-1's GLOBE settings on FM-1_093 only.";
+        if (f == Feature::ReadGlobals) return "The plugin can read the FM-1's GLOBE settings on FM-1_093 and FM-1_094 only.";
         return Firmware::cannot(f);
     }
     // each write rebuilds the effects and writes flash; closer spacing was heard as crackling (her bank.js)
@@ -247,7 +247,9 @@ private:
     struct Addrs { uint32_t editBuffer, slotByte, globals; };
     std::optional<Addrs> knownAddrs() const {
         if (std::getenv("FM1_SEARCH_EDIT_BUFFER") != nullptr) return std::nullopt;   // test the search path
-        if (version == 93) return Addrs{0x01C10070, 0x01C0FEFA, 0x01C0FEFD};
+        // FM-1_094 is FM-1_093 with one fix (the identity reply's checksum byte):
+        // its app image differs from 093's in that byte and the version string only
+        if (version == 93 || version == 94) return Addrs{0x01C10070, 0x01C0FEFA, 0x01C0FEFD};
         return std::nullopt;
     }
     std::optional<uint32_t> discovered_;   // the edit buffer, when found by search
