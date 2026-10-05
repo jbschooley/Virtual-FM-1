@@ -134,6 +134,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
     apply_preset_to(t, 0);
 }
 
+#undef __attribute__                     /* Felucca's code is done: attributes mean something again */
 static uint8_t fel_bss_marker;          /* make sure both sections exist */
 static uint8_t fel_data_marker = 1;
 #pragma clang section bss = "" data = ""
@@ -147,7 +148,9 @@ static uint8_t *fel_pristine;            /* outside the sections: kept across re
 
 void *malloc(size_t);
 
-void FEL(restore)(void)
+/* never inlined, and a compiler barrier after: the section bounds are 1-byte symbols to
+ * the optimizer, which must not move reads of the state across the copy */
+__attribute__((noinline)) void FEL(restore)(void)
 {
     const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
     const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
@@ -161,6 +164,7 @@ void FEL(restore)(void)
     }
     FEL(memset)(&fel_bss_start, 0, nb);
     FEL(memcpy)(&fel_data_start, fel_pristine, nd);
+    __asm__ volatile("" ::: "memory");
 }
 
 uint32_t FEL(state_bytes)(void) { return (uint32_t)((&fel_bss_stop - &fel_bss_start) + (&fel_data_stop - &fel_data_start)); }

@@ -38,6 +38,10 @@ static uint64_t play(FeluccaEngine& f, int ch, int block, int blocks, double* rm
 }
 
 int main() {
+    // the reference: a copy no instance has used yet, playing a fixed phrase
+    uint64_t fresh = 0;
+    { FeluccaEngine f; fresh = play(f, 1, 128, 300); }
+
     // ---- the pool ----
     CHECK(FeluccaEngine::copies() >= 2, "there are copies to play");
     {
@@ -145,6 +149,28 @@ int main() {
         int enums = 0;
         for (int id = 0; id < f.paramCount(); ++id) if (!f.paramDesc(0, id).names.empty()) ++enums;
         CHECK(enums > 5, "list parameters carry their value names");
+    }
+
+    // ---- a copy given back is as good as new ----
+    {
+        {   // leave a copy in a mess: other engines, edited values, tempo, notes still held, tails
+            FeluccaEngine dirty;
+            dirty.setEngine(0, 3); dirty.setEngine(1, 8); dirty.setEngine(2, 4);
+            dirty.setParam(0, 0, 10); dirty.setGlobal(0, 200);
+            noteOn(dirty, 1, 60, 127); noteOn(dirty, 2, 64, 127); noteOn(dirty, 10, 36, 127);
+            std::vector<float> l(4096), r(4096);
+            for (int k = 0; k < 20; ++k) dirty.render(l.data(), r.data(), 4096);
+        }
+        // every copy, taken again, plays the phrase exactly as a never-used one did
+        std::vector<std::unique_ptr<FeluccaEngine>> all;
+        bool same = true;
+        for (int i = 0; FeluccaEngine::copiesInUse() < FeluccaEngine::copies(); ++i) {   // every free copy
+            all.push_back(std::make_unique<FeluccaEngine>());
+            const auto h = play(*all.back(), 1, 128, 300);
+            if (h != fresh) std::printf("  copy taken %d plays differently\n", i);
+            same = same && h == fresh;
+        }
+        CHECK(same, "every copy, given back after use, plays exactly as a never-used copy");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

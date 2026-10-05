@@ -7,9 +7,12 @@
 // in as USB-MIDI packets, as the FM-1's USB port delivers them; Felucca reads them
 // at the start of each 32-sample block, as on the device.
 //
-// Thread safety: render() and midi() are for the audio thread; reading and changing
-// the sound (param, engine, preset ...) is for any thread. Both sides take lock(),
-// which is held for the length of one call, so the UI never waits long.
+// Thread safety, as Felucca's own UI works with its audio interrupt: render() and midi()
+// are for the audio thread. Reading (param, paramDesc, engineOf ...) and setting a
+// single value (setParam, setGlobal) work from any thread without a lock: a value is
+// one 16-bit store, read by the audio side at its next block. Changes that rewrite
+// many values at once (setEngine, applyPreset, reset) take the lock the audio thread
+// holds while it renders, so it never sees half of one; they are short and rare.
 #pragma once
 
 #include <array>

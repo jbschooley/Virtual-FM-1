@@ -124,7 +124,6 @@ std::vector<std::string> FeluccaEngine::presetNames(int e) const {
 FeluccaEngine::Desc FeluccaEngine::paramDesc(int track, int id) const {
     fel_desc_t d{};
     if (!core_) return {};
-    std::lock_guard<std::mutex> g(lock_);
     return core_->param_desc(uint32_t(track), uint32_t(id), &d) ? toDesc(d) : Desc{};
 }
 
@@ -136,37 +135,31 @@ FeluccaEngine::Desc FeluccaEngine::globalDesc(int id) const {
 
 int FeluccaEngine::param(int track, int id) const {
     if (!core_) return 0;
-    std::lock_guard<std::mutex> g(lock_);
     return int(core_->param_get(uint32_t(track), uint32_t(id)));
 }
 
 void FeluccaEngine::setParam(int track, int id, int value) {
     if (!core_) return;
-    std::lock_guard<std::mutex> g(lock_);
     core_->param_set(uint32_t(track), uint32_t(id), value);
 }
 
 int FeluccaEngine::global(int id) const {
     if (!core_) return 0;
-    std::lock_guard<std::mutex> g(lock_);
     return int(core_->global_get(uint32_t(id)));
 }
 
 void FeluccaEngine::setGlobal(int id, int value) {
     if (!core_) return;
-    std::lock_guard<std::mutex> g(lock_);
     core_->global_set(uint32_t(id), value);
 }
 
 int FeluccaEngine::engineOf(int track) const {
     if (!core_) return 0;
-    std::lock_guard<std::mutex> g(lock_);
     return int(core_->engine_of(uint32_t(track)));
 }
 
 int FeluccaEngine::presetOf(int track) const {
     if (!core_) return 0;
-    std::lock_guard<std::mutex> g(lock_);
     return int(core_->preset_of(uint32_t(track)));
 }
 
