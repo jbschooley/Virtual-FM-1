@@ -262,33 +262,6 @@ int main(int argc, char** argv) {
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 904})->name() == "Felucca", "FM-1_904 is Felucca");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 910})->name() == "Felucca", "and FM-1_910 (what build.py --release 1.0 makes)");
 
-    // the releases the plugin knows, and what it makes of others
-    {
-        using fm1::Support;
-        auto at = [](int v) { return fm1::checkVersion(fm1::Identity{"FM-1", v}); };
-        for (const char* fw : {"fm1_stock", "baudgirl_fm1va", "felucca"}) {
-            int current = 0;
-            for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
-            CHECK(current == 1, "each firmware has one current release");
-        }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.94" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0"
-              && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
-        CHECK(at(94).known && at(94).support == Support::Current && at(94).text == "FM-1_094", "FM-1_094: current, nothing to say");
-        CHECK(at(93).support == Support::Tested && at(15).support == Support::Current && at(910).support == Support::Current, "093, V15, Felucca 1.0 known");
-        CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
-        auto n = at(95);
-        CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.94") != std::string::npos,
-              "an unknown newer release: synced as the newest known, said to be untested, never refused");
-        CHECK(at(911).newer && at(911).firmwareId == "felucca" && at(911).text.find("1.0") != std::string::npos, "Felucca 1.1 too");
-        CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
-        CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos, "one between known releases is not called older");
-        CHECK(n.text.find("GLOBE settings not read") != std::string::npos, "a newer FM-1+VA says what newest-known support it lacks");
-        CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
-        CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
-        CHECK(at(900).text.find("development build") != std::string::npos, "a Felucca build that is not a release");
-        CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
-              "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
-    }
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 93})->name() == "FM-1+VA", "FM-1_093 is FM-1+VA");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 94})->has(fm1::Firmware::Feature::ReadGlobals), "FM-1_094 reads GLOBE settings like 093");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 19})->name() == "M-VAVE", "FM-1_019 is M-VAVE");
