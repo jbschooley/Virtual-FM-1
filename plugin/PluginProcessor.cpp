@@ -37,6 +37,19 @@ FM1Processor::FM1Processor()
         updateHostDisplay(ChangeDetails().withProgramChanged(true));
     };
     session.onProgress = [this](const Fm1Session::Progress& p) { if (onStatus) onStatus(p.text); };
+    // only a synth running this instance's firmware is synced with
+    session.acceptIdentity = [this](const fm1::Identity& id) {
+        return fm1::firmwareIdFor(id) == fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id;
+    };
+    session.onRejected = [this](const fm1::Identity& id) {
+        link.close();
+        if (live_) setLive(false);
+        autoConnect_ = false;            // not again until asked (Find FM-1, Connect, or a switch)
+        pendingMismatch_ = id;
+        if (onFirmwareMismatch) onFirmwareMismatch(id);
+        else if (onStatus) onStatus("The FM-1 runs " + fm1::firmwareFor(id)->name() + "; this instance is set to "
+                                    + fm1::firmwareChoices()[size_t(firmwareIndex_.load())].name + ". Not connected.");
+    };
     session.onPatternRead = [this](int pat, const fm1::seq::Pattern& p) {
         const juce::SpinLock::ScopedLockType l(sequencer.lock);
         // keep the plugin-only per-step extras the synth does not carry
@@ -115,7 +128,10 @@ static void diag(const juce::String& line) {
 }
 
 void FM1Processor::backgroundTick() {
-    if (settingsNotify_.exchange(false) && onSettingsChanged) onSettingsChanged();
+    if (settingsNotify_.exchange(false)) {
+        if (onSettingsChanged) onSettingsChanged();
+        if (onFirmwareChanged) onFirmwareChanged();
+    }
     // the shared library: save our changes, or pick up another instance's
     if (libraryDirty_) saveLibrary();
     else if (libraryFile().getLastModificationTime() > libraryLoadedTime_) {
@@ -241,6 +257,8 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     buffer.clear();
     const int numSamples = buffer.getNumSamples();
     if (mono_.getNumSamples() < numSamples) mono_.setSize(1, numSamples, false, false, true);
+    // a firmware the plugin cannot play yet (Felucca, until its engines are in) is silent
+    if (!emulates()) { midi.clear(); return; }
 
     if (params.changed.exchange(false)) applyParamsToEngine();
     for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
@@ -467,6 +485,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     juce::ValueTree v("FM1Companion");   // the state's tag predates the rename; kept so saved sessions load
     v.setProperty("version", 3, nullptr);
     v.setProperty("editName", editName_, nullptr);
+    v.setProperty("firmware", firmwareId(), nullptr);
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
     v.setProperty("midiOut", link.ports().outputId, nullptr);
@@ -551,6 +570,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     }
     // a project saved before settings existed keeps the defaults this instance started with
     if (auto st = v.getChildWithName("Settings"); st.isValid()) setSettings(PluginSettings::fromTree(st));
+    // projects from before the firmware choice were made for FM-1+VA
+    setFirmware(v.getProperty("firmware", fm1::kDefaultFirmwareId).toString());
     juce::String in = v.getProperty("midiIn").toString(), out = v.getProperty("midiOut").toString();
     if (in.isNotEmpty() && out.isNotEmpty()) connect(in, out);
 }
@@ -742,6 +763,23 @@ bool FM1Processor::saveSettingsAsDefault() {
 }
 
 void FM1Processor::revertSettingsToDefault() { setSettings(defaultSettings()); }
+
+juce::String FM1Processor::firmwareId() const { return fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id; }
+
+bool FM1Processor::emulates() const { return fm1::firmwareChoices()[size_t(firmwareIndex_.load())].supported; }
+
+void FM1Processor::setFirmware(const juce::String& id) {
+    const auto& choices = fm1::firmwareChoices();
+    int index = 1;
+    for (size_t i = 0; i < choices.size(); ++i) if (id == choices[i].id) index = int(i);
+    if (index == firmwareIndex_.load()) return;
+    firmwareIndex_ = index;
+    pendingMismatch_.reset();
+    // a connected synth is checked again against the new choice
+    if (link.isOpen()) session.identify();
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onFirmwareChanged) onFirmwareChanged(); }
+    else settingsNotify_ = true;
+}
 
 bool FM1Processor::readSynthSettings(bool thenCopy) {
     if (!link.isOpen() || !session.readSettings()) return false;

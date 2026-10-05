@@ -17,6 +17,7 @@
 #include "Fm1Codec.h"
 #include "Fm1Link.h"
 #include "Fm1Session.h"
+#include "Firmwares.h"
 #include "Fm1Seq.h"
 
 #include <map>
@@ -282,6 +283,29 @@ int main(int argc, char** argv) {
     session.sendChange(liveFrom, liveTo, fm1::edit::Channels{});
     juce::Thread::sleep(300);
     CHECK(fake.received.load() > before, "live edit reaches FM-1+VA");
+
+    // a synth running another firmware than the instance's is not synced at all
+    {
+        int rejected = 0;
+        session.acceptIdentity = [](const fm1::Identity& id) { return fm1::firmwareIdFor(id) == "felucca"; };
+        session.onRejected = [&](const fm1::Identity&) { ++rejected; };
+        identity.reset(); progress.clear(); read.clear();
+        const int readsBefore = fake.reads, memBefore = fake.memReads;
+        session.identify(); waitIdle(session, 5000);       // the synth answers, and is refused
+        CHECK(!progress.empty() && progress.back().failed && progress.back().text.contains("Not synced"), "identify reports the refusal");
+        progress.clear();
+        session.pull({0, 1}); waitIdle(session, 8000);
+        CHECK(read.empty() && fake.reads == readsBefore && fake.memReads == memBefore, "nothing is read from a synth whose firmware was not accepted");
+        CHECK(!progress.empty() && progress.back().failed && progress.back().text.contains("Not synced"), "the refusal is reported");
+        CHECK(rejected >= 1, "onRejected is called");
+        before = fake.received.load();
+        session.sendChange(liveFrom, liveTo, fm1::edit::Channels{});
+        juce::Thread::sleep(300);
+        CHECK(fake.received.load() == before, "live edits stop once the synth is not accepted");
+        session.acceptIdentity = nullptr;
+        session.onRejected = nullptr;
+        session.identify(); waitIdle(session, 5000);
+    }
 
     // no device answering: the session fails within the retry budget
     fake.identityVersion = 89; identity.reset();

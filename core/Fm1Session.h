@@ -39,6 +39,11 @@ public:
 
     // All callbacks arrive on the message thread.
     std::function<void(const fm1::Identity&)> onIdentity;
+    // Asked on the session thread once a synth has identified itself: false stops
+    // everything here (nothing is read or written) and onRejected is called on the
+    // message thread, e.g. when the synth runs a firmware other than the instance's.
+    std::function<bool(const fm1::Identity&)> acceptIdentity;
+    std::function<void(const fm1::Identity&)> onRejected;
     std::function<void(const fm1::Sound&)> onSoundRead;       // after a successful read
     std::function<void(const fm1::Sound&)> onSoundWritten;    // after a verified write
     std::function<void(const Progress&)> onProgress;
@@ -81,6 +86,9 @@ private:
     bool start(Op op);
     void report(int done, int total, const juce::String& text, bool finished = false, bool failed = false);
     std::optional<fm1::Identity> doIdentify();
+    juce::String noIdentityText() const;   // why there is no identity: no answer, or not accepted
+    bool rejected_ = false;                // session thread
+    juce::String rejectedName_;
     // The connected firmware's profile, made by doIdentify on the session thread.
     // sendChange reads it from the message thread, so replacing it takes firmwareLock_.
     std::unique_ptr<fm1::Firmware> firmware_;

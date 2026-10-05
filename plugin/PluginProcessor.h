@@ -13,6 +13,7 @@
 #include "FmSynth.h"
 #include "HardwareCharacter.h"
 #include "RateConverter.h"
+#include "Firmwares.h"
 #include "Params.h"
 #include "Sequencer.h"
 #include "Settings.h"
@@ -94,6 +95,18 @@ public:
     bool readSynthSettings(bool thenCopy = false);
     std::function<void()> onSettingsChanged;      // message thread
 
+    // The firmware this instance is set to (firmwares/Firmwares.h): what the editor
+    // shows, and the only firmware it syncs with. Saved with the project.
+    juce::String firmwareId() const;
+    void setFirmware(const juce::String& id);           // message thread
+    bool emulates() const;                               // false: the plugin cannot play this firmware yet
+    std::function<void()> onFirmwareChanged;            // message thread
+    // A synth connected that runs another firmware: the connection was closed
+    // before anything was read. The editor offers to switch (message thread).
+    std::function<void(const fm1::Identity&)> onFirmwareMismatch;
+    std::optional<fm1::Identity> pendingMismatch() const { return pendingMismatch_; }
+    void clearPendingMismatch() { pendingMismatch_.reset(); }
+
     bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
     bool autoConnect();
     void disconnect();
@@ -139,6 +152,8 @@ public:
     bool popNoteOn(NoteEvent& e);
 
 private:
+    std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
+    std::optional<fm1::Identity> pendingMismatch_;
     std::optional<Fm1Session::Globals> globals_;
     PluginSettings settings_;
     std::atomic<int> bendUp_{12}, bendDown_{12};   // semitones, for the audio thread
