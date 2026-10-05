@@ -9,7 +9,7 @@ for the code. New work goes under the next version at the top.
 ### Changed
 
 - **Firmware choice**: a dropdown at the top sets which firmware an
-  instance plays and syncs with (M-VAVE stock V15, FM-1+VA 0.94, Felucca
+  instance plays and syncs with (M-VAVE stock V15, FM-1+VA 0.93, Felucca
   1.0), saved with the project. When an FM-1 running another firmware connects, the
   plugin asks before doing anything with it; if you keep your choice it
   stays disconnected.

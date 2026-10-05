@@ -187,13 +187,14 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.94" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.93" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
-        CHECK(at(94).known && at(94).support == Support::Current && at(94).text == "FM-1_094", "FM-1_094: current, nothing to say");
-        CHECK(at(93).support == Support::Tested && at(15).support == Support::Current && at(910).support == Support::Current, "093, V15, Felucca 1.0 known");
+        CHECK(at(93).known && at(93).support == Support::Current && at(93).text == "FM-1_093", "FM-1_093: current, nothing to say");
+        CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
+              && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0 known");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
         auto n = at(95);
-        CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.94") != std::string::npos,
+        CHECK(n.newer && !n.known && n.support == Support::Tested && n.text.find("newer") != std::string::npos && n.text.find("0.94") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
         CHECK(at(911).newer && at(911).firmwareId == "felucca" && at(911).text.find("1.0") != std::string::npos, "Felucca 1.1 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");

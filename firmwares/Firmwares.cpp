@@ -41,8 +41,8 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {86, "0.86", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
         {89, "0.89", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
         {92, "0.92", Support::Older, "no Chain per pattern, GLOBE settings not read; not tried"},
-        {93, "0.93", Support::Tested, ""},
-        {94, "0.94", Support::Current, ""},   // (her beta when this was written; the one on the FM-1 here)
+        {93, "0.93", Support::Current, ""},   // her current release (baudgirl.com, as of 2026-10-05)
+        {94, "0.94", Support::Tested, "baud girl's beta: 0.93 with M-VAVE's updater fixed"},
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
     static const std::vector<KnownVersion> felucca = {

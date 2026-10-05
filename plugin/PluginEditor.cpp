@@ -242,7 +242,7 @@ void FM1Editor::resized() {
         r.removeFromTop(6);
         library_.connectionBar().setBounds(r.removeFromTop(28));
     } else {
-        firmware_.setBounds(top.removeFromLeft(260));   // wide enough for "FM-1+VA (baud girl) 0.94"
+        firmware_.setBounds(top.removeFromLeft(260));   // wide enough for "FM-1+VA (baud girl) 0.93"
         top.removeFromLeft(10);
         library_.connectionBar().setBounds(top);
     }
