@@ -1,5 +1,9 @@
 #include "PluginEditor.h"
 
+#if JUCE_IOS || JUCE_ANDROID
+ #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
+
 FM1Editor::FM1Editor(FM1Processor& p)
     : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p), settings_(p) {
     setLookAndFeel(&lnf_);
@@ -15,6 +19,13 @@ FM1Editor::FM1Editor(FM1Processor& p)
     addAndMakeVisible(keyboard_);
     addAndMakeVisible(library_.connectionBar());
     addAndMakeVisible(firmware_);
+   #if JUCE_IOS || JUCE_ANDROID
+    if (juce::StandalonePluginHolder::getInstance() != nullptr) {
+        addAndMakeVisible(audioSettings_);
+        audioSettings_.setTooltip("The audio output, sample rate, buffer size and the MIDI inputs that play the synth");
+        audioSettings_.onClick = [this] { showAudioSettings(); };
+    }
+   #endif
     addChildComponent(unsupported_);
     const auto& choices = fm1::firmwareChoices();
     for (size_t i = 0; i < choices.size(); ++i) firmware_.addItem(choices[i].label(), int(i) + 1);
@@ -162,10 +173,38 @@ void FM1Editor::handleNoteOff(juce::MidiKeyboardState*, int ch, int note, float 
 
 void FM1Editor::paint(juce::Graphics& g) { g.fillAll(juce::Colour(0xff1e1e24)); }
 
+void FM1Editor::showAudioSettings() {
+   #if JUCE_IOS || JUCE_ANDROID
+    auto* holder = juce::StandalonePluginHolder::getInstance();
+    if (holder == nullptr) return;
+    // JUCE's showAudioSettingsDialog asks for a native title bar, which iOS
+    // does not draw, leaving no way to close it; this is the same settings with
+    // JUCE's own title bar and close button
+    int outs = 2;
+    if (auto* bus = holder->processor->getBus(false, 0)) outs = std::max(0, bus->getDefaultLayout().size());
+    // the selector JUCE's own window shows: outputs, rate, buffer, MIDI inputs (and Bluetooth MIDI)
+    auto content = std::make_unique<juce::AudioDeviceSelectorComponent>(holder->deviceManager, 0, 0, 0, outs, true, false, true, false);
+    content->setSize(500, 550);
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned(content.release());
+    o.dialogTitle = "Audio/MIDI Settings";
+    o.dialogBackgroundColour = o.content->getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = false;
+    o.resizable = false;
+    if (auto* window = o.launchAsync())
+        // saved now: iOS can end the app without the shutdown that would save it
+        juce::ModalComponentManager::getInstance()->attachCallback(window, juce::ModalCallbackFunction::create([](int) {
+            if (auto* h = juce::StandalonePluginHolder::getInstance()) h->saveAudioDeviceState();
+        }));
+   #endif
+}
+
 void FM1Editor::resized() {
     auto r = getLocalBounds().reduced(8);
     auto top = r.removeFromTop(28);
-    firmware_.setBounds(top.removeFromLeft(190));
+    firmware_.setBounds(top.removeFromLeft(260));   // wide enough for "FM-1+VA (baud girl) 0.94"
+    if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(100)); top.removeFromRight(8); }
     top.removeFromLeft(10);
     library_.connectionBar().setBounds(top);
     r.removeFromTop(6);

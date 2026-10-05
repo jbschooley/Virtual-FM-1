@@ -30,6 +30,8 @@ private:
     juce::TooltipWindow tooltips_{this, 600};
     bool askingSwitch_ = false;
     juce::ComboBox firmware_;
+    juce::TextButton audioSettings_{"Audio/MIDI"};   // the app only (in a host, the host chooses): for every firmware
+    void showAudioSettings();
     juce::Label unsupported_;
    #if FM1_FELUCCA
     std::unique_ptr<FeluccaPanel> felucca_;   // while set to Felucca
