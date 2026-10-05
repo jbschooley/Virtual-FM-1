@@ -8,9 +8,10 @@
 // global ("bss-section"="felb3$m" "data-section"="feld3$m"), and on Windows (COFF) Clang 18 and
 // 19 lose the name when they emit the object: every such global lands in one section with no
 // name. An explicit section ("section" on the global) is emitted correctly, so this gives each
-// one its section: the bss one for a global that starts at zero, the data one for the rest
-// (both are the copy's state; a zero global in the data section only costs file size). It also
-// drops the IR's linker options (the C runtime Clang names): the plugin's own build picks it.
+// one its section: the bss one for a global that starts at zero, the data one for the rest. (With
+// an explicit section LLVM stores even the zero ones as data, so the bss section takes room in the
+// file too: about 640 KB a copy.) It also drops the IR's linker options (the C runtime Clang
+// names): the plugin's own build picks it.
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -75,9 +76,13 @@ int main(int argc, char** argv) {
         const auto hash = l.rfind(" #");
         const auto global = l.find(" global ");
         if (!l.empty() && l[0] == '@' && hash != std::string::npos && global != std::string::npos && global < hash
-            && l.find(" = ") != std::string::npos && l.find(", section \"") == std::string::npos
+            && l.find(" = ") != std::string::npos
             && l.find_first_not_of("0123456789", hash + 2) == std::string::npos) {
             auto g = groups.find(l.substr(hash + 1));
+            if (g != groups.end() && l.find(", section \"") != std::string::npos) {   // it would stay out of the copy
+                std::fprintf(stderr, "fel_sections: a global with a pragma section already has another: %.120s\n", l.c_str());
+                return 1;
+            }
             if (g != groups.end()) {
                 std::string head = l.substr(0, hash);
                 const std::string name = startsAtZero(l, global + 1) && !g->second.bss.empty() ? g->second.bss : g->second.data;
