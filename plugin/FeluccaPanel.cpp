@@ -199,12 +199,12 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
                            "user presets and FM6 bank (its backup is also kept in the library, Felucca/Backups)");
     pullButton_.onClick = [this] { proc_.feluccaPull(); updateSyncButtons(); };
     sendButton_.setTooltip("This instance's Felucca to the connected FM-1: the music, projects, user presets and FM6 bank, "
-                           "replacing the synth's. Its own are backed up to the library first.");
+                           "replacing the synth's (not its settings or samples). Its own are backed up to the library first.");
     sendButton_.onClick = [this] {
         juce::Component::SafePointer<FeluccaPanel> self(this);
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
             "The FM-1's music, four projects, user presets and FM6 bank will be replaced by this instance's. "
-            "They are backed up to the library (Felucca/Backups) first. User samples are not touched.",
+            "They are backed up to the library (Felucca/Backups) first. Its settings and user samples are not touched.",
             "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
                 if (ok && self) { self->proc_.feluccaSend(); self->updateSyncButtons(); }
             }));

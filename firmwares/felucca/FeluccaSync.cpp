@@ -185,11 +185,30 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 
 // ---- live ----
 
+// INFO: version string, then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
+static std::optional<std::vector<uint8_t>> layout(Endpoint& ep) {
+    auto r = ep.ask(frame(kInfo), kAsk);
+    if (!r) return std::nullopt;
+    auto a = argsOf(*r);
+    size_t at = 0;
+    while (at < a.size() && a[at] != 0) ++at;
+    if (at + 6 > a.size()) return std::nullopt;
+    return std::vector<uint8_t>(a.begin() + long(at) + 1, a.begin() + long(at) + 6);
+}
+
 bool Mirror::start(juce::String& error) {
+    // values go by parameter number: both must number them alike (the same Felucca version)
+    auto la = layout(a_.ep), lb = layout(b_.ep);
+    if (!la || !lb) { error = "a synth did not say what it is"; return false; }
+    if ((*la)[1] != (*lb)[1] || (*la)[2] != (*lb)[2] || (*la)[4] != (*lb)[4]) {
+        error = "the FM-1 runs another version of Felucca than the plugin (" + juce::String((*la)[1]) + " parameters, "
+                "the plugin's " + juce::String((*lb)[1]) + "); pull or send still work";
+        return false;
+    }
     for (Side* s : {&a_, &b_}) {
         auto w = s->ep.ask(frame(kWatch, {3}), kAsk);
         auto g = w ? argsOf(*w) : std::vector<uint8_t>{};
-        if (g.empty() || !(g[0] & 1)) { error = "a synth did not start watching (Felucca 0.6 or later has live sync)"; return false; }
+        if (g.empty() || !(g[0] & 1)) { error = "a synth did not start watching"; return false; }
         auto t = s->ep.ask(frame(kTrack), kAsk);
         auto ta = t ? argsOf(*t) : std::vector<uint8_t>{};
         if (ta.empty()) { error = "a synth did not say which track is selected"; return false; }
@@ -207,8 +226,21 @@ void Mirror::stop() {
 bool Mirror::tick(juce::String& error) {
     const auto now = juce::Time::getMillisecondCounter();
     for (Side* s : {&a_, &b_}) {
-        if (now - s->pinged >= 1000) {   // watching ends 3 s after the last request
-            if (!s->ep.ask(frame(kPing), kAsk)) { error = s == &a_ ? "the synth stopped answering" : "the plugin's Felucca stopped answering"; return false; }
+        // Watching ends 3 s (of the synth's clock) after its last request: a PING keeps it. After a
+        // longer gap (a slow tick, a host rendering faster than real time) it may have ended, and
+        // only WATCH starts it again (which takes what the synth has now as known: what changed in
+        // the gap is not carried).
+        const bool lapsed = now - s->pinged > 2000;
+        if (now - s->pinged >= 250) {
+            bool ok;
+            if (lapsed) {
+                auto w = s->ep.ask(frame(kWatch, {3}), kAsk);
+                auto g = w ? argsOf(*w) : std::vector<uint8_t>{};
+                ok = !g.empty() && (g[0] & 1);
+            } else {
+                ok = s->ep.ask(frame(kPing), kAsk).has_value();
+            }
+            if (!ok) { error = s == &a_ ? "the synth stopped answering" : "the plugin's Felucca stopped answering"; return false; }
             s->pinged = now;
         }
         auto& echoes = s->echoes;

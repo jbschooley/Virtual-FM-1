@@ -433,6 +433,13 @@ static int checks() {
             settle(20);   // nothing left to carry: the load's own echo is dropped, no ping-pong
             CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB && a->param(0, 1) == 77,
                   "no load bounces back");
+            // 4 s of audio (Felucca's clock) with no request: watching lapsed; the mirror starts it again
+            for (int k = 0; k < 700; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); }
+            juce::Thread::sleep(2100);
+            settle(2);
+            a->setParam(0, 9, 55);
+            settle(10);
+            CHECK(b->param(0, 9) == 55, "after a lapse in watching, changes are carried again");
             CHECK(err.isEmpty(), "no side stopped answering");
             if (!err.isEmpty()) std::printf("  mirror: %s\n", err.toRawUTF8());
             mirror.stop();

@@ -1041,6 +1041,7 @@ bool FM1Processor::feluccaSend() {
         if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
         auto ours = felucca::backup(mine, {}, err);
         if (!ours) return Fm1Session::JobResult{false, "Nothing sent: the plugin's Felucca gave no backup (" + err + ")."};
+        ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
         return Fm1Session::JobResult{true, "Sent the music, projects, user presets and FM6 bank to the FM-1. Its backup from before: " + kept};
