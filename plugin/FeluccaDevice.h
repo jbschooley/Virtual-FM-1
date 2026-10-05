@@ -34,6 +34,13 @@ private:
     std::vector<Bytes> pushes_;
 };
 
+// The plugin's own Felucca's stored objects (0..8, as a full backup carries them), read and
+// written directly, each under the engine's lock. Not through its editor protocol: there a
+// backup is many requests, and anything that reads the music meanwhile (the device file's save,
+// a host saving the project) reuses Felucca's staging memory, so the backup is refused partway.
+Objects objectsOf(FeluccaEngine& f);
+bool putObjects(FeluccaEngine& f, const Objects& objects, juce::String& error);   // in a restore's order
+
 class DeviceStore {
 public:
     static juce::File defaultFile();           // <library>/Felucca/Felucca device.json

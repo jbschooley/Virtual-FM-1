@@ -39,6 +39,8 @@
 // connects to a synth (FM1_NO_DEVICE).
 
 #include <array>
+#include <atomic>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -506,6 +508,33 @@ static int checks() {
             CHECK(all && felucca::restore(eb, *all, {}, err) && b->engineOf(1) == 6 && b->param(1, 0) == 61
                   && b->object(3, slot) && slot == music, "restored into the other: the music and the project slot");
             if (!err.isEmpty()) std::printf("  sync: %s\n", err.toRawUTF8());
+            {   // Send and Pull with the plugin's own Felucca while something reads its music (the
+                // device file's save does once a second, a host saving the project does): through
+                // the editor protocol a backup was refused partway (the staging memory reused);
+                // read and written directly it is not
+                auto e = std::make_shared<FeluccaEngine>();
+                e->putObject(3, music);
+                std::atomic<bool> stop{false};
+                std::thread reader([&] { std::vector<uint8_t> b; while (!stop) e->object(0, b); });
+                felucca::VirtualEndpoint ve(e);
+                int refused = 0, direct = 0;
+                for (int i = 0; i < 20; ++i) {
+                    juce::String perr;
+                    if (!felucca::backup(ve, {}, perr)) ++refused;
+                    auto o = felucca::objectsOf(*e);
+                    if (o.size() == 9 && o[3] == music && o[0].size() == 3584) ++direct;
+                }
+                auto o = felucca::objectsOf(*e);
+                auto f2 = std::make_shared<FeluccaEngine>();
+                juce::String perr;
+                const bool put = felucca::putObjects(*f2, o, perr);
+                stop = true;
+                reader.join();
+                std::vector<uint8_t> got;
+                std::printf("  with the music read meanwhile: %d of 20 protocol backups refused, %d of 20 direct reads whole\n", refused, direct);
+                CHECK(direct == 20 && put && f2->object(3, got) && got == music,
+                      "the plugin's Felucca read and written directly, while its music is read meanwhile (" + perr + ")");
+            }
             {   // a lossy link (as a real FM-1 drops MIDI when its queue is full): a piece arrives
                 // cut short once, and another's answer is lost once; the object starts over. And
                 // the music's last piece loses one USB-MIDI packet (3 bytes) once: Felucca takes it

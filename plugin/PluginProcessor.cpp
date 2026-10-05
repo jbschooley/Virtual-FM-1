@@ -1074,13 +1074,12 @@ bool FM1Processor::feluccaPull() {
     if (!f || !feluccaSynth()) return false;
     return session.job("Reading everything from the FM-1 running Felucca...", [this, f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link);
-        felucca::VirtualEndpoint mine(f);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto objects = felucca::backup(synth, progress, err);
         if (!objects) return Fm1Session::JobResult{false, "Could not read the FM-1: " + err + "."};
         const auto kept = saveSynthBackup(*objects);
-        if (!felucca::restore(mine, *objects, progress, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's Felucca refused it: " + err + "."};
+        if (!felucca::putObjects(*f, *objects, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's Felucca refused it: " + err + "."};
         felResync_ = true;
         juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock()) feluccaChanged(); });
         return Fm1Session::JobResult{true, "Pulled the FM-1's music, projects, user presets and FM6 bank." + (kept.isEmpty() ? juce::String() : " Its backup: " + kept)};
@@ -1092,15 +1091,14 @@ bool FM1Processor::feluccaSend() {
     if (!f || !feluccaSynth()) return false;
     return session.job("Backing up the FM-1, then sending everything to it...", [f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link);
-        felucca::VirtualEndpoint mine(f);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto theirs = felucca::backup(synth, progress, err);   // first: what the synth has, kept
         if (!theirs) return Fm1Session::JobResult{false, "Nothing sent: could not back up the FM-1 first (" + err + ")."};
         const auto kept = saveSynthBackup(*theirs);
         if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
-        auto ours = felucca::backup(mine, {}, err);
-        if (!ours) return Fm1Session::JobResult{false, "Nothing sent: the plugin's Felucca gave no backup (" + err + ")."};
+        auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
+        if (ours->size() < 9) return Fm1Session::JobResult{false, "Nothing sent: the plugin's Felucca gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};

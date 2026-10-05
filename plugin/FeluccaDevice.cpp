@@ -11,6 +11,27 @@ std::optional<Bytes> VirtualEndpoint::ask(const Bytes& request, int) {
     return f_->ask(request);   // (its pushes come with pushes(): the library's requests leave them too)
 }
 
+Objects objectsOf(FeluccaEngine& f) {
+    Objects out;
+    for (int id = 0; id <= 8; ++id) {
+        std::vector<uint8_t> b;
+        if (f.object(id, b)) out[id] = std::move(b);
+    }
+    return out;
+}
+
+bool putObjects(FeluccaEngine& f, const Objects& objects, juce::String& error) {
+    for (int id : {2, 3, 4, 5, 6, 7, 8, 1, 0}) {   // the music last, as restore() sends it
+        auto it = objects.find(id);
+        if (it == objects.end()) continue;
+        if (const int rc = f.putObject(id, it->second); rc != 0) {
+            error = "object " + juce::String(id) + " refused (rc " + juce::String(rc) + ")";
+            return false;
+        }
+    }
+    return true;
+}
+
 std::vector<Bytes> VirtualEndpoint::pushes() {
     for (auto& m : f_->takeSysex())   // what its main loop pushed meanwhile
         if (isPush(commandOf(m))) pushes_.push_back(m);
