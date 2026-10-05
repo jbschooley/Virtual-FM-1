@@ -44,6 +44,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     keyState_.addListener(this);
 
     proc_.onStatus = [this](const juce::String& s) { library_.setStatus(s); };
+    if (auto said = proc_.takePendingStatus(); said.isNotEmpty()) library_.setStatus(said);   // (said before the editor opened)
     proc_.bank.onChange = [this] { library_.refresh(); fm_.refreshName(); };
     proc_.session.onIdentity = [this](const fm1::Identity& id) {
         // the release, against the ones the plugin knows: a newer, older or retired one says so

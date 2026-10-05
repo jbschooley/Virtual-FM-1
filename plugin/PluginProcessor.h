@@ -134,6 +134,7 @@ public:
     // before anything was read. The editor offers to switch (message thread).
     std::function<void(const fm1::Identity&)> onFirmwareMismatch;
     std::optional<fm1::Identity> pendingMismatch() const { return pendingMismatch_; }
+    juce::String takePendingStatus();   // what was said while no editor listened (once)
     void clearPendingMismatch() { pendingMismatch_.reset(); }
 
     bool connect(const juce::String& inputId, const juce::String& outputId, bool quiet = false);
@@ -205,10 +206,14 @@ private:
     juce::ValueTree felUnread_;
     std::vector<uint8_t> felUnreadBase_;
     void applyHostToFelucca(FeluccaEngine& f);       // audio thread: automation into Felucca
-    void status(const juce::String& text);           // onStatus, on the message thread
-    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     std::vector<juce::RangedAudioParameter*> felParams_;   // felparams::entries(), in order
    #endif
+    // A message for the user: onStatus, on the message thread; with no editor yet (a host loads
+    // a project before it opens one) kept until one asks (takePendingStatus).
+    void status(const juce::String& text);
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    std::mutex statusLock_;
+    juce::String pendingStatus_;
     std::optional<fm1::Identity> pendingMismatch_;
     std::optional<Fm1Session::Globals> globals_;
     PluginSettings settings_;

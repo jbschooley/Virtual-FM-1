@@ -427,6 +427,9 @@ static int checks() {
             later.setStateInformation(os.getData(), int(os.getDataSize()));
             CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.0"), "loading one made for another release says so");
             later.onStatus = nullptr;
+            FM1Processor hostLoaded;   // a host loads the project before any editor is open
+            hostLoaded.setStateInformation(os.getData(), int(os.getDataSize()));
+            CHECK(hostLoaded.takePendingStatus().contains("made for Felucca 0.9"), "said with no editor open: kept for the editor");
         }
 
         // syncing two Felucca devices through the editor protocol, as with an FM-1 running Felucca

@@ -67,11 +67,11 @@ FM1Processor::FM1Processor()
         dst = merged;
         ++patternsVersion;
     };
+   #if FM1_FELUCCA
     // Felucca's host parameters: their text is Felucca's own, from this instance's engine
     for (const auto& e : felparams::entries()) felParams_.push_back(apvts.getParameter(e.id));
     felApplied_.resize(felParams_.size());
     for (size_t i = 0; i < felParams_.size(); ++i) felApplied_[i] = felParams_[i]->getValue();
-   #if FM1_FELUCCA
     felText_->text = [this](int entry, float v) -> juce::String {
         auto f = felucca();
         const auto& e = felparams::entries()[size_t(entry)];
@@ -622,7 +622,9 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
 void FM1Processor::setStateInformation(const void* data, int size) {
     auto v = juce::ValueTree::readFromData(data, size_t(size));
     if (!v.isValid() || !v.hasType("FM1Companion")) return;
+   #if FM1_FELUCCA
     felResync_ = true;   // the project's Felucca sound, not its saved host values, is what plays
+   #endif
     // The library is shared; the project's copy is used only where there is none yet
     // (first run after updating, or a project opened on another computer).
     auto saved = v.getChildWithName("FM1Bank");
@@ -1141,13 +1143,26 @@ void FM1Processor::feluccaChanged(int track) {
     }
 }
 
-void FM1Processor::status(const juce::String& text) {
-    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onStatus) onStatus(text); return; }
-    std::weak_ptr<bool> alive = alive_;   // the instance may be gone by the time it runs
-    juce::MessageManager::callAsync([this, alive, text] { if (alive.lock() && onStatus) onStatus(text); });
-}
 #endif
 
+
+void FM1Processor::status(const juce::String& text) {
+    auto say = [this](const juce::String& t) {
+        if (onStatus) { onStatus(t); return; }
+        std::lock_guard<std::mutex> g(statusLock_);   // no editor yet: kept for when one opens
+        pendingStatus_ = pendingStatus_.isEmpty() ? t : pendingStatus_ + " " + t;
+    };
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { say(text); return; }
+    std::weak_ptr<bool> alive = alive_;   // the instance may be gone by the time it runs
+    juce::MessageManager::callAsync([alive, say, text] { if (alive.lock()) say(text); });
+}
+
+juce::String FM1Processor::takePendingStatus() {
+    std::lock_guard<std::mutex> g(statusLock_);
+    juce::String t;
+    t.swapWith(pendingStatus_);
+    return t;
+}
 
 void FM1Processor::setFirmware(const juce::String& id) {
     const auto& choices = fm1::firmwareChoices();
