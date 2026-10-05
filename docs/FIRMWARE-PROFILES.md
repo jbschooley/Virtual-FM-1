@@ -62,9 +62,16 @@ the plugin knows and said to be untested; an older one is said to be older.
 2. If its protocol changed, change the profile (`firmwares/<id>/`), keyed on
    `version` where the old releases still need the old way.
 3. For Felucca, whose sound the plugin builds from source: update the vendored
-   copy (`engines/felucca/UPSTREAM.md`). If its golden renders changed, the
-   sound changed: consider keeping the old release built beside the new one
-   (not done yet: there has been one release). Projects say which release they
+   copy (`engines/felucca/UPSTREAM.md`). Keep the old release built beside
+   the new one (not done yet: there has been one release) when the new one is
+   not backwards compatible:
+   - its golden renders changed (the sound changed), or
+   - a parameter changed meaning, range or default, or was removed, so old
+     values would play differently, or
+   - a factory preset changed or moved, so a project naming it would get a
+     different sound.
+   Parameters only added (with defaults that change nothing) and presets only
+   added are compatible: then the new release replaces the old one. Projects say which release they
    were made for (`firmwareVersion`) and the plugin says so when it plays
    another; Felucca reads its own older project formats itself, and music a
    Felucca cannot read (from a newer one) is kept as it was and saved again.
