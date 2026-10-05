@@ -9,6 +9,12 @@
   the Noto Sans font from Dexed. GPL-3.0-or-later, copyright 2013-2025 Pascal
   Gauthier and contributors; envelope tables from legasynth / DX7 Patch Editor.
   See `plugin/dexed_ui/NOTICE.md`.
+- **Felucca** (`engines/felucca/upstream`, generated tables and samples in
+  `engines/felucca/generated`): Leo Kuroshita's FM-1 firmware, v0.9-beta.
+  GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
+  Instruments. Its sample sets are the Versilian Studios samples (CC0) and
+  the Hügelton Sample Pack drum sounds, which Felucca's LICENSING.md lists as
+  all rights reserved. See `engines/felucca/UPSTREAM.md`.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.

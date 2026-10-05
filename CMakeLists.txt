@@ -53,6 +53,69 @@ if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()
 
+# ---- Felucca's engines (engines/felucca: Felucca 0.9-beta, GPL-3.0-only) -------------
+# Felucca's synth is one compilation unit with all its state in file-level statics, so
+# one compiled copy plays one instance. felucca_core.c is compiled FELUCCA_COPIES times,
+# each copy with its own symbol prefix; an instance takes a free copy while it plays
+# Felucca (FeluccaEngine). Each copy keeps its writable state in sections of its own,
+# so that a copy can be put back to how it started before the next instance takes it;
+# that uses Clang's section pragma, so Felucca is built only with Clang (macOS and iOS
+# always; Linux with CC=clang). MSVC also cannot parse Felucca's inline assembly.
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
+    set(FM1_FELUCCA_DEFAULT ON)
+else()
+    set(FM1_FELUCCA_DEFAULT OFF)
+endif()
+option(FM1_BUILD_FELUCCA "Build Felucca's engines into the plugin (needs Clang)" ${FM1_FELUCCA_DEFAULT})
+if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+    message(WARNING "Felucca's engines need Clang (CC=clang); building without them")
+    set(FM1_BUILD_FELUCCA OFF)
+endif()
+set(FELUCCA_COPIES 8 CACHE STRING "How many instances can play Felucca at once")
+if(FM1_BUILD_FELUCCA)
+    math(EXPR felLast "${FELUCCA_COPIES} - 1")
+    set(felDecl "")
+    set(felTable "")
+    set(felObjects "")
+    foreach(i RANGE 0 ${felLast})
+        add_library(felucca_core_${i} OBJECT engines/felucca/felucca_core.c)
+        # the copy's own sections, and the linker's symbols for where they start and stop
+        if(APPLE)
+            set(felB "__DATA,__felb${i}")
+            set(felD "__DATA,__feld${i}")
+            set(felBS "section$start$__DATA$__felb${i}")
+            set(felBE "section$end$__DATA$__felb${i}")
+            set(felDS "section$start$__DATA$__feld${i}")
+            set(felDE "section$end$__DATA$__feld${i}")
+        else()
+            set(felB "felb${i}")
+            set(felD "feld${i}")
+            set(felBS "__start_felb${i}")
+            set(felBE "__stop_felb${i}")
+            set(felDS "__start_feld${i}")
+            set(felDE "__stop_feld${i}")
+        endif()
+        target_compile_definitions(felucca_core_${i} PRIVATE FEL_PREFIX=fel${i}_
+            "FEL_BSS_SECTION=\"${felB}\"" "FEL_DATA_SECTION=\"${felD}\""
+            "FEL_BSS_START=\"${felBS}\"" "FEL_BSS_STOP=\"${felBE}\""
+            "FEL_DATA_START=\"${felDS}\"" "FEL_DATA_STOP=\"${felDE}\"")
+        target_include_directories(felucca_core_${i} PRIVATE engines/felucca/generated engines/felucca)
+        set_target_properties(felucca_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+        target_compile_options(felucca_core_${i} PRIVATE -w -O2)   # Felucca's own code, as upstream builds it
+        string(APPEND felDecl "#define FEL_PREFIX fel${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
+        string(APPEND felTable "#define FEL_PREFIX fel${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
+        list(APPEND felObjects $<TARGET_OBJECTS:felucca_core_${i}>)
+    endforeach()
+    file(WRITE ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new
+         "// written by CMakeLists.txt: the ${FELUCCA_COPIES} copies of felucca_core.c\n"
+         "#ifdef FELUCCA_COPIES_DECLARE\n${felDecl}#endif\n"
+         "#ifdef FELUCCA_COPIES_TABLE\n${felTable}#endif\n")
+    configure_file(${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc COPYONLY)
+    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${felObjects})
+    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca)
+    target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
+endif()
+
 # ---- tests (desktop only) -------------------------------------------------------
 enable_testing()
 if(NOT IOS)
@@ -64,6 +127,21 @@ add_executable(engine_test tests/engine_test.cpp)
 target_link_libraries(engine_test PRIVATE fm1_engine fm1_sync)
 target_include_directories(engine_test PRIVATE engines/fm1_fx)   # HardwareCharacter.h
 add_test(NAME engine_test COMMAND engine_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
+
+if(FM1_BUILD_FELUCCA)
+    # Felucca's own regression (83 golden renders) on the vendored sources and generated tables
+    if(NOT WIN32)
+        add_executable(felucca_regress engines/felucca/upstream/tests/regress.c)
+        target_include_directories(felucca_regress PRIVATE engines/felucca/generated engines/felucca/upstream/firmware/src)
+        target_compile_options(felucca_regress PRIVATE -w -O2)
+        target_link_libraries(felucca_regress PRIVATE m)
+        add_test(NAME felucca_regress COMMAND felucca_regress ${CMAKE_SOURCE_DIR}/engines/felucca/upstream/tests/golden.txt no-cpu-budget)
+    endif()
+    # the copies: independent, and playing
+    add_executable(felucca_test tests/felucca_test.cpp)
+    target_link_libraries(felucca_test PRIVATE fm1_felucca)
+    add_test(NAME felucca_test COMMAND felucca_test)
+endif()
 endif()
 
 # ---- plugin ---------------------------------------------------------------------
