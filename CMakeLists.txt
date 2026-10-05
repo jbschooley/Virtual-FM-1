@@ -178,13 +178,20 @@ if(FM1_BUILD_PLUGIN)
     add_dependencies(host_test VirtualFM1_VST3)
     add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/VST3/Virtual FM-1.vst3" 2)
     # the loaded plugin keeps its library here, not in the user's
-    set_tests_properties(host_test PROPERTIES ENVIRONMENT "FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data")
+    set_tests_properties(host_test PROPERTIES ENVIRONMENT "FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data;FM1_NO_DEVICE=1")
     if(FM1_BUILD_LV2 AND UNIX AND NOT APPLE)
         # LV2 hosts find plugins by URI on LV2_PATH
         add_dependencies(host_test VirtualFM1_LV2)
         add_test(NAME host_test_lv2 COMMAND host_test "urn:bockage:virtualfm1" 2)
-        set_tests_properties(host_test_lv2 PROPERTIES ENVIRONMENT "LV2_PATH=${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/LV2;FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data")
+        set_tests_properties(host_test_lv2 PROPERTIES ENVIRONMENT "LV2_PATH=${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/LV2;FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data;FM1_NO_DEVICE=1")
     endif()
+
+    # the whole plugin without a host: renders to compare builds, saved states that must keep loading
+    add_executable(plugin_test tests/plugin_test.cpp)
+    target_compile_definitions(plugin_test PRIVATE $<TARGET_PROPERTY:VirtualFM1,COMPILE_DEFINITIONS>)
+    target_include_directories(plugin_test PRIVATE $<TARGET_PROPERTY:VirtualFM1,INCLUDE_DIRECTORIES>)
+    target_link_libraries(plugin_test PRIVATE VirtualFM1 juce::juce_recommended_config_flags)
+    add_test(NAME state_test COMMAND plugin_test state-check ${CMAKE_SOURCE_DIR}/tests/states/v3)
 
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")

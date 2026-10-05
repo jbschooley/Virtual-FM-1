@@ -518,6 +518,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
 // ---- sync ----------------------------------------------------------------------
 
 bool FM1Processor::connect(const juce::String& inputId, const juce::String& outputId, bool quiet) {
+    // tests that load the plugin must not talk to a real FM-1 that happens to be plugged in
+    if (juce::SystemStats::getEnvironmentVariable("FM1_NO_DEVICE", {}).isNotEmpty()) return false;
     bool ok = link.open(inputId, outputId);
     if (ok) { autoConnect_ = true; session.identify(); }
     if (onStatus && (ok || !quiet)) onStatus(ok ? "Connected to " + link.ports().inputName : "Could not open those MIDI ports.");
