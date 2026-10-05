@@ -39,10 +39,11 @@ for the code. New work goes under the next version at the top.
   MIDI channels 1-3 play its three parts and channel 10 its drums, as on
   the FM-1. Its editor shows each part's engine, preset and every
   parameter by Felucca's own names, and the global settings; the project
-  keeps them. Its tempo follows the host unless you turn that off. Up to
-  8 instances can play Felucca at once. Not yet: host automation of its
-  parameters, its sequencer's steps, its presets and projects, and
-  syncing with a synth running Felucca. Built on macOS, iOS and Linux;
+  keeps them. Its tempo follows the host unless you turn that off. Its
+  parameters can be automated from the host (191 of them: each part's,
+  the drum track's and the global ones). Up to 8 instances can play
+  Felucca at once. Not yet: its sequencer's steps, its presets and
+  projects, and syncing with a synth running Felucca. Built on macOS, iOS and Linux;
   the Windows build does not include Felucca yet.
 - **Init...** starts the current preset over from a blank FM sound, as an
   unsaved change.
