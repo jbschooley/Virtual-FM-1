@@ -370,13 +370,25 @@ static void fel_clock(void)
     host_ticks = (uint32_t)us;
 }
 
+/* the editor protocol's waiting frame, if any. A frame that is not the editor's (M-VAVE's identity
+ * query or reply, another firmware's SysEx) is left waiting by ed_service, for ota_service (the
+ * updater's handshake) to take on the device; nothing here does, so it is dropped: else it would
+ * hold the one frame slot and every editor request after it would be dropped (seen in the app,
+ * whose MIDI input can be the FM-1's own port) */
+static void fel_editor(void)
+{
+    ed_service();
+    if (sx_ready)
+        ota_frame_done();
+}
+
 /* one pass of main.c's loop, without what is the device's own (the watchdog, USB, the update and
  * boot loader requests, the LEDs and the screen, drawn when the plugin asks) */
 static void fel_main_pass(void)
 {
     usb.uboot_req = 0;                   /* the boot loader key or an update command: never acted on */
     usb.ota_req = 0;
-    ed_service();                        /* the editor protocol */
+    fel_editor();                        /* the editor protocol */
     ui_input();
     settings_poll();
 }
@@ -485,7 +497,7 @@ void FEL(service)(void)
         fel_clock();
     }
     fel_served_at = fel_frames;
-    ed_service();
+    fel_editor();
 }
 int FEL(service_ready)(void)
 {

@@ -349,6 +349,22 @@ int main() {
         f.sysex(uboot, 6);
         settle(8);
         CHECK(request({25}).size() == 7, "the boot loader key is ignored: the editor still answers PING");
+        {   // SysEx that is not the editor's (M-VAVE's identity query, another firmware's dump), as
+            // the app's MIDI input can bring from the FM-1: dropped, and the editor still answers
+            const std::vector<uint8_t> identity = {0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7};
+            const std::vector<uint8_t> yamaha = {0xF0, 0x43, 0x00, 0x7D, 0x01, 0x02, 0xF7};
+            f.sysex(identity.data(), int(identity.size()));
+            settle(8);
+            f.sysex(yamaha.data(), int(yamaha.size()));
+            settle(8);
+            f.takeSysex();
+            CHECK(request({25}).size() == 7, "after SysEx not its own, the editor still answers PING");
+            f.sysex(identity.data(), int(identity.size()));   // and with no main loop pass between
+            auto r = f.request({0xF0, 0x7D, 0x46, 0x4C, 25, 0xF7});
+            bool pong = false;
+            for (auto& m : r) pong = pong || (m.size() == 7 && m[4] == 25);
+            CHECK(pong, "and answers a request right after one");
+        }
 
         // the music now, as an object, back into another instance
         f.setEngine(2, 6);
