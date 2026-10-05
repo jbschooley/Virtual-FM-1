@@ -141,7 +141,9 @@ Source layout:
 - `core/` the MIDI link, the sync operations and the firmware profile interface
 - `firmwares/` one folder per firmware: `fm1_common/` the FM-1 protocols shared
   by stock and FM-1+VA (sounds, patterns, settings record, edit buffer; no
-  JUCE), `fm1_stock/`, `baudgirl_fm1va/` and `felucca/` their profiles
+  JUCE), `fm1_stock/`, `baudgirl_fm1va/` and `felucca/` their profiles;
+  `engines/felucca/` Felucca's own engines (GPL-3.0, vendored, see its
+  `UPSTREAM.md`)
 - `plugin/` the processor, editor, parameters, sequencer and arpeggiator;
   `plugin/dexed_ui/` holds Dexed's look-and-feel and panels
 - `tests/` protocol tests against vectors generated from baud girl's own code,

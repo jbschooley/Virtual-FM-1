@@ -12,8 +12,7 @@ for the code. New work goes under the next version at the top.
   instance plays and syncs with (M-VAVE stock, FM-1+VA, Felucca), saved
   with the project. When an FM-1 running another firmware connects, the
   plugin asks before doing anything with it; if you keep your choice it
-  stays disconnected. Felucca shows a page saying it is not in the plugin
-  yet, and is silent.
+  stays disconnected.
 - **The editor is rearranged**: the preset list now sits beside the FM,
   Effects & Envelope and (on FM-1+VA) VA pages and the sync buttons, all in
   the Library tab; Sequencer, Arpeggiator and Settings have their own tabs;
@@ -34,6 +33,17 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **Felucca**: an instance set to Felucca plays Felucca 0.9-beta's own
+  engines (ANALOG, DIGITAL, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL, GRAIN
+  and the drum track), built from its source with its author's agreement.
+  MIDI channels 1-3 play its three parts and channel 10 its drums, as on
+  the FM-1. Its editor shows each part's engine, preset and every
+  parameter by Felucca's own names, and the global settings; the project
+  keeps them. Its tempo follows the host unless you turn that off. Up to
+  8 instances can play Felucca at once. Not yet: host automation of its
+  parameters, its sequencer's steps, its presets and projects, and
+  syncing with a synth running Felucca. Built on macOS, iOS and Linux;
+  the Windows build does not include Felucca yet.
 - **Init...** starts the current preset over from a blank FM sound, as an
   unsaved change.
 - **Bluetooth MIDI**: the iPad app can pair with Bluetooth MIDI devices,
