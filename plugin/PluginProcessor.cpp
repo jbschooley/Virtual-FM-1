@@ -963,7 +963,10 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         int at = felConvert_ && n > 0 ? int(juce::int64(meta.samplePosition) * need / n) : meta.samplePosition;
         at = juce::jlimit(0, std::max(0, need - 1), at);
         if (at > p0) { f.render(l + p0, r + p0, at - p0); p0 = at; }
-        if (m.isSysEx()) f.sysex(m.getRawData(), m.getRawDataSize());   // the editor protocol, from the host
+        // the editor protocol, from the host. Not in the app: its MIDI input is a device's port, often
+        // the FM-1's own, whose replies to the app's sync (a TRACK_PARAM reply reads as a setting,
+        // a PRESET reply as a load) would change this Felucca
+        if (m.isSysEx()) { if (wrapperType != wrapperType_Standalone) f.sysex(m.getRawData(), m.getRawDataSize()); }
         else if (m.getRawDataSize() <= 3) f.midi(m.getRawData(), m.getRawDataSize());
     }
     if (p0 < need) f.render(l + p0, r + p0, need - p0);

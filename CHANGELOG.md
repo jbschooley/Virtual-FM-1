@@ -73,8 +73,8 @@ for the code. New work goes under the next version at the top.
     instance.
   - Its tempo, PLAY and STOP follow the host unless you turn that off.
     Its parameters can be automated from the host (292 of them: each
-    part's and the global ones). SysEx from the host reaches its editor
-    protocol (its replies are not sent back to the host yet).
+    part's and the global ones). In a plugin, SysEx from the host reaches its
+    editor protocol (its replies are not sent back to the host yet).
   - With an FM-1 running Felucca connected: Pull from FM-1, Send to FM-1
     (the synth's own are backed up to the library first; its settings stay
     its own) and Live, which keeps both the same as either changes (both
