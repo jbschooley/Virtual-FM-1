@@ -34,13 +34,13 @@ private:
     static thread_local uint32_t lforatio_;
     static thread_local uint32_t unit_;
 
-    uint32_t phase_; // Q32
-    uint32_t delta_;
+    uint32_t phase_ = 0; // Q32 (Virtual FM-1: these four started as whatever memory held)
+    uint32_t delta_ = 0;
     uint8_t waveform_;
-    uint8_t randstate_;
+    uint8_t randstate_ = 0;
     bool sync_;
 
-    uint32_t delaystate_;
+    uint32_t delaystate_ = 0;
     uint32_t delayinc_;
     uint32_t delayinc2_;
 };

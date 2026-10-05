@@ -17,3 +17,5 @@ Modifications made in this project:
   and factors are `thread_local`, so instances at different sample rates, or
   rendered on different threads, do not overwrite each other's tables
   (`FmSynth::useRate` in `engines/dx7/FmSynth.cpp` sets them).
+- `dx7note.cc`, `lfo.h`: the operator feedback history and the LFO's phase,
+  random and delay state start at zero; they were left as whatever memory held.

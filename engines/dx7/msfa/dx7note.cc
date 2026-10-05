@@ -154,6 +154,7 @@ const int32_t Dx7Note::mtsLogFreqToNoteLogFreq = (1 << 24) / log(2.);
 Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc)
 : tuning_state_(ts), mtsClient(mtsc) {
     initialised_ = false;
+    fb_buf_[0] = fb_buf_[1] = 0;   // Virtual FM-1: the feedback history started as whatever memory held
     for(int op=0;op<6;op++) {
         params_[op].phase = 0;
         params_[op].gain_out = 0;
