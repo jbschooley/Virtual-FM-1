@@ -135,12 +135,15 @@ attaches them to a draft release for every `v*` tag.
 
 Source layout:
 
-- `engine/` msfa (Apache-2.0, from Dexed; changes in `engine/msfa/NOTICE.md`)
-  and the voice, envelope and filter code around it
-- `sync/` the FM-1 protocols (sounds, patterns, settings record, edit buffer),
-  the MIDI link and the sync operations; no JUCE in the protocol code
-- `plugin/` the processor, editor, parameters, effects, sequencer and
-  arpeggiator; `plugin/dexed_ui/` holds Dexed's look-and-feel and panels
+- `engines/dx7/` msfa (Apache-2.0, from Dexed; changes in `engines/dx7/msfa/NOTICE.md`)
+  and the voice, envelope and filter code around it; `engines/fm1_fx/` the
+  FM-1's effects and the Hardware character stage
+- `core/` the MIDI link, the sync operations and the firmware profile interface
+- `firmwares/` one folder per firmware: `fm1_common/` the FM-1 protocols shared
+  by stock and FM-1+VA (sounds, patterns, settings record, edit buffer; no
+  JUCE), `fm1_stock/`, `baudgirl_fm1va/` and `felucca/` their profiles
+- `plugin/` the processor, editor, parameters, sequencer and arpeggiator;
+  `plugin/dexed_ui/` holds Dexed's look-and-feel and panels
 - `tests/` protocol tests against vectors generated from baud girl's own code,
   engine, sequencer and parameter tests, an end-to-end sync test against a
   simulated FM-1, a host test that loads the built plugin like a DAW, and the

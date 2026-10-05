@@ -60,7 +60,7 @@ plugin rendering the same presets and notes (October 2026):
   (clicks); there are also faint sidebands 68 Hz either side of a held sine,
   cause unknown.
 
-The Settings tab's Hardware character (`plugin/HardwareCharacter.h`) applies
+The Settings tab's Hardware character (`engines/fm1_fx/HardwareCharacter.h`) applies
 the 16-bit output at that level and the high-frequency roll-off, which brings
 the bands above 6 kHz to within 0.2 dB of the FM-1 on the same recordings (the
 roll-off was fitted to them). Its FM-1 volume control rounds as coarsely as the
@@ -69,7 +69,7 @@ FM-1 would at a given number of dB below full volume.
 ## Record layout
 
 The 59-byte settings record that travels with each preset is interpreted as
-described in `sync/Fm1Record.h`. That layout is inferred from baud girl's
+described in `firmwares/fm1_common/Fm1Record.h`. That layout is inferred from baud girl's
 comments and from her 16-preset Virtual Analog pack, not from published
 source; the bytes for Virtual Analog settings and knob assignments are kept
 as they are.

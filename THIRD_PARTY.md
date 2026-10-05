@@ -1,9 +1,9 @@
 # Third-party code and licenses
 
-- **msfa** (`engine/msfa`): Google's music-synthesizer-for-android FM core as
+- **msfa** (`engines/dx7/msfa`): Google's music-synthesizer-for-android FM core as
   carried in Dexed. Apache License 2.0. Copyright 2012 Google Inc., 2016-2025
   Pascal Gauthier, 2019 Jean Pierre Cimalando. Modifications are listed in
-  `engine/msfa/NOTICE.md`.
+  `engines/dx7/msfa/NOTICE.md`.
 - **Dexed UI** (`plugin/dexed_ui`): look-and-feel, envelope and pitch-envelope
   displays, image combo box, algorithm diagram, knob/switch/panel images and
   the Noto Sans font from Dexed. GPL-3.0-or-later, copyright 2013-2025 Pascal

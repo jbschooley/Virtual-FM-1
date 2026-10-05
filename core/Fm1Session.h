@@ -4,7 +4,7 @@
 //   push slot(s)      write presets to the synth, verified by reading back
 //   select slot       make the synth show a preset (program change)
 // What each operation can do and how it talks to the synth depends on the
-// firmware, and comes from its profile (sync/Firmware.h): FM-1+VA's read-back
+// firmware, and comes from its profile (core/Firmware.h): FM-1+VA's read-back
 // protocol, or stock M-VAVE firmware, which only takes DX7 data. This class does
 // the threading, progress, cancelling, pacing and read-back checks around it.
 
@@ -49,7 +49,7 @@ public:
     // `live` has the edit buffer's voice and the live settings record; `stored` is the slot as saved.
     std::function<void(const fm1::Sound& live, const fm1::Sound& stored)> onCurrentRead;
     // The synth's GLOBE settings the plugin uses, read with identify when the
-    // firmware's profile can (sync/Firmware.h).
+    // firmware's profile can (core/Firmware.h).
     using Globals = fm1::Globals;
     std::function<void(const Globals&)> onGlobals;
 

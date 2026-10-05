@@ -24,20 +24,31 @@ if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES NOMINMAX)
 endif()
 
-# ---- msfa engine (Apache-2.0, see engine/msfa/NOTICE.md) ----------------------
+# ---- the DX7 engine: msfa (Apache-2.0, see engines/dx7/msfa/NOTICE.md) ------------
 add_library(fm1_engine STATIC
-    engine/msfa/dx7note.cc engine/msfa/env.cc engine/msfa/exp2.cc engine/msfa/fm_core.cc
-    engine/msfa/fm_op_kernel.cc engine/msfa/freqlut.cc engine/msfa/lfo.cc engine/msfa/pitchenv.cc
-    engine/msfa/porta.cpp engine/msfa/sin.cc engine/msfa/tuning.cc
-    engine/FmSynth.cpp)
-target_include_directories(fm1_engine PUBLIC engine)
+    engines/dx7/msfa/dx7note.cc engines/dx7/msfa/env.cc engines/dx7/msfa/exp2.cc engines/dx7/msfa/fm_core.cc
+    engines/dx7/msfa/fm_op_kernel.cc engines/dx7/msfa/freqlut.cc engines/dx7/msfa/lfo.cc engines/dx7/msfa/pitchenv.cc
+    engines/dx7/msfa/porta.cpp engines/dx7/msfa/sin.cc engines/dx7/msfa/tuning.cc
+    engines/dx7/FmSynth.cpp)
+target_include_directories(fm1_engine PUBLIC engines/dx7)
 if(NOT MSVC)
     target_compile_options(fm1_engine PRIVATE -O3 -Wno-deprecated-declarations)
 endif()
 
 # ---- sync codec (no JUCE) -----------------------------------------------------
-add_library(fm1_sync STATIC sync/Fm1Codec.cpp sync/Fm1Seq.cpp sync/Fm1Record.cpp sync/Fm1Edit.cpp)
-target_include_directories(fm1_sync PUBLIC sync)
+add_library(fm1_sync STATIC
+    firmwares/fm1_common/Fm1Codec.cpp firmwares/fm1_common/Fm1Seq.cpp
+    firmwares/fm1_common/Fm1Record.cpp firmwares/fm1_common/Fm1Edit.cpp)
+target_include_directories(fm1_sync PUBLIC firmwares/fm1_common)
+
+# talking to a synth: the MIDI link and session (core/) and one profile per firmware (firmwares/)
+set(FM1_DEVICE_SOURCES
+    core/Fm1Link.cpp core/Fm1Session.cpp core/Firmware.cpp
+    firmwares/Firmwares.cpp
+    firmwares/fm1_stock/StockFirmware.cpp
+    firmwares/baudgirl_fm1va/FmVaFirmware.cpp
+    firmwares/felucca/FeluccaFirmware.cpp)
+set(FM1_DEVICE_INCLUDES core firmwares)
 if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()
@@ -51,7 +62,7 @@ add_test(NAME codec_test COMMAND codec_test ${CMAKE_SOURCE_DIR}/tests/golden.jso
 
 add_executable(engine_test tests/engine_test.cpp)
 target_link_libraries(engine_test PRIVATE fm1_engine fm1_sync)
-target_include_directories(engine_test PRIVATE plugin)   # HardwareCharacter.h
+target_include_directories(engine_test PRIVATE engines/fm1_fx)   # HardwareCharacter.h
 add_test(NAME engine_test COMMAND engine_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 endif()
 
@@ -111,7 +122,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/Panels.cpp
         plugin/Params.cpp
         plugin/Fm1Json.cpp
-        plugin/Effects.cpp
+        engines/fm1_fx/Effects.cpp
         plugin/Sequencer.cpp
         plugin/SeqMidi.cpp
         plugin/Arpeggiator.cpp
@@ -121,10 +132,9 @@ if(FM1_BUILD_PLUGIN)
         plugin/dexed_ui/AlgoDisplay.cpp
         plugin/dexed_ui/OperatorPanel.cpp
         plugin/dexed_ui/GlobalPanel.cpp
-        sync/Fm1Link.cpp
-        sync/Fm1Session.cpp sync/Firmware.cpp)
+        ${FM1_DEVICE_SOURCES})
 
-    target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui sync engine)
+    target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui engines/fm1_fx ${FM1_DEVICE_INCLUDES})
 
     target_compile_definitions(VirtualFM1 PUBLIC
         JUCE_WEB_BROWSER=0
@@ -161,16 +171,16 @@ if(FM1_BUILD_PLUGIN)
     # end-to-end sync test over virtual CoreMIDI ports (no hardware; macOS only, JUCE cannot create virtual ports on Windows)
     if(APPLE)
     juce_add_console_app(sync_test PRODUCT_NAME "sync_test")
-    target_sources(sync_test PRIVATE tests/sync_test.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp sync/Firmware.cpp)
-    target_include_directories(sync_test PRIVATE sync)
+    target_sources(sync_test PRIVATE tests/sync_test.cpp ${FM1_DEVICE_SOURCES})
+    target_include_directories(sync_test PRIVATE ${FM1_DEVICE_INCLUDES})
     target_link_libraries(sync_test PRIVATE fm1_sync fm1_test_juce juce::juce_recommended_warning_flags)
     add_test(NAME sync_test COMMAND sync_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 
     # hardware probe (not a ctest: needs a connected FM-1)
     if(FM1_BUILD_TOOLS)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
-    target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp sync/Fm1Link.cpp sync/Fm1Session.cpp sync/Firmware.cpp)
-    target_include_directories(fm1_probe PRIVATE sync)
+    target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp ${FM1_DEVICE_SOURCES})
+    target_include_directories(fm1_probe PRIVATE ${FM1_DEVICE_INCLUDES})
     target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine fm1_test_juce)
     endif()
     endif()
@@ -201,7 +211,7 @@ if(FM1_BUILD_PLUGIN)
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")
     target_sources(params_test PRIVATE tests/params_test.cpp plugin/Params.cpp)
-    target_include_directories(params_test PRIVATE sync plugin)
+    target_include_directories(params_test PRIVATE plugin)
     target_link_libraries(params_test PRIVATE fm1_sync fm1_test_juce)
     target_compile_definitions(params_test PRIVATE FM1_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME params_test COMMAND params_test)
@@ -209,14 +219,14 @@ if(FM1_BUILD_PLUGIN)
     # sequencer and arpeggiator timing
     juce_add_console_app(seq_test PRODUCT_NAME "seq_test")
     target_sources(seq_test PRIVATE tests/seq_test.cpp plugin/Sequencer.cpp plugin/SeqMidi.cpp plugin/Arpeggiator.cpp)
-    target_include_directories(seq_test PRIVATE sync plugin)
+    target_include_directories(seq_test PRIVATE plugin)
     target_link_libraries(seq_test PRIVATE fm1_sync fm1_test_juce juce::juce_recommended_warning_flags)
     add_test(NAME seq_test COMMAND seq_test)
 
     # presets and patterns as JSON: exact round trips, single-byte edits, error places
     juce_add_console_app(json_test PRODUCT_NAME "json_test")
     target_sources(json_test PRIVATE tests/json_test.cpp plugin/Fm1Json.cpp)
-    target_include_directories(json_test PRIVATE sync plugin)
+    target_include_directories(json_test PRIVATE plugin)
     target_link_libraries(json_test PRIVATE fm1_sync fm1_test_juce juce::juce_recommended_warning_flags)
     add_test(NAME json_test COMMAND json_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
     endif()

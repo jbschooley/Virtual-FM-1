@@ -1,4 +1,4 @@
-#include "Firmware.h"
+#include "Firmwares.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -7,80 +7,7 @@
 
 namespace fm1 {
 
-// ---- defaults: a feature a profile does not override is one it does not have ----
-
-juce::String Firmware::cannot(Feature f) const {
-    switch (f) {
-        case Feature::ReadPresets:   return "This firmware cannot send presets back.";
-        case Feature::WritePresets:  return "This firmware cannot take presets from the plugin.";
-        case Feature::ReadPatterns:  return "This firmware cannot send patterns back.";
-        case Feature::WritePatterns: return "This firmware does not take patterns over MIDI.";
-        case Feature::ReadCurrent:   return "This firmware cannot send its current sound back.";
-        case Feature::CheckEdit:     return "this firmware cannot be read back to check it.";
-        case Feature::ReadGlobals:   return "The plugin cannot read this firmware's settings.";
-    }
-    return {};
-}
-
-std::optional<Sound> Firmware::readPreset(Port&, int, juce::String& error) { error = cannot(Feature::ReadPresets); return std::nullopt; }
-bool Firmware::writePreset(Port&, const Sound&, juce::String& error) { error = cannot(Feature::WritePresets); return false; }
-std::optional<seq::Pattern> Firmware::readPattern(Port&, int, juce::String& error) { error = cannot(Feature::ReadPatterns); return std::nullopt; }
-bool Firmware::writePattern(Port&, const seq::Pattern&, int, bool, juce::String& error) { error = cannot(Feature::WritePatterns); return false; }
-std::optional<Firmware::Current> Firmware::readCurrent(Port&, juce::String& error) { error = cannot(Feature::ReadCurrent); return std::nullopt; }
-std::optional<Firmware::Live> Firmware::readLive(Port&, juce::String& error) { error = cannot(Feature::CheckEdit); return std::nullopt; }
-std::optional<Globals> Firmware::readGlobals(Port&, juce::String& error) { error = cannot(Feature::ReadGlobals); return std::nullopt; }
-
 namespace {
-
-// ---- M-VAVE's own firmware ----------------------------------------------------------
-
-class StockFirmware : public Firmware {
-public:
-    juce::String name() const override { return "M-VAVE"; }
-    juce::String summary() const override { return "M-VAVE firmware: can receive DX7 dumps, cannot be read back"; }
-    bool has(Feature) const override { return false; }
-    juce::String cannot(Feature f) const override {
-        switch (f) {
-            case Feature::ReadPresets:   return "This FM-1 runs M-VAVE's firmware, which cannot send presets back. Install FM-1+VA to pull.";
-            // a DX7 single-voice dump stores at once on the selected preset, with no read-back,
-            // so only the current preset could be targeted, by selecting it first
-            case Feature::WritePresets:  return "This FM-1 runs M-VAVE's firmware: only the selected preset can be written, as a DX7 voice, unverified.";
-            case Feature::ReadPatterns:  return "This FM-1 runs M-VAVE's firmware, which cannot send patterns back.";
-            case Feature::WritePatterns: return "This FM-1 runs M-VAVE's firmware, which does not take patterns over MIDI.";
-            case Feature::ReadCurrent:   return "This FM-1 runs M-VAVE's firmware, which cannot send its sound back.";
-            case Feature::ReadGlobals:   return "The plugin can read the FM-1's GLOBE settings on FM-1_093 and FM-1_094 only.";
-            case Feature::CheckEdit:     return Firmware::cannot(f);
-        }
-        return Firmware::cannot(f);
-    }
-};
-
-// ---- Felucca (Leo Kuroshita) ----------------------------------------------------------
-// Answers M-VAVE's identity request as FM-1_904 (0.4 beta). Its other SysEx is for
-// firmware updates only: no preset or pattern transfer, and it ignores FM-1+VA's
-// commands and DX7 dumps. It saves four projects (a sound and its sequence) in its
-// own format, and its sound parameters are not FM-1+VA's, so the plugin sends it nothing.
-
-class FeluccaFirmware : public Firmware {
-public:
-    juce::String name() const override { return "Felucca"; }
-    juce::String summary() const override { return "Felucca firmware: no preset or pattern transfer over MIDI"; }
-    bool has(Feature) const override { return false; }
-    juce::String cannot(Feature f) const override {
-        switch (f) {
-            case Feature::ReadPresets:   return "This FM-1 runs Felucca, which cannot send its sounds over MIDI.";
-            case Feature::WritePresets:  return "This FM-1 runs Felucca, which does not take presets over MIDI.";
-            case Feature::ReadPatterns:  return "This FM-1 runs Felucca, which cannot send its sequences over MIDI.";
-            case Feature::WritePatterns: return "This FM-1 runs Felucca, which does not take patterns over MIDI.";
-            case Feature::ReadCurrent:   return "This FM-1 runs Felucca, which cannot send its sound over MIDI.";
-            case Feature::ReadGlobals:   return "The plugin cannot read Felucca's settings.";
-            case Feature::CheckEdit:     return "Felucca does not take FM-1+VA presets.";
-        }
-        return Firmware::cannot(f);
-    }
-    std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
-    std::vector<Bytes> editChanges(const Sound&, const Sound&, edit::Channels) const override { return {}; }
-};
 
 // ---- baud girl's FM-1+VA --------------------------------------------------------------
 // Sound read 0x10 and exact write 0x04, memory read 0x11 and pattern write 0x20
@@ -337,13 +264,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
-    std::unique_ptr<Firmware> f;
-    if (id.isStock()) f = std::make_unique<StockFirmware>();
-    else if (id.version >= 900) f = std::make_unique<FeluccaFirmware>();   // 0.4 beta is FM-1_904; later versions assumed to stay in the 900s
-    else f = std::make_unique<FmVaFirmware>();
-    f->version = id.version;
-    return f;
-}
+std::unique_ptr<Firmware> makeFmVaFirmware() { return std::make_unique<FmVaFirmware>(); }
 
 }  // namespace fm1

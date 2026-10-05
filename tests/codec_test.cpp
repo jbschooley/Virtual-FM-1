@@ -1,4 +1,4 @@
-// Checks sync/Fm1Codec against tests/golden.json, which was generated from
+// Checks firmwares/fm1_common/Fm1Codec against tests/golden.json, which was generated from
 // baud girl's own FM-1+VA JavaScript (tests/gen_golden.mjs).
 // Minimal JSON reading: the file is flat enough to scan with a tiny parser.
 

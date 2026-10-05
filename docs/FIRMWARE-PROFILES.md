@@ -1,7 +1,7 @@
 # Firmware profiles
 
 Virtual FM-1 talks to different FM-1 firmwares through profiles
-(`sync/Firmware.h`). A profile says what a firmware can do and implements the
+(`core/Firmware.h`). A profile says what a firmware can do and implements the
 protocol for each thing it can do. `Fm1Session` runs the operations (threading,
 progress, cancelling, pacing between writes, checking a write by reading it
 back) and asks the profile for everything that depends on the firmware.
@@ -14,7 +14,7 @@ back) and asks the profile for everything that depends on the firmware.
 
 ## Adding a firmware
 
-1. **Identify it.** `firmwareFor()` in `sync/Firmware.cpp` picks the profile
+1. **Identify it.** `firmwareFor()` in `firmwares/Firmwares.cpp` picks the profile
    from the synth's identity. If the firmware answers M-VAVE's updater
    handshake with its own name, match on that; if it answers a Hello as in
    [`PROTOCOL-PROPOSAL.md`](PROTOCOL-PROPOSAL.md), match on its name there.

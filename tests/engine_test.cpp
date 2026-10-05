@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
         CHECK(synth.activeVoices() == 0, "note-off finds the transposed voice");
     }
 
-    // ---- Hardware character (plugin/HardwareCharacter.h) ----
+    // ---- Hardware character (engines/fm1_fx/HardwareCharacter.h) ----
     {
         auto toneLossDb = [](double sr, double freq) {   // steady-state loss of a sine through it
             HardwareCharacter hc; hc.prepare(sr);
