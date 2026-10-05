@@ -167,8 +167,15 @@ int main(int argc, char** argv) {
         if (!theirs) { std::printf("backup failed: %s\n", err.toRawUTF8()); return 1; }
         juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*theirs, "FM-1 running Felucca"));
         std::printf("the FM-1's backup: %s\n", argv[2]);
-        // 2. the plugin's Felucca: the synth's things, and one user preset only it has
-        if (!felucca::restore(mine, *theirs, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
+        // 2. the plugin's Felucca: the synth's things (or a device file's: argv[3]), and one user
+        // preset only it has
+        felucca::Objects source = *theirs;
+        if (argc > 3) {
+            source.clear();
+            if (!felucca::readBackup(juce::File(argv[3]), source, err)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
+            std::printf("the plugin's Felucca from %s\n", argv[3]);
+        }
+        if (!felucca::restore(mine, source, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
         const uint8_t slot = 31;   // U32
         auto st = mine.ask(felucca::frame(felucca::kUpStore, {slot, 'S', 'E', 'N', 'D', ' ', 'T', 'E', 'S', 'T', 0}), 0);
         std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED");
