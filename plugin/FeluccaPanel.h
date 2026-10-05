@@ -47,6 +47,7 @@ public:
     void paint(juce::Graphics&) override;
     void visibilityChanged() override;
     void refresh();   // the engine, presets and values again (after a project or user preset loads, say)
+    std::function<void()> onPartChanged;   // another part selected (here or on the device)
 
 private:
     struct Control {
@@ -112,6 +113,7 @@ public:
     void paint(juce::Graphics&) override;
     std::function<void()> onLoaded;   // a user preset or project was loaded: the sound changed
     void reload();                    // the names again, from the device
+    void updateButtons();             // (their part number: after another part is selected)
 
 private:
     struct Row { bool used = false; int engine = 0; juce::String name; };
@@ -130,7 +132,6 @@ private:
     void save(int row);
     void rename(int row);
     void erase(int row);
-    void updateButtons();
     void say(const juce::String& text, bool problem = false);
     static juce::String cleanName(const juce::String&);   // what Felucca takes: upper case ASCII, at most 12
 

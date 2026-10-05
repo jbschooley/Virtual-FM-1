@@ -258,6 +258,7 @@ void FeluccaSoundPage::timerCallback() {
     if (auto e = engine(); e && e->selected() != track_ && e->selected() < 4) {   // chosen on the device (its panel, a synced FM-1)
         track_ = e->selected();
         trackButtons_[track_].setToggleState(true, juce::dontSendNotification);
+        if (onPartChanged) onPartChanged();
     }
     // the part, or its engine, changed (on the Device tab, by a loaded project or user preset,
     // or on a synced FM-1): the controls again, once they show
@@ -284,6 +285,7 @@ void FeluccaSoundPage::updateTempoControl() {
 void FeluccaSoundPage::selectTrack(int t) {
     track_ = t;
     if (auto e = engine()) e->select(t);   // Felucca's selected part too: the keys play it
+    if (onPartChanged) onPartChanged();
     build();
 }
 
@@ -801,6 +803,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), sound_(p), sync_(p), lis
     showPages_.onClick = [this] { if (showPages_.getToggleState()) { showingPages_ = true; layoutLibrary(); } };
     library_.layout = [this] { layoutLibrary(); };
     list_.onLoaded = [this] { sound_.refresh(); };
+    sound_.onPartChanged = [this] { list_.updateButtons(); };
     tabs_.addTab("Library", bg, &library_, false);
     tabs_.addTab("Device", bg, &device_, false);
     tabs_.setComponentID("felucca tabs");
