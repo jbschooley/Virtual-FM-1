@@ -4,6 +4,7 @@
 
 void Effects::prepare(double sampleRate, int maxBlock) {
     sr_ = sampleRate;
+    maxBlock_ = std::max(1, maxBlock);
     juce::dsp::ProcessSpec spec{sampleRate, juce::uint32(std::max(1, maxBlock)), 1};
     filter_.prepare(spec);
     delay_.prepare(spec);
@@ -75,9 +76,14 @@ void Effects::applyPending() {
 
 void Effects::process(float* buf, int n) {
     applyPending();
-    for (int k = 0; k < fm1::kEffects; ++k) {
-        int e = chain_.order[size_t(k)];
-        if (e >= 0 && e < fm1::kEffects && chain_.fx[size_t(e)].on) processOne(e, buf, n);
+    // JUCE's chorus and phaser keep buffers sized for the block announced in
+    // prepare(): a host that sends a larger block gets it in pieces
+    for (int start = 0; start < n; start += maxBlock_) {
+        const int m = std::min(maxBlock_, n - start);
+        for (int k = 0; k < fm1::kEffects; ++k) {
+            int e = chain_.order[size_t(k)];
+            if (e >= 0 && e < fm1::kEffects && chain_.fx[size_t(e)].on) processOne(e, buf + start, m);
+        }
     }
 }
 

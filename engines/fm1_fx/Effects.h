@@ -24,6 +24,7 @@ private:
     void processOne(int effect, float* buf, int n);
 
     double sr_ = 44100.0;
+    int maxBlock_ = 512;   // the block size prepare() was given
     fm1::FxChain chain_;
     juce::SpinLock pendingLock_;
     fm1::FxChain pending_;

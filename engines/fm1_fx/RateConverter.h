@@ -64,6 +64,7 @@ public:
 
     // in: exactly inputNeeded(nOut) samples; out: nOut samples.
     void process(const float* in, int nIn, float* out, int nOut) {
+        if (size_t(have_ + nIn) > hist_.size()) hist_.resize(size_t(have_ + nIn));   // a block larger than prepared for
         std::copy(in, in + nIn, hist_.begin() + have_);
         have_ += nIn;
         for (int i = 0; i < nOut; ++i) {
