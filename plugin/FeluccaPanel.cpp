@@ -53,7 +53,9 @@ struct FeluccaDeviceView::Knob : juce::Component {
         g.drawLine(mid.x, mid.y, mid.x + std::sin(angle) * d * 0.42f, mid.y - std::cos(angle) * d * 0.42f, 2.0f);
         g.setColour(juce::Colour(0xffa0a0b0));
         g.setFont(juce::FontOptions(10.0f));
-        g.drawText(name, label, juce::Justification::centred);
+        auto shown = name;   // narrow: ALGO, PRESET, K1 ...
+        if (getWidth() < 64) shown = name.replace("ALGORITHM", "ALGO").replace("PRESETS", "PRESET").replace("KNOB ", "K");
+        g.drawText(shown, label, juce::Justification::centred);
     }
     void step(int n) {
         if (n == 0) return;
@@ -152,26 +154,38 @@ void FeluccaDeviceView::paint(juce::Graphics& g) {
 
 void FeluccaDeviceView::resized() {
     auto r = getLocalBounds().reduced(8);
-    auto keys = r.removeFromBottom(std::min(70, r.getHeight() / 5));
+    const bool narrow = getWidth() < 600;
+    auto keys = r.removeFromBottom(std::min(narrow ? 56 : 70, r.getHeight() / 5));
     r.removeFromBottom(8);
+    const int cols = narrow ? 5 : 4, rows = (buttons_.size() + cols - 1) / cols;
     // the screen at a whole multiple of its 240 pixels on the display's own pixels (sharp at
-    // any display scale), at most about 360 points so the controls keep their room
+    // any display scale): beside the controls, at most about 360 points so they keep their
+    // room; on a phone above them, as wide as fits
     const float scale = std::max(1.0f, float(juce::Component::getApproximateScaleFactorForComponent(this))
                                          * float(juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()) != nullptr
                                                      ? juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds())->scale : 1.0));
-    const float room = float(std::min({r.getHeight(), r.getWidth() / 2, 360}));
+    const int controls = 10 + 64 + 8 + rows * 40;   // narrow: what goes below the screen
+    const float room = narrow ? float(std::min(r.getWidth(), r.getHeight() - controls))
+                              : float(std::min({r.getHeight(), r.getWidth() / 2, 360}));
     const int k = std::max(1, int(room * scale / 240.0f));
     const int side = int(std::round(240.0f * float(k) / scale));
-    screenArea_ = r.removeFromLeft(side).withHeight(side);
-    r.removeFromLeft(12);
-    auto knobRow = r.removeFromTop(std::min(90, r.getHeight() / 3));
+    if (narrow) {
+        screenArea_ = r.removeFromTop(side).withSizeKeepingCentre(side, side);
+        r.removeFromTop(10);
+    } else {
+        screenArea_ = r.removeFromLeft(side).withHeight(side);
+        r.removeFromLeft(12);
+    }
+    auto knobRow = r.removeFromTop(narrow ? 64 : std::min(90, r.getHeight() / 3));
     const int kw = knobRow.getWidth() / std::max(1, knobs_.size());
     for (auto* k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(2));
     r.removeFromTop(8);
-    const int cols = 4, rows = (buttons_.size() + cols - 1) / cols;
+
     const int bw = r.getWidth() / cols, bh = std::min(40, r.getHeight() / std::max(1, rows));
     for (int i = 0; i < buttons_.size(); ++i)
         buttons_[i]->setBounds(r.getX() + (i % cols) * bw + 2, r.getY() + (i / cols) * bh + 2, bw - 4, bh - 4);
+    if (narrow)   // the keys take what is left, up to 100 high
+        keys.setTop(std::max(keys.getBottom() - 100, r.getY() + rows * bh + 8));
     // a keyboard: the white keys side by side, each black one over the gap before the next white
     int whites = 0;
     for (auto* k : keys_) whites += k->black ? 0 : 1;
@@ -266,6 +280,7 @@ void FeluccaPanel::showDevice(bool on) {
     for (auto& b : trackButtons_) b.setVisible(!on);
     engineBox_.setVisible(!on);
     presetBox_.setVisible(!on);
+    if (getWidth() < kNarrow) resized();   // the device takes the rows it hides
     if (!on) refresh();   // what the device changed
 }
 
@@ -436,6 +451,28 @@ void FeluccaPanel::paint(juce::Graphics& g) {
 
 void FeluccaPanel::resized() {
     auto r = getLocalBounds().reduced(10);
+    if (getWidth() < kNarrow) {   // a phone or a narrow iPad: the top controls on four rows
+        auto row = [&](int h = 30) { auto rr = r.removeFromTop(h); r.removeFromTop(4); return rr; };
+        auto even = [](juce::Rectangle<int> rr, std::initializer_list<juce::Component*> cs) {
+            const int w = rr.getWidth() / int(cs.size());
+            for (auto* c : cs) c->setBounds(rr.removeFromLeft(w).reduced(2, 0));
+        };
+        if (!device_.isVisible()) {   // (the device view hides these: its room goes to the device)
+            even(row(), {&trackButtons_[0], &trackButtons_[1], &trackButtons_[2], &trackButtons_[3]});
+            even(row(), {&engineBox_, &presetBox_});
+        }
+        {
+            auto rr = row();
+            deviceButton_.setBounds(rr.removeFromRight(84));
+            hostTempo_.setBounds(rr);
+        }
+        even(row(26), {&pullButton_, &sendButton_, &liveButton_});
+        if (!device_.isVisible()) info_.setBounds(row(30));
+        view_.setBounds(r);
+        device_.setBounds(r);
+        layoutContent();
+        return;
+    }
     auto top = r.removeFromTop(30);
     for (auto& b : trackButtons_) { b.setBounds(top.removeFromLeft(84)); top.removeFromLeft(4); }
     top.removeFromLeft(12);

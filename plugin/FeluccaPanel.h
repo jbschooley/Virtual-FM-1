@@ -37,6 +37,7 @@ private:
 
 class FeluccaPanel : public juce::Component, private juce::Timer {
 public:
+    static constexpr int kNarrow = 1040;   // narrower: the top controls on rows (a phone, an iPad upright)
     explicit FeluccaPanel(FM1Processor&);
     ~FeluccaPanel() override { proc_.onFeluccaLive = nullptr; }
     void resized() override;
