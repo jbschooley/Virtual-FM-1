@@ -983,8 +983,16 @@ juce::ValueTree FM1Processor::feluccaState() const {
     juce::ValueTree t("Felucca");
     std::vector<uint8_t> music;
     if (!engine->object(0, music) || music.empty()) return t;
+    // music this Felucca could not read: saved as it came if nothing was changed since, else
+    // beside the new music, for a newer plugin
+    if (felUnread_.isValid() && music == felUnreadBase_) return felUnread_.createCopy();
     t.setProperty("version", juce::String(engine->version()), nullptr);   // the Felucca it was saved with ("v1.0")
     t.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
+    if (felUnread_.isValid()) {
+        juce::ValueTree kept("Unread");
+        kept.copyPropertiesFrom(felUnread_, nullptr);
+        t.addChild(kept, -1, nullptr);
+    }
     return t;
 }
 
@@ -996,12 +1004,21 @@ void FM1Processor::setFeluccaState(const juce::ValueTree& t) {
     applyFeluccaState(*engine, t);
 }
 
-void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t) {
+bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t) {
+    felUnread_ = {};
+    felUnreadBase_.clear();
     juce::MemoryOutputStream music;
-    if (!juce::Base64::convertFromBase64(music, t.getProperty("music").toString()) || music.getDataSize() == 0) return;
+    if (!juce::Base64::convertFromBase64(music, t.getProperty("music").toString()) || music.getDataSize() == 0) return true;
     const auto* b = static_cast<const uint8_t*>(music.getData());
-    const int rc = f.putObject(0, std::vector<uint8_t>(b, b + music.getDataSize()));
-    if (rc != 0) DBG("Felucca refused the project's music (rc " << rc << ")");
+    if (f.putObject(0, std::vector<uint8_t>(b, b + music.getDataSize())) == 0) return true;
+    // a newer Felucca's, or damaged: keep it untouched (saved again), and say so
+    felUnread_ = t.createCopy();
+    f.object(0, felUnreadBase_);
+    const juce::String from = t.getProperty("version").toString();
+    status("This project's Felucca music" + (from.isNotEmpty() ? " (saved with Felucca " + from + ")" : juce::String())
+           + " could not be read by the Felucca built in (" + juce::String(f.version()) + "): newer, or damaged. Felucca plays "
+           "its power-on music; the project keeps its own as it was, for a newer plugin.");
+    return false;
 }
 
 // ---- syncing with an FM-1 running Felucca ----

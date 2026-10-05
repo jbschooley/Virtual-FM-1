@@ -524,6 +524,16 @@ static int checks() {
                 damaged.setStateInformation(os.getData(), int(os.getDataSize()));
                 CHECK(damaged.felucca() != nullptr && damaged.felucca()->engineOf(1) != 6,
                       "a damaged Felucca project is refused: the power-on sound stays");
+                const juce::String unread = tree.getProperty("music").toString();
+                juce::MemoryBlock again;
+                damaged.getStateInformation(again);
+                auto saved = juce::ValueTree::readFromData(again.getData(), again.getSize()).getChildWithName("Felucca");
+                CHECK(saved.getProperty("music").toString() == unread, "music Felucca could not read is saved again as it came");
+                if (damaged.felucca()) damaged.felucca()->setEngine(2, 7);   // something changed meanwhile
+                damaged.getStateInformation(again);
+                saved = juce::ValueTree::readFromData(again.getData(), again.getSize()).getChildWithName("Felucca");
+                CHECK(saved.getProperty("music").toString() != unread && saved.getChildWithName("Unread").getProperty("music").toString() == unread,
+                      "after a change, the new music is saved and the unread one beside it");
             }
         }
         if (q.felucca() != nullptr) {
