@@ -48,7 +48,7 @@ public:
     void visibilityChanged() override;
     void refresh();   // the engine, presets and values again (after a project or user preset loads, say)
     std::function<void()> onPartChanged;   // another part selected (here or on the device)
-    void setStatus(const juce::String& s);   // in the info line (the sync's progress and outcome)
+    void setStatus(const juce::String& s);   // in the info line for a while (the sync's progress and outcome)
 
 private:
     struct Control {
@@ -76,7 +76,8 @@ private:
 
     FM1Processor& proc_;
     int track_ = 0;
-    int builtTrack_ = -1, builtEngine_ = -1;   // what the controls are for (the device can change either)
+    int builtTrack_ = -1, builtEngine_ = -1;
+    juce::uint32 statusUntil_ = 0;   // the info line shows a status until then, then the keyboard hint   // what the controls are for (the device can change either)
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;
     // the selected part's sound from the connected FM-1 (up), and to it (down; not saved there)

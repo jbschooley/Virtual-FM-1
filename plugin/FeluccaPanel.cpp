@@ -278,6 +278,7 @@ FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
 
 void FeluccaSoundPage::setStatus(const juce::String& s) {
     info_.setText(s.isNotEmpty() ? s : juce::String(kInfoText), juce::dontSendNotification);
+    statusUntil_ = juce::Time::getMillisecondCounter() + 8000;
 }
 
 void FeluccaSoundPage::visibilityChanged() {
@@ -285,6 +286,10 @@ void FeluccaSoundPage::visibilityChanged() {
 }
 
 void FeluccaSoundPage::timerCallback() {
+    if (statusUntil_ != 0 && juce::Time::getMillisecondCounter() > statusUntil_) {   // the hint again
+        statusUntil_ = 0;
+        info_.setText(kInfoText, juce::dontSendNotification);
+    }
     {   // the sound's sync: with an FM-1 running Felucca, not while another job (Live) runs
         const bool can = proc_.feluccaSynth() && !proc_.session.busy();
         pullSound_.setEnabled(can);
