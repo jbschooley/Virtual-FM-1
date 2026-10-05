@@ -47,6 +47,7 @@
 
 #include "PluginProcessor.h"
 #include "Firmwares.h"
+#include "Panels.h"
 #if FM1_FELUCCA
  #include "FeluccaDevice.h"
  #include "FeluccaPanel.h"
@@ -760,6 +761,86 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
             save("library-" + pages->getTabNames()[i].replaceCharacters(" &", "__"));
         }
         for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("tab-" + tabs->getTabNames()[i]); }
+        {   // a phone in portrait (402 x 780 points: an iPhone 17 Pro's screen less its bars)
+            const auto desk = ed->getBounds();
+            ed->setSize(402, 780);
+            const int was = p.bank.currentSlot();
+            p.selectSlot(16);   // an FM preset (the FM page)
+            tabs->setCurrentTabIndex(0);   // (a tab's content is in the tree only while it shows)
+            juce::Button* soundButton = nullptr;
+            std::function<void(juce::Component*)> findSound = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) {
+                    if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText() == "Sound") soundButton = b;
+                    findSound(ch);
+                }
+            };
+            findSound(ed.get());
+            tabs->setCurrentTabIndex(0);
+            save("phone-library-list");
+            CHECK(soundButton != nullptr, "the narrow library has its Sound button");
+            if (soundButton) { soundButton->setToggleState(true, juce::dontSendNotification); if (soundButton->onClick) soundButton->onClick(); }
+            for (int i = 0; pages != nullptr && i < pages->getNumTabs(); ++i) {
+                tabs->setCurrentTabIndex(0);
+                pages->setCurrentTabIndex(i);
+                save("phone-library-" + pages->getTabNames()[i].replaceCharacters(" &", "__"));
+                if (pages->getTabNames()[i] == "FM") {   // and its Global page
+                    std::function<void(juce::Component*)> press = [&](juce::Component* c) {
+                        for (auto* ch : c->getChildren()) {
+                            if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText() == "LFO" && b->isVisible()) {
+                                b->setToggleState(true, juce::dontSendNotification);
+                                if (b->onClick) b->onClick();
+                            }
+                            press(ch);
+                        }
+                    };
+                    press(ed.get());
+                    save("phone-library-FM-lfo");
+                    for (const char* other : {"Algorithm", "Pitch EG"}) {
+                        std::function<void(juce::Component*)> pressOther = [&](juce::Component* c) {
+                            for (auto* ch : c->getChildren()) {
+                                if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText() == other && b->isVisible()) {
+                                    b->setToggleState(true, juce::dontSendNotification);
+                                    if (b->onClick) b->onClick();
+                                }
+                                pressOther(ch);
+                            }
+                        };
+                        pressOther(ed.get());
+                        save("phone-library-FM-" + juce::String(other).replaceCharacters(" ", "_"));
+                    }
+                }
+            }
+            for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("phone-tab-" + tabs->getTabNames()[i]); }
+            SeqPanel* seq = nullptr;
+            std::function<void(juce::Component*)> findSeq = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) { if (auto* sp = dynamic_cast<SeqPanel*>(ch)) seq = sp; findSeq(ch); }
+            };
+            tabs->setCurrentTabIndex(1);
+            findSeq(ed.get());
+            CHECK(seq != nullptr && seq->getHeight() > 780, "the sequencer on a phone is a page taller than the screen, to scroll");
+            if (seq != nullptr) {   // the whole page, as it scrolls
+                auto img = seq->createComponentSnapshot(seq->getLocalBounds());
+                juce::FileOutputStream os(outDir.getChildFile("phone-sequencer-page.png"));
+                os.setPosition(0); os.truncate();
+                juce::PNGImageFormat().writeImageToStream(img, os);
+            }
+            ed->setSize(874, 365);   // the phone on its side
+            tabs->setCurrentTabIndex(0);
+            for (int i = 0; pages != nullptr && i < pages->getNumTabs(); ++i)
+                if (pages->getTabNames()[i] == "FM") { pages->setCurrentTabIndex(i); save("phone-side-library-FM"); }
+            ed->setSize(820, 1100);   // an iPad upright
+            save("ipad-library-FM");
+            tabs->setCurrentTabIndex(1);
+            save("ipad-tab-Sequencer");
+            ed->setBounds(desk);
+            save("tab-Sequencer-after");
+            if (seq != nullptr && seq->getParentComponent() != nullptr)
+                CHECK(seq->getHeight() <= seq->getParentComponent()->getHeight(), "back at full size, the sequencer has nothing to scroll");
+            tabs->setCurrentTabIndex(0);
+            for (int i = 0; pages != nullptr && i < pages->getNumTabs(); ++i)   // the FM page at full size too
+                if (pages->getTabNames()[i] == "FM") { pages->setCurrentTabIndex(i); save("library-FM"); }
+            p.selectSlot(was);
+        }
         p.setFirmware("felucca");
         save("firmware-felucca");
        #if FM1_FELUCCA
@@ -784,6 +865,16 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 };
                 draw(ed.get());
                 save("felucca-device");
+                {   // on a phone
+                    const auto desk = ed->getBounds();
+                    ed->setSize(402, 780);
+                    draw(ed.get());
+                    save("phone-felucca-device");
+                    press(device);
+                    save("phone-felucca");
+                    press(device);
+                    ed->setBounds(desk);
+                }
                 press(device);
             }
         }
