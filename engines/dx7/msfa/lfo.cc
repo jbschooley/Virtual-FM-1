@@ -46,8 +46,8 @@ static double lfoSource[] = {
 };
 
 
-uint32_t Lfo::unit_;
-uint32_t Lfo::lforatio_;
+thread_local uint32_t Lfo::unit_;
+thread_local uint32_t Lfo::lforatio_;
 
 void Lfo::init(double sample_rate) {
     // constant is 1 << 32 / 15.5s / 11

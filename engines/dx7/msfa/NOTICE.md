@@ -13,3 +13,7 @@ Modifications made in this project:
 - `tuning.h`, `tuning.cc`: replaced Dexed's Surge-based tuning support with a
   standard 12-TET implementation.
 - `libMTSClient.h`: stub; MTS-ESP is not supported.
+- `freqlut.cc`, `env.*`, `pitchenv.*`, `lfo.*`, `porta.*`: the sample-rate tables
+  and factors are `thread_local`, so instances at different sample rates, or
+  rendered on different threads, do not overwrite each other's tables
+  (`FmSynth::useRate` in `engines/dx7/FmSynth.cpp` sets them).

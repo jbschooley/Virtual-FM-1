@@ -31,8 +31,8 @@ public:
     void keydown();
 
 private:
-    static uint32_t lforatio_;
-    static uint32_t unit_;
+    static thread_local uint32_t lforatio_;
+    static thread_local uint32_t unit_;
 
     uint32_t phase_; // Q32
     uint32_t delta_;

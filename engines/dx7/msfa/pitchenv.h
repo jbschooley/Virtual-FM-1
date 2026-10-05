@@ -32,7 +32,7 @@ class PitchEnv {
   void keydown(bool down);
   void getPosition(char *step);
  private:
-  static int unit_;
+  static thread_local int unit_;
   int rates_[4];
   int levels_[4];
   int32_t level_;

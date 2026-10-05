@@ -22,8 +22,8 @@
 struct Porta {
   public:
     static void init_sr(double sampleRate);
-    static int32_t rates[128];
-    static int32_t rates_glissando[128];
+    static thread_local int32_t rates[128];
+    static thread_local int32_t rates_glissando[128];
 };
 
 #endif

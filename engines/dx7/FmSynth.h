@@ -68,6 +68,7 @@ public:
     void render(float* out, int numSamples);
 
 private:
+    void useRate();   // msfa's sample-rate tables, set for this instance on this thread
     struct VoiceSlot {
         std::unique_ptr<Dx7Note> note;
         int midiNote = -1;       // the key that started the voice (for note-off)

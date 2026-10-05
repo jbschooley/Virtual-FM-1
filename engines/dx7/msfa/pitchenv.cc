@@ -17,7 +17,7 @@
 #include "synth.h"
 #include "pitchenv.h"
 
-int PitchEnv::unit_;
+thread_local int PitchEnv::unit_;
 
 void PitchEnv::init(double sample_rate) {
   unit_ = N * (1 << 24) / (21.3 * sample_rate) + 0.5;

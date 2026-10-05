@@ -12,7 +12,9 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "FmSynth.h"
@@ -175,6 +177,35 @@ int main(int argc, char** argv) {
         double l30k = toneLossDb(96000.0, 30000.0);
         std::printf("  hardware character at 96000 Hz: loss %.1f dB at 30 kHz\n", l30k);
         CHECK(l30k > 15.0, "hardware character: rolled off above 20 kHz at 96 kHz, where 44.1 kHz audio ends");
+    }
+
+    // ---- instances at different sample rates do not disturb each other ----
+    // (msfa's sample-rate tables are per thread; FmSynth::useRate sets them)
+    {
+        auto run = [&](FmSynth& s, std::vector<float>& out, int from, int n) { s.render(out.data() + from, n); };
+        auto fresh = [&](double sr) {
+            auto s = std::make_unique<FmSynth>();
+            s->prepare(sr);
+            s->setPatch(edits[0].data());
+            s->noteOn(60, 100); s->noteOn(67, 90);
+            return s;
+        };
+        const int n = 48000;
+        const size_t len = size_t(n);
+        std::vector<float> a1(len), b1(len), a2(len), b2(len);
+        { auto a = fresh(44100.0); run(*a, a1, 0, n); }
+        { auto b = fresh(96000.0); run(*b, b1, 0, n); }
+        auto a = fresh(44100.0), b = fresh(96000.0);
+        for (int i = 0; i < n; i += 100) { run(*a, a2, i, std::min(100, n - i)); run(*b, b2, i, std::min(100, n - i)); }
+        CHECK(a1 == a2, "a 44.1 kHz engine sounds the same with a 96 kHz one rendering in between");
+        CHECK(b1 == b2, "a 96 kHz engine sounds the same with a 44.1 kHz one rendering in between");
+        // and on two threads at once
+        std::vector<float> a3(len), b3(len);
+        auto ta = fresh(44100.0), tb = fresh(96000.0);
+        std::thread t1([&] { for (int i = 0; i < n; i += 100) run(*ta, a3, i, std::min(100, n - i)); });
+        std::thread t2([&] { for (int i = 0; i < n; i += 100) run(*tb, b3, i, std::min(100, n - i)); });
+        t1.join(); t2.join();
+        CHECK(a1 == a3 && b1 == b3, "two engines at different rates on two threads each sound as alone");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

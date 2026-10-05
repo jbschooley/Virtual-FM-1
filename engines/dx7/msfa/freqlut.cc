@@ -30,7 +30,7 @@
 
 #define MAX_LOGFREQ_INT 20
 
-int32_t lut[N_SAMPLES + 1];
+thread_local int32_t lut[N_SAMPLES + 1];   // Virtual FM-1: per thread, see FmSynth::useRate
 
 void Freqlut::init(double sample_rate) {
   double y = (1LL << (24 + MAX_LOGFREQ_INT)) / sample_rate;

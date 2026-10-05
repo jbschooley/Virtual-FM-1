@@ -38,5 +38,5 @@ void Porta::init_sr(double sampleRate) {
     }
 }
 
-int32_t Porta::rates[128];
-int32_t Porta::rates_glissando[128];
+thread_local int32_t Porta::rates[128];
+thread_local int32_t Porta::rates_glissando[128];

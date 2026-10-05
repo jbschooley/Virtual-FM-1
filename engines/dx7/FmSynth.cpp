@@ -57,12 +57,25 @@ FmSynth::~FmSynth() = default;
 void FmSynth::prepare(double sampleRate) {
     sampleRate_ = sampleRate;
     updateEnvCoefs();
-    Freqlut::init(sampleRate);
-    Lfo::init(sampleRate);
-    PitchEnv::init(sampleRate);
-    Env::init_sr(sampleRate);
-    Porta::init_sr(sampleRate);
+    useRate();
     reset();
+}
+
+// msfa keeps its sample-rate tables (frequency, LFO, pitch envelope, envelope
+// rate, portamento) in statics, made per thread here: instances at different
+// rates, or rendered by different threads, must not share them. Every entry
+// point that reaches those tables sets them for this instance's rate first;
+// rebuilding them takes microseconds and happens only when the rate differs
+// from the last instance on this thread.
+void FmSynth::useRate() {
+    static thread_local double tablesRate = 0.0;
+    if (tablesRate == sampleRate_) return;
+    Freqlut::init(sampleRate_);
+    Lfo::init(sampleRate_);
+    PitchEnv::init(sampleRate_);
+    Env::init_sr(sampleRate_);
+    Porta::init_sr(sampleRate_);
+    tablesRate = sampleRate_;
 }
 
 void FmSynth::reset() {
@@ -76,6 +89,7 @@ void FmSynth::reset() {
 }
 
 void FmSynth::setPatch(const uint8_t* vced) {
+    useRate();
     std::memcpy(patch_.data(), vced, kPatchBytes);
     patch_[155] = 0;
     for (auto& v : voices_)
@@ -84,6 +98,7 @@ void FmSynth::setPatch(const uint8_t* vced) {
 }
 
 void FmSynth::noteOn(int midiNote, int velocity) {
+    useRate();
     if (velocity == 0) { noteOff(midiNote); return; }
     // Prefer a silent voice, then a released one, then the same pitch; break ties
     // with the oldest key-down (msfa's allocation rule).
@@ -126,6 +141,7 @@ void FmSynth::noteOn(int midiNote, int velocity) {
 }
 
 void FmSynth::noteOff(int midiNote) {
+    useRate();
     for (auto& v : voices_) {
         if (v.midiNote == midiNote && v.keydown) {
             v.keydown = false;
@@ -136,6 +152,7 @@ void FmSynth::noteOff(int midiNote) {
 }
 
 void FmSynth::allNotesOff() {
+    useRate();
     for (auto& v : voices_) {
         if (v.keydown || v.sustained) {
             v.keydown = v.sustained = false;
@@ -166,6 +183,7 @@ void FmSynth::setAftertouch(int v) { controllers_.aftertouch_cc = v; controllers
 void FmSynth::setMasterTune(int c) { controllers_.masterTune = c; }
 
 void FmSynth::setSustain(bool down) {
+    useRate();
     sustain_ = down;
     if (!down) {
         for (auto& v : voices_) {
@@ -311,6 +329,7 @@ void FmSynth::renderBlock() {
 }
 
 void FmSynth::render(float* out, int numSamples) {
+    useRate();
     int i = 0;
     while (i < numSamples) {
         if (blockPos_ >= N) renderBlock();

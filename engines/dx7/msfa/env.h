@@ -58,7 +58,7 @@ class Env {
 
   // PG: This code is normalized to 44100, need to put a multiplier
   // if we are not using 44100.
-  static uint32_t sr_multiplier;
+  static thread_local uint32_t sr_multiplier;
 
   int rates_[4];
   int levels_[4];
