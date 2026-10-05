@@ -46,8 +46,12 @@ public:
                          const std::function<std::optional<T>(const fm1::Bytes&)>& match,
                          int timeoutMs = 1500, int tries = 3);
 
-    // Every SysEx frame received, for listeners (message thread not guaranteed).
-    std::function<void(const fm1::Bytes&)> onSysex;
+    // Every SysEx frame received, for a listener, called on the MIDI input thread. Set and
+    // cleared under a lock the call holds too: once cleared, it is not running and will not.
+    void setSysexListener(std::function<void(const fm1::Bytes&)> fn) {
+        std::lock_guard<std::mutex> l(listenerMutex_);
+        onSysex_ = std::move(fn);
+    }
 
 private:
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
@@ -58,6 +62,8 @@ private:
 
     std::mutex sendMutex_;             // sends come from the session thread and the message thread
     std::mutex mutex_;
+    std::mutex listenerMutex_;
+    std::function<void(const fm1::Bytes&)> onSysex_;
     std::vector<fm1::Bytes> pending_;   // frames received since the last ask began
     juce::WaitableEvent frameArrived_;
 };

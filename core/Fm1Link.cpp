@@ -63,5 +63,6 @@ void Fm1Link::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessag
     std::memcpy(frame.data(), m.getRawData(), frame.size());
     { std::lock_guard<std::mutex> l(mutex_); pending_.push_back(frame); }
     frameArrived_.signal();
-    if (onSysex) onSysex(frame);
+    std::lock_guard<std::mutex> l(listenerMutex_);
+    if (onSysex_) onSysex_(frame);
 }

@@ -71,14 +71,14 @@ bool isPush(int cmd) { return cmd == kChanged || cmd == kReload || cmd == kStepC
 // ---- a real synth ----
 
 LinkEndpoint::LinkEndpoint(Fm1Link& link) : link_(link) {
-    link_.onSysex = [this](const Bytes& f) {
+    link_.setSysexListener([this](const Bytes& f) {
         if (!isPush(commandOf(f))) return;
         std::lock_guard<std::mutex> g(lock_);
         if (pushes_.size() < 4096) pushes_.push_back(f);
-    };
+    });
 }
 
-LinkEndpoint::~LinkEndpoint() { link_.onSysex = nullptr; }
+LinkEndpoint::~LinkEndpoint() { link_.setSysexListener(nullptr); }
 
 std::optional<Bytes> LinkEndpoint::ask(const Bytes& request, int timeoutMs) {
     const int cmd = commandOf(request);
