@@ -48,7 +48,7 @@ author's name for it, how well the plugin works with it, and a note:
 | Current | the release the plugin plays and syncs with (one per firmware), tried on an FM-1 |
 | Tested | tried on an FM-1 |
 | Older | should work, with what the note says is missing; not tried |
-| Deprecated | syncing needs a newer release; the note says which and how to update |
+| Deprecated | syncing needs a newer release; the note says which and how to update (Felucca's Pull, Send and Live are off for it) |
 
 `checkVersion()` says what the plugin makes of a connected synth's release, and
 the editor shows it when the synth is not on a current or tested one. A release
@@ -81,7 +81,8 @@ treated as Deprecated, with Felucca's installer to update it.
    `FELUCCA_APPEND_FROZEN=1 felucca_test`. Projects say which release they
    were made for (`firmwareVersion`) and the plugin says so when it plays
    another; Felucca reads its own older project formats itself, and music a
-   Felucca cannot read (from a newer one) is kept as it was and saved again.
+   Felucca cannot read (from a newer one) is kept as it was and saved again
+   (in the project file only: it is not played or sent to a synth).
 4. To retire an old release, mark it Deprecated with a note saying what to
    update to. It is still recognised; only its note changes what is said.
 
