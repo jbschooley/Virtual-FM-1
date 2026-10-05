@@ -3,6 +3,9 @@
 #if JUCE_IOS || JUCE_ANDROID
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #endif
+#if JUCE_IOS
+std::optional<juce::BorderSize<int>> fm1SafeArea(juce::Component&);   // SafeArea_ios.mm
+#endif
 
 FM1Editor::FM1Editor(FM1Processor& p)
     : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p), settings_(p) {
@@ -207,7 +210,20 @@ void FM1Editor::showAudioSettings() {
 }
 
 void FM1Editor::resized() {
-    auto r = getLocalBounds().reduced(8);
+    auto r = getLocalBounds();
+   #if JUCE_IOS
+    // full screen on a phone or tablet: clear of the notch or Dynamic Island, the rounded
+    // corners and the home indicator
+    // (the app only: an AUv3's host keeps its view clear itself)
+    auto* window = getTopLevelComponent();
+    if (juce::JUCEApplicationBase::isStandaloneApp() && window != nullptr && window->getBounds() == getScreenBounds()) {
+        const auto safe = fm1SafeArea(*window);
+        if (safe) r = safe->subtractedFrom(r);
+        if ((!safe || safe->getTop() + safe->getBottom() == 0) && safeRetries_++ < 50)   // not in its window (or laid out) yet
+            juce::Timer::callAfterDelay(100, [s = juce::Component::SafePointer<FM1Editor>(this)] { if (s) s->resized(); });
+    }
+   #endif
+    r = r.reduced(8);
     auto top = r.removeFromTop(28);
     const bool narrow = getWidth() < 1040;   // a phone or an iPad upright: the FM-1 connection on a line of its own
     if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(narrow ? 90 : 100)); top.removeFromRight(narrow ? 4 : 8); }

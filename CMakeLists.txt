@@ -241,6 +241,10 @@ if(FM1_BUILD_PLUGIN)
         plugin/dexed_ui/GlobalPanel.cpp
         ${FM1_DEVICE_SOURCES})
 
+    if(IOS)
+        target_sources(VirtualFM1 PRIVATE plugin/SafeArea_ios.mm)
+    endif()
+
     target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui engines/fm1_fx ${FM1_DEVICE_INCLUDES})
 
     target_compile_definitions(VirtualFM1 PUBLIC
