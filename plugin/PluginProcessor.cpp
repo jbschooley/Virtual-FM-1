@@ -1106,6 +1106,33 @@ bool FM1Processor::feluccaSend() {
     });
 }
 
+bool FM1Processor::feluccaPullSound(int track) {
+    auto f = felucca();
+    if (!f || !feluccaSynth() || track < 0 || track > 3) return false;
+    return session.job("Reading part " + juce::String(track + 1) + "'s sound from the FM-1...", [this, f, track](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link);
+        felucca::VirtualEndpoint mine(f);
+        juce::String err;
+        if (!felucca::copySound(synth, mine, track, err))
+            return Fm1Session::JobResult{false, "Could not read part " + juce::String(track + 1) + "'s sound: " + err + "."};
+        juce::MessageManager::callAsync([this, track, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock()) feluccaChanged(track); });
+        return Fm1Session::JobResult{true, "Part " + juce::String(track + 1) + "'s sound read from the FM-1."};
+    });
+}
+
+bool FM1Processor::feluccaSendSound(int track) {
+    auto f = felucca();
+    if (!f || !feluccaSynth() || track < 0 || track > 3) return false;
+    return session.job("Sending part " + juce::String(track + 1) + "'s sound to the FM-1...", [f, track](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link);
+        felucca::VirtualEndpoint mine(f);
+        juce::String err;
+        if (!felucca::copySound(mine, synth, track, err))
+            return Fm1Session::JobResult{false, "Could not send part " + juce::String(track + 1) + "'s sound: " + err + "."};
+        return Fm1Session::JobResult{true, "Part " + juce::String(track + 1) + "'s sound sent to the FM-1 (not saved there)."};
+    });
+}
+
 bool FM1Processor::feluccaLive(bool on) {
     if (!on) { if (felLive_) session.cancel(); return true; }
     auto f = felucca();

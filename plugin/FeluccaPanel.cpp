@@ -207,7 +207,33 @@ void FeluccaDeviceView::resized() {
 
 // ---- the parameters ---------------------------------------------------------------------------
 
+// a tray with an arrow into it (down: from the FM-1) or out of it (up: to it)
+static std::unique_ptr<juce::Drawable> syncIcon(bool down, juce::Colour c) {
+    juce::Path p;
+    p.startNewSubPath(4.0f, 15.0f); p.lineTo(4.0f, 20.0f); p.lineTo(20.0f, 20.0f); p.lineTo(20.0f, 15.0f);   // the tray
+    p.startNewSubPath(12.0f, down ? 3.0f : 15.0f); p.lineTo(12.0f, down ? 15.0f : 3.0f);                    // the arrow's shaft
+    const float tip = down ? 15.0f : 3.0f, back = down ? 10.0f : 8.0f;
+    p.startNewSubPath(7.5f, back); p.lineTo(12.0f, tip); p.lineTo(16.5f, back);                             // its head
+    auto d = std::make_unique<juce::DrawablePath>();
+    d->setPath(p);
+    d->setFill(juce::FillType());
+    d->setStrokeFill(c);
+    d->setStrokeType(juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    return d;
+}
+
 FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
+    for (auto* b : {&pullSound_, &sendSound_}) {
+        const bool down = b == &pullSound_;
+        auto on = syncIcon(down, kText), off = syncIcon(down, kDim.withAlpha(0.4f));
+        b->setImages(on.get(), nullptr, nullptr, off.get());
+        b->setColour(juce::DrawableButton::backgroundColourId, kBox);
+        addAndMakeVisible(*b);
+    }
+    pullSound_.setTooltip("The selected part's sound from the connected FM-1 into this instance: its engine, preset, every value and FM6 patch");
+    sendSound_.setTooltip("The selected part's sound from here to the connected FM-1: what it plays now, not saved there");
+    pullSound_.onClick = [this] { proc_.feluccaPullSound(track_); };
+    sendSound_.onClick = [this] { proc_.feluccaSendSound(track_); };
     for (int i = 0; i < 4; ++i) {
         auto& b = trackButtons_[i];
         b.setButtonText("PART " + juce::String(i + 1));
@@ -250,11 +276,20 @@ FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     startTimerHz(10);   // automation shows as it plays
 }
 
+void FeluccaSoundPage::setStatus(const juce::String& s) {
+    info_.setText(s.isNotEmpty() ? s : juce::String(kInfoText), juce::dontSendNotification);
+}
+
 void FeluccaSoundPage::visibilityChanged() {
     if (isVisible()) refresh();   // what the device (or the library) changed meanwhile
 }
 
 void FeluccaSoundPage::timerCallback() {
+    {   // the sound's sync: with an FM-1 running Felucca, not while another job (Live) runs
+        const bool can = proc_.feluccaSynth() && !proc_.session.busy();
+        pullSound_.setEnabled(can);
+        sendSound_.setEnabled(can);
+    }
     if (auto e = engine(); e && e->selected() != track_ && e->selected() < 4) {   // chosen on the device (its panel, a synced FM-1)
         track_ = e->selected();
         trackButtons_[track_].setToggleState(true, juce::dontSendNotification);
@@ -419,7 +454,14 @@ void FeluccaSoundPage::resized() {
             for (auto* c : cs) c->setBounds(rr.removeFromLeft(w).reduced(2, 0));
         };
         even(row(), {&trackButtons_[0], &trackButtons_[1], &trackButtons_[2], &trackButtons_[3]});
-        even(row(), {&engineBox_, &presetBox_});
+        {
+            auto rr = row();
+            sendSound_.setBounds(rr.removeFromRight(30));
+            rr.removeFromRight(4);
+            pullSound_.setBounds(rr.removeFromRight(30));
+            rr.removeFromRight(4);
+            even(rr, {&engineBox_, &presetBox_});
+        }
         hostTempo_.setBounds(row(26));
         info_.setBounds(row(30));
         view_.setBounds(r);
@@ -432,6 +474,10 @@ void FeluccaSoundPage::resized() {
     engineBox_.setBounds(top.removeFromLeft(140));
     top.removeFromLeft(6);
     presetBox_.setBounds(top.removeFromLeft(170));
+    top.removeFromLeft(10);
+    pullSound_.setBounds(top.removeFromLeft(30));
+    top.removeFromLeft(4);
+    sendSound_.setBounds(top.removeFromLeft(30));
     r.removeFromTop(4);
     {
         auto row = r.removeFromTop(30);

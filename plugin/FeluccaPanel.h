@@ -48,6 +48,7 @@ public:
     void visibilityChanged() override;
     void refresh();   // the engine, presets and values again (after a project or user preset loads, say)
     std::function<void()> onPartChanged;   // another part selected (here or on the device)
+    void setStatus(const juce::String& s);   // in the info line (the sync's progress and outcome)
 
 private:
     struct Control {
@@ -78,6 +79,8 @@ private:
     int builtTrack_ = -1, builtEngine_ = -1;   // what the controls are for (the device can change either)
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;
+    // the selected part's sound from the connected FM-1, and to it (not saved there)
+    juce::DrawableButton pullSound_{"From FM-1", juce::DrawableButton::ImageFitted}, sendSound_{"To FM-1", juce::DrawableButton::ImageFitted};
     juce::ToggleButton hostTempo_{"Tempo follows the host"};
     juce::Label info_;
     juce::Viewport view_;
@@ -153,7 +156,7 @@ public:
     explicit FeluccaPanel(FM1Processor&);
     void resized() override;
     void refresh() { sound_.refresh(); list_.reload(); }   // after a project loads, say
-    void setStatus(const juce::String& s) { sync_.setStatus(s); }
+    void setStatus(const juce::String& s) { sync_.setStatus(s); sound_.setStatus(s); }
 
 private:
     FM1Processor& proc_;

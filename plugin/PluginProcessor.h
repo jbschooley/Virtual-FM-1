@@ -121,6 +121,10 @@ public:
     juce::String feluccaSynthProblem() const;  // connected to a Felucca too old to sync with: why
     bool feluccaPull();
     bool feluccaSend();
+    // One part's sound (engine, preset, values, FM6 patch) from the connected FM-1 running Felucca
+    // into this instance, or from here to it (its RAM: not saved there)
+    bool feluccaPullSound(int track);
+    bool feluccaSendSound(int track);
     bool feluccaLive(bool on);
     bool feluccaLiveOn() const { return felLive_.load(); }
     std::function<void()> onFeluccaLive;   // live sync ended (message thread)
