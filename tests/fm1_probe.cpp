@@ -193,8 +193,20 @@ int main(int argc, char** argv) {
             std::printf("plugin -> FM-1: part %d LFO RATE set to %d here, the FM-1 has %d: %s\n", sel + 1, want, got, got == want ? "ok" : "NOT CARRIED");
         }
         std::printf("live for %s s: turn knobs on the FM-1; values seen here are printed\n", argv[2]);
+        std::fflush(stdout);
         std::vector<float> l(256), r(256);
         std::vector<int> last(91, -99999);
+        int lastBpm = mine.f->global(0);
+        auto stepsOf = [&](int t) {   // the plugin's side's steps of a part, as TRACK_STEP gives them
+            std::vector<fm1::Bytes> out;
+            for (int i = 0; i < 64; ++i) {
+                auto m = mine.f->request(felucca::frame(felucca::kTrackStep, {uint8_t(t), uint8_t(i)}));
+                for (auto& x : m) if (felucca::commandOf(x) == felucca::kTrackStep) { out.push_back(felucca::argsOf(x)); break; }
+            }
+            return out;
+        };
+        std::vector<std::vector<fm1::Bytes>> lastSteps;
+        for (int t = 0; t < 4; ++t) lastSteps.push_back(stepsOf(t));
         const auto end = juce::Time::getMillisecondCounter() + juce::uint32(std::atoi(argv[2]) * 1000);
         while (juce::Time::getMillisecondCounter() < end) {
             for (int k = 0; k < 9; ++k) mine.f->render(l.data(), r.data(), 256);   // ~50 ms of its audio
@@ -206,6 +218,19 @@ int main(int argc, char** argv) {
                     std::printf("  part %d %s = %d\n", sel + 1, mine.f->paramDesc(sel, id).label.c_str(), v);
                 last[size_t(id)] = v;
             }
+            if (mine.f->global(0) != lastBpm) { lastBpm = mine.f->global(0); std::printf("  BPM = %d\n", lastBpm); }
+            static int every = 0;
+            if (++every % 20 == 0)   // about once a second: which steps changed
+                for (int t = 0; t < 4; ++t) {
+                    auto now = stepsOf(t);
+                    for (size_t i = 0; i < now.size() && i < lastSteps[size_t(t)].size(); ++i)
+                        if (now[i] != lastSteps[size_t(t)][i]) {
+                            const auto& a = now[i];
+                            std::printf("  part %d step %zu: %d note(s), first %d\n", t + 1, i + 1, a.size() > 2 ? a[2] : 0, a.size() > 3 ? a[3] : 0);
+                        }
+                    lastSteps[size_t(t)] = now;
+                }
+            std::fflush(stdout);
             pump(40);
         }
         mirror.stop();
