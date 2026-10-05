@@ -26,7 +26,7 @@ public:
         juce::String inputId, inputName, outputId, outputName;
     };
 
-    // Ports that look like an FM-1 over USB (her otaweb.js name patterns, skipping Bluetooth).
+    // Ports that look like an FM-1 (her otaweb.js name patterns), over USB if there is one, else Bluetooth.
     static std::optional<Ports> findFm1();
     static juce::Array<juce::MidiDeviceInfo> inputs()  { return juce::MidiInput::getAvailableDevices(); }
     static juce::Array<juce::MidiDeviceInfo> outputs() { return juce::MidiOutput::getAvailableDevices(); }

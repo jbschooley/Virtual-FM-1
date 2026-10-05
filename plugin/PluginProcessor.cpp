@@ -523,7 +523,7 @@ bool FM1Processor::connect(const juce::String& inputId, const juce::String& outp
 
 bool FM1Processor::autoConnect() {
     auto p = Fm1Link::findFm1();
-    if (!p) { if (onStatus) onStatus("No FM-1 found over USB. Connect it, switch it on, and try again."); return false; }
+    if (!p) { if (onStatus) onStatus("No FM-1 found. Connect it by USB (or pair it over Bluetooth MIDI), switch it on, and try again."); return false; }
     return connect(p->inputId, p->outputId);
 }
 

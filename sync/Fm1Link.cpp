@@ -7,17 +7,22 @@ Fm1Link::~Fm1Link() { close(); }
 
 std::optional<Fm1Link::Ports> Fm1Link::findFm1() {
     static const char* patterns[] = {"fm-1", "fm1", "ota-fm", "usb composite device", "usb-midi"};
-    auto pick = [](const juce::Array<juce::MidiDeviceInfo>& list) -> std::optional<juce::MidiDeviceInfo> {
+    // USB first: FM-1+VA answers sync requests only over USB. A Bluetooth MIDI
+    // connection (already paired, say, when the app restarts) still plays notes.
+    auto pick = [](const juce::Array<juce::MidiDeviceInfo>& list, bool bluetooth) -> std::optional<juce::MidiDeviceInfo> {
         for (const char* pat : patterns)
             for (const auto& d : list) {
                 auto low = d.name.toLowerCase();
-                if (low.contains(pat) && !low.contains("bluetooth") && !low.contains("ble")) return d;
+                bool ble = low.contains("bluetooth") || low.contains("ble");
+                if (low.contains(pat) && ble == bluetooth) return d;
             }
         return std::nullopt;
     };
-    auto i = pick(inputs()), o = pick(outputs());
-    if (!i || !o) return std::nullopt;
-    return Ports{i->identifier, i->name, o->identifier, o->name};
+    for (bool bluetooth : {false, true}) {
+        auto i = pick(inputs(), bluetooth), o = pick(outputs(), bluetooth);
+        if (i && o) return Ports{i->identifier, i->name, o->identifier, o->name};
+    }
+    return std::nullopt;
 }
 
 bool Fm1Link::open(const juce::String& inputId, const juce::String& outputId) {

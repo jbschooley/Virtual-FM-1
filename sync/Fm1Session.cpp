@@ -63,6 +63,13 @@ void Fm1Session::select(int slot, int midiChannel) {
     link_.sendRaw({uint8_t(0xC0 | ((midiChannel - 1) & 0x0F)), uint8_t(slot & 0x7F)});
 }
 
+namespace {
+// FM-1+VA (checked in FM-1_089) takes requests over Bluetooth MIDI but sends its
+// answers only over USB, and answers the identity request only over USB
+const juce::String kNoAnswer = "The FM-1 did not answer. Syncing needs a USB cable: over Bluetooth the FM-1 "
+                               "takes notes but sends nothing back. Check the cable and close other programs using its MIDI port.";
+}
+
 void Fm1Session::report(int done, int total, const juce::String& text, bool finished, bool failed) {
     Progress p{op_, done, total, text, finished, failed};
     juce::MessageManager::callAsync([this, p] { if (onProgress) onProgress(p); });
@@ -90,7 +97,7 @@ void Fm1Session::run() {
     case Op::Identify: {
         report(0, 1, "Asking the FM-1 which firmware it runs...");
         auto id = doIdentify();
-        if (!id) { report(0, 1, "The FM-1 did not answer. Check the cable and close other programs using its MIDI port.", true, true); return; }
+        if (!id) { report(0, 1, kNoAnswer, true, true); return; }
         juce::String text = juce::String(id->name());
         if (!firmware_->has(Feature::ReadPresets)) text += " (" + firmware_->summary() + ")";
         readGlobals();
@@ -100,7 +107,7 @@ void Fm1Session::run() {
     case Op::Pull: {
         int total = int(pullSlots_.size());
         report(0, total, "Reading...");
-        if (!identity_ && !doIdentify()) { report(0, total, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, total, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::ReadPresets)) { report(0, total, firmware_->cannot(Feature::ReadPresets), true, true); return; }
         for (int k = 0; k < total; ++k) {
             if (cancel_ || threadShouldExit()) { report(k, total, "Stopped.", true, true); return; }
@@ -117,7 +124,7 @@ void Fm1Session::run() {
     case Op::Push: {
         int total = int(pushSounds_.size());
         report(0, total, "Writing...");
-        if (!identity_ && !doIdentify()) { report(0, total, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, total, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::WritePresets)) { report(0, total, firmware_->cannot(Feature::WritePresets), true, true); return; }
         const bool check = firmware_->has(Feature::ReadPresets);
         for (int k = 0; k < total; ++k) {
@@ -151,7 +158,7 @@ void Fm1Session::run() {
     case Op::PullPatterns: {
         int total = int(pullPats_.size());
         report(0, total, "Reading patterns...");
-        if (!identity_ && !doIdentify()) { report(0, total, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, total, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::ReadPatterns)) { report(0, total, firmware_->cannot(Feature::ReadPatterns), true, true); return; }
         for (int k = 0; k < total; ++k) {
             if (cancel_ || threadShouldExit()) { report(k, total, "Stopped.", true, true); return; }
@@ -168,7 +175,7 @@ void Fm1Session::run() {
     case Op::PushPatterns: {
         int total = int(pushPats_.size());
         report(0, total, "Writing patterns...");
-        if (!identity_ && !doIdentify()) { report(0, total, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, total, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::WritePatterns)) { report(0, total, firmware_->cannot(Feature::WritePatterns), true, true); return; }
         for (int k = 0; k < total; ++k) {
             if (cancel_ || threadShouldExit()) { report(k, total, "Stopped.", true, true); return; }
@@ -185,7 +192,7 @@ void Fm1Session::run() {
         return;
     }
     case Op::ReadGlobals: {
-        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, 1, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::ReadGlobals)) { report(0, 1, firmware_->cannot(Feature::ReadGlobals), true, true); return; }
         juce::String err;
         auto g = firmware_->readGlobals(p, err);
@@ -196,7 +203,7 @@ void Fm1Session::run() {
     }
     case Op::PullCurrent: {
         report(0, 1, "Reading the synth's current sound...");
-        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, 1, kNoAnswer, true, true); return; }
         if (!firmware_->has(Feature::ReadCurrent)) { report(0, 1, firmware_->cannot(Feature::ReadCurrent), true, true); return; }
         juce::String err;
         auto cur = firmware_->readCurrent(p, err);
@@ -209,7 +216,7 @@ void Fm1Session::run() {
     }
     case Op::SendEdit: {
         report(0, 1, "Sending to the synth's edit buffer...");
-        if (!identity_ && !doIdentify()) { report(0, 1, "The FM-1 did not answer.", true, true); return; }
+        if (!identity_ && !doIdentify()) { report(0, 1, kNoAnswer, true, true); return; }
         if (editSelect_ && editSound_.slot >= 0) { select(editSound_.slot); juce::Thread::sleep(250); }
         auto msgs = firmware_->editMessages(editSound_, editCh_);
         for (size_t i = 0; i < msgs.size(); ++i) {
