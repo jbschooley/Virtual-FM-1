@@ -33,7 +33,8 @@ private:
         std::vector<Control> controls;
     };
 
-    FeluccaEngine* engine() const { return proc_.felucca(); }
+    std::shared_ptr<FeluccaEngine> engine() const { return proc_.felucca(); }   // held for the call
+    void updateTempoControl();   // Global BPM is the host's while the tempo follows it
     void selectTrack(int t);
     void build();          // the groups and their controls for the selected track
     void loadValues();

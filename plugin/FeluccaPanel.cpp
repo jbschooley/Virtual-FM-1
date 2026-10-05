@@ -8,7 +8,7 @@ namespace {
 // its pages group them. Ids beyond what a version has are skipped.
 struct GroupDef { const char* title; int first, last; bool parts, drums; };
 const GroupDef kTrackGroups[] = {
-    {"Engine", 49, 56, true, false},
+    {"Engine", -1, -1, true, false},   // the engine's eight: from firstEngineParam()
     {"Envelope", 1, 4, true, false},
     {"Envelope to", 5, 7, true, false},
     {"LFO", 9, 12, true, false},
@@ -41,14 +41,16 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
     for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_}) addAndMakeVisible(c);
     engineBox_.setTooltip("The part's engine: its own defaults and first preset");
     engineBox_.onChange = [this] {
-        if (loading_ || !engine()) return;
-        engine()->setEngine(track_, engineBox_.getSelectedId() - 1);
+        auto e = engine();
+        if (loading_ || !e) return;
+        e->setEngine(track_, engineBox_.getSelectedId() - 1);
         build();
     };
     presetBox_.setTooltip("Felucca's built-in presets for this engine");
     presetBox_.onChange = [this] {
-        if (loading_ || !engine()) return;
-        engine()->applyPreset(track_, presetBox_.getSelectedId() - 1);
+        auto e = engine();
+        if (loading_ || !e) return;
+        e->applyPreset(track_, presetBox_.getSelectedId() - 1);
         loadValues();
     };
     hostTempo_.setTooltip("On: Felucca's tempo is the host's. Off: its own BPM (Global > BPM). Saved with the project.");
@@ -56,6 +58,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
         auto s = proc_.settings();
         s.hostTempo = hostTempo_.getToggleState();
         proc_.setSettings(s);
+        updateTempoControl();
     };
     info_.setColour(juce::Label::textColourId, kDim);
     info_.setFont(juce::FontOptions(12.0f));
@@ -68,7 +71,18 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
 
 void FeluccaPanel::refresh() {
     hostTempo_.setToggleState(proc_.settings().hostTempo, juce::dontSendNotification);
+    const auto scroll = view_.getViewPosition();
     build();
+    view_.setViewPosition(scroll);
+}
+
+void FeluccaPanel::updateTempoControl() {
+    for (auto& g : groups_)
+        for (auto& c : g.controls)
+            if (c.global && c.id == 0 && c.slider) {   // G_BPM
+                c.slider->setEnabled(!proc_.settings().hostTempo);
+                c.slider->setTooltip(proc_.settings().hostTempo ? "The host's tempo, while \"Tempo follows the host\" is on" : juce::String());
+            }
 }
 
 void FeluccaPanel::selectTrack(int t) {
@@ -77,7 +91,8 @@ void FeluccaPanel::selectTrack(int t) {
 }
 
 void FeluccaPanel::build() {
-    auto* f = engine();
+    auto held = engine();
+    auto* f = held.get();
     groups_.clear();
     content_.removeAllChildren();
     loading_ = true;
@@ -111,9 +126,10 @@ void FeluccaPanel::build() {
             const int min = d.min;
             auto* box = c.box.get();
             box->onChange = [this, box, id, min, global] {
-                if (loading_ || !engine()) return;
+                auto e = engine();
+                if (loading_ || !e) return;
                 const int v = min + box->getSelectedId() - 1;
-                if (global) engine()->setGlobal(id, v); else engine()->setParam(track_, id, v);
+                if (global) e->setGlobal(id, v); else e->setParam(track_, id, v);
             };
             content_.addAndMakeVisible(*c.box);
         } else {
@@ -123,9 +139,10 @@ void FeluccaPanel::build() {
             c.slider->setDoubleClickReturnValue(true, d.def);
             auto* sl = c.slider.get();
             sl->onValueChange = [this, sl, id, global] {
-                if (loading_ || !engine()) return;
+                auto e = engine();
+                if (loading_ || !e) return;
                 const int v = int(std::lround(sl->getValue()));
-                if (global) engine()->setGlobal(id, v); else engine()->setParam(track_, id, v);
+                if (global) e->setGlobal(id, v); else e->setParam(track_, id, v);
             };
             content_.addAndMakeVisible(*c.slider);
         }
@@ -147,7 +164,9 @@ void FeluccaPanel::build() {
             g.title = juce::String(f->engineName(e)) + ": " + f->enginePage(e, 0) + " / " + f->enginePage(e, 1);
         }
         addHeader(g);
-        for (int id = def.first; id <= def.last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
+        const int first = def.first >= 0 ? def.first : f->firstEngineParam();
+        const int last = def.first >= 0 ? def.last : f->firstEngineParam() + 7;
+        for (int id = first; id <= last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
     {
@@ -160,11 +179,13 @@ void FeluccaPanel::build() {
     }
     loading_ = false;
     loadValues();
+    updateTempoControl();
     layoutContent();
 }
 
 void FeluccaPanel::loadValues() {
-    auto* f = engine();
+    auto held = engine();
+    auto* f = held.get();
     if (!f) return;
     loading_ = true;
     for (auto& g : groups_)
