@@ -49,6 +49,11 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
   one, each instance's state saved out of the copy and put back before it
   plays (`felucca_core.c` `state_get` / `state_put`). An instance always plays
   in the copy it started in, since its state holds pointers into that copy.
+- What every copy reads and none writes is compiled once: CMakeLists.txt writes,
+  from `generated/felucca_samples.h`, a copy where `SMP_DATA` (the sample sets)
+  is only declared, and `felucca_shared.c` defining it, with the empty user
+  sample slots. A new `gen_samples.py` that names it differently stops the
+  configure with a message.
 - Felucca 1.0 has four parts and no separate drum track (DRUM is an engine,
   on part 4 at power-on). Engine 1 (DIGITAL) is retired and not built
   (`FELUCCA_FM4` 0): a DIGITAL sound arrives as FM6 with a converted patch,
