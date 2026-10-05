@@ -6,7 +6,8 @@ Fm1Link::Fm1Link() = default;
 Fm1Link::~Fm1Link() { close(); }
 
 std::optional<Fm1Link::Ports> Fm1Link::findFm1() {
-    static const char* patterns[] = {"fm-1", "fm1", "ota-fm", "usb composite device", "usb-midi"};
+    // ("felucca": an FM-1 running Felucca names its port so; never "Felucca Update", its update loader)
+    static const char* patterns[] = {"fm-1", "fm1", "ota-fm", "felucca", "usb composite device", "usb-midi"};
     // USB first: FM-1+VA answers sync requests only over USB. A Bluetooth MIDI
     // connection (already paired, say, when the app restarts) still plays notes.
     auto pick = [](const juce::Array<juce::MidiDeviceInfo>& list, bool bluetooth) -> std::optional<juce::MidiDeviceInfo> {
@@ -14,7 +15,7 @@ std::optional<Fm1Link::Ports> Fm1Link::findFm1() {
             for (const auto& d : list) {
                 auto low = d.name.toLowerCase();
                 bool ble = low.contains("bluetooth") || low.containsWholeWord("ble");   // not "cable", "Ableton"
-                if (low.contains(pat) && ble == bluetooth) return d;
+                if (low.contains(pat) && ble == bluetooth && !(low.contains("felucca") && low.contains("update"))) return d;
             }
         return std::nullopt;
     };
