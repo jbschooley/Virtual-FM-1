@@ -172,7 +172,7 @@ int main(int argc, char** argv) {
         felucca::Objects source = *theirs;
         if (argc > 3) {
             source.clear();
-            if (!felucca::readBackup(juce::File(argv[3]), source, err)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
+            if (!felucca::readBackup(juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), source, err)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
             std::printf("the plugin's Felucca from %s\n", argv[3]);
         }
         if (!felucca::restore(mine, source, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
