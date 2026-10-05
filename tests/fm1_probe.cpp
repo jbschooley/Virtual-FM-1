@@ -7,6 +7,9 @@
 //   fm1_probe roundtrip <slot>          read a preset, write the same bytes back, verify
 //   fm1_probe patterns <first> <last>   read sequencer patterns (0-based)
 //   fm1_probe dump <file.syx>           read all 128 presets into an FM-1+VA .syx backup
+//   fm1_probe felucca-backup <file.json> an FM-1 running Felucca: every object, as its web editor saves a backup
+//   fm1_probe felucca-live <seconds>     an FM-1 running Felucca mirrored live with a Felucca of the plugin's own
+//                                        (no flash written: values, steps, selection)
 
 #include <cstdio>
 
@@ -19,6 +22,10 @@
 #include "Fm1Record.h"
 #include "Fm1Session.h"
 #include "FmSynth.h"
+#include "FeluccaSync.h"
+#if FM1_FELUCCA
+ #include "FeluccaEngine.h"
+#endif
 #include <juce_audio_formats/juce_audio_formats.h>
 
 static void pump(int ms) {
@@ -133,6 +140,79 @@ int main(int argc, char** argv) {
         std::printf("write-back verified: %s\n", written.size() == 1 && written[0].voice == read[0].voice && written[0].record == read[0].record ? "yes" : "NO");
         return written.size() == 1 ? 0 : 1;
     }
+    if (cmd == "felucca-backup" && argc > 2) {   // reads only
+        felucca::LinkEndpoint synth(link);
+        juce::String err;
+        auto o = felucca::backup(synth, [](int done, int total, const juce::String&) { std::printf("\r  %d / %d bytes", done, total); std::fflush(stdout); return true; }, err);
+        std::printf("\n");
+        if (!o) { std::printf("failed: %s\n", err.toRawUTF8()); return 1; }
+        for (auto& [id, b] : *o) std::printf("  object %d: %zu bytes\n", id, b.size());
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*o, "FM-1 running Felucca"));
+        std::printf("wrote %s\n", argv[2]);
+        return 0;
+    }
+   #if FM1_FELUCCA
+    if (cmd == "felucca-live" && argc > 2) {   // the synth's values, steps and selection change; no flash written
+        struct Mine : felucca::Endpoint {
+            std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
+            std::vector<fm1::Bytes> got;
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override {
+                std::optional<fm1::Bytes> r;
+                for (auto& m : f->request(q)) { if (felucca::isPush(felucca::commandOf(m))) got.push_back(m); else if (felucca::commandOf(m) == felucca::commandOf(q) && !r) r = m; }
+                return r;
+            }
+            std::vector<fm1::Bytes> pushes() override {
+                for (auto& m : f->takeSysex()) if (felucca::isPush(felucca::commandOf(m))) got.push_back(m);
+                std::vector<fm1::Bytes> out; out.swap(got); return out;
+            }
+        } mine;
+        felucca::LinkEndpoint synth(link);
+        juce::String err;
+        // start alike: the synth's music into the plugin's Felucca (read from the synth only)
+        auto o = felucca::backup(synth, {}, err);
+        if (!o) { std::printf("backup failed: %s\n", err.toRawUTF8()); return 1; }
+        const int rc = mine.f->putObject(0, (*o)[0]);
+        std::printf("the synth's music into the plugin's Felucca: rc %d; part 1 engine %s\n", rc, mine.f->engineName(mine.f->engineOf(0)).c_str());
+        felucca::Mirror mirror(synth, mine);
+        if (!mirror.start(err)) { std::printf("mirror did not start: %s\n", err.toRawUTF8()); return 1; }
+        {   // the plugin's side to the synth: a value set here, read back from the synth (its RAM only)
+            const int sel = mine.f->selected(), id = 9;   // P_LRATE of the selected part
+            const int want = (mine.f->param(sel, id) + 17) % 128;
+            mine.f->setParam(sel, id, want);
+            std::vector<float> l0(256), r0(256);
+            int got = -1;
+            for (int i = 0; i < 40 && got != want; ++i) {
+                for (int k = 0; k < 4; ++k) mine.f->render(l0.data(), r0.data(), 256);
+                mirror.tick(err);
+                if (auto rep = synth.ask(felucca::frame(felucca::kTrackParam, {uint8_t(sel), uint8_t(id)}), 400)) {
+                    auto a = felucca::argsOf(*rep);
+                    if (a.size() >= 4) got = (int(a[2]) | int(a[3]) << 7) - 8192;
+                }
+                pump(20);
+            }
+            std::printf("plugin -> FM-1: part %d LFO RATE set to %d here, the FM-1 has %d: %s\n", sel + 1, want, got, got == want ? "ok" : "NOT CARRIED");
+        }
+        std::printf("live for %s s: turn knobs on the FM-1; values seen here are printed\n", argv[2]);
+        std::vector<float> l(256), r(256);
+        std::vector<int> last(91, -99999);
+        const auto end = juce::Time::getMillisecondCounter() + juce::uint32(std::atoi(argv[2]) * 1000);
+        while (juce::Time::getMillisecondCounter() < end) {
+            for (int k = 0; k < 9; ++k) mine.f->render(l.data(), r.data(), 256);   // ~50 ms of its audio
+            if (!mirror.tick(err)) { std::printf("mirror stopped: %s\n", err.toRawUTF8()); return 1; }
+            const int sel = mine.f->selected();
+            for (int id = 0; id < mine.f->paramCount(); ++id) {
+                const int v = mine.f->param(sel, id);
+                if (last[size_t(id)] != -99999 && v != last[size_t(id)])
+                    std::printf("  part %d %s = %d\n", sel + 1, mine.f->paramDesc(sel, id).label.c_str(), v);
+                last[size_t(id)] = v;
+            }
+            pump(40);
+        }
+        mirror.stop();
+        std::printf("done\n");
+        return 0;
+    }
+   #endif
     if (cmd == "patterns") {   // patterns <first> <last> [file.syx]: read; with a file, keep them as the messages that write them back
         session.pullPatterns(range(0, 1));
         waitIdle(session);

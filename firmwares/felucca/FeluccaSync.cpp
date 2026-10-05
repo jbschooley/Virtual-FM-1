@@ -68,6 +68,70 @@ std::vector<uint8_t> argsOf(const Bytes& f) {
 
 bool isPush(int cmd) { return cmd == kChanged || cmd == kReload || cmd == kStepChanged || cmd == kTrackChanged; }
 
+// ---- the full backup as a file (Felucca's web editor: web/fm1backup.js) ----
+
+const std::vector<int>& backupIds() {
+    static const std::vector<int> ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34};
+    return ids;
+}
+
+bool readBackup(const juce::File& f, Objects& out, juce::String& error) {
+    out.clear();
+    auto v = juce::JSON::parse(f.loadFileAsString());
+    auto* objs = v.getProperty("objects", {}).getArray();
+    const auto& ids = backupIds();
+    // (an archive of firmware before FM6 has no object 8: 11 objects)
+    if (v.getProperty("format", {}).toString() != "felucca-backup" || int(v.getProperty("version", 0)) != 1 || !objs
+        || (objs->size() != int(ids.size()) && objs->size() != int(ids.size()) - 1)) {
+        error = "not a complete Felucca backup";
+        return false;
+    }
+    for (const auto& o : *objs) {
+        const int id = o.getProperty("id", -1), size = o.getProperty("size", -1);
+        const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
+        juce::MemoryOutputStream data;
+        if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > (id >= 32 ? 81920 : 3840)
+            || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
+            error = "object " + juce::String(id) + " is damaged";
+            return false;
+        }
+        const auto* b = static_cast<const uint8_t*>(data.getData());
+        std::vector<uint8_t> bytes(b, b + data.getDataSize());
+        if (crc32(bytes) != crc) {
+            error = "object " + juce::String(id) + " fails its checksum";
+            return false;
+        }
+        out[id] = std::move(bytes);
+    }
+    if (out[0].empty() || out[1].empty()) {
+        error = "the backup has no music or settings";
+        return false;
+    }
+    return true;
+}
+
+juce::String backupJson(const Objects& objects, const juce::String& firmware) {
+    juce::Array<juce::var> list;
+    for (int id : backupIds()) {
+        auto it = objects.find(id);
+        const std::vector<uint8_t> none;
+        const auto& b = it != objects.end() ? it->second : none;
+        auto* o = new juce::DynamicObject();
+        o->setProperty("id", id);
+        o->setProperty("size", int(b.size()));
+        o->setProperty("crc", b.empty() ? juce::int64(0) : juce::int64(crc32(b)));
+        o->setProperty("data", juce::Base64::toBase64(b.data(), b.size()));
+        list.add(juce::var(o));
+    }
+    auto* root = new juce::DynamicObject();
+    root->setProperty("format", "felucca-backup");
+    root->setProperty("version", 1);
+    root->setProperty("firmware", firmware);
+    root->setProperty("created", juce::Time::getCurrentTime().toISO8601(true));
+    root->setProperty("objects", list);
+    return juce::JSON::toString(juce::var(root), false);
+}
+
 // ---- a real synth ----
 
 LinkEndpoint::LinkEndpoint(Fm1Link& link) : link_(link) {

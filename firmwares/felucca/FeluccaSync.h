@@ -63,6 +63,13 @@ private:
     std::deque<Bytes> pushes_;
 };
 
+// The ids a full backup holds, in order: 0..8, then the user sample slots 32..34.
+const std::vector<int>& backupIds();
+// A backup file ("felucca-backup" version 1, JSON), as Felucca's web editor reads and writes
+// it: every object's size and CRC checked.
+bool readBackup(const juce::File& f, Objects& out, juce::String& error);
+juce::String backupJson(const Objects& objects, const juce::String& firmware);
+
 // done, total, what: false to stop
 using Progress = std::function<bool(int done, int total, const juce::String& text)>;
 

@@ -34,12 +34,6 @@ private:
     std::vector<Bytes> pushes_;
 };
 
-// The ids a full backup holds, in order: 0..8, then the user sample slots 32..34.
-const std::vector<int>& backupIds();
-// Read a backup file: every object's size and CRC checked, as the web editor checks them.
-bool readBackup(const juce::File& f, Objects& out, juce::String& error);
-juce::String backupJson(const Objects& objects, const juce::String& firmware);
-
 class DeviceStore {
 public:
     static juce::File defaultFile();           // <library>/Felucca/Felucca device.json

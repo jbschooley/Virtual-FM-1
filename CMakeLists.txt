@@ -265,7 +265,7 @@ if(FM1_BUILD_PLUGIN)
     juce_add_console_app(fm1_probe PRODUCT_NAME "fm1_probe")
     target_sources(fm1_probe PRIVATE tests/fm1_probe.cpp ${FM1_DEVICE_SOURCES})
     target_include_directories(fm1_probe PRIVATE ${FM1_DEVICE_INCLUDES})
-    target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine fm1_test_juce)
+    target_link_libraries(fm1_probe PRIVATE fm1_sync fm1_engine fm1_test_juce $<$<BOOL:${FM1_BUILD_FELUCCA}>:fm1_felucca>)
     endif()
     endif()
 
