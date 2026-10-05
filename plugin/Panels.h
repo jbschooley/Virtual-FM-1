@@ -18,6 +18,9 @@ public:
     ParamGrid(juce::AudioProcessorValueTreeState& apvts, const juce::StringArray& ids, const juce::StringArray& labels, int columns, int cellW = 64, int cellH = 74);
     void resized() override;
     int preferredHeight() const;
+    int count() const { return int(cells_.size()); }
+    int cellWidth() const { return cellW_; }
+    void setColumns(int c) { columns_ = std::max(1, c); resized(); }   // to fit the width there is
 
 private:
     struct Cell {
@@ -123,6 +126,10 @@ public:
     void resized() override;
 
 private:
+    // each group a header and its controls: beside it when the width allows, else under it,
+    // wrapped to the width; the page scrolls when it is taller than the window
+    juce::Viewport view_;
+    juce::Component content_;
     std::vector<std::unique_ptr<juce::Label>> headers_;
     std::vector<std::unique_ptr<ParamGrid>> grids_;
     juce::Label note_;

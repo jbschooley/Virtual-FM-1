@@ -501,50 +501,63 @@ void FmEditorPanel::resized() {
 
 FxPanel::FxPanel(FM1Processor& p) {
     auto& apvts = p.apvts;
-    int y = 0;
+    addAndMakeVisible(view_);
+    view_.setViewedComponent(&content_, false);
+    view_.setScrollBarsShown(true, false);
+    auto group = [&](const juce::String& title, const juce::StringArray& ids, const juce::StringArray& labels) {
+        makeLabel(headers_, content_, title, 14.0f, true);
+        auto g = std::make_unique<ParamGrid>(apvts, ids, labels, ids.size(), 90, 74);
+        content_.addAndMakeVisible(*g);
+        grids_.push_back(std::move(g));
+    };
     for (int e = 0; e < fm1::kEffects; ++e) {
         juce::StringArray ids, labels;
         ids.add(Params::fxOnId(e)); labels.add("On");
         if (fm1::kEffectTypeCount[e]) { ids.add(Params::fxTypeId(e)); labels.add("Type"); }
         for (int i = 0; i < 3; ++i)
             if (fm1::kEffectParamNames[e][i][0]) { ids.add(Params::fxParamId(e, i)); labels.add(fm1::kEffectParamNames[e][i]); }
-        auto* h = makeLabel(headers_, *this, fm1::kEffectNames[e], 14.0f, true);
-        h->setBounds(10, y + 10, 200, 20);
-        auto g = std::make_unique<ParamGrid>(apvts, ids, labels, 5, 90, 74);
-        g->setBounds(130, y, 5 * 90, g->preferredHeight());
-        addAndMakeVisible(*g);
-        grids_.push_back(std::move(g));
-        y += 78;
+        group(fm1::kEffectNames[e], ids, labels);
     }
     {
         juce::StringArray fids, flabels;
         const char* names[10] = {"On", "Type", "Key Track", "Cutoff", "Resonance", "Envelope", "Decay", "Shape", "Velocity", "LFO > Cutoff"};
         for (int f = 0; f < 10; ++f) { fids.add(Params::filterId(f)); flabels.add(names[f]); }
-        auto* fh = makeLabel(headers_, *this, "Filter (per note)", 14.0f, true);
-        fh->setBounds(10, y + 10, 120, 20);
-        auto fg = std::make_unique<ParamGrid>(apvts, fids, flabels, 10, 90, 74);
-        fg->setBounds(130, y, 10 * 90, fg->preferredHeight());
-        addAndMakeVisible(*fg);
-        grids_.push_back(std::move(fg));
-        y += 78;
+        group("Filter (per note)", fids, flabels);
     }
-    juce::StringArray ids = {Params::kEnvOn, Params::envId(0), Params::envId(1), Params::envId(2), Params::envId(3)};
-    juce::StringArray labels = {"On", "Attack", "Decay", "Sustain", "Release"};
-    auto* h = makeLabel(headers_, *this, "Envelope", 14.0f, true);
-    h->setBounds(10, y + 10, 200, 20);
-    auto g = std::make_unique<ParamGrid>(apvts, ids, labels, 5, 90, 74);
-    g->setBounds(130, y, 5 * 90, g->preferredHeight());
-    addAndMakeVisible(*g);
-    grids_.push_back(std::move(g));
-    y += 84;
+    group("Envelope", {Params::kEnvOn, Params::envId(0), Params::envId(1), Params::envId(2), Params::envId(3)},
+          {"On", "Attack", "Decay", "Sustain", "Release"});
     note_.setText("Effects run in the preset's chain order. The filter (FM-1_092 and later) runs on each note after the operators. Both sound like the FM-1's approximately; the values sync exactly.", juce::dontSendNotification);
     note_.setFont(juce::FontOptions(12.0f));
     note_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.6f));
-    note_.setBounds(10, y, 800, 20);
-    addAndMakeVisible(note_);
+    note_.setJustificationType(juce::Justification::topLeft);
+    content_.addAndMakeVisible(note_);
 }
 
-void FxPanel::resized() {}
+void FxPanel::resized() {
+    view_.setBounds(getLocalBounds());
+    const int w = std::max(200, view_.getWidth() - view_.getScrollBarThickness());
+    const int headerW = 130;
+    int y = 0;
+    for (size_t i = 0; i < grids_.size(); ++i) {
+        auto& g = *grids_[i];
+        const int cell = g.cellWidth();
+        if (w >= headerW + g.count() * cell) {   // header beside its controls, in one row
+            headers_[i]->setBounds(10, y + 10, headerW - 10, 20);
+            g.setColumns(g.count());
+            g.setBounds(headerW, y, g.count() * cell, g.preferredHeight());
+        } else {                                  // header above, the controls wrapped to the width
+            headers_[i]->setBounds(10, y + 4, w - 20, 20);
+            y += 24;
+            const int cols = std::max(1, (w - 10) / cell);
+            g.setColumns(cols);
+            g.setBounds(10, y, std::min(g.count(), cols) * cell, g.preferredHeight());
+        }
+        y += g.preferredHeight() + 4;
+    }
+    y += 6;
+    note_.setBounds(10, y, w - 20, 48);
+    content_.setSize(w, y + 56);
+}
 
 // ---- SeqPanel --------------------------------------------------------------------------
 
