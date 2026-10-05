@@ -23,6 +23,8 @@ private:
     void offerSwitch(const fm1::Identity& synth);        // a synth with another firmware connected
 
     FM1Processor& proc_;
+    juce::TooltipWindow tooltips_{this, 600};
+    bool askingSwitch_ = false;
     juce::ComboBox firmware_;
     juce::Label unsupported_;
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};

@@ -276,7 +276,11 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const int numSamples = buffer.getNumSamples();
     if (mono_.getNumSamples() < numSamples) mono_.setSize(1, numSamples, false, false, true);
     // a firmware the plugin cannot play yet (Felucca, until its engines are in) is silent
-    if (!emulates()) { midi.clear(); return; }
+    if (!emulates()) {
+        keyboardMidi.removeNextBlockOfMessages(midi, numSamples);   // the on-screen keyboard's queue must not grow
+        midi.clear();
+        return;
+    }
 
     if (params.changed.exchange(false)) applyParamsToEngine();
     for (int i = 0; i < 6; ++i) synth_.setOperatorEnabled(i, opEnabled[size_t(i)].load());
@@ -338,7 +342,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         engineEvents_.clear();
         for (const auto meta : synthEvents_) {
             const int at = numSamples > 0 ? int(juce::int64(meta.samplePosition) * need / numSamples) : 0;
-            engineEvents_.addEvent(meta.getMessage(), juce::jlimit(0, need, at));
+            engineEvents_.addEvent(meta.getMessage(), juce::jlimit(0, std::max(0, need - 1), at));
         }
         renderEngine(engineBuf_.getWritePointer(0), need, engineEvents_);
         toHost_.process(engineBuf_.getReadPointer(0), need, out, numSamples);

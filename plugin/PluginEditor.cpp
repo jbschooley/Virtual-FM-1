@@ -97,6 +97,8 @@ void FM1Editor::chooseFirmware(const juce::String& id) {
 
 void FM1Editor::offerSwitch(const fm1::Identity& synth) {
     proc_.clearPendingMismatch();
+    if (askingSwitch_) return;   // one question at a time, however often Find FM-1 is pressed
+    askingSwitch_ = true;
     const juce::String theirs = fm1::firmwareIdFor(synth);
     const auto& mine = fm1::firmwareChoice(proc_.firmwareId().toStdString());
     const auto& other = fm1::firmwareChoice(theirs.toStdString());
@@ -106,6 +108,7 @@ void FM1Editor::offerSwitch(const fm1::Identity& synth) {
                      + " to connect? If not, the plugin stays disconnected and syncs nothing.")
         .withButton("Switch to " + juce::String(other.name)).withButton("Keep " + juce::String(mine.name)).withAssociatedComponent(this);
     juce::AlertWindow::showAsync(opts, [this, theirs, mine = juce::String(mine.name)](int r) {
+        askingSwitch_ = false;
         if (r == 1) { proc_.setFirmware(theirs); proc_.autoConnect(); }
         else library_.setStatus("Not connected: the FM-1 runs another firmware than this instance (" + mine + "). Find FM-1 to try again.");
     });
