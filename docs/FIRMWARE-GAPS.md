@@ -83,6 +83,23 @@ measured output stage. Getting it exact needs her source:
 | The master volume's scaling | Hardware character's FM-1 volume is set in dB below full, not in knob positions | How MASTER scales the output, so the setting can follow the knob |
 | The USB audio's dropped or repeated blocks, the 68 Hz sidebands | Not modelled (a transport fault) | The USB audio buffer handling, in case it can be fixed in the firmware |
 
+## 2c. Syncing over Bluetooth MIDI
+
+Over Bluetooth the FM-1 plays notes, but the plugin cannot sync: it reports
+that the FM-1 did not answer. Found by disassembling FM-1_089 (FM-1_093 not
+checked; it behaves the same on an iPad):
+
+| What | Over Bluetooth MIDI | Where in FM-1_089 |
+|---|---|---|
+| `F0 43 00 7D` requests | Reach the same handler as over USB; writes are applied (not tested on hardware) | BLE MIDI writes go to the same MIDI parser as USB, then the `7D` handler |
+| Replies (`F0 7D ...`) | Sent only over USB. With no USB host connected, a read is dropped without a reply; with one, the reply goes to the USB host | The reply sender fills a USB-only transmit buffer and returns early when no USB host is attached |
+| Identity request (`F0 00 32 45 ...`) | Not answered | Recognised only in the USB receive path, and on a separate (non-MIDI) vendor Bluetooth service |
+
+The plugin cannot work around this. Reads need replies, so the plugin can only
+push over Bluetooth, unconfirmed (not built). Look for in her source: send each
+reply back over the transport the request came in on (USB or Bluetooth), and
+answer the identity request on both.
+
 ## 3. Addresses that depend on the firmware build
 
 | What | FM-1_093 | Today on other builds |

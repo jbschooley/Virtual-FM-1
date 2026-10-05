@@ -97,6 +97,10 @@ glide time, drive, CC7 volume, overdub. A firmware sends the ones it has.
   tools treat silence after retries as "not supported".
 - New fields go at the end of a reply; tools ignore what they do not know.
 - Command numbers are agreed once and never reused.
+- A reply goes back over the transport the request came in on: USB MIDI,
+  Bluetooth MIDI or a DIN port. FM-1+VA today answers only over USB, so tools
+  on an iPad or phone connected over Bluetooth cannot sync (see
+  [`FIRMWARE-GAPS.md`](FIRMWARE-GAPS.md), 2c).
 
 ## If a firmware uses a different protocol
 
