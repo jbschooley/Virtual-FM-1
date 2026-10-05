@@ -326,25 +326,26 @@ static int checks() {
         q.setFirmware("baudgirl_fm1va");
         q.setFirmware("felucca");
         CHECK(q.felucca() != nullptr && q.felucca()->engineOf(1) == 6, "switching away and back keeps Felucca's sound");
-        // values find their parameters by label: the saved list shifted by one still lands right
+        // the project keeps Felucca's own format (a FUN8 project); a damaged one is refused whole
         {
             auto tree = juce::ValueTree::readFromData(project.getData(), project.getSize()).getChildWithName("Felucca").createCopy();
-            auto tr = tree.getChildWithProperty("i", 1);
-            auto vs = juce::StringArray::fromTokens(tr.getProperty("params").toString(), ",", "");
-            auto ls = juce::StringArray::fromTokens(tr.getProperty("labels").toString(), ",", "");
-            vs.insert(0, "7"); ls.insert(0, "NEWPARAM");   // as if a later Felucca had saved a parameter we do not have
-            tr.setProperty("params", vs.joinIntoString(","), nullptr);
-            tr.setProperty("labels", ls.joinIntoString(","), nullptr);
-            FM1Processor shifted;
-            shifted.setFirmware("felucca");
-            juce::ValueTree st("FM1Companion");
-            st.setProperty("firmware", "felucca", nullptr);
-            st.addChild(tree, -1, nullptr);
-            juce::MemoryOutputStream os;
-            st.writeToStream(os);
-            shifted.setStateInformation(os.getData(), int(os.getDataSize()));
-            CHECK(shifted.felucca() != nullptr && shifted.felucca()->param(1, shifted.felucca()->firstEngineParam() + 2) == felParamValue,
-                  "a saved value finds its parameter by label when the positions moved");
+            juce::MemoryOutputStream music;
+            CHECK(juce::Base64::convertFromBase64(music, tree.getProperty("music").toString()) && music.getDataSize() == 3584,
+                  "the project holds Felucca's music as Felucca saves a project");
+            if (music.getDataSize() == 3584) {
+                auto* bytes = static_cast<uint8_t*>(const_cast<void*>(music.getData()));
+                bytes[200] ^= 0x5A;   // its hash no longer matches
+                tree.setProperty("music", juce::Base64::toBase64(bytes, music.getDataSize()), nullptr);
+                FM1Processor damaged;
+                juce::ValueTree st("FM1Companion");
+                st.setProperty("firmware", "felucca", nullptr);
+                st.addChild(tree, -1, nullptr);
+                juce::MemoryOutputStream os;
+                st.writeToStream(os);
+                damaged.setStateInformation(os.getData(), int(os.getDataSize()));
+                CHECK(damaged.felucca() != nullptr && damaged.felucca()->engineOf(1) != 6,
+                      "a damaged Felucca project is refused: the power-on sound stays");
+            }
         }
         if (q.felucca() != nullptr) {
             CHECK(q.felucca()->engineOf(1) == 6, "with each part's engine");
