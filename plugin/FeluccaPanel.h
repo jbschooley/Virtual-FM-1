@@ -79,7 +79,7 @@ private:
     int builtTrack_ = -1, builtEngine_ = -1;   // what the controls are for (the device can change either)
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;
-    // the selected part's sound from the connected FM-1, and to it (not saved there)
+    // the selected part's sound from the connected FM-1 (up), and to it (down; not saved there)
     juce::DrawableButton pullSound_{"From FM-1", juce::DrawableButton::ImageFitted}, sendSound_{"To FM-1", juce::DrawableButton::ImageFitted};
     juce::ToggleButton hostTempo_{"Tempo follows the host"};
     juce::Label info_;

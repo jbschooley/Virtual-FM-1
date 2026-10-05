@@ -207,7 +207,7 @@ void FeluccaDeviceView::resized() {
 
 // ---- the parameters ---------------------------------------------------------------------------
 
-// a tray with an arrow into it (down: from the FM-1) or out of it (up: to it)
+// a tray with an arrow into it (down: to the FM-1) or out of it (up: from it)
 static std::unique_ptr<juce::Drawable> syncIcon(bool down, juce::Colour c) {
     juce::Path p;
     p.startNewSubPath(4.0f, 15.0f); p.lineTo(4.0f, 20.0f); p.lineTo(20.0f, 20.0f); p.lineTo(20.0f, 15.0f);   // the tray
@@ -224,7 +224,7 @@ static std::unique_ptr<juce::Drawable> syncIcon(bool down, juce::Colour c) {
 
 FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     for (auto* b : {&pullSound_, &sendSound_}) {
-        const bool down = b == &pullSound_;
+        const bool down = b == &sendSound_;
         auto on = syncIcon(down, kText), off = syncIcon(down, kDim.withAlpha(0.4f));
         b->setImages(on.get(), nullptr, nullptr, off.get());
         b->setColour(juce::DrawableButton::backgroundColourId, kBox);
