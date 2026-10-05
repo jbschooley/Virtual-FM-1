@@ -56,6 +56,7 @@ typedef struct {
     X(void, fm6_patch_set, (uint32_t track, const uint8_t *v155))                \
     X(void, midi, (uint32_t usbMidiPacket))                                      \
     X(void, render, (int32_t *interleavedStereo, uint32_t frames))               \
+    X(void, service, (void))                                                     \
     X(uint32_t, nbuttons, (void))                                                \
     X(const char *, button_name, (uint32_t b))                                   \
     X(uint32_t, nknobs, (void))                                                  \

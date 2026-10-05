@@ -413,7 +413,15 @@ void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* after PTCH (P_
     }
 }
 
-void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }   /* as a USB-MIDI packet in: notes, clock, SysEx (the editor) */
+void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }
+
+/* the editor protocol now, between audio blocks: a request just given gets its reply */
+void FEL(service)(void)
+{
+    usb.uboot_req = 0;
+    usb.ota_req = 0;
+    ed_service();
+}   /* as a USB-MIDI packet in: notes, clock, SysEx (the editor) */
 
 void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames a multiple of CTL */
 {

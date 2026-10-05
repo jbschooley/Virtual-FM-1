@@ -28,7 +28,7 @@ public:
     Fm1Session(Fm1Link& link);
     ~Fm1Session() override;
 
-    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent, SendEdit, ReadGlobals };
+    enum class Op { None, Identify, Pull, Push, PullPatterns, PushPatterns, PullCurrent, SendEdit, ReadGlobals, Job };
 
     struct Progress {
         Op op = Op::None;
@@ -61,6 +61,7 @@ public:
 
     bool busy() const { return isThreadRunning(); }
     void cancel() { cancel_ = true; }
+    void stop() { cancel_ = true; stopThread(6000); }   // cancel and wait for it (an owner going away)
 
     void identify();
     bool readSettings();   // the GLOBE settings again (onGlobals); false when busy or not connected
@@ -71,6 +72,10 @@ public:
     void pullPatterns(std::vector<int> pats);
     void pushPatterns(std::vector<std::pair<int, fm1::seq::Pattern>> pats, bool save);
     void pullCurrent();   // read whatever the synth is playing (FM-1+VA only)
+    // Anything else a firmware's own sync does (Felucca's), on the session thread with its port,
+    // once the synth is identified; the job's result is the session's last progress report.
+    struct JobResult { bool ok = false; juce::String text; };
+    bool job(const juce::String& startText, std::function<JobResult(fm1::Port&)> fn);
     // Put `s` into the synth's edit buffer without storing it: program change to
     // s.slot (when selectFirst), then parameter changes and CCs, then read back.
     void sendEdit(const fm1::Sound& s, fm1::edit::Channels ch, bool selectFirst);
@@ -108,6 +113,8 @@ private:
     std::vector<int> pullPats_;
     std::vector<std::pair<int, fm1::seq::Pattern>> pushPats_;
     bool savePats_ = false;
+    juce::String jobText_;
+    std::function<JobResult(fm1::Port&)> job_;
     std::optional<fm1::Identity> identity_;   // written by the session thread, under identityLock_
     mutable std::mutex identityLock_;
     std::atomic<bool> cancel_{false};

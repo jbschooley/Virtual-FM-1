@@ -25,6 +25,13 @@ void Fm1Session::pushPatterns(std::vector<std::pair<int, fm1::seq::Pattern>> pat
 
 void Fm1Session::pullCurrent() { start(Op::PullCurrent); }
 
+bool Fm1Session::job(const juce::String& startText, std::function<JobResult(fm1::Port&)> fn) {
+    if (isThreadRunning()) return false;
+    jobText_ = startText;
+    job_ = std::move(fn);
+    return start(Op::Job);
+}
+
 void Fm1Session::sendEdit(const fm1::Sound& snd, fm1::edit::Channels ch, bool selectFirst) {
     editSound_ = snd; editCh_ = ch; editSelect_ = selectFirst;
     start(Op::SendEdit);
@@ -209,6 +216,14 @@ void Fm1Session::run() {
             juce::MessageManager::callAsync([this, pat] { if (onPatternWritten) onPatternWritten(pat); });
         }
         report(total, total, juce::String(total) + (total == 1 ? " pattern written." : " patterns written."), true);
+        return;
+    }
+    case Op::Job: {
+        report(0, 1, jobText_);
+        if (!identity_ && !doIdentify()) { report(0, 1, noIdentityText(), true, true); return; }
+        auto r = job_ ? job_(p) : JobResult{};
+        job_ = nullptr;
+        report(1, 1, r.text, true, !r.ok);
         return;
     }
     case Op::ReadGlobals: {

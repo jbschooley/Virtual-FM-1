@@ -16,11 +16,23 @@
 
 #include <juce_core/juce_core.h>
 
+#include "FeluccaSync.h"
+
 class FeluccaEngine;
 
 namespace felucca {
 
-using Objects = std::map<int, std::vector<uint8_t>>;   // backup id -> bytes (empty: an empty object)
+// The plugin's own Felucca as one end of a sync (FeluccaSync.h): requests answered at once.
+class VirtualEndpoint : public Endpoint {
+public:
+    explicit VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)) {}
+    std::optional<Bytes> ask(const Bytes& request, int timeoutMs) override;
+    std::vector<Bytes> pushes() override;
+
+private:
+    std::shared_ptr<FeluccaEngine> f_;
+    std::vector<Bytes> pushes_;
+};
 
 // The ids a full backup holds, in order: 0..8, then the user sample slots 32..34.
 const std::vector<int>& backupIds();

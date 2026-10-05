@@ -317,3 +317,12 @@ int FeluccaEngine::putObject(int id, const std::vector<uint8_t>& bytes) {
     std::lock_guard<std::mutex> g(lock_);
     return int(core_->object_put(uint32_t(id), bytes.data(), uint32_t(bytes.size())));
 }
+
+std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8_t>& m) {
+    sysex(m.data(), int(m.size()));
+    if (core_) {
+        std::lock_guard<std::mutex> g(lock_);
+        core_->service();
+    }
+    return takeSysex();
+}

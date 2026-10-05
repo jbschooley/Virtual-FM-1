@@ -78,6 +78,24 @@ juce::String backupJson(const Objects& objects, const juce::String& firmware) {
     return juce::JSON::toString(juce::var(root), false);
 }
 
+std::optional<Bytes> VirtualEndpoint::ask(const Bytes& request, int) {
+    const int cmd = commandOf(request);
+    std::optional<Bytes> reply;
+    for (auto& m : f_->request(request)) {
+        if (isPush(commandOf(m))) pushes_.push_back(m);
+        else if (commandOf(m) == cmd && !reply) reply = m;
+    }
+    return reply;
+}
+
+std::vector<Bytes> VirtualEndpoint::pushes() {
+    for (auto& m : f_->takeSysex())   // what its main loop pushed meanwhile
+        if (isPush(commandOf(m))) pushes_.push_back(m);
+    std::vector<Bytes> out;
+    out.swap(pushes_);
+    return out;
+}
+
 juce::File DeviceStore::defaultFile() {
     return LibraryStore::root().getChildFile("Felucca").getChildFile("Felucca device.json");
 }

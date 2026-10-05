@@ -194,6 +194,27 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
     }
     for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_, &deviceButton_}) addAndMakeVisible(c);
     addChildComponent(device_);
+    for (auto* b : {&pullButton_, &sendButton_, &liveButton_}) addAndMakeVisible(b);
+    pullButton_.setTooltip("Everything from the connected FM-1 running Felucca into this instance: the music, its four projects, "
+                           "user presets and FM6 bank (its backup is also kept in the library, Felucca/Backups)");
+    pullButton_.onClick = [this] { proc_.feluccaPull(); updateSyncButtons(); };
+    sendButton_.setTooltip("This instance's Felucca to the connected FM-1: the music, projects, user presets and FM6 bank, "
+                           "replacing the synth's. Its own are backed up to the library first.");
+    sendButton_.onClick = [this] {
+        juce::Component::SafePointer<FeluccaPanel> self(this);
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
+            "The FM-1's music, four projects, user presets and FM6 bank will be replaced by this instance's. "
+            "They are backed up to the library (Felucca/Backups) first. User samples are not touched.",
+            "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
+                if (ok && self) { self->proc_.feluccaSend(); self->updateSyncButtons(); }
+            }));
+    };
+    liveButton_.setClickingTogglesState(true);
+    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as Felucca's web editor follows it. "
+                           "Pull or send first so both start the same.");
+    liveButton_.onClick = [this] { proc_.feluccaLive(liveButton_.getToggleState()); updateSyncButtons(); };
+    proc_.onFeluccaLive = [this] { updateSyncButtons(); };
+    updateSyncButtons();
     deviceButton_.setClickingTogglesState(true);
     deviceButton_.setTooltip("Felucca's own screen, buttons, knobs and keys: its sequencer, projects and user presets as on the device");
     deviceButton_.onClick = [this] { showDevice(deviceButton_.getToggleState()); };
@@ -240,7 +261,16 @@ void FeluccaPanel::showDevice(bool on) {
     if (!on) refresh();   // what the device changed
 }
 
+void FeluccaPanel::updateSyncButtons() {
+    const bool synth = proc_.feluccaSynth(), live = proc_.feluccaLiveOn(), busy = proc_.session.busy();
+    pullButton_.setEnabled(synth && !busy);
+    sendButton_.setEnabled(synth && !busy);
+    liveButton_.setEnabled(synth && (live || !busy));
+    liveButton_.setToggleState(live, juce::dontSendNotification);
+}
+
 void FeluccaPanel::timerCallback() {
+    updateSyncButtons();
     if (isShowing() && !isMouseButtonDownAnywhere()) loadValues();
 }
 
@@ -395,11 +425,19 @@ void FeluccaPanel::resized() {
     top.removeFromLeft(12);
     hostTempo_.setBounds(top.removeFromLeft(200));
     deviceButton_.setBounds(top.removeFromRight(84));
-    device_.setBounds(r.withTrimmedTop(6));
     r.removeFromTop(4);
-    info_.setBounds(r.removeFromTop(18));
+    {
+        auto row = r.removeFromTop(22);
+        liveButton_.setBounds(row.removeFromRight(56));
+        row.removeFromRight(4);
+        sendButton_.setBounds(row.removeFromRight(110));
+        row.removeFromRight(4);
+        pullButton_.setBounds(row.removeFromRight(120));
+        info_.setBounds(row);
+    }
     r.removeFromTop(6);
     view_.setBounds(r);
+    device_.setBounds(r);
     layoutContent();
 }
 

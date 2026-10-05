@@ -54,6 +54,8 @@ public:
     void sysex(const uint8_t* bytes, int size);
     // What it sent out since the last call: whole SysEx messages (the editor's replies and pushes).
     std::vector<std::vector<uint8_t>> takeSysex();
+    // A whole editor request, answered now (not at the next main loop pass): what came out.
+    std::vector<std::vector<uint8_t>> request(const std::vector<uint8_t>& sysex);
     // The front panel, by Felucca's own labels (FX, SCL ... OCT+) and knob roles (SELECT ...
     // KNOB 4); the 27 keys from the lowest. The main loop sees them within 16 ms of audio.
     std::vector<std::string> buttonNames() const;

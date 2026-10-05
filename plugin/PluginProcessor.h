@@ -114,6 +114,15 @@ public:
     // Felucca's sound changed other than by automation (its editor, a preset, a project):
     // the host's parameters follow (track -1: all). Message thread.
     void feluccaChanged(int track = -1);
+    // A connected FM-1 running Felucca, synced through Felucca's editor protocol (session jobs):
+    // pull everything from it, send everything to it (after saving its own backup in the
+    // library), or mirror both ways live until stopped.
+    bool feluccaSynth() const;
+    bool feluccaPull();
+    bool feluccaSend();
+    bool feluccaLive(bool on);
+    bool feluccaLiveOn() const { return felLive_.load(); }
+    std::function<void()> onFeluccaLive;   // live sync ended (message thread)
     // The host parameter of Felucca's parameter (track -1: a global), or null: for change gestures.
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
         const int e = felparams::entryFor(track, index);
@@ -180,6 +189,7 @@ private:
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
     felucca::DeviceStore felDevice_;                  // the device's stored objects, in the library
+    std::atomic<bool> felLive_{false};                // a live mirror job is running
     std::mutex felDeviceLock_;
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;

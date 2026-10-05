@@ -394,6 +394,50 @@ static int checks() {
             file.deleteFile();
         }
 
+        // syncing two Felucca devices through the editor protocol, as with an FM-1 running Felucca
+        // (the plugin's own Felucca as the "synth": the same code talks to a real one)
+        {
+            auto a = std::make_shared<FeluccaEngine>(), b = std::make_shared<FeluccaEngine>();
+            felucca::VirtualEndpoint ea(a), eb(b);
+            std::vector<float> l(256), r(256);
+            auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };
+            a->setEngine(1, 6);
+            a->setParam(1, 0, 61);
+            std::vector<uint8_t> music, slot;
+            a->object(0, music);
+            a->putObject(3, music);   // project slot 2
+            juce::String err;
+            int steps = 0;
+            auto all = felucca::backup(ea, [&](int, int, const juce::String&) { ++steps; return true; }, err);
+            CHECK(all && (*all)[3] == music && (*all)[0].size() == 3584 && steps > 10, "a full backup through the protocol, in pieces");
+            CHECK(all && felucca::restore(eb, *all, {}, err) && b->engineOf(1) == 6 && b->param(1, 0) == 61
+                  && b->object(3, slot) && slot == music, "restored into the other: the music and the project slot");
+            if (!err.isEmpty()) std::printf("  sync: %s\n", err.toRawUTF8());
+
+            felucca::Mirror mirror(ea, eb);
+            CHECK(mirror.start(err), "live: both watched");
+            auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };
+            a->setParam(0, 9, 99);       // part 1 (selected) LFO rate, as a knob on the synth
+            a->setGlobal(1, 37);          // swing
+            a->setParam(2, 39, -20);      // part 3's pan: another track's mix
+            settle(10);
+            CHECK(b->param(0, 9) == 99 && b->global(1) == 37 && b->param(2, 39) == -20, "a value, a global and another part's mix reach the other side");
+            b->setParam(0, 9, 12);        // and the other way
+            settle(10);
+            CHECK(a->param(0, 9) == 12, "and back");
+            a->setEngine(0, 7);           // a load on the synth: WHEEL on part 1
+            a->setParam(0, 1, 77);
+            settle(20);
+            CHECK(b->engineOf(0) == 7 && b->param(0, 1) == 77, "an engine change on one side loads it on the other");
+            const int presetA = a->presetOf(0), presetB = b->presetOf(0);
+            settle(20);   // nothing left to carry: the load's own echo is dropped, no ping-pong
+            CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB && a->param(0, 1) == 77,
+                  "no load bounces back");
+            CHECK(err.isEmpty(), "no side stopped answering");
+            if (!err.isEmpty()) std::printf("  mirror: %s\n", err.toRawUTF8());
+            mirror.stop();
+        }
+
         // with no copy free, a Felucca project still keeps (and saves) its Felucca sound
         {
             std::vector<std::unique_ptr<FeluccaEngine>> taken;

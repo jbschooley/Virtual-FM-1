@@ -38,6 +38,7 @@ private:
 class FeluccaPanel : public juce::Component, private juce::Timer {
 public:
     explicit FeluccaPanel(FM1Processor&);
+    ~FeluccaPanel() override { proc_.onFeluccaLive = nullptr; }
     void resized() override;
     void paint(juce::Graphics&) override;
     void refresh();   // the engine, presets and values again (after a project loads, say)
@@ -73,6 +74,8 @@ private:
     juce::ComboBox engineBox_, presetBox_;
     juce::ToggleButton hostTempo_{"Tempo follows the host"};
     juce::TextButton deviceButton_{"DEVICE"};   // Felucca's own front panel instead of the parameters
+    juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};   // a synth running Felucca
+    void updateSyncButtons();
     FeluccaDeviceView device_;
     juce::Label info_;
     juce::Viewport view_;

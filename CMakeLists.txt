@@ -47,8 +47,9 @@ set(FM1_DEVICE_SOURCES
     firmwares/Firmwares.cpp
     firmwares/fm1_stock/StockFirmware.cpp
     firmwares/baudgirl_fm1va/FmVaFirmware.cpp
-    firmwares/felucca/FeluccaFirmware.cpp)
-set(FM1_DEVICE_INCLUDES core firmwares)
+    firmwares/felucca/FeluccaFirmware.cpp
+    firmwares/felucca/FeluccaSync.cpp)
+set(FM1_DEVICE_INCLUDES core firmwares firmwares/felucca)
 if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()

@@ -220,7 +220,7 @@ FM1Processor::~FM1Processor() {
     background_.stopTimer();
     if (libraryDirty_) saveLibrary();
     stopTimer();
-    session.cancel();
+    session.stop();   // its jobs use this instance's members: done before any of them goes
 }
 
 void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
@@ -992,6 +992,87 @@ void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
     const auto* b = static_cast<const uint8_t*>(music.getData());
     const int rc = f.putObject(0, std::vector<uint8_t>(b, b + music.getDataSize()));
     if (rc != 0) DBG("Felucca refused the project's music (rc " << rc << ")");
+}
+
+// ---- syncing with an FM-1 running Felucca ----
+
+bool FM1Processor::feluccaSynth() const {
+    auto id = session.lastIdentity();
+    return link.isOpen() && id && juce::String(fm1::firmwareIdFor(*id)) == "felucca";
+}
+
+// The synth's own objects, kept in the library before anything is written to it.
+static juce::String saveSynthBackup(const felucca::Objects& o) {
+    auto f = LibraryStore::root().getChildFile("Felucca").getChildFile("Backups")
+                 .getChildFile("FM-1 " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") + ".json");
+    f.getParentDirectory().createDirectory();
+    return f.replaceWithText(felucca::backupJson(o, "FELUCCA (FM-1)"), false, false, "\n") ? f.getFullPathName() : juce::String();
+}
+
+bool FM1Processor::feluccaPull() {
+    auto f = felucca();
+    if (!f || !feluccaSynth()) return false;
+    return session.job("Reading everything from the FM-1 running Felucca...", [this, f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link);
+        felucca::VirtualEndpoint mine(f);
+        auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
+        juce::String err;
+        auto objects = felucca::backup(synth, progress, err);
+        if (!objects) return Fm1Session::JobResult{false, "Could not read the FM-1: " + err + "."};
+        const auto kept = saveSynthBackup(*objects);
+        if (!felucca::restore(mine, *objects, progress, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's Felucca refused it: " + err + "."};
+        felResync_ = true;
+        juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock()) feluccaChanged(); });
+        return Fm1Session::JobResult{true, "Pulled the FM-1's music, projects, user presets and FM6 bank." + (kept.isEmpty() ? juce::String() : " Its backup: " + kept)};
+    });
+}
+
+bool FM1Processor::feluccaSend() {
+    auto f = felucca();
+    if (!f || !feluccaSynth()) return false;
+    return session.job("Backing up the FM-1, then sending everything to it...", [f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link);
+        felucca::VirtualEndpoint mine(f);
+        auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
+        juce::String err;
+        auto theirs = felucca::backup(synth, progress, err);   // first: what the synth has, kept
+        if (!theirs) return Fm1Session::JobResult{false, "Nothing sent: could not back up the FM-1 first (" + err + ")."};
+        const auto kept = saveSynthBackup(*theirs);
+        if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
+        auto ours = felucca::backup(mine, {}, err);
+        if (!ours) return Fm1Session::JobResult{false, "Nothing sent: the plugin's Felucca gave no backup (" + err + ")."};
+        if (!felucca::restore(synth, *ours, progress, err))
+            return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
+        return Fm1Session::JobResult{true, "Sent the music, projects, user presets and FM6 bank to the FM-1. Its backup from before: " + kept};
+    });
+}
+
+bool FM1Processor::feluccaLive(bool on) {
+    if (!on) { if (felLive_) session.cancel(); return true; }
+    auto f = felucca();
+    if (!f || !feluccaSynth() || felLive_) return false;
+    felLive_ = true;
+    const bool started = session.job("Live with the FM-1 running Felucca...", [this, f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link);
+        felucca::VirtualEndpoint mine(f);
+        felucca::Mirror mirror(synth, mine);
+        juce::String err;
+        Fm1Session::JobResult r{true, "Live sync with the FM-1 stopped."};
+        if (!mirror.start(err)) r = {false, "Live sync did not start: " + err + "."};
+        else {
+            p.progress(0, 1, "Live with the FM-1: changes on either side reach the other.");
+            while (!p.cancelled()) {
+                if (!mirror.tick(err)) { r = {false, "Live sync stopped: " + err + "."}; break; }
+                juce::Thread::sleep(50);
+            }
+            mirror.stop();
+        }
+        felLive_ = false;
+        juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock() && onFeluccaLive) onFeluccaLive(); });
+        return r;
+    });
+    if (!started) felLive_ = false;
+    return started;
 }
 
 // Host automation into Felucca: each value the host changed since the last block, spread
