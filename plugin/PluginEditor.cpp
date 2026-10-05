@@ -17,7 +17,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     addAndMakeVisible(firmware_);
     addChildComponent(unsupported_);
     const auto& choices = fm1::firmwareChoices();
-    for (size_t i = 0; i < choices.size(); ++i) firmware_.addItem(choices[i].name, int(i) + 1);
+    for (size_t i = 0; i < choices.size(); ++i) firmware_.addItem(choices[i].label(), int(i) + 1);
     firmware_.setTooltip("The firmware this instance plays and syncs with; saved with the project");
     firmware_.onChange = [this] {
         int i = firmware_.getSelectedItemIndex();

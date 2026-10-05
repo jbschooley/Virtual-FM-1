@@ -25,6 +25,8 @@ struct FirmwareChoice {
     const char* name;         // shown
     bool vaEngine;            // presets may use baud girl's VA engine (an editor tab for it)
     bool supported;           // false: the plugin cannot emulate it yet (a page says so)
+    const char* version;      // the release the plugin plays and syncs with ("" while not known)
+    std::string label() const { return *version ? std::string(name) + " " + version : std::string(name); }
 };
 const std::vector<FirmwareChoice>& firmwareChoices();
 const FirmwareChoice& firmwareChoice(const std::string& id);   // the default (FM-1+VA) for an unknown id
