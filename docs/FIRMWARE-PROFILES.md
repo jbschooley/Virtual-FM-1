@@ -10,7 +10,7 @@ back) and asks the profile for everything that depends on the firmware.
 |---|---|---|
 | FM-1+VA | identity version 20 to 899 | Everything: presets, patterns, current sound, unsaved edits checked by read-back; GLOBE settings on FM-1_093 and FM-1_094 |
 | M-VAVE | identity version 19 or earlier | Nothing read back; sends unsaved edits unchecked |
-| Felucca | identity version 900 or later (0.4 beta is FM-1_904) | Nothing: its SysEx covers identity and firmware updates only |
+| Felucca | identity version 900 or later (release X.Y is FM-1_9XY: 1.0 is FM-1_910) | Its own editor protocol, through `firmwares/felucca/FeluccaSync` rather than the profile's features: full backup and restore (Pull, Send) and live sync |
 
 ## Adding a firmware
 
@@ -36,6 +36,40 @@ back) and asks the profile for everything that depends on the firmware.
 4. **Test it**: `tests/sync_test.cpp` runs the session against a simulated
    FM-1+VA on virtual MIDI ports; a new profile gets a simulated firmware the
    same way, and a check against the real synth with `tests/fm1_probe.cpp`.
+
+## Versions
+
+Each firmware's releases the plugin knows are listed in `knownVersions()`
+(`firmwares/Firmwares.cpp`), oldest first, each with its identity number, its
+author's name for it, how well the plugin works with it, and a note:
+
+| Support | Means |
+|---|---|
+| Current | the release the plugin plays and syncs with (one per firmware), tried on an FM-1 |
+| Tested | tried on an FM-1 |
+| Older | should work, with what the note says is missing; not tried |
+| Deprecated | syncing needs a newer release; the note says which and how to update |
+
+`checkVersion()` says what the plugin makes of a connected synth's release, and
+the editor shows it when the synth is not on a current or tested one. A release
+the list does not have is never refused: a newer one is synced as the newest
+the plugin knows and said to be untested; an older one is said to be older.
+
+**When a firmware releases a new version:**
+
+1. Add a line to its list. If it changes nothing the plugin uses, make it
+   Current and the previous one Tested once both have been tried on an FM-1.
+2. If its protocol changed, change the profile (`firmwares/<id>/`), keyed on
+   `version` where the old releases still need the old way.
+3. For Felucca, whose sound the plugin builds from source: update the vendored
+   copy (`engines/felucca/UPSTREAM.md`). If its golden renders changed, the
+   sound changed: consider keeping the old release built beside the new one
+   (not done yet: there has been one release). Projects say which release they
+   were made for (`firmwareVersion`) and the plugin says so when it plays
+   another; Felucca reads its own older project formats itself, and music a
+   Felucca cannot read (from a newer one) is kept as it was and saved again.
+4. To retire an old release, mark it Deprecated with a note saying what to
+   update to. It is still recognised; only its note changes what is said.
 
 ## What profiles do not cover yet
 
