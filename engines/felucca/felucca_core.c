@@ -72,10 +72,13 @@ static void fm1_delay_ms(uint32_t ms) { (void)ms; }
  * takes between audio blocks (FEL(midi_out)) */
 #define FEL_OUTQ 8192u
 static uint32_t fel_out[FEL_OUTQ], fel_out_r, fel_out_w;
-static void fel_out_drain(void)
+static void fel_out_drain(void)   /* full (nobody takes them): the oldest go, the sender never waits */
 {
-    while (so_r != so_w && fel_out_w - fel_out_r < FEL_OUTQ)
+    while (so_r != so_w) {
+        if (fel_out_w - fel_out_r >= FEL_OUTQ)
+            fel_out_r++;
         fel_out[fel_out_w++ % FEL_OUTQ] = sx_out_q[so_r++ % SXQ];
+    }
 }
 /* time that passes while the main loop waits for something the device's interrupts would do
  * (the clock is the audio's, which cannot run meanwhile): counted on, so fm1_ms never goes back */
