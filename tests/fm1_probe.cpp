@@ -152,6 +152,50 @@ int main(int argc, char** argv) {
         return 0;
     }
    #if FM1_FELUCCA
+    if (cmd == "felucca-send" && argc > 2) {   // writes the synth's flash: as the plugin's Send does
+        struct Mine : felucca::Endpoint {
+            std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f->ask(q); }
+            std::vector<fm1::Bytes> pushes() override { f->takeSysex(); return {}; }
+        } mine;
+        felucca::LinkEndpoint synth(link);
+        juce::String err;
+        auto progress = [](int done, int total, const juce::String&) { std::printf("\r  %d / %d", done, total); std::fflush(stdout); return true; };
+        // 1. the synth's backup, kept (argv[2])
+        auto theirs = felucca::backup(synth, progress, err);
+        std::printf("\n");
+        if (!theirs) { std::printf("backup failed: %s\n", err.toRawUTF8()); return 1; }
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*theirs, "FM-1 running Felucca"));
+        std::printf("the FM-1's backup: %s\n", argv[2]);
+        // 2. the plugin's Felucca: the synth's things, and one user preset only it has
+        if (!felucca::restore(mine, *theirs, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
+        const uint8_t slot = 31;   // U32
+        auto st = mine.ask(felucca::frame(felucca::kUpStore, {slot, 'S', 'E', 'N', 'D', ' ', 'T', 'E', 'S', 'T', 0}), 0);
+        std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED");
+        auto ours = felucca::backup(mine, {}, err);
+        if (!ours) { std::printf("the plugin's backup failed: %s\n", err.toRawUTF8()); return 1; }
+        ours->erase(1);   // the synth's settings stay its own, as Send leaves them
+        // 3. send
+        if (!felucca::restore(synth, *ours, progress, err)) { std::printf("\nsend failed: %s\n", err.toRawUTF8()); return 1; }
+        std::printf("\nsent\n");
+        // 4. read the synth back and compare
+        auto after = felucca::backup(synth, progress, err);
+        std::printf("\n");
+        if (!after) { std::printf("read-back failed: %s\n", err.toRawUTF8()); return 1; }
+        int same = 0, differ = 0;
+        for (auto& [id, b] : *ours) {
+            const bool eq = after->count(id) && (*after)[id] == b;
+            std::printf("  object %d: %zu bytes sent, %s\n", id, b.size(), eq ? "the same on the FM-1" : "DIFFERENT on the FM-1");
+            (eq ? same : differ)++;
+        }
+        std::printf("  object 1 (settings): %s\n", after->count(1) && (*after)[1] == (*theirs)[1] ? "the FM-1's own, unchanged" : "CHANGED");
+        auto l = synth.ask(felucca::frame(felucca::kUpList, {slot, 1}), 1000);
+        juce::String name;
+        if (l) { auto a = felucca::argsOf(*l); for (size_t k = 5; k < a.size() && a[k]; ++k) name += juce::String::charToString(juce::juce_wchar(a[k])); }
+        std::printf("the FM-1's U32: \"%s\"\n", name.toRawUTF8());
+        std::printf("%d the same, %d different\n", same, differ);
+        return differ == 0 && name == "SEND TEST" ? 0 : 1;
+    }
     if (cmd == "felucca-live" && argc > 2) {   // the synth's values, steps and selection change; no flash written
         struct Mine : felucca::Endpoint {
             std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
