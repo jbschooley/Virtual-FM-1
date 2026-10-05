@@ -806,6 +806,7 @@ void SeqPanel::loadPatternControls() {
 
 void SeqPanel::loadStepControls() {
     loading_ = true;
+    {
     const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
     const auto& s = pattern().steps[size_t(selectedStep_)];
     stepRate_.setSelectedId(s.rate + 1, juce::dontSendNotification);
@@ -827,7 +828,14 @@ void SeqPanel::loadStepControls() {
     allVelLabel_.setVisible(several);
     allVelocity_.setVisible(several);
     if (several) allVelocity_.setValue(s.notes[0].vel, juce::dontSendNotification);
-    layoutNoteRows(noteArea_);
+    }
+    if (getWidth() < kSeqNarrow) {   // narrow: the page's height follows the rows shown (laid out
+                                     // outside the lock, which the audio thread waits on)
+        resized();
+        if (onHeightChanged) onHeightChanged();
+    } else {
+        layoutNoteRows(noteArea_);
+    }
     loading_ = false;
 }
 
@@ -886,7 +894,7 @@ void SeqPanel::applyStepControls() {
     s.accent = accent_.getToggleState(); s.slide = slide_.getToggleState();
 }
 
-juce::Rectangle<int> SeqPanel::gridBounds() const { return {10, 80, 8 * 46, 8 * 46}; }
+juce::Rectangle<int> SeqPanel::gridBounds() const { return {10, gridY_, 8 * 46, 8 * 46}; }
 juce::Rectangle<int> SeqPanel::cellBounds(int step) const {
     auto g = gridBounds();
     return {g.getX() + (step % 8) * 46, g.getY() + (step / 8) * 46, 42, 42};
@@ -969,6 +977,9 @@ void SeqPanel::timerCallback() {
 }
 
 void SeqPanel::resized() {
+    if (getWidth() < kSeqNarrow) { layoutNarrow(); return; }
+    contentBottom_ = 0;   // (the page fits: nothing to scroll)
+    gridY_ = 80;
     auto r = getLocalBounds().reduced(10);
     auto top = r.removeFromTop(28);
     enable_.setBounds(top.removeFromLeft(60)); top.removeFromLeft(6);
@@ -1011,6 +1022,62 @@ void SeqPanel::resized() {
     rr = right.removeFromTop(26); labels_[11]->setBounds(rr.removeFromLeft(96)); stepRate_.setBounds(rr.removeFromLeft(90)); right.removeFromTop(4);
     rr = right.removeFromTop(26); accent_.setBounds(rr.removeFromLeft(90)); slide_.setBounds(rr.removeFromLeft(90)); right.removeFromTop(8);
     rr = right.removeFromTop(26); clearStep_.setBounds(rr.removeFromLeft(90)); rr.removeFromLeft(6); copyStep_.setBounds(rr.removeFromLeft(90)); rr.removeFromLeft(6); pasteStep_.setBounds(rr.removeFromLeft(90));
+}
+
+// A phone: the transport and pattern on three rows, the grid, then the step's notes, the
+// pattern's settings and the step's settings, one under the other (contentHeight() of it)
+void SeqPanel::layoutNarrow() {
+    // as tall as it needs (rows taken from the visible height would run out and shrink to nothing)
+    auto r = getLocalBounds().withHeight(100000).reduced(10);
+    auto row = [&](int h = 28) { auto rr = r.removeFromTop(h); r.removeFromTop(6); return rr; };
+    {
+        auto t = row();
+        enable_.setBounds(t.removeFromLeft(56)); t.removeFromLeft(4);
+        play_.setBounds(t.removeFromLeft(60)); t.removeFromLeft(4);
+        rec_.setBounds(t.removeFromLeft(56)); t.removeFromLeft(6);
+        pattern_.setBounds(t);
+    }
+    {
+        auto t = row();
+        chainTo_.setBounds(t.removeFromLeft(110)); t.removeFromLeft(6);
+        sync_.setBounds(t.removeFromLeft(t.getWidth() / 2));
+        overdub_.setBounds(t);
+    }
+    {
+        auto t = row();
+        pull_.setBounds(t.removeFromLeft(t.getWidth() / 2 - 3)); t.removeFromLeft(6);
+        push_.setBounds(t);
+    }
+    info_.setBounds(row(30));
+    gridY_ = r.getY();
+    r.removeFromTop(gridBounds().getHeight() + 12);
+    auto rowOf = [&](juce::Label& label, juce::Component& c) {
+        auto rr = r.removeFromTop(26);
+        label.setBounds(rr.removeFromLeft(96));
+        c.setBounds(rr);
+        r.removeFromTop(4);
+    };
+    // the step: its notes (room for all ten rows), then its settings
+    stepNotes_.setBounds(r.removeFromTop(26)); r.removeFromTop(4);
+    int rows = allVelocity_.isVisible() ? 1 : 0;   // as many rows as the step shows
+    for (auto& nr : noteRows_) rows += nr->name.isVisible() ? 1 : 0;
+    noteArea_ = r.removeFromTop(rows * 26);
+    layoutNoteRows(noteArea_);
+    r.removeFromTop(8);
+    auto rr = r.removeFromTop(26); labels_[7]->setBounds(rr.removeFromLeft(96)); ratchet_.setBounds(rr.removeFromLeft(80)); r.removeFromTop(4);
+    rowOf(*labels_[8], stepGate_); rowOf(*labels_[9], stepChance_); rowOf(*labels_[10], stepTranspose_);
+    rr = r.removeFromTop(26); labels_[11]->setBounds(rr.removeFromLeft(96)); stepRate_.setBounds(rr.removeFromLeft(90)); r.removeFromTop(4);
+    rr = r.removeFromTop(26); accent_.setBounds(rr.removeFromLeft(90)); slide_.setBounds(rr.removeFromLeft(90)); r.removeFromTop(8);
+    rr = r.removeFromTop(26); clearStep_.setBounds(rr.removeFromLeft(90)); rr.removeFromLeft(6); copyStep_.setBounds(rr.removeFromLeft(90)); rr.removeFromLeft(6); pasteStep_.setBounds(rr.removeFromLeft(90));
+    r.removeFromTop(16);
+    // the pattern's settings
+    rowOf(*labels_[0], length_); rowOf(*labels_[1], tempo_); rowOf(*labels_[2], gate_);
+    rowOf(*labels_[3], swing_); rowOf(*labels_[5], transpose_);
+    rr = r.removeFromTop(26); labels_[6]->setBounds(rr.removeFromLeft(96)); rate_.setBounds(rr.removeFromLeft(90)); r.removeFromTop(10);
+    rr = r.removeFromTop(26); clearPattern_.setBounds(rr.removeFromLeft(120)); r.removeFromTop(6);
+    rr = r.removeFromTop(26); importPatterns_.setBounds(rr.removeFromLeft(100)); rr.removeFromLeft(6); exportPatterns_.setBounds(rr.removeFromLeft(100));
+    fileStatus_.setBounds(r.removeFromTop(40));
+    contentBottom_ = r.getY();
 }
 
 // ---- ArpPanel -----------------------------------------------------------------------

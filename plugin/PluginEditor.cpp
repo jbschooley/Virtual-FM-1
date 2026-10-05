@@ -12,7 +12,8 @@ FM1Editor::FM1Editor(FM1Processor& p)
     // presets and their editors in one window; what is not per preset in its own tab
     library_.setEditorPages(&fm_, &fx_);
     tabs_.addTab("Library", bg, &library_, false);
-    tabs_.addTab("Sequencer", bg, &seq_, false);
+    tabs_.addTab("Sequencer", bg, &seqPage_, false);
+    seq_.onHeightChanged = [this] { seqPage_.resized(); };
     tabs_.addTab("Arpeggiator", bg, &arp_, false);
     tabs_.addTab("Settings", bg, &settings_, false);
     addAndMakeVisible(tabs_);
@@ -68,6 +69,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
 }
 
 FM1Editor::~FM1Editor() {
+    seq_.onHeightChanged = nullptr;
     setLookAndFeel(nullptr);
     keyState_.removeListener(this);
     proc_.onStatus = nullptr;

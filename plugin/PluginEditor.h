@@ -41,6 +41,7 @@ private:
     FmEditorPanel fm_;
     FxPanel fx_;
     SeqPanel seq_;
+    ScrollPage seqPage_{seq_, [this] { return seq_.contentHeight(); }};   // (scrolls on a phone)
     ArpPanel arp_;
     SettingsPanel settings_;
     void applyKeyboardVelocity();

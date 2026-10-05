@@ -25,6 +25,29 @@ struct DropDownLists : Base {
     }
 };
 
+// A page that scrolls when its content is taller than the window (a phone): the content is laid
+// out at the window's width, then asked how tall it is (needed(); not taller than the window:
+// no scrolling).
+class ScrollPage : public juce::Component {
+public:
+    ScrollPage(juce::Component& content, std::function<int()> needed) : content_(content), needed_(std::move(needed)) {
+        addAndMakeVisible(view_);
+        view_.setViewedComponent(&content_, false);
+        view_.setScrollBarsShown(true, false);
+    }
+    void resized() override {
+        view_.setBounds(getLocalBounds());
+        content_.setSize(getWidth(), getHeight());
+        const int need = needed_();
+        if (need > getHeight()) content_.setSize(getWidth() - view_.getScrollBarThickness(), std::max(getHeight(), needed_()));
+    }
+
+private:
+    juce::Component& content_;
+    std::function<int()> needed_;
+    juce::Viewport view_;
+};
+
 // A grid of parameter controls (rotary sliders, or combo boxes for choices)
 // bound to APVTS parameters.
 class ParamGrid : public juce::Component {
@@ -164,6 +187,10 @@ class SeqPanel : public juce::Component, private juce::Timer {
 public:
     explicit SeqPanel(FM1Processor&);
     void resized() override;
+    // narrow (a phone): everything stacked under the grid, this tall (the editor scrolls it)
+    static constexpr int kSeqNarrow = 1040;   // narrower: one column, taller than the screen (a phone, an iPad upright)
+    int contentHeight() const { return contentBottom_ + 10; }
+    std::function<void()> onHeightChanged;   // narrow: the step's rows changed the page's height
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
 
@@ -174,6 +201,8 @@ private:
     void applyPatternControls();
     void applyStepControls();
     juce::Rectangle<int> gridBounds() const;
+    int gridY_ = 80, contentBottom_ = 0;
+    void layoutNarrow();
     juce::Rectangle<int> cellBounds(int step) const;
     fm1::seq::Pattern& pattern();   // under lock by caller
 
