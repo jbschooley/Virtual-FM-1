@@ -50,15 +50,18 @@ Logic needs a restart to pick up a new Audio Unit.
 
 ## Using it
 
-1. Connect the FM-1 with USB and switch it on. The plugin finds it by itself;
-   the Library & Sync tab shows its firmware version.
-2. **Pull all 128** copies the synth's presets into the plugin. The library is
-   shared by the Standalone and every plugin instance in every host, so you do
-   this once.
+1. Connect the FM-1 with USB and switch it on. The Standalone app finds it by
+   itself; in a plugin, click **Find FM-1** (or pick its MIDI ports and
+   **Connect**). The line beside it shows the synth's firmware and version.
+   Set the firmware menu at the top to the one your FM-1 runs.
+2. **Pull all 128** (Library tab, Sync page) copies the synth's presets into
+   the plugin. The library is shared by the Standalone and every plugin
+   instance in every host, so you do this once.
 3. Pick a preset in the list to play it. **Pull what the FM-1 is playing**
    loads the synth's current sound, unsaved changes included.
-4. Edit in the **FM Editor** and **Effects & Envelope** tabs. Changes stay
-   unsaved until **Store**, as on the FM-1; **Revert** drops them.
+4. Edit in the **FM** (or **VA**) and **Effects & Envelope** pages beside the
+   list. Changes stay unsaved until **Store**, as on the FM-1; **Revert** drops
+   them.
 5. **Send to FM-1** plays your sound on the synth without saving it there;
    **Live** sends every change as you make it. **Store to FM-1** saves the
    preset on the synth. **Push changed** writes every preset that differs.
@@ -124,8 +127,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca**: its user sample slots are empty; the Windows build does not
-  include it yet (it needs Clang); Send to an FM-1 running it has not been
-  tried on the hardware.
+  include it yet (it needs Clang).
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.

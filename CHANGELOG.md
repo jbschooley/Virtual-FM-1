@@ -40,6 +40,9 @@ for the code. New work goes under the next version at the top.
   since, the project still sounds as saved and the difference shows as
   unsaved changes. Settings > Library can keep the whole bank in projects,
   to take them to another computer.
+- **Plugins connect to the FM-1 only when asked**: with Connect or Find
+  FM-1. Before, every instance in a project connected as soon as an FM-1
+  was plugged in. The standalone app still connects by itself.
 - **Hardware character** in a project not at 44.1 kHz now runs the engine
   at the FM-1's own 44.1 kHz and converts, so the FM-1's aliasing comes
   through too. It adds under a millisecond of latency, reported to the host.
@@ -76,10 +79,10 @@ for the code. New work goes under the next version at the top.
     (the synth's own are backed up to the library first; its settings stay
     its own) and Live, which keeps both the same as either changes (both
     must run the same Felucca version). Tried with an FM-1 running Felucca
-    1.0: reading everything from it, and Live with knob turns, tempo, step
-    edits and part changes on the synth, and a value changed in the
-    plugin, arriving on the other side. Send has not been tried on a real
-    FM-1.
+    1.0: reading everything from it; sending everything to it, read back
+    the same; and Live with knob turns, tempo, step edits and part changes
+    on the synth, and a value changed in the plugin, arriving on the other
+    side.
   - Not yet: user sample slots, and the Windows build.
 - **Firmware versions**: the firmware list says which release of each the
   plugin plays and syncs with. When an FM-1 connects, the line beside Find
