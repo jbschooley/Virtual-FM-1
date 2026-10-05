@@ -12,6 +12,7 @@
 #include "Fm1Session.h"
 #include "FmSynth.h"
 #include "HardwareCharacter.h"
+#include "RateConverter.h"
 #include "Params.h"
 #include "Sequencer.h"
 #include "Settings.h"
@@ -176,6 +177,17 @@ private:
     void handleDx7Sysex(const uint8_t* data, int size);
     void applyParamsToEngine();
     void pushNoteOn(int note, int vel);
+    void prepareEngine();
+    void renderEngine(float* out, int numSamples, const juce::MidiBuffer& events);
+
+    static constexpr double kFm1Rate = 44100.0;    // the FM-1's own sample rate
+    double hostRate_ = 44100.0;
+    int hostBlock_ = 512;
+    bool prepared_ = false;
+    bool resampling_ = false;                      // engine at 44.1 kHz, converted (Hardware character)
+    RateConverter toHost_;
+    juce::AudioBuffer<float> engineBuf_;           // the engine's output at its own rate
+    juce::MidiBuffer engineEvents_;
 
     FmSynth synth_;
     Effects fx_;

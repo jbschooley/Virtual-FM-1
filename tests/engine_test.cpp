@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "HardwareCharacter.h"
+#include "RateConverter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -206,6 +207,49 @@ int main(int argc, char** argv) {
         std::thread t2([&] { for (int i = 0; i < n; i += 100) run(*tb, b3, i, std::min(100, n - i)); });
         t1.join(); t2.join();
         CHECK(a1 == a3 && b1 == b3, "two engines at different rates on two threads each sound as alone");
+    }
+
+    // ---- RateConverter: 44.1 kHz engine audio into other host rates ----
+    for (double outRate : {48000.0, 96000.0, 32000.0}) {
+        const double inRate = 44100.0;
+        auto convert = [&](const std::vector<float>& in, int outLen, int chunk) {
+            RateConverter rc;
+            rc.prepare(inRate, outRate, chunk);
+            std::vector<float> out(static_cast<size_t>(outLen));
+            size_t used = 0;
+            for (int o = 0; o < outLen; o += chunk) {
+                int n = std::min(chunk, outLen - o);
+                int need = rc.inputNeeded(n);
+                rc.process(in.data() + used, need, out.data() + o, n);
+                used += size_t(need);
+            }
+            return out;
+        };
+        const double f = 1000.0;
+        std::vector<float> sine(static_cast<size_t>(inRate * 2.5));
+        for (size_t i = 0; i < sine.size(); ++i) sine[i] = 0.5f * float(std::sin(2.0 * 3.141592653589793 * f * double(i) / inRate));
+        const int outLen = int(outRate * 2.0);
+        auto whole = convert(sine, outLen, 4096), odd = convert(sine, outLen, 37);
+        CHECK(whole == odd, "rate converter: block size does not change the output");
+        // after the latency, the output is the same sine at the new rate
+        RateConverter probe; probe.prepare(inRate, outRate, 64);
+        const double lat = probe.latencyOut();
+        double err = 0;
+        for (int i = int(outRate * 0.5); i < outLen; ++i) {
+            double t = (double(i) - lat) / outRate;
+            err = std::max(err, std::fabs(double(whole[size_t(i)]) - 0.5 * std::sin(2.0 * 3.141592653589793 * f * t)));
+        }
+        std::printf("  rate converter 44100 -> %.0f: latency %.2f samples, max error %.5f\n", outRate, lat, err);
+        CHECK(err < 0.002, "rate converter: a 1 kHz sine comes out as the same sine (within -48 dB)");
+        // a tone above the output's Nyquist is removed when going down
+        if (outRate < inRate) {
+            std::vector<float> hi(static_cast<size_t>(inRate));
+            for (size_t i = 0; i < hi.size(); ++i) hi[i] = 0.5f * float(std::sin(2.0 * 3.141592653589793 * 19000.0 * double(i) / inRate));
+            auto o = convert(hi, int(outRate * 0.8), 512);
+            double peakHi = 0;
+            for (size_t i = size_t(outRate * 0.2); i < o.size(); ++i) peakHi = std::max(peakHi, std::fabs(double(o[i])));
+            CHECK(peakHi < 0.01, "rate converter: 19 kHz is removed going down to 32 kHz");
+        }
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

@@ -165,17 +165,38 @@ FM1Processor::~FM1Processor() {
 }
 
 void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
+    hostRate_ = sampleRate;
+    hostBlock_ = std::max(1, samplesPerBlock);
     keyboardMidi.reset(sampleRate);
-    synth_.prepare(sampleRate);
-    fx_.prepare(sampleRate, samplesPerBlock);
     sequencer.prepare(sampleRate);
     arp.prepare(sampleRate);
-    mono_.setSize(1, std::max(1, samplesPerBlock));
+    mono_.setSize(1, hostBlock_);
     generated_.ensureSize(4096);
     synthEvents_.ensureSize(4096);
     filtered_.ensureSize(4096);
-    hwChar_.prepare(sampleRate);
-    params.changed = true;
+    engineEvents_.ensureSize(4096);
+    prepareEngine();
+    prepared_ = true;
+}
+
+// The engine, effects and Hardware character stage run at the host's rate, or,
+// with Hardware character on in a host not at 44.1 kHz, at the FM-1's own
+// 44.1 kHz and are converted to the host's rate: FM aliases differently at
+// different rates, and the FM-1's output is 44.1 kHz audio.
+void FM1Processor::prepareEngine() {
+    resampling_ = hardwareCharacter_.load() && std::abs(hostRate_ - kFm1Rate) > 0.5;
+    const double rate = resampling_ ? kFm1Rate : hostRate_;
+    int block = hostBlock_;
+    if (resampling_) {
+        toHost_.prepare(kFm1Rate, hostRate_, hostBlock_);
+        block = toHost_.maxInputFor(hostBlock_);
+    }
+    engineBuf_.setSize(1, block);
+    synth_.prepare(rate);
+    fx_.prepare(rate, block);
+    hwChar_.prepare(rate);
+    setLatencySamples(resampling_ ? int(std::lround(toHost_.latencyOut())) : 0);
+    params.changed = true;   // the patch again, on the freshly prepared engine
 }
 
 bool FM1Processor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -271,8 +292,35 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
 
     // 3. render
     float* out = mono_.getWritePointer(0);
+    if (!resampling_) {
+        renderEngine(out, numSamples, synthEvents_);
+    } else {
+        // the engine at 44.1 kHz: its share of samples for this block, the events
+        // placed at the same point of it, then converted to the host's rate
+        const int need = toHost_.inputNeeded(numSamples);
+        if (engineBuf_.getNumSamples() < need) engineBuf_.setSize(1, need, false, false, true);   // a block larger than announced
+        engineEvents_.clear();
+        for (const auto meta : synthEvents_) {
+            const int at = numSamples > 0 ? int(juce::int64(meta.samplePosition) * need / numSamples) : 0;
+            engineEvents_.addEvent(meta.getMessage(), juce::jlimit(0, need, at));
+        }
+        renderEngine(engineBuf_.getWritePointer(0), need, engineEvents_);
+        toHost_.process(engineBuf_.getReadPointer(0), need, out, numSamples);
+    }
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch) buffer.copyFrom(ch, 0, out, numSamples);
+
+    // 4. MIDI out: what the sequencer and arpeggiator played
+    midi.clear();
+    midi.addEvents(generated_, 0, numSamples, 0);
+
+    int prog = pendingProgram_.exchange(-1);
+    if (prog >= 0) juce::MessageManager::callAsync([this, prog] { selectSlot(prog); });
+}
+
+// The engine, its effects and Hardware character, n samples at the engine's rate.
+void FM1Processor::renderEngine(float* out, int numSamples, const juce::MidiBuffer& events) {
     int p0 = 0;
-    for (const auto meta : synthEvents_) {
+    for (const auto meta : events) {
         const auto m = meta.getMessage();
         int at = juce::jlimit(0, numSamples, meta.samplePosition);
         if (at > p0) { synth_.render(out + p0, at - p0); p0 = at; }
@@ -298,14 +346,6 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     bool hw = hardwareCharacter_.load();
     if (hw != hwCharWasOn_) { hwChar_.reset(); hwCharWasOn_ = hw; }
     if (hw) hwChar_.process(out, numSamples);
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch) buffer.copyFrom(ch, 0, out, numSamples);
-
-    // 4. MIDI out: what the sequencer and arpeggiator played
-    midi.clear();
-    midi.addEvents(generated_, 0, numSamples, 0);
-
-    int prog = pendingProgram_.exchange(-1);
-    if (prog >= 0) juce::MessageManager::callAsync([this, prog] { selectSlot(prog); });
 }
 
 juce::AudioProcessorEditor* FM1Processor::createEditor() { return new FM1Editor(*this); }
@@ -675,12 +715,20 @@ PluginSettings FM1Processor::defaultSettings() {
 }
 
 void FM1Processor::setSettings(const PluginSettings& s) {
+    const bool hwChanged = s.clamped().hardwareCharacter != settings_.hardwareCharacter;
     settings_ = s.clamped();
     bendUp_ = settings_.bendUp;
     bendDown_ = settings_.bendDown;
     inputChannel_ = settings_.midiChannel;
     hardwareCharacter_ = settings_.hardwareCharacter;
     hwChar_.setVolumeDb(float(settings_.fm1VolumeDb));   // atomic inside
+    if (hwChanged && prepared_) {
+        // the engine moves between the host's rate and 44.1 kHz: prepare it again,
+        // with the audio callback held off meanwhile
+        suspendProcessing(true);
+        prepareEngine();
+        suspendProcessing(false);
+    }
     // hosts may restore state off the message thread; then the editor hears of it
     // from the background timer (backgroundTick), on the message thread
     if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onSettingsChanged) onSettingsChanged(); }
