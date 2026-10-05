@@ -279,7 +279,18 @@ static int stateWrite(const juce::File& golden, const juce::File& dir) {
         p.getStateInformation(mb);
         dir.createDirectory();
         dir.getChildFile("state.bin").replaceWithData(mb.getData(), mb.getSize());
-        dir.getChildFile("expected.txt").replaceWithText(describe(p).joinIntoString("\n") + "\n");
+        auto expect = describe(p);
+        // a project without the whole bank promises only the slot it uses, not the rest of
+        // the library (which lives in the library folder) or what the synth held
+        auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
+        if (!tree.getChildWithName("FM1Bank").isValid()) {
+            const juce::String keep = "slot " + juce::String(p.bank.currentSlot()) + " ";
+            juce::StringArray kept;
+            for (auto& line : expect)
+                if ((!line.startsWith("slot ") || line.startsWith(keep)) && !line.startsWith("onDevice ")) kept.add(line);
+            expect = kept;
+        }
+        dir.getChildFile("expected.txt").replaceWithText(expect.joinIntoString("\n") + "\n");
         std::printf("wrote %s (%d bytes)\n", dir.getFullPathName().toRawUTF8(), int(mb.getSize()));
     }
     data.deleteRecursively();
@@ -403,6 +414,35 @@ static int library(const juce::File& golden) {
             if (back && back->sound.voice == s0.voice && back->sound.record == s0.record) ++exact;
         }
         CHECK(exact == int(sounds.size()), "every golden preset round-trips through a slot file byte for byte");
+
+        // a project keeps its sound when its library slot changes afterwards
+        {
+            juce::MemoryBlock project;
+            int slot;
+            std::vector<int> paramsSaved;
+            {
+                FM1Processor q;
+                q.selectSlot(2);
+                slot = q.bank.currentSlot();
+                q.getStateInformation(project);
+                for (auto* prm : q.getParameters()) paramsSaved.push_back(int(std::lrint(dynamic_cast<juce::RangedAudioParameter*>(prm)->convertFrom0to1(prm->getValue()))));
+            }
+            {   // the library's slot changes (another instance stores something else there)
+                BankModel lib; LibraryStore ls; ls.load(lib);
+                auto other = sounds[7]; other.slot = slot;
+                lib.setSound(slot, other, false); ls.save(lib);
+            }
+            FM1Processor r;
+            juce::String status;
+            r.onStatus = [&](const juce::String& s) { status = s; };
+            r.setStateInformation(project.getData(), int(project.getSize()));
+            std::vector<int> paramsLoaded;
+            for (auto* prm : r.getParameters()) paramsLoaded.push_back(int(std::lrint(dynamic_cast<juce::RangedAudioParameter*>(prm)->convertFrom0to1(prm->getValue()))));
+            CHECK(paramsLoaded == paramsSaved, "the project's sound is restored though its library slot changed");
+            CHECK(r.isEdited(), "the difference from the library shows as unsaved changes");
+            CHECK(status.contains("changed in the library"), "and the user is told");
+            CHECK(r.bank.slot(slot).sound.voice == sounds[7].voice, "the library's slot is left as the library has it");
+        }
 
         // two instances: one writes, the other sees it
         BankModel a, b;

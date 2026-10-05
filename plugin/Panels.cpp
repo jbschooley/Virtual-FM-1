@@ -980,6 +980,20 @@ SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
     for (auto* sl : {&bendUp_, &bendDown_, &velocity_}) sl->onValueChange = [this] { apply(); };
     channel_.onChange = [this] { apply(); };
     hardware_.onClick = [this] { apply(); };
+    for (auto* c : std::initializer_list<juce::Component*>{&embedBank_, &libraryPath_, &showLibrary_}) addAndMakeVisible(c);
+    libraryHeader_ = makeLabel(headers_, *this, "Library", 14.0f, true);
+    embedBank_.setTooltip("Projects always keep the sound they use. With this on they also keep all 128 presets, "
+                          "to open them on a computer that does not have your library.");
+    embedBank_.onClick = [this] { apply(); };
+    libraryPath_.setFont(juce::FontOptions(13.0f));
+    libraryPath_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+    libraryPath_.setText("Your presets are in " + LibraryStore::root().getFullPathName()
+                         + " (one file per preset, in Banks/FM-1). Every instance shares them.", juce::dontSendNotification);
+    showLibrary_.onClick = [] {
+        auto dir = LibraryStore::root();
+        dir.createDirectory();
+        dir.revealToUser();
+    };
     setupLinear(volumeDb_, -40, 0);
     volumeDb_.setTextValueSuffix(" dB");
     volumeDb_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
@@ -1017,7 +1031,7 @@ SettingsPanel::SettingsPanel(FM1Processor& p) : proc_(p) {
    #if JUCE_IOS || JUCE_ANDROID
     // only in the app: in a host (AUv3), the host chooses the audio and MIDI devices
     if (juce::StandalonePluginHolder::getInstance() != nullptr) {
-        makeLabel(headers_, *this, "Audio and MIDI", 14.0f, true);
+        audioHeader_ = makeLabel(headers_, *this, "Audio and MIDI", 14.0f, true);
         addAndMakeVisible(audioSettings_);
         audioSettings_.setTooltip("The audio output, sample rate, buffer size and the MIDI inputs that play the synth");
         audioSettings_.onClick = [] {
@@ -1060,6 +1074,7 @@ void SettingsPanel::refresh() {
     velocity_.setValue(s.velocity, juce::dontSendNotification);
     velocity_.setEnabled(s.fixedVelocity);
     hardware_.setToggleState(s.hardwareCharacter, juce::dontSendNotification);
+    embedBank_.setToggleState(s.embedBank, juce::dontSendNotification);
     volumeDb_.setValue(s.fm1VolumeDb, juce::dontSendNotification);
     volumeDb_.setEnabled(s.hardwareCharacter);
     loading_ = false;
@@ -1074,6 +1089,7 @@ void SettingsPanel::apply() {
     s.fixedVelocity = velocityMode_.getSelectedId() == 2;
     s.velocity = int(velocity_.getValue());
     s.hardwareCharacter = hardware_.getToggleState();
+    s.embedBank = embedBank_.getToggleState();
     s.fm1VolumeDb = int(volumeDb_.getValue());
     proc_.setSettings(s);
 }
@@ -1136,9 +1152,20 @@ void SettingsPanel::resized() {
     synth_.setBounds(r.removeFromTop(40));
     r.removeFromTop(6);
     copy_.setBounds(r.removeFromTop(28).removeFromLeft(160));
-    if (headers_.size() > 2) {
+    if (libraryHeader_ != nullptr) {
+        r.removeFromTop(24);
+        libraryHeader_->setBounds(r.removeFromTop(24));
+        r.removeFromTop(6);
+        libraryPath_.setBounds(r.removeFromTop(20));
+        r.removeFromTop(4);
+        auto row = r.removeFromTop(28);
+        showLibrary_.setBounds(row.removeFromLeft(160));
+        row.removeFromLeft(12);
+        embedBank_.setBounds(row.removeFromLeft(420));
+    }
+    if (audioHeader_ != nullptr) {
         r.removeFromTop(28);
-        headers_[2]->setBounds(r.removeFromTop(24));
+        audioHeader_->setBounds(r.removeFromTop(24));
         r.removeFromTop(6);
         audioSettings_.setBounds(r.removeFromTop(28).removeFromLeft(200));
     }

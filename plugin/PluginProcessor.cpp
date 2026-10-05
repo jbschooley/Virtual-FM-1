@@ -484,13 +484,24 @@ static fm1::seq::Step stepFromString(const juce::String& t) {
 
 void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     juce::ValueTree v("FM1Companion");   // the state's tag predates the rename; kept so saved sessions load
-    v.setProperty("version", 3, nullptr);
+    v.setProperty("version", 4, nullptr);
     v.setProperty("editName", editName_, nullptr);
     v.setProperty("firmware", firmwareId(), nullptr);
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
     v.setProperty("midiOut", link.ports().outputId, nullptr);
-    v.addChild(bank.toState(), -1, nullptr);
+    // what the project uses: the current slot as stored (the parameters below hold
+    // the editor's changes to it) and where it came from; the whole bank only on request
+    {
+        juce::ValueTree cur("Current");
+        const auto& s = bank.current();
+        cur.setProperty("bank", "FM-1", nullptr);
+        cur.setProperty("slot", bank.currentSlot(), nullptr);
+        cur.setProperty("voice", juce::MemoryBlock(s.voice.data(), s.voice.size()).toBase64Encoding(), nullptr);
+        cur.setProperty("record", juce::MemoryBlock(s.record.data(), s.record.size()).toBase64Encoding(), nullptr);
+        v.addChild(cur, -1, nullptr);
+    }
+    if (settings_.embedBank) v.addChild(bank.toState(), -1, nullptr);
     v.addChild(apvts.copyState(), -1, nullptr);
     juce::ValueTree sq("Sequencer");
     sq.setProperty("enabled", sequencer.enabled.load(), nullptr);
@@ -538,8 +549,31 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     };
     if (!store_.exists() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); saveLibrary(); }
     else if (saved.isValid()) bank.setCurrentSlot(int(saved.getProperty("current", 0)));
+    // since version 4: the current slot as the project stored it
+    auto cur = v.getChildWithName("Current");
+    std::optional<fm1::Sound> stored;
+    if (cur.isValid()) {
+        fm1::Sound s;
+        juce::MemoryBlock vb, rb;
+        const int slot = juce::jlimit(0, BankModel::kSlots - 1, int(cur.getProperty("slot", 0)));
+        if (vb.fromBase64Encoding(cur.getProperty("voice").toString()) && vb.getSize() == s.voice.size()
+            && rb.fromBase64Encoding(cur.getProperty("record").toString()) && rb.getSize() == s.record.size()) {
+            std::memcpy(s.voice.data(), vb.getData(), s.voice.size());
+            std::memcpy(s.record.data(), rb.getData(), s.record.size());
+            s.slot = slot; s.hasRecord = true; s.from = "project";
+            stored = s;
+        }
+        bank.setCurrentSlot(slot);
+        // a computer without a library yet starts it with what the project used
+        if (stored && !store_.exists()) { bank.setSound(slot, *stored, false); saveLibrary(); }
+    }
     loadedSlot_ = -1;
     loadCurrentIntoParams();
+    // The project's parameters (below) make it sound as saved even when the library's
+    // slot has changed since; the difference then shows as unsaved changes.
+    if (stored && (bank.current().voice != stored->voice || bank.current().record != stored->record) && onStatus)
+        onStatus(BankModel::bankName(bank.currentSlot()) + " has changed in the library since this project was saved; "
+                 "the project's sound is loaded as unsaved changes.");
     // the saved parameters (edits since the slot was loaded) win over the slot's bytes
     auto ps = v.getChildWithName(apvts.state.getType());
     if (ps.isValid()) { apvts.replaceState(ps); params.changed = true; }

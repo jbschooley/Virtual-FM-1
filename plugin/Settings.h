@@ -15,6 +15,7 @@ struct PluginSettings {
     int velocity = 100;               // 1..127, when fixed
     bool hardwareCharacter = false;   // the FM-1's output: 16-bit, its high-frequency roll-off and bandwidth
     int fm1VolumeDb = 0;              // with it: how far below full the FM-1's volume is, 0..-40 dB (16-bit grain)
+    bool embedBank = false;           // projects also keep the whole FM-1 bank (to take them to another computer)
 
     bool operator==(const PluginSettings&) const = default;
 
@@ -38,6 +39,7 @@ struct PluginSettings {
         t.setProperty("velocity", velocity, nullptr);
         t.setProperty("hardwareCharacter", hardwareCharacter, nullptr);
         t.setProperty("fm1VolumeDb", fm1VolumeDb, nullptr);
+        t.setProperty("embedBank", embedBank, nullptr);
         return t;
     }
     static PluginSettings fromTree(const juce::ValueTree& t) {
@@ -49,6 +51,7 @@ struct PluginSettings {
         s.velocity = t.getProperty("velocity", s.velocity);
         s.hardwareCharacter = t.getProperty("hardwareCharacter", s.hardwareCharacter);
         s.fm1VolumeDb = t.getProperty("fm1VolumeDb", s.fm1VolumeDb);
+        s.embedBank = t.getProperty("embedBank", s.embedBank);
         return s.clamped();
     }
     juce::var toJson() const {
@@ -60,6 +63,7 @@ struct PluginSettings {
         o->setProperty("velocity", velocity);
         o->setProperty("hardwareCharacter", hardwareCharacter);
         o->setProperty("fm1VolumeDb", fm1VolumeDb);
+        o->setProperty("embedBank", embedBank);
         return juce::var(o);
     }
     static PluginSettings fromJson(const juce::var& v) {
@@ -72,6 +76,7 @@ struct PluginSettings {
         s.velocity = v.getProperty("velocity", s.velocity);
         s.hardwareCharacter = v.getProperty("hardwareCharacter", s.hardwareCharacter);
         s.fm1VolumeDb = v.getProperty("fm1VolumeDb", s.fm1VolumeDb);
+        s.embedBank = v.getProperty("embedBank", s.embedBank);
         return s.clamped();
     }
 };
