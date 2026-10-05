@@ -78,7 +78,9 @@ for the code. New work goes under the next version at the top.
   - With an FM-1 running Felucca connected: Pull from FM-1, Send to FM-1
     (the synth's own are backed up to the library first; its settings stay
     its own) and Live, which keeps both the same as either changes (both
-    must run the same Felucca version). Tried with an FM-1 running Felucca
+    must run the same Felucca version). Two buttons on the Sound page copy
+    the selected part's sound from the FM-1, or to it without saving it
+    there. Tried with an FM-1 running Felucca
     1.0: reading everything from it; sending everything to it, read back
     the same; and Live with knob turns, tempo, step edits and part changes
     on the synth, and a value changed in the plugin, arriving on the other
