@@ -300,9 +300,11 @@ if(FM1_BUILD_PLUGIN)
 
     target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui engines/fm1_fx ${FM1_DEVICE_INCLUDES})
 
+    # (no WebP images: JUCE's libwebp SSE4.1 code does not compile with clang-cl 19)
     target_compile_definitions(VirtualFM1 PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_USE_WEBP=0
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0)
 
@@ -313,8 +315,14 @@ if(FM1_BUILD_PLUGIN)
         juce::juce_audio_devices
         juce::juce_dsp
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+    # Link-time optimisation where the linker reads what the compiler leaves: Apple's, and GCC's
+    # with its own plugin. Not with Clang on Linux (GNU ld reads LLVM bitcode only when LLVM's
+    # plugin is installed for it, which GitHub's runner lacks) nor clang-cl (Microsoft's linker
+    # cannot read it).
+    if(APPLE OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        target_link_libraries(VirtualFM1 PRIVATE juce::juce_recommended_lto_flags)
+    endif()
 
     if(NOT IOS)
     # The JUCE modules the test programs use, compiled once into one library they
@@ -325,7 +333,7 @@ if(FM1_BUILD_PLUGIN)
                 juce::juce_gui_basics juce::juce_events juce::juce_core
         PUBLIC juce::juce_recommended_config_flags)
     target_compile_definitions(fm1_test_juce
-        PUBLIC JUCE_STANDALONE_APPLICATION=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1
+        PUBLIC JUCE_STANDALONE_APPLICATION=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_WEBP=0 JUCE_MODAL_LOOPS_PERMITTED=1
                JUCE_PLUGINHOST_VST3=1 $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1> $<$<PLATFORM_ID:Linux>:JUCE_PLUGINHOST_LV2=1>
         INTERFACE $<TARGET_PROPERTY:fm1_test_juce,COMPILE_DEFINITIONS>)
     target_include_directories(fm1_test_juce INTERFACE $<TARGET_PROPERTY:fm1_test_juce,INCLUDE_DIRECTORIES>)
