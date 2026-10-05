@@ -133,12 +133,18 @@ int main(int argc, char** argv) {
         std::printf("write-back verified: %s\n", written.size() == 1 && written[0].voice == read[0].voice && written[0].record == read[0].record ? "yes" : "NO");
         return written.size() == 1 ? 0 : 1;
     }
-    if (cmd == "patterns") {
+    if (cmd == "patterns") {   // patterns <first> <last> [file.syx]: read; with a file, keep them as the messages that write them back
         session.pullPatterns(range(0, 1));
         waitIdle(session);
+        fm1::Bytes keep;
         for (const auto& [p, pp] : pats) {
             int notes = 0; for (const auto& st : pp.steps) notes += int(st.notes.size());
             std::printf("  pattern %2d: length %d, tempo %d, gate %d, swing %d, preset %d, %d notes\n", p + 1, pp.length, pp.tempo, pp.gate, pp.swing, pp.sound + 1, notes);
+            for (const auto& m : fm1::seq::encodeWrite(pp, p, true)) keep.insert(keep.end(), m.begin(), m.end());
+        }
+        if (argc > 4 && !last.failed) {
+            juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[4])).replaceWithData(keep.data(), keep.size());
+            std::printf("wrote %s (%zu bytes)\n", argv[4], keep.size());
         }
         return last.failed ? 1 : 0;
     }
