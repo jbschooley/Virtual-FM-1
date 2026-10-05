@@ -265,6 +265,14 @@ int main() {
         CHECK(f.playing(), "the plugin starts it too");
         f.transport(false); settle(2);
 
+        // a flash command from the editor while playing: Felucca stops the transport first
+        // (ed_flash_stop waits for the audio side, which must not hang the plugin)
+        f.transport(true); settle(2);
+        const bool wasPlaying = f.playing();
+        auto stored = request({19, 0, 'T', 'S', 'T', 0});   // UP_STORE slot 1, named TST
+        CHECK(wasPlaying && stored.size() == 8 && stored[5] == 0 && stored[6] == 0 && !f.playing(),
+              "UP_STORE while playing stops the transport and stores (no hang)");
+
         std::vector<uint16_t> screen;
         f.draw(screen);
         int lit = 0;

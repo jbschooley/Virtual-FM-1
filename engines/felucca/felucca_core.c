@@ -77,8 +77,18 @@ static void fel_out_drain(void)
     while (so_r != so_w && fel_out_w - fel_out_r < FEL_OUTQ)
         fel_out[fel_out_w++ % FEL_OUTQ] = sx_out_q[so_r++ % SXQ];
 }
+/* time that passes while the main loop waits for something the device's interrupts would do
+ * (the clock is the audio's, which cannot run meanwhile): counted on, so fm1_ms never goes back */
+static uint32_t fel_wait_ms;
 static uint32_t ota_now_ms(void) { return fm1_ms; }   /* usb.c's SysEx sender waits on these */
-static void ota_idle(void) { fel_out_drain(); if (so_w - so_r >= SXQ) fm1_ms++; }   /* (still full: its 200 ms run out) */
+static void ota_idle(void)
+{
+    fel_out_drain();
+    if (so_w - so_r >= SXQ) {            /* still full: its 200 ms run out */
+        fel_wait_ms++;
+        fm1_ms++;
+    }
+}
 #include "../upstream/firmware/src/midi_uart.c"
 #include "../upstream/firmware/src/song_chain.c"
 #include "../upstream/firmware/src/seq.c"
@@ -95,7 +105,19 @@ static uint32_t fm1_ticks(void) { return host_ticks; }
 static uint32_t fm1_input_edges(int x) { uint32_t p = host_pressed; (void)x; host_pressed = 0; return p; }
 static uint32_t fm1_input_note_edges(void) { uint32_t n = host_notes; host_notes = 0; return n; }
 static int32_t fm1_enc_take(uint32_t e) { int32_t s = host_enc[e % 7u]; host_enc[e % 7u] = 0; return s; }
-static void fm1_wdt_feed(void) {}
+/* fed while the main loop waits for the audio side: ed_flash_stop waits for the transport to
+ * stop, which the next audio block would do. Do it here, as Felucca's editor test does, and let
+ * the time pass */
+static void seq_stop(void);
+static void fm1_wdt_feed(void)
+{
+    if (transport_req == 2u) {
+        seq_stop();
+        transport_req = 0;
+    }
+    fel_wait_ms++;
+    fm1_ms++;
+}
 static void fm1_irq_off(void) {}
 static void fm1_irq_on(void) {}
 static uint16_t host_screen[240 * 240];   /* RGB565, as the LCD takes it (big endian) */
@@ -285,7 +307,7 @@ static uint32_t fel_main_ms;
 
 static void fel_clock(void)
 {
-    const uint64_t us = fel_frames * 1000000u / FS;
+    const uint64_t us = fel_frames * 1000000u / FS + (uint64_t)fel_wait_ms * 1000u;
     fm1_ms = (uint32_t)(us / 1000u);
     host_ticks = (uint32_t)us;
 }
@@ -304,6 +326,7 @@ static void fel_main_pass(void)
 void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings and objects, then the parts */
 {
     fel_frames = 0;
+    fel_wait_ms = 0;
     fel_main_ms = 0;
     fel_clock();
     persist_boot();
