@@ -330,3 +330,11 @@ std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8
     }
     return takeSysex();
 }
+
+int FeluccaEngine::selected() const { return core_ ? int(core_->selected()) : 0; }
+
+void FeluccaEngine::select(int track) {
+    if (!core_ || track < 0) return;
+    std::lock_guard<std::mutex> g(lock_);
+    core_->select(uint32_t(track));
+}

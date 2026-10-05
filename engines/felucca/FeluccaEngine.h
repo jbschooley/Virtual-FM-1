@@ -67,6 +67,8 @@ public:
     static constexpr int kScreen = 240;
     void draw(std::vector<uint16_t>& rgb565);
     void transport(bool play);                 // PLAY: the next block starts or stops it
+    int selected() const;                      // the selected part: Felucca's keys play it
+    void select(int track);                    // as ALGORITHM does on the device
     bool playing() const;
     // The device's stored objects, as Felucca's full backup carries them: 0 the music now
     // (a FUN8 project), 1 settings, 2..5 the project slots, 6 and 7 the user presets, 8 the

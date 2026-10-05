@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "Panels.h"
@@ -40,5 +42,6 @@ private:
     SettingsPanel settings_;
     void applyKeyboardVelocity();
     juce::MidiKeyboardState keyState_;
+    std::array<int, 128> noteChannel_{};   // the channel each held key's note-on went to (Felucca: the selected part's)
     juce::MidiKeyboardComponent keyboard_{keyState_, juce::MidiKeyboardComponent::horizontalKeyboard};
 };

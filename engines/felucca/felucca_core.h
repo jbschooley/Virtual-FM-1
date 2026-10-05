@@ -68,6 +68,8 @@ typedef struct {
     X(void, draw, (uint16_t *screen240x240))                                     \
     X(uint32_t, midi_out, (uint32_t *usbMidiPackets, uint32_t max))              \
     X(void, transport, (int play))                                               \
+    X(uint32_t, selected, (void))                                                \
+    X(void, select, (uint32_t track))                                            \
     X(int, playing, (void))                                                      \
     X(uint32_t, object_max, (void))                                              \
     X(int32_t, object_get, (uint32_t id, uint8_t *out, uint32_t max))            \

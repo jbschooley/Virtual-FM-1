@@ -137,12 +137,22 @@ void FM1Editor::applyKeyboardVelocity() {
 }
 
 void FM1Editor::handleNoteOn(juce::MidiKeyboardState*, int ch, int note, float vel) {
+   #if FM1_FELUCCA
+    // Felucca: the keys play the selected part (as its own keys do), on that part's channel;
+    // the note-off goes where its note-on went
+    if (auto f = proc_.felucca()) ch = f->selected() + 1;
+    noteChannel_[size_t(note & 127)] = ch;
+   #endif
     auto m = juce::MidiMessage::noteOn(ch, note, vel);
     m.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     proc_.keyboardMidi.addMessageToQueue(m);
 }
 
 void FM1Editor::handleNoteOff(juce::MidiKeyboardState*, int ch, int note, float vel) {
+   #if FM1_FELUCCA
+    if (noteChannel_[size_t(note & 127)] > 0) ch = noteChannel_[size_t(note & 127)];
+    noteChannel_[size_t(note & 127)] = 0;
+   #endif
     auto m = juce::MidiMessage::noteOff(ch, note, vel);
     m.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     proc_.keyboardMidi.addMessageToQueue(m);

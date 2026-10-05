@@ -518,6 +518,14 @@ uint32_t FEL(midi_out)(uint32_t *pkts, uint32_t max)
     return n;
 }
 
+/* ---- the selected part: what the keys, the pages and the editor's track commands act on ---- */
+uint32_t FEL(selected)(void) { return song.sel; }
+void FEL(select)(uint32_t t)   /* as ALGORITHM on the device (and the editor's TRACK) */
+{
+    if (t < NTRK && t != song.sel)
+        track_select(t);
+}
+
 /* ---- the transport ------------------------------------------------------------------------------ */
 void FEL(transport)(int play) { transport_req = play ? 1u : 2u; }   /* as PLAY; the next block acts on it */
 int FEL(playing)(void) { return song.playing != 0u; }

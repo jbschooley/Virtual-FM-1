@@ -243,7 +243,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
     };
     info_.setColour(juce::Label::textColourId, kDim);
     info_.setFont(juce::FontOptions(12.0f));
-    info_.setText("MIDI channels 1-4 play the parts, as on the FM-1 with Felucca.", juce::dontSendNotification);
+    info_.setText("The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).", juce::dontSendNotification);
     view_.setViewedComponent(&content_, false);
     view_.setScrollBarsShown(true, false);
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
@@ -271,6 +271,11 @@ void FeluccaPanel::updateSyncButtons() {
 
 void FeluccaPanel::timerCallback() {
     updateSyncButtons();
+    if (auto e = engine(); e && e->selected() != track_ && e->selected() < 4) {   // chosen on the device (its panel, a synced FM-1)
+        track_ = e->selected();
+        trackButtons_[track_].setToggleState(true, juce::dontSendNotification);
+        if (!device_.isVisible()) build();
+    }
     if (isShowing() && !isMouseButtonDownAnywhere()) loadValues();
 }
 
@@ -292,6 +297,7 @@ void FeluccaPanel::updateTempoControl() {
 
 void FeluccaPanel::selectTrack(int t) {
     track_ = t;
+    if (auto e = engine()) e->select(t);   // Felucca's selected part too: the keys play it
     build();
 }
 
