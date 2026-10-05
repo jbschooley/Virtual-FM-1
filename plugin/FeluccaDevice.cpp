@@ -96,6 +96,12 @@ std::vector<Bytes> VirtualEndpoint::pushes() {
     return out;
 }
 
+// What the file holds, to see another instance's save: its contents, not its time (a time
+// can be the same for two saves: whole seconds on Linux). About 40 KB once a second.
+juce::int64 DeviceStore::fileHash() const {
+    return file_.existsAsFile() ? file_.loadFileAsString().hashCode64() : 0;
+}
+
 juce::File DeviceStore::defaultFile() {
     return LibraryStore::root().getChildFile("Felucca").getChildFile("Felucca device.json");
 }
@@ -118,7 +124,7 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
 }
 
 juce::String DeviceStore::load(FeluccaEngine& f) {
-    seen_ = file_.getLastModificationTime();
+    seen_ = fileHash();
     blocked_ = false;
     lastError_ = {};
     if (file_.existsAsFile()) {
@@ -137,10 +143,11 @@ juce::String DeviceStore::load(FeluccaEngine& f) {
 
 juce::String DeviceStore::tick(FeluccaEngine& f) {
     auto report = [this](const juce::String& e) { if (e == lastError_) return juce::String(); lastError_ = e; return e; };
-    const bool changedThere = file_.existsAsFile() && file_.getLastModificationTime() != seen_;
+    const auto hash = fileHash();
+    const bool changedThere = file_.existsAsFile() && hash != seen_;
     if (blocked_) {   // only a changed file that reads lets it save again
         if (!changedThere) return {};
-        seen_ = file_.getLastModificationTime();
+        seen_ = hash;
         auto e = loadInto(f);
         blocked_ = e.isNotEmpty();
         return blocked_ ? report(e) : juce::String();
@@ -151,7 +158,7 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     // another instance saved: take each object this one has not changed itself
     Objects base = known_;
     if (changedThere) {
-        seen_ = file_.getLastModificationTime();
+        seen_ = hash;
         Objects theirs;
         juce::String error;
         if (!readBackup(file_, theirs, error)) {
@@ -181,7 +188,7 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
         || !tmp.overwriteTargetFileWithTemporary())
         return report("Could not save the Felucca device to " + file_.getFullPathName() + ".");
     known_ = now;
-    seen_ = file_.getLastModificationTime();
+    seen_ = fileHash();
     lastError_ = {};
     return {};
 }

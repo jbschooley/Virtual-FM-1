@@ -57,7 +57,8 @@ private:
     juce::String loadInto(FeluccaEngine& f);
     juce::File file_;
     Objects known_;                            // 1..8 as last loaded or saved
-    juce::Time seen_;                          // the file's time then
+    juce::int64 seen_ = 0;                     // the file's contents then (a hash)
+    juce::int64 fileHash() const;
     juce::String lastError_;
     bool blocked_ = false;                     // the file could not be read: never written over
 };
