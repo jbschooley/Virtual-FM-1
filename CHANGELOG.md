@@ -9,14 +9,19 @@ for the code. New work goes under the next version at the top.
 ### Changed
 
 - **Firmware choice**: a dropdown at the top sets which firmware an
-  instance plays and syncs with (M-VAVE stock, FM-1+VA, Felucca), saved
-  with the project. When an FM-1 running another firmware connects, the
+  instance plays and syncs with (M-VAVE stock V15, FM-1+VA 0.94, Felucca
+  1.0), saved with the project. When an FM-1 running another firmware connects, the
   plugin asks before doing anything with it; if you keep your choice it
   stays disconnected.
-- **The editor is rearranged**: the preset list now sits beside the FM,
-  Effects & Envelope and (on FM-1+VA) VA pages and the sync buttons, all in
-  the Library tab; Sequencer, Arpeggiator and Settings have their own tabs;
-  the MIDI connection moved to the top bar. The window is a little larger.
+- **The editor is rearranged**: the preset list now sits beside the
+  preset's pages (FM, or VA for a VA preset, and Effects & Envelope) and
+  the sync buttons, all in the Library tab; Sequencer, Arpeggiator and
+  Settings have their own tabs; the MIDI connection, and in the app the
+  Audio/MIDI settings, moved to the top bar. The window is a little larger.
+- **On an iPad**: Select above the preset list picks several presets by
+  tapping; Effects & Envelope wraps to the screen and scrolls; drop-down
+  lists open below their box instead of hiding items behind a scroll
+  arrow.
 - **Your presets are a folder**: the shared library moved to
   Documents/Virtual FM-1/Banks/FM-1, one readable JSON file per preset, so
   it can be backed up and synced with ordinary tools. The first run copies
@@ -33,18 +38,36 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
-- **Felucca**: an instance set to Felucca plays Felucca 1.0's own engines
-  (ANALOG, FM6, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL, GRAIN, PHYS, NOISE,
-  SLICE and DRUM), built from its source with its author's agreement. MIDI
-  channels 1-4 play its four parts, as on the FM-1. Its editor shows each
-  part's engine, preset and every parameter by Felucca's own names (the
-  modulation matrix and chords too), and the global settings; the project
-  keeps them, with each part's FM6 patch. Its tempo follows the host unless
-  you turn that off. Its parameters can be automated from the host (292 of
-  them: each part's and the global ones). Up to 8 instances can play
-  Felucca at once. Not yet: its sequencer's steps, its presets and
-  projects, and syncing with a synth running Felucca. Built on macOS, iOS and Linux;
-  the Windows build does not include Felucca yet.
+- **Felucca**: an instance set to Felucca is an FM-1 running Felucca 1.0,
+  built from Felucca's own source (all of it: sound, sequencer, screen,
+  projects, user presets, FM6 bank and editor protocol) with its author's
+  agreement. Its engines are ANALOG, FM6, PHASE, LOFI, SAMPLE, VOICE, TRIO,
+  WHEEL, GRAIN, PHYS, NOISE, SLICE and DRUM; MIDI channels 1-4 play its
+  four parts, as on the FM-1; the on-screen keyboard plays the selected
+  part. Up to 8 instances can play Felucca at once.
+  - Its editor shows each part's engine, preset and every parameter by
+    Felucca's own names (the modulation matrix and chords too), and the
+    global settings. DEVICE shows Felucca's own screen, buttons, knobs and
+    keys: its sequencer, projects and user presets work there as on the
+    device.
+  - The project keeps the music playing as Felucca saves a project. The
+    device's four project slots, 32 user presets, FM6 bank and settings
+    are kept in the library folder (Felucca/Felucca device.json, the file
+    Felucca's web editor writes for a full backup), shared by every
+    instance.
+  - Its tempo, PLAY and STOP follow the host unless you turn that off.
+    Its parameters can be automated from the host (292 of them: each
+    part's and the global ones). SysEx from the host reaches its editor
+    protocol (its replies are not sent back to the host yet).
+  - With an FM-1 running Felucca connected: Pull from FM-1, Send to FM-1
+    (the synth's own are backed up to the library first; its settings stay
+    its own) and Live, which keeps both the same as either changes (both
+    must run the same Felucca version). Tried with an FM-1 running Felucca
+    1.0: reading everything from it, and Live with knob turns, tempo, step
+    edits and part changes on the synth, and a value changed in the
+    plugin, arriving on the other side. Send has not been tried on a real
+    FM-1.
+  - Not yet: user sample slots, and the Windows build.
 - **Init...** starts the current preset over from a blank FM sound, as an
   unsaved change.
 - **Bluetooth MIDI**: the iPad app can pair with Bluetooth MIDI devices,
