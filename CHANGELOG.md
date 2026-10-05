@@ -44,7 +44,8 @@ for the code. New work goes under the next version at the top.
   agreement. Its engines are ANALOG, FM6, PHASE, LOFI, SAMPLE, VOICE, TRIO,
   WHEEL, GRAIN, PHYS, NOISE, SLICE and DRUM; MIDI channels 1-4 play its
   four parts, as on the FM-1; the on-screen keyboard plays the selected
-  part. Up to 8 instances can play Felucca at once.
+  part. Any number of instances can play Felucca; beyond eight, each
+  costs a little more CPU.
   - Its editor shows each part's engine, preset and every parameter by
     Felucca's own names (the modulation matrix and chords too), and the
     global settings. DEVICE shows Felucca's own screen, buttons, knobs and

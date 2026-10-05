@@ -44,7 +44,11 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
   the main loop runs every 16 ms of it. Only `main.c`'s `felucca_init` is
   repeated. Never built: the update and boot loader code (`ota.c`, `main.c`'s
   boot loader paths); requests for them are taken and ignored.
-- `FeluccaEngine` hands each plugin instance a copy of its own.
+- `FeluccaEngine` gives each plugin instance one of the compiled copies, alone
+  while there are no more instances than copies; beyond that instances share
+  one, each instance's state saved out of the copy and put back before it
+  plays (`felucca_core.c` `state_get` / `state_put`). An instance always plays
+  in the copy it started in, since its state holds pointers into that copy.
 - Felucca 1.0 has four parts and no separate drum track (DRUM is an engine,
   on part 4 at power-on). Engine 1 (DIGITAL) is retired and not built
   (`FELUCCA_FM4` 0): a DIGITAL sound arrives as FM6 with a converted patch,

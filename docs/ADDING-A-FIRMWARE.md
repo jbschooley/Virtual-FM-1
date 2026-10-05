@@ -56,9 +56,11 @@ building, the tests and the rules for working with a real FM-1.
    its tests stay small. It may run at its own rate: the plugin converts
    (`RateConverter`) and reports the latency, as for Felucca at 44.1 kHz. A
    firmware whose source is C with file-level state, as Felucca's is, can be
-   compiled several times with a prefix per copy so each instance plays its
-   own; `engines/felucca/felucca_core.c` and its `UPSTREAM.md` show how (Clang
-   only: the copies' state lives in sections of their own).
+   compiled several times with a prefix per copy, each instance playing in
+   one; with more instances than copies, they share one and each one's state
+   is saved out and put back. `engines/felucca/felucca_core.c` and its
+   `UPSTREAM.md` show how (Clang only: the copies' state lives in sections of
+   their own).
 5. **What it saves.** `FM1Processor::getStateInformation` saves the firmware
    id, the release it was made for (`firmwareVersion`) and a child per
    firmware with its state (Felucca's: the music as Felucca saves a project).

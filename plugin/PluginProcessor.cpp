@@ -1195,15 +1195,16 @@ void FM1Processor::setFirmware(const juce::String& id) {
     pendingMismatch_.reset();
    #if FM1_FELUCCA
     {
-        // Felucca plays from a copy of its own, taken now and given back when switching away;
-        // its sound is kept meanwhile (and saved), and comes back with the next copy
+        // Felucca plays from an engine taken now and given back when switching away (it plays in
+        // one of the compiled copies, alone or sharing it: FeluccaEngine); its sound is kept
+        // meanwhile (and saved), and comes back with the next engine
         const bool want = juce::String(choices[size_t(index)].id) == "felucca";
         std::shared_ptr<FeluccaEngine> next;
         if (want && !felucca_) {
             next = std::make_shared<FeluccaEngine>();
             if (!next->valid()) {
                 next.reset();
-                status("All " + juce::String(FeluccaEngine::copies()) + " Felucca instances are in use; this one is silent.");
+                status("Felucca could not start in this instance; it is silent.");   // (not expected: there is no limit)
             } else {
                 {   // the device's projects, user presets, FM6 bank and settings, from the library
                     juce::String msg;

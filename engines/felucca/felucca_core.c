@@ -47,8 +47,10 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
 #define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
 #define FELUCCA_VERSION "v1.0"
-static uint8_t host_samples[3][0x14000];   /* the user sample slots USR1..3 (empty) */
-#define SMP_USER_XIP(k) ((const uint8_t *)host_samples[k])
+/* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
+ * one array of zeros for every copy (FeluccaEngine.cpp) rather than 240 KB of each one's state */
+extern const uint8_t fel_no_samples[3][0x14000];
+#define SMP_USER_XIP(k) ((const uint8_t *)fel_no_samples[k])
 #define memset FEL(memset)
 #define memcpy FEL(memcpy)
 #define memcmp FEL(memcmp)
@@ -244,6 +246,13 @@ static void felucca_init(void)
     ui.force = 1;
 }
 
+/* the plugin's own per-instance state, in the copy's sections with Felucca's (so it goes with
+ * it when an instance's state is saved and put back): the audio rendered (the clock), when the
+ * main loop last ran, and when the editor was last served */
+static uint64_t fel_frames;
+static uint32_t fel_main_ms;
+static uint64_t fel_served_at;
+
 #undef __attribute__                     /* Felucca's code is done: attributes mean something again */
 static uint8_t fel_bss_marker;          /* make sure both sections exist */
 static uint8_t fel_data_marker = 1;
@@ -279,6 +288,26 @@ __attribute__((noinline)) void FEL(restore)(void)
 
 uint32_t FEL(state_bytes)(void) { return (uint32_t)((&fel_bss_stop - &fel_bss_start) + (&fel_data_stop - &fel_data_start)); }
 
+/* an instance's whole state out of the copy, and back (state_bytes of it): an instance that
+ * shares this copy with others is put back before it plays. Only into this same copy: the state
+ * holds pointers into the copy's own variables and tables */
+__attribute__((noinline)) void FEL(state_get)(uint8_t *out)
+{
+    const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
+    const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
+    __asm__ volatile("" ::: "memory");
+    FEL(memcpy)(out, &fel_bss_start, nb);
+    FEL(memcpy)(out + nb, &fel_data_start, nd);
+}
+__attribute__((noinline)) void FEL(state_put)(const uint8_t *in)
+{
+    const size_t nb = (size_t)(&fel_bss_stop - &fel_bss_start);
+    const size_t nd = (size_t)(&fel_data_stop - &fel_data_start);
+    FEL(memcpy)(&fel_bss_start, in, nb);
+    FEL(memcpy)(&fel_data_start, in + nb, nd);
+    __asm__ volatile("" ::: "memory");
+}
+
 /* ---- the API ------------------------------------------------------------------------------ */
 
 static const param_desc_t *track_param_desc(uint32_t track, uint32_t id)
@@ -310,8 +339,6 @@ static void fill(fel_desc_t *out, const param_desc_t *d)
 
 /* the clock: fm1_ms and the tick counter follow the audio rendered, as on the device they follow
  * its timer; the main loop runs about every 16 ms of it (main.c: ~60 UI frames a second) */
-static uint64_t fel_frames;
-static uint32_t fel_main_ms;
 
 static void fel_clock(void)
 {
@@ -426,7 +453,6 @@ void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }
  * whether a new one would be taken, after serving what waited. Without audio rendered
  * meanwhile, its clock moves on by what its editor needs to push changes (5 ms between
  * passes, 20 ms between pushes of one value), as time would on the device. */
-static uint64_t fel_served_at;
 void FEL(service)(void)
 {
     usb.uboot_req = 0;

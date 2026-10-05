@@ -1,18 +1,19 @@
-// FeluccaEngine -- Felucca's synth (engines/felucca/felucca_core.c) for one plugin
-// instance: one of the compiled copies, taken from a pool while the instance plays
-// Felucca and given back after. No JUCE here.
+// FeluccaEngine -- Felucca (engines/felucca/felucca_core.c) for one plugin instance. No JUCE.
+//
+// Felucca keeps its state in one compiled copy's variables, and there are copies() of them
+// (FELUCCA_COPIES). Each instance plays in one: alone while there are no more instances than
+// copies, else sharing it with others, its state saved out when another plays there and put
+// back before it plays again (about 0.9 MB each way: CPU, not a limit). An instance always
+// plays in the copy it started in.
 //
 // Felucca runs at 44.1 kHz in blocks of 32 samples (its control rate); render()
 // takes any number of frames and keeps the rest of a block for next time. MIDI goes
 // in as USB-MIDI packets, as the FM-1's USB port delivers them; Felucca reads them
 // at the start of each 32-sample block, as on the device.
 //
-// Thread safety, as Felucca's own UI works with its audio interrupt: render() and midi()
-// are for the audio thread. Reading (param, paramDesc, engineOf ...) and setting a
-// single value (setParam, setGlobal) work from any thread without a lock: a value is
-// one 16-bit store, read by the audio side at its next block. Changes that rewrite
-// many values at once (setEngine, applyPreset, reset) take the lock the audio thread
-// holds while it renders, so it never sees half of one; they are short and rare.
+// Thread safety: every call that reads or changes the instance's state takes its copy's lock
+// (render holds it for a block), so calls from any thread see whole changes. What does not
+// depend on the state (names, counts, presets' names) takes no lock.
 #pragma once
 
 #include <array>
@@ -33,15 +34,17 @@ struct FeluccaCopy {
 
 class FeluccaEngine {
 public:
-    static int copies();                       // how many instances can play Felucca at once
-    static int copiesInUse();
+    static int copies();                       // the compiled copies (instances beyond them share)
+    static int copiesInUse();                  // copies with at least one instance
+    static int instances();                    // instances, in all copies
 
-    FeluccaEngine();                           // takes a free copy, if there is one
+    FeluccaEngine();                           // in the copy with the fewest instances
     ~FeluccaEngine();
     FeluccaEngine(const FeluccaEngine&) = delete;
     FeluccaEngine& operator=(const FeluccaEngine&) = delete;
 
-    bool valid() const { return core_ != nullptr; }
+    bool valid() const { return core_ != nullptr; }   // (always, now there is no limit)
+    long swaps() const { return swaps_; }      // times its state was put back into its copy
     static constexpr double kRate = 44100.0;   // FS: Felucca renders at the FM-1's rate only
 
     // ---- audio thread ----
@@ -113,9 +116,12 @@ public:
     void reset();                              // as the device powers on
 
 private:
+    std::unique_lock<std::mutex> bind() const; // its state in its copy, the copy's lock held
     const FeluccaCopy* core_ = nullptr;
     int index_ = -1;
-    mutable std::mutex lock_;
+    mutable std::vector<uint8_t> saved_;       // its state while another instance plays in its copy
+    mutable bool fresh_ = true;                // never played yet: the copy starts afresh for it
+    mutable long swaps_ = 0;
     std::array<int32_t, 2 * 32> block_{};      // one control block, interleaved
     std::vector<uint8_t> sxOut_;               // SysEx coming out, until a message is whole
     std::vector<std::vector<uint8_t>> sxDone_;

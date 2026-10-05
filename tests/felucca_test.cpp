@@ -128,22 +128,50 @@ int main() {
     uint64_t fresh = 0;
     { FeluccaEngine f; fresh = play(f, 1, 128, 300); }
 
-    // ---- the pool ----
+    // ---- the pool: no limit; beyond the copies, instances share one, states swapped ----
     CHECK(FeluccaEngine::copies() >= 2, "there are copies to play");
     {
+        const int copies = FeluccaEngine::copies(), n = copies + 3;   // three copies shared
+        const int engines[3] = {0, 4, 6};                             // ANALOG, SAMPLE, TRIO
+        uint64_t alone[3];
+        for (int e = 0; e < 3; ++e) { FeluccaEngine x; x.setEngine(0, engines[e]); alone[e] = play(x, 1, 256, 120); }
         std::vector<std::unique_ptr<FeluccaEngine>> all;
-        for (int i = 0; i < FeluccaEngine::copies(); ++i) all.push_back(std::make_unique<FeluccaEngine>());
+        for (int i = 0; i < n; ++i) { all.push_back(std::make_unique<FeluccaEngine>()); all.back()->setEngine(0, engines[i % 3]); }
         bool allValid = true;
         for (auto& e : all) allValid = allValid && e->valid();
-        CHECK(allValid, "every copy can be taken");
-        FeluccaEngine extra;
-        CHECK(!extra.valid(), "one more instance than copies gets none");
-        CHECK(FeluccaEngine::copiesInUse() == FeluccaEngine::copies(), "all in use");
-        all.pop_back();
-        FeluccaEngine again;
-        CHECK(again.valid(), "a copy given back can be taken again");
+        CHECK(allValid && FeluccaEngine::instances() == n && FeluccaEngine::copiesInUse() == copies,
+              "more instances than copies: every one plays, in every copy");
+        // all of them in turn, block by block, each as it would sound alone
+        std::vector<uint64_t> h(size_t(n), 1469598103934665603ull);
+        std::vector<float> l(256), r(256);
+        for (int k = 0; k < 120; ++k)
+            for (int i = 0; i < n; ++i) {
+                auto& f = *all[size_t(i)];
+                if (k == 0) { noteOn(f, 1, 48, 100); noteOn(f, 1, 55, 90); noteOn(f, 1, 64, 80); }
+                if (k == 60) { noteOff(f, 1, 48); noteOff(f, 1, 55); noteOff(f, 1, 64); }
+                f.render(l.data(), r.data(), 256);
+                h[size_t(i)] = hash(hash(h[size_t(i)], l), r);
+            }
+        bool same = true;
+        long swapped = 0;
+        for (int i = 0; i < n; ++i) {
+            same = same && h[size_t(i)] == alone[i % 3];
+            if (h[size_t(i)] != alone[i % 3]) std::printf("  instance %d plays differently\n", i);
+            swapped += all[size_t(i)]->swaps();
+        }
+        CHECK(same && swapped > 100, "instances sharing a copy, played in turn, each sound as alone (their states swapped)");
+        // two that share a copy, on two threads at once
+        all.clear();
+        for (int i = 0; i <= copies; ++i) all.push_back(std::make_unique<FeluccaEngine>());   // the last shares a copy
+        all[0]->setEngine(0, engines[1]);
+        all[size_t(copies)]->setEngine(0, engines[2]);   // copy 0 again (the fewest instances: the first)
+        uint64_t t0 = 0, t1 = 0;
+        std::thread a([&] { t0 = play(*all[0], 1, 256, 120); });
+        std::thread b([&] { t1 = play(*all[size_t(copies)], 1, 256, 120); });
+        a.join(); b.join();
+        CHECK(t0 == alone[1] && t1 == alone[2] && all[size_t(copies)]->swaps() > 1, "and on two threads at once");
     }
-    CHECK(FeluccaEngine::copiesInUse() == 0, "every copy is given back");
+    CHECK(FeluccaEngine::copiesInUse() == 0 && FeluccaEngine::instances() == 0, "every copy is given back");
 
     // ---- what it is ----
     FeluccaEngine a;

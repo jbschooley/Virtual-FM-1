@@ -56,10 +56,11 @@ endif()
 
 # ---- Felucca's engines (engines/felucca: Felucca 1.0, GPL-3.0-only) -------------
 # Felucca's synth is one compilation unit with all its state in file-level statics, so
-# one compiled copy plays one instance. felucca_core.c is compiled FELUCCA_COPIES times,
-# each copy with its own symbol prefix; an instance takes a free copy while it plays
-# Felucca (FeluccaEngine). Each copy keeps its writable state in sections of its own,
-# so that a copy can be put back to how it started before the next instance takes it;
+# one compiled copy plays one instance at a time. felucca_core.c is compiled FELUCCA_COPIES
+# times, each copy with its own symbol prefix; each instance plays in one, sharing it when
+# there are more instances than copies (FeluccaEngine). Each copy keeps its writable state
+# in sections of its own, so that it can be put back to how it started, and an instance's
+# state saved out and put back in when it shares the copy;
 # that uses Clang's section pragma, so Felucca is built only with Clang (macOS and iOS
 # always; Linux with CC=clang). MSVC also cannot parse Felucca's inline assembly.
 if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
@@ -72,7 +73,7 @@ if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(WARNING "Felucca's engines need Clang (CC=clang); building without them")
     set(FM1_BUILD_FELUCCA OFF)
 endif()
-set(FELUCCA_COPIES 8 CACHE STRING "How many instances can play Felucca at once")
+set(FELUCCA_COPIES 8 CACHE STRING "How many Felucca instances play without sharing a copy (more share one, at some CPU cost)")
 if(FM1_BUILD_FELUCCA)
     math(EXPR felLast "${FELUCCA_COPIES} - 1")
     set(felDecl "")

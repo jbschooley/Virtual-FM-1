@@ -98,8 +98,8 @@ void FM1Editor::showFirmware() {
     juce::String why;
     if (isFelucca) {
        #if FM1_FELUCCA
-        why = "Every Felucca copy in the plugin is in use by other instances, so this one is silent.\n"
-              "Set another instance to a different firmware, or close one, then choose Felucca again.";
+        why = "Felucca could not start in this instance, so it is silent.\n"
+              "Choose another firmware and then Felucca again.";
        #else
         why = "This build of the plugin does not include Felucca's engines (they need Clang).";
        #endif

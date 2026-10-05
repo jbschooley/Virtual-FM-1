@@ -488,23 +488,15 @@ static int checks() {
             mirror.stop();
         }
 
-        // with no copy free, a Felucca project still keeps (and saves) its Felucca sound
+        // with every copy taken by other instances, a Felucca project still opens and plays its sound
         {
             std::vector<std::unique_ptr<FeluccaEngine>> taken;
             while (FeluccaEngine::copiesInUse() < FeluccaEngine::copies()) taken.push_back(std::make_unique<FeluccaEngine>());
-            juce::MemoryBlock again;
-            {
-                FM1Processor busy;
-                busy.setStateInformation(project.getData(), int(project.getSize()));
-                CHECK(busy.felucca() == nullptr && !busy.emulates(), "no copy free: the instance is silent");
-                busy.getStateInformation(again);
-            }
-            taken.clear();
-            FM1Processor later;
-            later.setStateInformation(again.getData(), int(again.getSize()));
-            CHECK(later.felucca() != nullptr && later.felucca()->engineOf(1) == 6
-                  && later.felucca()->param(1, later.felucca()->firstEngineParam() + 2) == felParamValue,
-                  "and saving it keeps the Felucca sound for when a copy is free");
+            FM1Processor more;
+            more.setStateInformation(project.getData(), int(project.getSize()));
+            CHECK(more.felucca() != nullptr && more.emulates() && more.felucca()->engineOf(1) == 6
+                  && more.felucca()->param(1, more.felucca()->firstEngineParam() + 2) == felParamValue,
+                  "more Felucca instances than copies: it still plays its own sound (no limit)");
         }
         FM1Processor q;
         q.setStateInformation(project.getData(), int(project.getSize()));
