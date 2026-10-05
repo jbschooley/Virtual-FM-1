@@ -93,13 +93,14 @@ public:
     explicit FeluccaSyncPage(FM1Processor&);
     ~FeluccaSyncPage() override { proc_.onFeluccaLive = nullptr; }
     void resized() override;
+    void setStatus(const juce::String& s) { status_.setText(s, juce::dontSendNotification); }   // the sync's progress and outcome
 
 private:
     void timerCallback() override { update(); }
     void update();
     FM1Processor& proc_;
     juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};
-    juce::Label about_, problem_;
+    juce::Label about_, problem_, status_;
 };
 
 // The virtual FM-1's stored sounds and songs: its 32 user presets and four projects (shared by
@@ -152,6 +153,7 @@ public:
     explicit FeluccaPanel(FM1Processor&);
     void resized() override;
     void refresh() { sound_.refresh(); list_.reload(); }   // after a project loads, say
+    void setStatus(const juce::String& s) { sync_.setStatus(s); }
 
 private:
     FM1Processor& proc_;

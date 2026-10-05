@@ -47,7 +47,12 @@ FM1Editor::FM1Editor(FM1Processor& p)
     if (auto m = proc_.pendingMismatch()) juce::Timer::callAfterDelay(300, [this, id = *m] { offerSwitch(id); });
     keyState_.addListener(this);
 
-    proc_.onStatus = [this](const juce::String& s) { library_.setStatus(s); };
+    proc_.onStatus = [this](const juce::String& s) {
+        library_.setStatus(s);
+       #if FM1_FELUCCA
+        if (felucca_) felucca_->setStatus(s);   // (the library above is not shown then)
+       #endif
+    };
     if (auto said = proc_.takePendingStatus(); said.isNotEmpty()) library_.setStatus(said);   // (said before the editor opened)
     proc_.bank.onChange = [this] { library_.refresh(); fm_.refreshName(); };
     proc_.session.onIdentity = [this](const fm1::Identity& id) {

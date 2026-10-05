@@ -470,7 +470,10 @@ void FeluccaSoundPage::layoutContent() {
 // ---- the Sync page ---------------------------------------------------------------------------
 
 FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
-    for (auto* c : std::initializer_list<juce::Component*>{&pullButton_, &sendButton_, &liveButton_, &about_, &problem_}) addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&pullButton_, &sendButton_, &liveButton_, &about_, &problem_, &status_}) addAndMakeVisible(c);
+    status_.setColour(juce::Label::textColourId, kText);
+    status_.setFont(juce::FontOptions(13.0f));
+    status_.setJustificationType(juce::Justification::topLeft);
     about_.setText("An FM-1 running Felucca, connected with Find FM-1 (or the MIDI menus): pull everything from it, "
                    "send everything to it, or follow it live.", juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);
@@ -522,6 +525,7 @@ void FeluccaSyncPage::resized() {
     sendButton_.setBounds(row.removeFromLeft(w)); row.removeFromLeft(6);
     liveButton_.setBounds(row);
     r.removeFromTop(10);
+    status_.setBounds(r.removeFromTop(60));
     problem_.setBounds(r.removeFromTop(60));
 }
 
