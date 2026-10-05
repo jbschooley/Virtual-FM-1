@@ -376,6 +376,9 @@ if(FM1_BUILD_PLUGIN)
 
     # the whole plugin without a host: renders to compare builds, saved states that must keep loading
     add_executable(plugin_test tests/plugin_test.cpp)
+    if(MSVC)   # its checks keep whole processors and banks in one function: macOS's 8 MB stack, not Windows' 1 MB
+        target_link_options(plugin_test PRIVATE /STACK:8388608)
+    endif()
     # the shared code's definitions, less those that say which plugin wrapper is being built
     target_compile_definitions(plugin_test PRIVATE
         $<FILTER:$<TARGET_PROPERTY:VirtualFM1,COMPILE_DEFINITIONS>,EXCLUDE,^JucePlugin_Build_|^JUCE_SHARED_CODE>)
