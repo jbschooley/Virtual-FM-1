@@ -43,7 +43,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
     static const std::vector<KnownVersion> felucca = {
-        {904, "0.4 beta", Support::Deprecated, "Pull, Send and Live need Felucca 1.0 (its full backup and editor protocol): update it with Felucca's installer"},
+        {904, "0.4 beta", Support::Deprecated, "the plugin supports Felucca from 1.0: update it with Felucca's installer"},
         {910, "1.0", Support::Current, ""},
     };
     if (firmwareId == "fm1_stock") return stock;
@@ -70,6 +70,11 @@ VersionCheck checkVersion(const Identity& id) {
         return c;
     }
     const auto& newest = list.back();
+    if (c.firmwareId == "felucca" && id.version > 900 && id.version < 910) {   // the betas before 1.0 (0.8, 0.9 ...)
+        c.support = Support::Deprecated;
+        c.text = who + ": a Felucca from before 1.0; the plugin supports Felucca from 1.0: update it with Felucca's installer";
+        return c;
+    }
     if (c.firmwareId == "felucca" && id.version == 900) {   // a build of Felucca that is not a release
         c.support = Support::Older;
         c.text = who + ": a development build of Felucca, synced as " + newest.label + " (not tried)";

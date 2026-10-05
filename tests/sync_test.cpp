@@ -284,6 +284,8 @@ int main(int argc, char** argv) {
         CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
         CHECK(at(900).text.find("development build") != std::string::npos, "a Felucca build that is not a release");
+        CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
+              "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
     }
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 93})->name() == "FM-1+VA", "FM-1_093 is FM-1+VA");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 94})->has(fm1::Firmware::Feature::ReadGlobals), "FM-1_094 reads GLOBE settings like 093");

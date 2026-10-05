@@ -54,6 +54,8 @@ author's name for it, how well the plugin works with it, and a note:
 the editor shows it when the synth is not on a current or tested one. A release
 the list does not have is never refused: a newer one is synced as the newest
 the plugin knows and said to be untested; an older one is said to be older.
+Felucca is supported from 1.0: any Felucca before it (the 0.x betas) is
+treated as Deprecated, with Felucca's installer to update it.
 
 **When a firmware releases a new version:**
 
