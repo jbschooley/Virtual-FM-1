@@ -64,8 +64,9 @@ VersionCheck checkVersion(const Identity& id) {
     c.firmwareId = firmwareIdFor(id);
     if (c.firmwareId == "sloop") {   // known by name only
         c.support = Support::Deprecated;
-        c.text = id.name() + ": " + (id.editor.size() > 8 ? id.editor.substr(8) : std::string("Sloop"))
-               + ", which the plugin does not support yet";
+        const std::string prefix = "FELUCCA ";   // (Sloop's INFO: "FELUCCA " FELUCCA_VERSION, "SLOOP 2.2")
+        const std::string named = id.editor.rfind(prefix, 0) == 0 ? id.editor.substr(prefix.size()) : id.editor;
+        c.text = id.name() + ": " + named + ", which the plugin does not support yet";
         return c;
     }
     const auto& list = knownVersions(c.firmwareId);

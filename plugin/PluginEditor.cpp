@@ -54,7 +54,8 @@ FM1Editor::FM1Editor(FM1Processor& p)
         // the release, against the ones the plugin knows: a newer, older or retired one says so
         // (in the identity line, which stays: the status line is the session's next report)
         const auto check = fm1::checkVersion(id);
-        const bool say = check.newer || check.known == nullptr || check.support == fm1::Support::Older || check.support == fm1::Support::Deprecated;
+        const bool say = check.newer || check.known == nullptr || check.support == fm1::Support::Older || check.support == fm1::Support::Deprecated
+                         || (check.known != nullptr && *check.known->note);   // (a tested beta says so)
         library_.setIdentity(say ? juce::String(check.text) : juce::String(id.name()) + "  (" + fm1::firmwareFor(id)->summary() + ")");
     };
     proc_.onGlobals = [this] { library_.refreshFxChannel(); settings_.showSynth(); };

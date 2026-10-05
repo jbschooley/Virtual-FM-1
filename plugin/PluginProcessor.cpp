@@ -47,8 +47,13 @@ FM1Processor::FM1Processor()
         autoConnect_ = false;            // not again until asked (Find FM-1, Connect, or a switch)
         pendingMismatch_ = id;
         if (onFirmwareMismatch) onFirmwareMismatch(id);
-        else if (onStatus) onStatus("The FM-1 runs " + fm1::firmwareFor(id)->name() + "; this instance is set to "
-                                    + fm1::firmwareChoices()[size_t(firmwareIndex_.load())].name + ". Not connected.");
+        else if (onStatus) {
+            if (!fm1::isFirmwareChoice(fm1::firmwareIdFor(id)))
+                onStatus("The FM-1 runs " + fm1::firmwareFor(id)->name() + ", which the plugin does not support yet. Not connected.");
+            else
+                onStatus("The FM-1 runs " + fm1::firmwareFor(id)->name() + "; this instance is set to "
+                         + fm1::firmwareChoices()[size_t(firmwareIndex_.load())].name + ". Not connected.");
+        }
     };
     session.onPatternRead = [this](int pat, const fm1::seq::Pattern& p) {
         const juce::SpinLock::ScopedLockType l(sequencer.lock);

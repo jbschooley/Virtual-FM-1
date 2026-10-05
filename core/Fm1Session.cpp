@@ -1,6 +1,7 @@
 #include <algorithm>
 #include "Fm1Session.h"
 #include "Fm1Record.h"
+#include "Firmwares.h"
 
 using Feature = fm1::Firmware::Feature;
 
@@ -83,6 +84,7 @@ void Fm1Session::report(int done, int total, const juce::String& text, bool fini
 }
 
 juce::String Fm1Session::noIdentityText() const {
+    if (rejected_ && !rejectedChoice_) return "Not synced: the FM-1 runs " + rejectedName_ + ", which the plugin does not support yet.";
     if (rejected_) return "Not synced: the FM-1 runs " + rejectedName_ + ", and this instance is set to another firmware.";
     return kNoAnswer;
 }
@@ -107,6 +109,7 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
         // not this instance's firmware: forget the synth and do nothing more with it
         rejected_ = true;
         rejectedName_ = fm1::firmwareFor(*id)->name();
+        rejectedChoice_ = fm1::isFirmwareChoice(fm1::firmwareIdFor(*id));   // (else no instance plays it: Sloop)
         { std::lock_guard<std::mutex> l(identityLock_); identity_.reset(); }
         {
             std::lock_guard<std::mutex> lock(firmwareLock_);

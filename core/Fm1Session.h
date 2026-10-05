@@ -92,7 +92,7 @@ private:
     void report(int done, int total, const juce::String& text, bool finished = false, bool failed = false);
     std::optional<fm1::Identity> doIdentify();
     juce::String noIdentityText() const;   // why there is no identity: no answer, or not accepted
-    bool rejected_ = false;                // session thread
+    bool rejected_ = false, rejectedChoice_ = true;   // session thread (rejectedChoice_: an instance could play it)
     juce::String rejectedName_;
     // The connected firmware's profile, made by doIdentify on the session thread.
     // sendChange reads it from the message thread, so replacing it takes firmwareLock_.

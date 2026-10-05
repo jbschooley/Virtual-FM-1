@@ -208,6 +208,8 @@ static int checks() {
             const auto c = fm1::checkVersion(sloop);
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && !fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "Sloop",
                   "an FM-1 running Sloop is Sloop, which no instance plays");
+            CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"}).text.find("SLOOP 3.0, which") != std::string::npos,
+                  "its name is shown whole when it has no FELUCCA prefix");
             CHECK(c.support == fm1::Support::Deprecated && c.text.find("SLOOP 2.2, which the plugin does not support yet") != std::string::npos,
                   "and it says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
