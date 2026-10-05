@@ -56,8 +56,7 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
   "PANEL: ON THE FM-1": the plugin's buttons go by label.
 - The editor protocol answers SysEx from the host, but its replies and
   pushes are not sent back to the host (they go to the plugin's own sync).
-- Not yet: user sample slots (USR1..USR3 are empty), the LEDs, the
-  oscilloscope on the HOME screen (silent), and MIDI clock in (`G_CLOCK`
+- Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and MIDI clock in (`G_CLOCK`
   USB or TRS: the plugin gives the host's tempo instead).
 
 ## Updating

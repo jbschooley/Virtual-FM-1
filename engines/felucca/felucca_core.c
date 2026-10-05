@@ -132,7 +132,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
             host_screen[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
 }
 static void lcd_sync(void) {}
-#define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope, silent here */
+#define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope, fed in FEL(render) */
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
@@ -454,6 +454,11 @@ void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames 
             fel_main_pass();
         }
         mix_block(out + 2u * i, CTL);
+        {   /* the HOME screen's oscilloscope, as audio.c's audio_block feeds it: every other left sample */
+            uint32_t k;
+            for (k = 1u; k < CTL; k += 2u)
+                scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * (i + k)];
+        }
         fel_frames += CTL;
         fel_clock();
     }

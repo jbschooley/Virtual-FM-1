@@ -372,6 +372,20 @@ int main() {
         int lit = 0;
         for (auto v : screen) if (v != screen[0]) ++lit;
         CHECK(screen.size() == 240u * 240u && lit > 1000, "the screen draws");
+        {   // the HOME screen's oscilloscope shows what plays
+            FeluccaEngine h;
+            std::vector<float> l2(256), r2(256);
+            for (int k = 0; k < 8; ++k) h.render(l2.data(), r2.data(), 256);
+            std::vector<uint16_t> quiet, playing;
+            h.draw(quiet);
+            noteOn(h, 1, 48, 120); noteOn(h, 1, 55, 120);
+            for (int k = 0; k < 20; ++k) h.render(l2.data(), r2.data(), 256);
+            h.draw(playing);
+            int moved = 0;
+            for (size_t i = 0; i < quiet.size(); ++i) moved += quiet[i] != playing[i];
+            std::printf("  oscilloscope: %d pixels changed while playing\n", moved);
+            CHECK(moved > 200, "the HOME screen's oscilloscope shows the sound");
+        }
     }
 
     // ---- a copy given back is as good as new ----
