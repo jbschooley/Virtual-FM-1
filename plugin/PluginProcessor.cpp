@@ -1142,8 +1142,12 @@ void FM1Processor::setFirmware(const juce::String& id) {
                 status("All " + juce::String(FeluccaEngine::copies()) + " Felucca instances are in use; this one is silent.");
             } else {
                 {   // the device's projects, user presets, FM6 bank and settings, from the library
-                    std::lock_guard<std::mutex> g(felDeviceLock_);
-                    felDevice_.load(*next);
+                    juce::String msg;
+                    {
+                        std::lock_guard<std::mutex> g(felDeviceLock_);
+                        msg = felDevice_.load(*next);
+                    }
+                    if (msg.isNotEmpty()) status(msg);
                 }
                 if (feluccaSaved_.isValid()) {
                     applyFeluccaState(*next, feluccaSaved_);   // before the audio thread sees it

@@ -117,35 +117,57 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     return {};
 }
 
-void DeviceStore::load(FeluccaEngine& f) {
+juce::String DeviceStore::load(FeluccaEngine& f) {
     seen_ = file_.getLastModificationTime();
-    if (file_.existsAsFile()) lastError_ = loadInto(f);
-    else {   // nothing stored yet: what the device has now counts as known
-        known_.clear();
-        std::vector<uint8_t> b;
-        for (int id = 1; id <= 8; ++id) if (f.object(id, b)) known_[id] = b;
+    blocked_ = false;
+    lastError_ = {};
+    if (file_.existsAsFile()) {
+        lastError_ = loadInto(f);
+        // a file it cannot read or Felucca refuses (damaged, from a newer editor) is never
+        // written over: saving waits until the file changes and reads
+        blocked_ = lastError_.isNotEmpty();
+        if (!blocked_) return {};
+        return lastError_ + " Nothing is saved to it until it can be read.";
     }
+    known_.clear();   // nothing stored yet: what the device has now counts as known
+    std::vector<uint8_t> b;
+    for (int id = 1; id <= 8; ++id) if (f.object(id, b)) known_[id] = b;
+    return {};
 }
 
 juce::String DeviceStore::tick(FeluccaEngine& f) {
     auto report = [this](const juce::String& e) { if (e == lastError_) return juce::String(); lastError_ = e; return e; };
+    const bool changedThere = file_.existsAsFile() && file_.getLastModificationTime() != seen_;
+    if (blocked_) {   // only a changed file that reads lets it save again
+        if (!changedThere) return {};
+        seen_ = file_.getLastModificationTime();
+        auto e = loadInto(f);
+        blocked_ = e.isNotEmpty();
+        return blocked_ ? report(e) : juce::String();
+    }
     Objects now;
     std::vector<uint8_t> b;
     for (int id = 1; id <= 8; ++id) if (f.object(id, b)) now[id] = b;
     // another instance saved: take each object this one has not changed itself
     Objects base = known_;
-    if (file_.existsAsFile() && file_.getLastModificationTime() != seen_) {
+    if (changedThere) {
         seen_ = file_.getLastModificationTime();
         Objects theirs;
         juce::String error;
-        if (!readBackup(file_, theirs, error)) return report(file_.getFileName() + ": " + error + "; the device keeps what it has.");
+        if (!readBackup(file_, theirs, error)) {
+            blocked_ = true;
+            return report(file_.getFileName() + ": " + error + "; the device keeps what it has, and nothing is saved to it until it can be read.");
+        }
         for (int id : {2, 3, 4, 5, 6, 7, 8, 1}) {
-            if (now[id] != known_[id] || theirs[id] == now[id]) continue;
-            if (f.putObject(id, theirs[id]) != 0) return report(file_.getFileName() + ": Felucca refused object " + juce::String(id) + ".");
+            auto it = theirs.find(id);   // (an archive from before FM6 has no 8: the bank stays)
+            if (it == theirs.end() || now[id] != known_[id] || it->second == now[id]) continue;
+            if (f.putObject(id, it->second) != 0) return report(file_.getFileName() + ": Felucca refused object " + juce::String(id) + ".");
             if (f.object(id, b)) now[id] = b;
         }
-        for (int id = 1; id <= 8; ++id) if (now[id] == known_[id]) base[id] = now[id];
-        for (int id = 1; id <= 8; ++id) if (theirs.count(id) && now[id] != known_[id]) base[id] = theirs[id];
+        for (int id = 1; id <= 8; ++id) {
+            if (now[id] == known_[id]) base[id] = now[id];
+            else if (auto it = theirs.find(id); it != theirs.end()) base[id] = it->second;
+        }
     }
     known_ = base;
     if (now == known_) return {};

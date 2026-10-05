@@ -45,8 +45,9 @@ public:
     static juce::File defaultFile();           // <library>/Felucca/Felucca device.json
     explicit DeviceStore(juce::File f = defaultFile()) : file_(std::move(f)) {}
 
-    // An engine just taken: give it the device's stored objects (not the music).
-    void load(FeluccaEngine& f);
+    // An engine just taken: give it the device's stored objects (not the music). A message for
+    // the user if the file could not be used, else empty.
+    juce::String load(FeluccaEngine& f);
     // About once a second, on the message thread: save what this instance changed, or take
     // what another one saved. A message for the user if something went wrong, else empty.
     juce::String tick(FeluccaEngine& f);
@@ -58,6 +59,7 @@ private:
     Objects known_;                            // 1..8 as last loaded or saved
     juce::Time seen_;                          // the file's time then
     juce::String lastError_;
+    bool blocked_ = false;                     // the file could not be read: never written over
 };
 
 }  // namespace felucca

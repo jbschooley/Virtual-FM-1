@@ -383,6 +383,19 @@ static int checks() {
             CHECK(a.object(3, a3) && a3 == music && b.object(4, b4) && b4 == music
                   && felucca::readBackup(file, o, err) && o[3] == music && o[4] == music,
                   "two instances' changes to different slots both survive");
+            {   // a file it cannot read is reported and never written over
+                auto bad = juce::File::createTempFile(".json");
+                bad.replaceWithText("{\"format\": \"felucca-backup\", \"version\": 2, \"objects\": []}");
+                FeluccaEngine d;
+                felucca::DeviceStore sd(bad);
+                const auto msg = sd.load(d);
+                std::vector<uint8_t> m0;
+                d.object(0, m0);
+                d.putObject(5, m0);   // a change on this device
+                sd.tick(d);
+                CHECK(msg.isNotEmpty() && bad.loadFileAsString().contains("\"version\": 2"), "an unreadable device file is reported and left alone");
+                bad.deleteFile();
+            }
             FeluccaEngine c;
             felucca::DeviceStore sc(file);
             sc.load(c);
