@@ -15,6 +15,22 @@ It works on its own as a synth too; the FM-1 is only needed for syncing.
 
 > Not affiliated with M-VAVE, baud girl or Hügelton Instruments. Use at your own risk.
 
+## Screenshots
+
+The library beside a preset's FM page (FM-1+VA):
+
+![The preset list beside the FM page of the selected preset](docs/images/fm-editor.png)
+
+Felucca: its user presets and projects beside a part's sound, and its own front panel:
+
+![Felucca's Library tab: the user presets beside the Sound page](docs/images/felucca-library.png)
+
+![Felucca's Device tab: its screen on the sequencer page, its knobs, buttons and keys](docs/images/felucca-device.png)
+
+On an iPhone (the iOS app builds from source):
+
+<img src="docs/images/phone-felucca.png" alt="Felucca's Device and Library tabs on an iPhone" width="414">
+
 ## What you need
 
 - **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
