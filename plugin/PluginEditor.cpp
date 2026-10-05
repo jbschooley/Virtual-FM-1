@@ -46,8 +46,12 @@ FM1Editor::FM1Editor(FM1Processor& p)
     proc_.onStatus = [this](const juce::String& s) { library_.setStatus(s); };
     proc_.bank.onChange = [this] { library_.refresh(); fm_.refreshName(); };
     proc_.session.onIdentity = [this](const fm1::Identity& id) {
+        // the release, against the ones the plugin knows: a newer, older or retired one says so
+        const auto check = fm1::checkVersion(id);
         juce::String t = juce::String(id.name()) + "  (" + fm1::firmwareFor(id)->summary() + ")";
         library_.setIdentity(t);
+        if (check.newer || check.known == nullptr || check.support == fm1::Support::Older || check.support == fm1::Support::Deprecated)
+            library_.setStatus(check.text);
     };
     proc_.onGlobals = [this] { library_.refreshFxChannel(); settings_.showSynth(); };
     proc_.onSettingsChanged = [this] { settings_.refresh(); applyKeyboardVelocity(); };

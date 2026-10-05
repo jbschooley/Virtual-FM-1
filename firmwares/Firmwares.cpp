@@ -4,9 +4,9 @@ namespace fm1 {
 
 const std::vector<FirmwareChoice>& firmwareChoices() {
     static const std::vector<FirmwareChoice> choices = {
-        {"fm1_stock", "M-VAVE (stock)", false, true, "V15"},             // M-VAVE's FM-1.fwsc (sha256 db1642b2...)
-        {"baudgirl_fm1va", "FM-1+VA (baud girl)", true, true, "0.94"},   // FM-1_093 and FM-1_094
-        {"felucca", "Felucca", false, false, "1.0"},
+        {"fm1_stock", "M-VAVE (stock)", false, true},
+        {"baudgirl_fm1va", "FM-1+VA (baud girl)", true, true},
+        {"felucca", "Felucca", false, false},
     };
     return choices;
 }
@@ -20,6 +20,70 @@ std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
+}
+
+std::string FirmwareChoice::label() const { return std::string(name) + " " + currentVersion(id).label; }
+
+const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
+    // M-VAVE's: V15 is its last (FM-1.fwsc, sha256 db1642b2...), and what baud girl's and
+    // Felucca's installers start from
+    static const std::vector<KnownVersion> stock = {
+        {15, "V15", Support::Current, ""},
+    };
+    // baud girl's releases (baudgirl.com/work/FM-1+VA/install), their identity FM-1_0NN
+    static const std::vector<KnownVersion> fmva = {
+        {83, "0.83", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
+        {84, "0.84", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
+        {85, "0.85", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
+        {86, "0.86", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
+        {89, "0.89", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
+        {92, "0.92", Support::Older, "GLOBE settings not read; not tried"},
+        {93, "0.93", Support::Tested, ""},
+        {94, "0.94", Support::Current, ""},
+    };
+    // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
+    static const std::vector<KnownVersion> felucca = {
+        {904, "0.4 beta", Support::Deprecated, "Pull, Send and Live need Felucca 1.0 (its full backup and editor protocol): update it with Felucca's installer"},
+        {910, "1.0", Support::Current, ""},
+    };
+    if (firmwareId == "fm1_stock") return stock;
+    if (firmwareId == "felucca") return felucca;
+    return fmva;
+}
+
+const KnownVersion& currentVersion(const std::string& firmwareId) {
+    for (const auto& v : knownVersions(firmwareId)) if (v.support == Support::Current) return v;
+    return knownVersions(firmwareId).back();
+}
+
+VersionCheck checkVersion(const Identity& id) {
+    VersionCheck c;
+    c.firmwareId = firmwareIdFor(id);
+    const auto& list = knownVersions(c.firmwareId);
+    const std::string who = id.name();
+    for (const auto& v : list)
+        if (v.identity == id.version) c.known = &v;
+    if (c.known) {
+        c.support = c.known->support;
+        c.text = who;
+        if (*c.known->note) c.text += ": " + std::string(c.known->note);
+        return c;
+    }
+    const auto& newest = list.back();
+    if (c.firmwareId == "felucca" && id.version == 900) {   // a build of Felucca that is not a release
+        c.support = Support::Older;
+        c.text = who + ": a development build of Felucca, synced as " + newest.label + " (not tried)";
+        return c;
+    }
+    if (id.version > newest.identity) {
+        c.newer = true;
+        c.support = newest.support;
+        c.text = who + ": newer than the plugin knows; synced as " + newest.label + " (not tried yet)";
+        return c;
+    }
+    c.support = Support::Older;
+    c.text = who + ": older than the releases the plugin knows; some sync may not work (update it with its author's installer)";
+    return c;
 }
 
 std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
