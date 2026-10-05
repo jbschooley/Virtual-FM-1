@@ -189,6 +189,7 @@ if(FM1_BUILD_PLUGIN)
     target_sources(params_test PRIVATE tests/params_test.cpp plugin/Params.cpp)
     target_include_directories(params_test PRIVATE sync plugin)
     target_link_libraries(params_test PRIVATE fm1_sync fm1_test_juce)
+    target_compile_definitions(params_test PRIVATE FM1_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME params_test COMMAND params_test)
 
     # sequencer and arpeggiator timing

@@ -104,6 +104,37 @@ int main(int argc, char** argv) {
     host.params.commit(again);
     CHECK(fm1::unpackVoice(again.voice)[134] == 0, "changing back is committed");
 
+    // Parameter freeze: hosts save automation and parameter values by id (VST3
+    // hashes it, AU orders by version hint then id, LV2 names ports by it), so an
+    // existing parameter's id, version hint and range must never change.
+    // tests/params-frozen.txt lists them; a new parameter is appended to it
+    // (FM1_APPEND_FROZEN=1 params_test does that) with a higher version hint.
+    {
+        juce::StringArray now;
+        for (auto* p : host.getParameters())
+            if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(p)) {
+                auto range = r->getNormalisableRange();
+                now.add(r->getParameterID() + "\t" + juce::String(r->getVersionHint()) + "\t"
+                        + juce::String(range.start) + "\t" + juce::String(range.end));
+            }
+        juce::File frozen(juce::String(FM1_SOURCE_DIR) + "/tests/params-frozen.txt");
+        juce::StringArray was;
+        was.addLines(frozen.loadFileAsString());
+        was.removeEmptyStrings();
+        int missing = 0, added = 0;
+        for (auto& line : was) if (!now.contains(line)) { ++missing; std::printf("frozen parameter changed or gone: %s\n", line.toRawUTF8()); }
+        juce::StringArray fresh;
+        for (auto& line : now) if (!was.contains(line)) { ++added; fresh.add(line); }
+        CHECK(missing == 0, "every frozen parameter keeps its id, version hint and range");
+        if (added > 0 && juce::SystemStats::getEnvironmentVariable("FM1_APPEND_FROZEN", {}).isNotEmpty()) {
+            frozen.appendText(fresh.joinIntoString("\n") + "\n");
+            std::printf("appended %d new parameters to %s\n", added, frozen.getFullPathName().toRawUTF8());
+        } else {
+            CHECK(added == 0, "no parameter missing from tests/params-frozen.txt (append new ones with FM1_APPEND_FROZEN=1)");
+            for (auto& line : fresh) std::printf("not frozen yet: %s\n", line.toRawUTF8());
+        }
+    }
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
