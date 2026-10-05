@@ -2,6 +2,11 @@
 // the pool of compiled copies, sound, independence of instances, parameters, engines, presets.
 
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <string>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -38,7 +43,87 @@ static uint64_t play(FeluccaEngine& f, int ch, int block, int blocks, double* rm
     return h;
 }
 
+// Felucca's parameters and factory presets, as tests/felucca-frozen.txt keeps them: a later
+// Felucca that changes or removes any is not backwards compatible, and the release before it is
+// kept built beside it (docs/FIRMWARE-PROFILES.md, Versions). Keys go by label, not number
+// (Felucca inserts new parameters before the engine's eight, which moves numbers).
+static std::string describe(const FeluccaEngine::Desc& d) {
+    std::ostringstream o;
+    o << d.min << ".." << d.max << " def " << d.def << " fmt " << d.fmt;
+    for (const auto& n : d.names) o << " " << n;
+    return o.str();
+}
+
+static std::map<std::string, std::string> frozenFacts() {
+    std::map<std::string, std::string> out;
+    FeluccaEngine f;
+    std::map<std::string, int> seen;
+    for (int id = 0; id < f.firstEngineParam(); ++id) {
+        const auto d = f.paramDesc(0, id);
+        if (d.label.empty()) continue;
+        out["param " + d.label + "#" + std::to_string(++seen[d.label])] = describe(d);
+    }
+    seen.clear();
+    for (int id = 0; id < f.globalCount(); ++id) {
+        const auto d = f.globalDesc(id);
+        if (d.label.empty() || d.label == "-") continue;
+        out["global " + d.label + "#" + std::to_string(++seen[d.label])] = describe(d);
+    }
+    std::vector<float> l(64), r(64);
+    for (int e : f.enginesShown()) {
+        const std::string en = f.engineName(e);
+        f.setEngine(0, e);
+        for (int k = 0; k < 8; ++k) out["engine " + en + " E" + std::to_string(k + 1)] = f.paramDesc(0, f.firstEngineParam() + k).label + " " + describe(f.paramDesc(0, f.firstEngineParam() + k));
+        const auto names = f.presetNames(e);
+        for (size_t i = 0; i < names.size(); ++i) {
+            if (names[i].empty()) continue;   // an alias: plays another
+            f.applyPreset(0, int(i));
+            f.render(l.data(), r.data(), 64);   // (FM6 loads its patch in the main loop)
+            uint64_t h = 1469598103934665603ull;
+            for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            for (auto b : f.fm6Patch(0)) { h ^= b; h *= 1099511628211ull; }
+            std::ostringstream o;
+            o << names[i] << " " << std::hex << h;
+            out["preset " + en + " " + std::to_string(i)] = o.str();
+        }
+    }
+    return out;
+}
+
+static void checkFrozen() {
+    const std::string path = std::string(FELUCCA_FROZEN);
+    const auto now = frozenFacts();
+    std::map<std::string, std::string> kept;
+    {
+        std::ifstream in(path);
+        std::string line;
+        while (std::getline(in, line)) {
+            const auto tab = line.find('\t');
+            if (tab != std::string::npos) kept[line.substr(0, tab)] = line.substr(tab + 1);
+        }
+    }
+    int changed = 0, gone = 0, added = 0;
+    for (const auto& [k, v] : kept) {
+        auto it = now.find(k);
+        if (it == now.end()) { ++gone; std::printf("  gone: %s\n", k.c_str()); }
+        else if (it->second != v) { ++changed; std::printf("  changed: %s\n    was %s\n    now %s\n", k.c_str(), v.c_str(), it->second.c_str()); }
+    }
+    std::vector<std::string> fresh;
+    for (const auto& [k, v] : now) if (!kept.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
+    CHECK(changed == 0 && gone == 0, "Felucca's parameters and presets are as tests/felucca-frozen.txt keeps them "
+                                     "(a change or removal: keep the old release beside this one, docs/FIRMWARE-PROFILES.md)");
+    if (added && std::getenv("FELUCCA_APPEND_FROZEN")) {
+        std::ofstream out(path, std::ios::app);
+        for (const auto& line : fresh) out << line << "\n";
+        std::printf("  appended %d to %s\n", added, path.c_str());
+        added = 0;
+    }
+    if (added) std::printf("  %d new (FELUCCA_APPEND_FROZEN=1 felucca_test appends them)\n", added);
+    CHECK(added == 0, "nothing new missing from tests/felucca-frozen.txt");
+}
+
 int main() {
+    checkFrozen();
     // the reference: a copy no instance has used yet, playing a fixed phrase
     uint64_t fresh = 0;
     { FeluccaEngine f; fresh = play(f, 1, 128, 300); }

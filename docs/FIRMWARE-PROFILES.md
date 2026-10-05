@@ -71,7 +71,12 @@ the plugin knows and said to be untested; an older one is said to be older.
    - a factory preset changed or moved, so a project naming it would get a
      different sound.
    Parameters only added (with defaults that change nothing) and presets only
-   added are compatible: then the new release replaces the old one. Projects say which release they
+   added are compatible: then the new release replaces the old one.
+   `felucca_test` checks the last two: `tests/felucca-frozen.txt` keeps every
+   parameter (by label: range, default, value names), each engine's eight, the
+   globals and every factory preset (a hash of the sound it loads). A change
+   or removal fails it; new ones are appended with
+   `FELUCCA_APPEND_FROZEN=1 felucca_test`. Projects say which release they
    were made for (`firmwareVersion`) and the plugin says so when it plays
    another; Felucca reads its own older project formats itself, and music a
    Felucca cannot read (from a newer one) is kept as it was and saved again.
