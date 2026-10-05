@@ -102,10 +102,12 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
 - **Felucca 1.0**, built from its source: its thirteen engines on four parts,
-  each part's parameters in an editor and as host parameters, and in DEVICE
-  its own screen, buttons, knobs and keys, so its sequencer, projects and user
-  presets work as on the device. Its projects and user presets are kept in the
-  library as the file Felucca's web editor uses for backups. With an FM-1
+  each part's parameters in an editor and as host parameters. Its Library tab
+  lists the 32 user presets and four projects to load, save, rename and erase;
+  its Device tab shows its own screen, buttons, knobs and keys, so its
+  sequencer, projects and user presets work as on the device. Its projects and
+  user presets are kept in the library as the file Felucca's web editor uses
+  for backups. With an FM-1
   running Felucca: pull everything, send everything, or keep both in step live.
 
 ## Not done yet
@@ -119,8 +121,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   written.
 - Knob assignments and mono/glide are kept as stored but not edited.
 - **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
-- **iPad**: the app and AUv3 build from source and sync with the FM-1 over
-  USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
+- **iPad and iPhone**: the app and AUv3 build from source and sync with the
+  FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca**: its user sample slots are empty; the Windows build does not
   include it yet (it needs Clang); Send to an FM-1 running it has not been
   tried on the hardware.

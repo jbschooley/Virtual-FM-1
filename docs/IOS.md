@@ -11,9 +11,15 @@ iPad simulator:
 - The app runs, with the editor filling the screen in portrait.
 - Syncing with an FM-1 over USB-C works.
 - It keeps playing in the background, behind other apps.
-- **Settings > Audio and MIDI** opens the audio output, sample rate, buffer
+- **Audio/MIDI** in the top bar opens the audio output, sample rate, buffer
   size and MIDI input settings. On the desktop these are under the app's
   Options button, which JUCE leaves out on iOS.
+
+In the iPhone simulator (iPhone 17 Pro, iOS 26.3), not yet on an iPhone: the
+app fits the screen in portrait, clear of the Dynamic Island and the home
+indicator. Below 760 points wide the library shows the preset list or the
+preset's pages, the FM page one page at a time, the sequencer one scrolling
+column, and Felucca's front panel its screen above its controls.
 
 ## Building
 
@@ -52,17 +58,19 @@ iPad's USB-C port.
    drive come as security-scoped URLs, so import and export probably fail
    outside the app's own folder. Read and write through JUCE's URL streams.
 2. **The library in the Files app.** Turn on file sharing so the app's
-   Documents folder shows in Files, to back up `library.fm1lib` and exports.
-3. **Touch.** Shift/Cmd-click multi-select in the library needs a touch
-   equivalent (a Select mode with checkboxes, say). Tooltips and anything
-   behind hover or right-click need another way in.
+   Documents folder shows in Files, to back up the library and exports.
+3. **Touch.** Select above the preset list picks several presets by tapping.
+   Tooltips and anything behind hover or right-click still need another way
+   in.
 4. **The AUv3.** Untested: load it in GarageBand or AUM, check it plays and
    saves with the project, and whether it can reach the FM-1 from inside the
    host.
 5. **One library for the app and the AUv3.** They keep separate libraries
    now. Sharing one needs an App Group, which needs a paid developer account.
-6. **iPhone.** The layout is the desktop one; iPad portrait fits, a phone
-   needs its own.
+6. **iPhone.** Portrait fits (tried in the simulator only). Turned sideways
+   a phone does not fit yet: under the two-line top bar, the tabs and the
+   keyboard there is almost no height left for the pages. The line saying
+   what a connected FM-1's release means is not shown on a phone.
 7. **Distribution.** A free Personal Team installs for 7 days; a paid
    account ($99 a year) for a year. The App Store and TestFlight are a
    problem for a GPLv3 app: their terms are widely held to be incompatible
