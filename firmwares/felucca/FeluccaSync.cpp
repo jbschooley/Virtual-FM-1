@@ -215,7 +215,8 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
     auto put = [&](const std::vector<uint8_t>& q, int timeout) -> int {
         auto r = to.ask(frame(kBackupPut, q), timeout);
         auto g = r ? argsOf(*r) : std::vector<uint8_t>{};
-        return g.size() >= 3 ? int(g[2]) : -1;
+        // the reply names what it answers (step, object): another one's (late) is not this one's
+        return g.size() >= 3 && g[0] == q[0] && g[1] == q[1] ? int(g[2]) : -1;
     };
     auto say = [](int rc) {
         switch (rc) {
@@ -232,10 +233,12 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
         if (it == objects.end()) continue;
         const auto& b = it->second;
         // A piece the synth refused (rc 1: it arrived incomplete, as when its MIDI queue was full)
-        // or did not answer: the object starts over, up to three times. Nothing of it is written
-        // until the commit, and a refused piece never moves the synth's write position.
+        // or did not answer, or a commit that failed validation (rc 2: the last piece came in
+        // short, and was taken) or was not answered: the object starts over, up to three times.
+        // Nothing of it is written before a commit that passes, a refused piece never moves the
+        // synth's write position, and writing an object again writes the same.
         const uint32_t doneBefore = done;
-        int pieceRc = 0, attempts = 0;
+        int pieceRc = 0, commitRc = 0, attempts = 0;
         size_t failedAt = 0;
         for (int attempt = 0; attempt < 3; ++attempt) {
             if (attempt > 0) put({3, uint8_t(id)}, kAsk);   // abort what was staged
@@ -259,7 +262,12 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
                     return false;
                 }
             }
-            if (pieceRc == 0 || (pieceRc != 1 && pieceRc != -1)) break;
+            if (pieceRc == 0) {
+                commitRc = put({2, uint8_t(id)}, kFlash);
+                if (commitRc != 2 && commitRc != -1) break;   // taken, or a failure starting over cannot mend
+                continue;
+            }
+            if (pieceRc != 1 && pieceRc != -1) break;
         }
         if (pieceRc != 0) {
             put({3, uint8_t(id)}, kAsk);
@@ -267,7 +275,11 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
                     + juce::String(int(failedAt)) + ", " + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
             return false;
         }
-        if (int rc = put({2, uint8_t(id)}, kFlash); rc != 0) { error = "the synth did not take object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
+        if (commitRc != 0) {
+            error = "the synth did not take object " + juce::String(id) + " (" + say(commitRc) + ", "
+                    + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
+            return false;
+        }
     }
     return true;
 }

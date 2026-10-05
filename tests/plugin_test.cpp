@@ -494,10 +494,13 @@ static int checks() {
                   && b->object(3, slot) && slot == music, "restored into the other: the music and the project slot");
             if (!err.isEmpty()) std::printf("  sync: %s\n", err.toRawUTF8());
             {   // a lossy link (as a real FM-1 drops MIDI when its queue is full): a piece arrives
-                // cut short once, and another's answer is lost once; the object starts over
+                // cut short once, and another's answer is lost once; the object starts over. And
+                // the music's last piece loses one USB-MIDI packet (3 bytes) once: Felucca takes it
+                // short, and the commit fails validation; the object starts over then too
                 struct Lossy : felucca::Endpoint {
                     felucca::Endpoint& e;
                     int pieces = 0;
+                    bool lastCut = false;
                     explicit Lossy(felucca::Endpoint& x) : e(x) {}
                     std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
                         auto a = felucca::argsOf(q);
@@ -505,6 +508,11 @@ static int checks() {
                             ++pieces;
                             if (pieces == 3) { auto cut = q; cut.erase(cut.end() - 4, cut.end() - 1); return e.ask(cut, t); }
                             if (pieces == 7) { e.ask(q, t); return std::nullopt; }
+                            const int off = a.size() > 6 ? int(a[2] | a[3] << 7 | a[4] << 14) : -1;
+                            if (a[1] == 0 && off == 3584 - 128 && !lastCut) {
+                                lastCut = true;
+                                auto cut = q; cut.erase(cut.end() - 4, cut.end() - 1); return e.ask(cut, t);
+                            }
                         }
                         return e.ask(q, t);
                     }
@@ -517,6 +525,7 @@ static int checks() {
                 juce::String lossErr;
                 CHECK(all && felucca::restore(lossy, *all, {}, lossErr) && c->object(3, got) && got == music && c->engineOf(1) == 6,
                       "a piece cut short and an answer lost: restored all the same (" + lossErr + ")");
+                CHECK(lossy.lastCut, "and the music's last piece was cut short (" + juce::String((*all)[0].size()) + " bytes)");
             }
 
             felucca::Mirror mirror(ea, eb);
