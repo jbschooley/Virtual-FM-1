@@ -11,6 +11,20 @@
 #include "dexed_ui/GlobalPanel.h"
 #include "dexed_ui/OperatorPanel.h"
 
+// Drop-down lists open below their box, as a menu does. JUCE's default puts the selected item
+// over the box, which on a small screen pushes the items above it behind a scroll arrow.
+template <class Base>
+struct DropDownLists : Base {
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu(juce::ComboBox& box, juce::Label& label) override {
+        return juce::PopupMenu::Options().withTargetComponent(&box)
+            .withInitiallySelectedItem(box.getSelectedId())
+            .withMinimumWidth(box.getWidth())
+            .withMaximumNumColumns(1)
+            .withStandardItemHeight(label.getHeight())
+            .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards);
+    }
+};
+
 // A grid of parameter controls (rotary sliders, or combo boxes for choices)
 // bound to APVTS parameters.
 class ParamGrid : public juce::Component {
@@ -112,7 +126,7 @@ private:
     void timerCallback() override;
 
     FM1Processor& proc_;
-    DXLookNFeel lnf_;
+    DropDownLists<DXLookNFeel> lnf_;
     std::array<uint8_t, 156> vced_{};   // the editor's copy of the sound, from the parameters
     std::unique_ptr<OperatorPanel> ops_[6];
     std::unique_ptr<GlobalPanel> global_;

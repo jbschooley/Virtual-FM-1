@@ -2,6 +2,7 @@
 
 FM1Editor::FM1Editor(FM1Processor& p)
     : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p), settings_(p) {
+    setLookAndFeel(&lnf_);
     setSize(1180, 830);
     auto bg = juce::Colour(0xff26262e);
     // presets and their editors in one window; what is not per preset in its own tab
@@ -52,6 +53,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
 }
 
 FM1Editor::~FM1Editor() {
+    setLookAndFeel(nullptr);
     keyState_.removeListener(this);
     proc_.onStatus = nullptr;
     proc_.bank.onChange = nullptr;

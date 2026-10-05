@@ -26,6 +26,7 @@ private:
     void offerSwitch(const fm1::Identity& synth);        // a synth with another firmware connected
 
     FM1Processor& proc_;
+    DropDownLists<juce::LookAndFeel_V4> lnf_;   // (declared before the components that use it)
     juce::TooltipWindow tooltips_{this, 600};
     bool askingSwitch_ = false;
     juce::ComboBox firmware_;
