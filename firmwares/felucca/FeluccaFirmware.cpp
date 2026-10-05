@@ -5,15 +5,15 @@ namespace fm1 {
 namespace {
 
 // ---- Felucca (Leo Kuroshita) ----------------------------------------------------------
-// Answers M-VAVE's identity request as FM-1_9XY for release X.Y (build.py --release), FM-1_900 otherwise. Its other SysEx is for
-// firmware updates only: no preset or pattern transfer, and it ignores FM-1+VA's
-// commands and DX7 dumps. It saves four projects (a sound and its sequence) in its
-// own format, and its sound parameters are not FM-1+VA's, so the plugin sends it nothing.
+// Answers M-VAVE's identity request as FM-1_9XY for release X.Y (build.py --release; 1.0:
+// FM-1_910), FM-1_900 otherwise. It ignores FM-1+VA's commands and DX7 dumps; its own
+// editor protocol (F0 7D 46 4C) syncs it, through FeluccaSync (the Felucca editor's Pull,
+// Send and Live), not through this profile's FM-1+VA-shaped features.
 
 class FeluccaFirmware : public Firmware {
 public:
     juce::String name() const override { return "Felucca"; }
-    juce::String summary() const override { return "Felucca firmware: no preset or pattern transfer over MIDI"; }
+    juce::String summary() const override { return "Felucca: Pull, Send and Live in the Felucca editor"; }
     bool has(Feature) const override { return false; }
     juce::String cannot(Feature f) const override {
         switch (f) {
