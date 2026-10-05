@@ -83,7 +83,8 @@ for the code. New work goes under the next version at the top.
     the same; and Live with knob turns, tempo, step edits and part changes
     on the synth, and a value changed in the plugin, arriving on the other
     side.
-  - Not yet: user sample slots, and the Windows build.
+  - On macOS, Windows and Linux alike.
+  - Not yet: user sample slots.
 - **Firmware versions**: the firmware list says which release of each the
   plugin plays and syncs with. When an FM-1 connects, the line beside Find
   FM-1 (not shown on a phone yet) says what its release means for syncing if it is not one the plugin

@@ -142,8 +142,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
-- **Felucca**: its user sample slots are empty; the Windows build does not
-  include it yet (it needs Clang).
+- **Felucca**: its user sample slots are empty.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
