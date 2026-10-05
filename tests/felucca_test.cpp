@@ -45,7 +45,7 @@ static uint64_t play(FeluccaEngine& f, int ch, int block, int blocks, double* rm
 
 // Felucca's parameters and factory presets, as tests/felucca-frozen.txt keeps them: a later
 // Felucca that changes or removes any is not backwards compatible, and the release before it is
-// kept built beside it (docs/FIRMWARE-PROFILES.md, Versions). Keys go by label, not number
+// kept built beside it (docs/ADDING-A-FIRMWARE.md, Versions). Keys go by label, not number
 // (Felucca inserts new parameters before the engine's eight, which moves numbers).
 static std::string describe(const FeluccaEngine::Desc& d) {
     std::ostringstream o;
@@ -111,7 +111,7 @@ static void checkFrozen() {
     std::vector<std::string> fresh;
     for (const auto& [k, v] : now) if (!kept.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
     CHECK(changed == 0 && gone == 0, "Felucca's parameters and presets are as tests/felucca-frozen.txt keeps them "
-                                     "(a change or removal: keep the old release beside this one, docs/FIRMWARE-PROFILES.md)");
+                                     "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)");
     if (added && std::getenv("FELUCCA_APPEND_FROZEN")) {
         std::ofstream out(path, std::ios::app);
         for (const auto& line : fresh) out << line << "\n";

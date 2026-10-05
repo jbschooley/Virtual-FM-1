@@ -7,18 +7,23 @@ Yamaha's Expanded Softsynth Plugin does with the Montage M and MODX M. Pull or p
 playing, send an edit to the synth without saving it, or sync the whole
 128-preset library in either direction.
 
+Each instance is set to one of the FM-1's firmwares: M-VAVE's own, baud girl's
+FM-1+VA, or Felucca, Hügelton's multi-engine firmware, which the plugin runs
+from its own source with its screen, front panel, sequencer and projects.
+
 It works on its own as a synth too; the FM-1 is only needed for syncing.
 
-> Not affiliated with M-VAVE or with baud girl. Use at your own risk.
+> Not affiliated with M-VAVE, baud girl or Hügelton Instruments. Use at your own risk.
 
 ## What you need
 
 - **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
-  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)**. Two-way sync uses
-  features only that firmware has. On M-VAVE's own firmware the plugin still
-  plays and edits sounds, but cannot read anything back from the synth.
+  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.93 or 0.94) or
+  **[Felucca](https://github.com/hugelton/Felucca)** 1.0. On M-VAVE's own
+  firmware the plugin still plays and edits sounds, but cannot read anything
+  back from the synth.
 
 ## Install
 
@@ -96,6 +101,12 @@ project saves its own current preset, edits, patterns and arpeggiator.
   editors can check against. See [`docs/JSON-FORMAT.md`](docs/JSON-FORMAT.md).
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
+- **Felucca 1.0**, built from its source: its thirteen engines on four parts,
+  each part's parameters in an editor and as host parameters, and in DEVICE
+  its own screen, buttons, knobs and keys, so its sequencer, projects and user
+  presets work as on the device. Its projects and user presets are kept in the
+  library as the file Felucca's web editor uses for backups. With an FM-1
+  running Felucca: pull everything, send everything, or keep both in step live.
 
 ## Not done yet
 
@@ -110,6 +121,9 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
 - **iPad**: the app and AUv3 build from source and sync with the FM-1 over
   USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
+- **Felucca**: its user sample slots are empty; the Windows build does not
+  include it yet (it needs Clang); Send to an FM-1 running it has not been
+  tried on the hardware.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
@@ -117,7 +131,9 @@ look for in baud girl's source once it is published.
 ## Build
 
 Requires CMake 3.22+, a C++20 compiler and Ninja on macOS (`brew install cmake
-ninja`), or Visual Studio 2022 on Windows. JUCE 9.0.3 is a submodule:
+ninja`), or Visual Studio 2022 on Windows. Felucca's engines need Clang (on
+Linux, configure with `CC=clang CXX=clang++`); built with another compiler, the
+plugin leaves them out. JUCE 9.0.3 is a submodule:
 
 ```
 git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1
@@ -129,36 +145,42 @@ ctest --test-dir build
 
 The plugins are copied into your user plug-in folders after building
 (`-DFM1_COPY_PLUGIN=OFF` to skip). `scripts/package-macos.sh` and
-`scripts/installer.iss` build the installers. CI builds both on every push,
-installs them on clean macOS and Windows machines and checks the result, and
-attaches them to a draft release for every `v*` tag.
+`scripts/installer.iss` build the installers. CI builds, tests and packages
+on macOS, Windows and Linux for a version tag (making a draft release), or
+when started by hand. [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) explains
+the tests and the rules for working with a real FM-1;
+[`docs/ADDING-A-FIRMWARE.md`](docs/ADDING-A-FIRMWARE.md) how the firmwares fit
+in and how to add one.
 
 Source layout:
 
-- `engines/dx7/` msfa (Apache-2.0, from Dexed; changes in `engines/dx7/msfa/NOTICE.md`)
-  and the voice, envelope and filter code around it; `engines/fm1_fx/` the
-  FM-1's effects and the Hardware character stage
-- `core/` the MIDI link, the sync operations and the firmware profile interface
-- `firmwares/` one folder per firmware: `fm1_common/` the FM-1 protocols shared
-  by stock and FM-1+VA (sounds, patterns, settings record, edit buffer; no
-  JUCE), `fm1_stock/`, `baudgirl_fm1va/` and `felucca/` their profiles;
-  `engines/felucca/` Felucca's own engines (GPL-3.0, vendored, see its
-  `UPSTREAM.md`)
-- `plugin/` the processor, editor, parameters, sequencer and arpeggiator;
-  `plugin/dexed_ui/` holds Dexed's look-and-feel and panels
-- `tests/` protocol tests against vectors generated from baud girl's own code,
-  engine, sequencer and parameter tests, an end-to-end sync test against a
-  simulated FM-1, a host test that loads the built plugin like a DAW, and the
-  hardware probe used to study the synth
-- `docs/` [hardware notes](docs/HARDWARE-NOTES.md),
-  [firmware gaps](docs/FIRMWARE-GAPS.md), [AAX plan](docs/AAX.md), [iOS](docs/IOS.md),
-  [JSON format](docs/JSON-FORMAT.md), [firmware profiles](docs/FIRMWARE-PROFILES.md)
+- `core/` the MIDI link, the sync session and the firmware profile interface
+- `firmwares/` the firmware list and each firmware's releases
+  (`Firmwares.cpp`), and one folder per firmware: `fm1_common/` the FM-1
+  protocols stock and FM-1+VA share (no JUCE), `fm1_stock/`, `baudgirl_fm1va/`,
+  and `felucca/` (its profile and its sync over its editor protocol)
+- `engines/` the sound, without JUCE: `dx7/` msfa (Apache-2.0, from Dexed;
+  changes in `engines/dx7/msfa/NOTICE.md`) and the voice, envelope and filter
+  code around it; `fm1_fx/` the FM-1's effects, the Hardware character stage
+  and the rate converter; `felucca/` Felucca's firmware (GPL-3.0, vendored, see
+  its `UPSTREAM.md`) built as a library
+- `plugin/` the processor, editor, parameters, library, sequencer and
+  arpeggiator, and Felucca's editor, host parameters and device file;
+  `plugin/dexed_ui/` Dexed's look-and-feel and panels
+- `tests/` see [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md); `fm1_probe` is the
+  command-line check against a real FM-1
+- `docs/` [contributing](docs/CONTRIBUTING.md), [adding a firmware](docs/ADDING-A-FIRMWARE.md),
+  [hardware notes](docs/HARDWARE-NOTES.md), [firmware gaps](docs/FIRMWARE-GAPS.md),
+  [AAX plan](docs/AAX.md), [iOS](docs/IOS.md), [JSON format](docs/JSON-FORMAT.md)
   and a [shared protocol proposal](docs/PROTOCOL-PROPOSAL.md) for FM-1 firmwares
 
 ## Credits
 
 - **baud girl** for the [FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA),
   whose read-back protocol makes two-way sync possible.
+- **Leo Kuroshita** (Hügelton Instruments) for
+  [Felucca](https://github.com/hugelton/Felucca), which the plugin builds from
+  its source with its author's agreement, its sample pack included.
 - **Google's music-synthesizer-for-android** (msfa) and **Dexed** by Pascal
   Gauthier and contributors, for the FM engine and the editor's look.
 - Reverse-engineering work on the FM-1 by
@@ -172,5 +194,5 @@ Source layout:
 
 GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
 in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
-are GPL-3.0-or-later, JUCE is used under the AGPLv3 and the VST3 SDK is under
+are GPL-3.0-or-later, Felucca is GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
 the MIT licence.

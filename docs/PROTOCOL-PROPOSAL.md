@@ -2,7 +2,7 @@
 
 **Status: draft, for discussion with the firmware authors.** Nothing here is
 required. Virtual FM-1 supports each firmware through its own profile
-([`FIRMWARE-PROFILES.md`](FIRMWARE-PROFILES.md)), so a firmware that keeps its
+([`ADDING-A-FIRMWARE.md`](ADDING-A-FIRMWARE.md)), so a firmware that keeps its
 own protocol, or has none, still works as far as its protocol allows. This
 proposal is about saving everyone that work: a firmware that speaks it works
 with the plugin, and with any other tool that speaks it, without new code.

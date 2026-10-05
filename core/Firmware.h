@@ -5,7 +5,7 @@
 // for each. Fm1Session does the threading, progress, pacing and checking, and
 // asks the profile for everything that depends on the firmware. A new firmware,
 // or one that speaks a different protocol, is a new profile here; nothing else
-// changes. See docs/FIRMWARE-PROFILES.md.
+// changes. See docs/ADDING-A-FIRMWARE.md.
 //
 // Profiles today:
 //   FM-1+VA (baud girl)  read-back protocol: presets, patterns, memory reads

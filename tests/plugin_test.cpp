@@ -11,9 +11,14 @@
 //       comparison is done by hand, since the hashes differ between machines.
 //
 //   plugin_test checks
-//       Hardware character moves the engine to 44.1 kHz with a rate converter
-//       in other hosts: the reported latency follows it, and switching it on
-//       and off while running works.
+//       The plugin's behaviour: Hardware character's 44.1 kHz engine and its
+//       latency, projects (firmware, release, Felucca's music and what it could
+//       not read), the library, and Felucca (its copies, host parameters, host
+//       transport and SysEx, device file, sync between two of its copies), and
+//       the messages said with no editor open.
+//
+//   plugin_test snapshot <golden.json> <dir>
+//       Pictures of the editor's tabs and of Felucca's views, for looking at.
 //
 //   plugin_test state-write <golden.json> <dir>
 //       Builds a known plugin state (presets, an unsaved edit, a pattern,
