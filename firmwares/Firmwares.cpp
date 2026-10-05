@@ -25,21 +25,21 @@ std::string firmwareIdFor(const Identity& id) {
 std::string FirmwareChoice::label() const { return std::string(name) + " " + currentVersion(id).label; }
 
 const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
-    // M-VAVE's: V15 is its last (FM-1.fwsc, sha256 db1642b2...), and what baud girl's and
-    // Felucca's installers start from
+    // M-VAVE's: V15 is its last (its FM-1.fwsc, the SHA-256 Felucca's tools/fm1_install.py
+    // knows as V15), and what baud girl's and Felucca's installers start from
     static const std::vector<KnownVersion> stock = {
         {15, "V15", Support::Current, ""},
     };
     // baud girl's releases (baudgirl.com/work/FM-1+VA/install), their identity FM-1_0NN
     static const std::vector<KnownVersion> fmva = {
-        {83, "0.83", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
-        {84, "0.84", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
-        {85, "0.85", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
-        {86, "0.86", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
-        {89, "0.89", Support::Older, "no per-note filter on FM presets, GLOBE settings not read; not tried"},
-        {92, "0.92", Support::Older, "GLOBE settings not read; not tried"},
+        {83, "0.83", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
+        {84, "0.84", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
+        {85, "0.85", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
+        {86, "0.86", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
+        {89, "0.89", Support::Older, "no per-note filter on FM presets, no Chain per pattern, GLOBE settings not read; not tried"},
+        {92, "0.92", Support::Older, "no Chain per pattern, GLOBE settings not read; not tried"},
         {93, "0.93", Support::Tested, ""},
-        {94, "0.94", Support::Current, ""},
+        {94, "0.94", Support::Current, ""},   // (her beta when this was written; the one on the FM-1 here)
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
     static const std::vector<KnownVersion> felucca = {
@@ -84,10 +84,14 @@ VersionCheck checkVersion(const Identity& id) {
         c.newer = true;
         c.support = newest.support;
         c.text = who + ": newer than the plugin knows; synced as " + newest.label + " (not tried yet)";
+        // what the newest's support has that a newer build cannot be assumed to have
+        if (c.firmwareId == "baudgirl_fm1va") c.text += ", GLOBE settings not read";   // (RAM addresses known per build)
         return c;
     }
     c.support = Support::Older;
-    c.text = who + ": older than the releases the plugin knows; some sync may not work (update it with its author's installer)";
+    c.text = who + (id.version < list.front().identity ? ": older than the releases the plugin knows"
+                                                        : ": not a release the plugin knows")
+           + "; some sync may not work (update it with its author's installer)";
     return c;
 }
 

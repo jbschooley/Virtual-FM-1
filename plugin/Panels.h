@@ -58,7 +58,7 @@ public:
     void resized() override;
     void refresh();
     void setStatus(const juce::String& s) { status_.setText(s, juce::dontSendNotification); }
-    void setIdentity(const juce::String& s) { identity_.setText(s, juce::dontSendNotification); }
+    void setIdentity(const juce::String& s) { identity_.setText(s, juce::dontSendNotification); identity_.setTooltip(s); }   // (the whole line, if cut)
     void refreshFxChannel();   // after the FM-1's GLOBE settings are read
     juce::Component& connectionBar() { return bar_; }
     // The editor pages for presets, and which of them the firmware has.

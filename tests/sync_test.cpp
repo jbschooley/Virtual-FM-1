@@ -281,6 +281,8 @@ int main(int argc, char** argv) {
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
         CHECK(at(911).newer && at(911).firmwareId == "felucca" && at(911).text.find("1.0") != std::string::npos, "Felucca 1.1 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
+        CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos, "one between known releases is not called older");
+        CHECK(n.text.find("GLOBE settings not read") != std::string::npos, "a newer FM-1+VA says what newest-known support it lacks");
         CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
         CHECK(at(900).text.find("development build") != std::string::npos, "a Felucca build that is not a release");
