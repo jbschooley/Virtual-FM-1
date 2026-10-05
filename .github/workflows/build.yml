@@ -119,8 +119,12 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -property installationVersion
           cmake --version
+      # ClangCL: Visual Studio's own Clang, which Felucca's engines need (its section pragma)
       - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DFM1_COPY_PLUGIN=OFF -DFM1_BUILD_TOOLS=OFF
+        shell: bash
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -T ClangCL -DFM1_COPY_PLUGIN=OFF -DFM1_BUILD_TOOLS=OFF
+          grep -q "FM1_BUILD_FELUCCA:BOOL=ON" build/CMakeCache.txt || { echo "Felucca is not in this build"; exit 1; }
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Test

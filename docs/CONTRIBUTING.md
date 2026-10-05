@@ -15,9 +15,12 @@ ctest --test-dir build
 ```
 
 Felucca is built into the plugin from its own C source, which needs **Clang**:
-the default on macOS; on Linux configure with `CC=clang CXX=clang++`. With
-another compiler (MSVC on Windows) the plugin builds without Felucca and says
-so when an instance is set to it.
+the default on macOS; on Linux configure with `CC=clang CXX=clang++`; on Windows
+use Visual Studio's ClangCL toolset (`-T ClangCL`, from the "C++ Clang tools for
+Windows" component), as CI does. With another compiler (MSVC's own) the plugin
+builds without Felucca and says so when an instance is set to it. On Windows each Felucca copy is compiled to LLVM IR first and
+`engines/felucca/fel_sections.cpp` gives its variables their sections
+explicitly: Clang loses the section pragma's names in Windows objects.
 
 | Option | Default | What |
 |---|---|---|
