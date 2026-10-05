@@ -90,6 +90,9 @@ if(FM1_BUILD_PLUGIN)
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
         # iOS app: keeps playing when another app is in front (a sound module for other apps)
         BACKGROUND_AUDIO_ENABLED TRUE
+        # Bluetooth MIDI: iOS shows no Bluetooth devices to an app without this permission
+        BLUETOOTH_PERMISSION_ENABLED TRUE
+        BLUETOOTH_PERMISSION_TEXT "Virtual FM-1 uses Bluetooth to connect to Bluetooth MIDI devices such as the FM-1."
         COPY_PLUGIN_AFTER_BUILD ${FM1_COPY_PLUGIN}
         VST3_CATEGORIES Instrument Synth
         AU_MAIN_TYPE kAudioUnitType_MusicDevice
