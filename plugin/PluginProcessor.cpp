@@ -718,8 +718,10 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     setFeluccaState(v.getChildWithName("Felucca"));
     feluccaChanged();
    #endif
+    // the ports it was connected to: the app connects to them again; a plugin only when asked
+    // (several instances in a project would each take the synth)
     juce::String in = v.getProperty("midiIn").toString(), out = v.getProperty("midiOut").toString();
-    if (in.isNotEmpty() && out.isNotEmpty()) connect(in, out);
+    if (in.isNotEmpty() && out.isNotEmpty() && wrapperType == wrapperType_Standalone) connect(in, out);
 }
 
 // ---- sync ----------------------------------------------------------------------
