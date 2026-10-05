@@ -407,6 +407,28 @@ static int checks() {
             file.deleteFile();
         }
 
+        // the release a project was made for is saved; a different one is said on load
+        {
+            FM1Processor made;
+            made.setFirmware("felucca");
+            CHECK(made.felucca() && "v" + std::string(fm1::currentVersion("felucca").label) == made.felucca()->version(),
+                  "the Felucca built in is the release the plugin says it plays");
+            juce::MemoryBlock mb;
+            made.getStateInformation(mb);
+            auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
+            CHECK(tree.getProperty("firmwareVersion").toString() == "1.0" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.0",
+                  "a project says the release it was made for");
+            tree.setProperty("firmwareVersion", "0.9", nullptr);
+            juce::MemoryOutputStream os;
+            tree.writeToStream(os);
+            FM1Processor later;
+            juce::String said;
+            later.onStatus = [&said](const juce::String& t) { said = t; };
+            later.setStateInformation(os.getData(), int(os.getDataSize()));
+            CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.0"), "loading one made for another release says so");
+            later.onStatus = nullptr;
+        }
+
         // syncing two Felucca devices through the editor protocol, as with an FM-1 running Felucca
         // (the plugin's own Felucca as the "synth": the same code talks to a real one)
         {

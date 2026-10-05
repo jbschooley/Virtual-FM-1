@@ -83,6 +83,7 @@ public:
         int fmt = 0, min = 0, max = 0, def = 0;
         std::vector<std::string> names;        // for a list (fmt 8)
     };
+    std::string version() const;               // the Felucca release built in ("v1.0")
     int tracks() const;                        // 4 parts (Felucca 1.0: each with any engine)
     int parts() const;                         // the same
     int engines() const;

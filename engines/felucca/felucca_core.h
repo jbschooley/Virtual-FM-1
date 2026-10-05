@@ -26,6 +26,7 @@ typedef struct {
     X(void, restore, (void))                                                     \
     X(uint32_t, state_bytes, (void))                                             \
     X(void, init, (void))                                                        \
+    X(const char *, version, (void))                                             \
     X(uint32_t, ctl, (void))                                                     \
     X(uint32_t, rate, (void))                                                    \
     X(uint32_t, ntracks, (void))                                                 \

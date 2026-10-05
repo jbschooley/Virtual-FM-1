@@ -561,6 +561,8 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     v.setProperty("version", 4, nullptr);
     v.setProperty("editName", editName_, nullptr);
     v.setProperty("firmware", firmwareId(), nullptr);
+    // the release it was made for: a later plugin playing a newer one can say so
+    v.setProperty("firmwareVersion", juce::String(fm1::currentVersion(firmwareId().toStdString()).label), nullptr);
    #if FM1_FELUCCA
     if (felucca_ || feluccaSaved_.isValid()) v.addChild(feluccaState(), -1, nullptr);
    #endif
@@ -700,6 +702,14 @@ void FM1Processor::setStateInformation(const void* data, int size) {
     if (auto st = v.getChildWithName("Settings"); st.isValid()) setSettings(PluginSettings::fromTree(st));
     // projects from before the firmware choice were made for FM-1+VA
     setFirmware(v.getProperty("firmware", fm1::kDefaultFirmwareId).toString());
+    {   // made for another release of it than the plugin plays now (a project from before versions: none said)
+        const juce::String made = v.getProperty("firmwareVersion").toString();
+        const auto& choice = fm1::firmwareChoice(firmwareId().toStdString());
+        const juce::String now = fm1::currentVersion(choice.id).label;
+        if (made.isNotEmpty() && made != now)
+            status("This project was made for " + juce::String(choice.name) + " " + made + "; the plugin plays " + now
+                   + (juce::String(choice.id) == "felucca" ? ", which reads its projects as the device does." : "."));
+    }
    #if FM1_FELUCCA
     setFeluccaState(v.getChildWithName("Felucca"));
     feluccaChanged();
@@ -973,7 +983,7 @@ juce::ValueTree FM1Processor::feluccaState() const {
     juce::ValueTree t("Felucca");
     std::vector<uint8_t> music;
     if (!engine->object(0, music) || music.empty()) return t;
-    t.setProperty("version", "1.0", nullptr);   // the Felucca it was saved with
+    t.setProperty("version", juce::String(engine->version()), nullptr);   // the Felucca it was saved with ("v1.0")
     t.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
     return t;
 }

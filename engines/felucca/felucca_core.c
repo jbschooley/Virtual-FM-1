@@ -344,6 +344,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* "v1.0": the release built here */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }

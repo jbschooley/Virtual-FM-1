@@ -338,3 +338,5 @@ void FeluccaEngine::select(int track) {
     std::lock_guard<std::mutex> g(lock_);
     core_->select(uint32_t(track));
 }
+
+std::string FeluccaEngine::version() const { return core_ ? core_->version() : std::string(); }
