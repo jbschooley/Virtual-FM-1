@@ -55,7 +55,21 @@ typedef struct {
     X(void, fm6_patch_get, (uint32_t track, uint8_t *v155))                      \
     X(void, fm6_patch_set, (uint32_t track, const uint8_t *v155))                \
     X(void, midi, (uint32_t usbMidiPacket))                                      \
-    X(void, render, (int32_t *interleavedStereo, uint32_t frames))
+    X(void, render, (int32_t *interleavedStereo, uint32_t frames))               \
+    X(uint32_t, nbuttons, (void))                                                \
+    X(const char *, button_name, (uint32_t b))                                   \
+    X(uint32_t, nknobs, (void))                                                  \
+    X(const char *, knob_name, (uint32_t k))                                     \
+    X(void, button, (uint32_t b, int down))                                      \
+    X(void, key, (uint32_t k, int down))                                         \
+    X(void, knob, (uint32_t role, int32_t steps))                                \
+    X(void, draw, (uint16_t *screen240x240))                                     \
+    X(uint32_t, midi_out, (uint32_t *usbMidiPackets, uint32_t max))              \
+    X(void, transport, (int play))                                               \
+    X(int, playing, (void))                                                      \
+    X(uint32_t, object_max, (void))                                              \
+    X(int32_t, object_get, (uint32_t id, uint8_t *out, uint32_t max))            \
+    X(uint32_t, object_put, (uint32_t id, const uint8_t *data, uint32_t len))
 
 #endif
 

@@ -211,3 +211,109 @@ void FeluccaEngine::applyPreset(int track, int preset) {
     std::lock_guard<std::mutex> g(lock_);
     core_->apply_preset(uint32_t(track), uint32_t(preset));
 }
+
+// ---- the virtual device ----
+
+void FeluccaEngine::sysex(const uint8_t* b, int n) {
+    if (!core_ || n < 2 || b[0] != 0xF0 || b[n - 1] != 0xF7) return;
+    std::lock_guard<std::mutex> g(lock_);
+    // USB-MIDI SysEx packets: CIN 4 for three bytes that go on, 5/6/7 for the last one/two/three
+    for (int i = 0; i < n; i += 3) {
+        const int left = n - i, k = left > 3 ? 3 : left;
+        const uint32_t cin = left > 3 ? 4u : uint32_t(4 + k);
+        uint32_t pkt = cin;
+        for (int j = 0; j < k; ++j) pkt |= uint32_t(b[i + j]) << (8 * (j + 1));
+        core_->midi(pkt);
+    }
+}
+
+std::vector<std::vector<uint8_t>> FeluccaEngine::takeSysex() {
+    std::vector<std::vector<uint8_t>> out;
+    if (!core_) return out;
+    std::lock_guard<std::mutex> g(lock_);
+    uint32_t pkts[64];
+    for (;;) {
+        const uint32_t got = core_->midi_out(pkts, 64);
+        for (uint32_t i = 0; i < got; ++i) {
+            const uint32_t p = pkts[i], cin = p & 15u;
+            const int nb = cin == 4u || cin == 7u ? 3 : cin == 6u ? 2 : cin == 5u ? 1 : 0;
+            for (int j = 0; j < nb; ++j) {
+                const uint8_t byte = uint8_t(p >> (8 * (j + 1)));
+                if (byte == 0xF0) sxOut_.clear();
+                sxOut_.push_back(byte);
+                if (byte == 0xF7) {
+                    if (sxOut_.size() >= 2 && sxOut_[0] == 0xF0) sxDone_.push_back(sxOut_);
+                    sxOut_.clear();
+                }
+            }
+        }
+        if (got < 64) break;
+    }
+    out.swap(sxDone_);
+    return out;
+}
+
+std::vector<std::string> FeluccaEngine::buttonNames() const {
+    std::vector<std::string> out;
+    if (core_) for (uint32_t i = 0; i < core_->nbuttons(); ++i) out.push_back(core_->button_name(i));
+    return out;
+}
+
+std::vector<std::string> FeluccaEngine::knobNames() const {
+    std::vector<std::string> out;
+    if (core_) for (uint32_t i = 0; i < core_->nknobs(); ++i) out.push_back(core_->knob_name(i));
+    return out;
+}
+
+void FeluccaEngine::button(int label, bool down) {
+    if (!core_ || label < 0) return;
+    std::lock_guard<std::mutex> g(lock_);
+    core_->button(uint32_t(label), down ? 1 : 0);
+}
+
+void FeluccaEngine::key(int index, bool down) {
+    if (!core_ || index < 0) return;
+    std::lock_guard<std::mutex> g(lock_);
+    core_->key(uint32_t(index), down ? 1 : 0);
+}
+
+void FeluccaEngine::knob(int role, int steps) {
+    if (!core_ || role < 0) return;
+    std::lock_guard<std::mutex> g(lock_);
+    core_->knob(uint32_t(role), steps);
+}
+
+void FeluccaEngine::draw(std::vector<uint16_t>& px) {
+    px.resize(size_t(kScreen * kScreen));
+    if (!core_) { std::fill(px.begin(), px.end(), uint16_t(0)); return; }
+    {
+        std::lock_guard<std::mutex> g(lock_);
+        core_->draw(px.data());
+    }
+    for (auto& v : px) v = uint16_t((v >> 8) | (v << 8));   // the LCD's big endian to ours
+}
+
+void FeluccaEngine::transport(bool play) {
+    if (!core_) return;
+    std::lock_guard<std::mutex> g(lock_);
+    core_->transport(play ? 1 : 0);
+}
+
+bool FeluccaEngine::playing() const { return core_ && core_->playing() != 0; }
+
+bool FeluccaEngine::object(int id, std::vector<uint8_t>& out) {
+    out.clear();
+    if (!core_ || id < 0) return false;
+    std::lock_guard<std::mutex> g(lock_);
+    out.resize(core_->object_max());
+    const int32_t n = core_->object_get(uint32_t(id), out.data(), uint32_t(out.size()));
+    if (n < 0) { out.clear(); return false; }
+    out.resize(size_t(n));
+    return true;
+}
+
+int FeluccaEngine::putObject(int id, const std::vector<uint8_t>& bytes) {
+    if (!core_ || id < 0) return 1;
+    std::lock_guard<std::mutex> g(lock_);
+    return int(core_->object_put(uint32_t(id), bytes.data(), uint32_t(bytes.size())));
+}

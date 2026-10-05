@@ -16,8 +16,10 @@
   sample sets are the Versilian Studios samples (CC0). Parts of it come from
   others under their own licences, listed in its `LICENSING.md`: msfa
   (Apache-2.0) in the FM6 engine, and DaisySP and Rings (MIT) in the PHYS
-  engine; their licence texts are in `upstream/LICENSES/`. See
-  `engines/felucca/UPSTREAM.md`.
+  engine; their licence texts are in `upstream/LICENSES/`. Its screen's
+  generated tables are rasterised from the Inter Tight font (SIL OFL 1.1, The
+  Inter Project Authors) and the Fukiai icon font (MIT, Hügelton
+  Instruments). See `engines/felucca/UPSTREAM.md`.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.

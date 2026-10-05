@@ -14,15 +14,18 @@ Copied unchanged:
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: Felucca's
   regression (87 golden renders), run by ctest as `felucca_regress`
 - `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`,
-  `gen_fm6_patches.py`: the generators
+  `gen_fm6_patches.py`, `gen_aa_font.py`, `gen_aa_icons.py`,
+  `gen_aa_keycaps.py`, `gen_ui_palettes.py`, `aa_raster.py`: the generators
 - `LICENSE`, `LICENSING.md`, `LICENSES/`: its licences, and those of the
   parts it takes from others (msfa in FM6, DaisySP and Rings in PHYS)
 
 `generated/` holds what Felucca's build generates and the plugin needs:
-`felucca_tables.h`, `felucca_fm6.h` (FM6's factory patches) and
-`felucca_samples.h` (the sample sets), made with `python3 tools/gen_tables.py`,
-`python3 tools/gen_fm6_patches.py` and `python3 tools/gen_samples.py` in a full
-checkout of that version (the samples need `assets/`, which is not copied).
+`felucca_tables.h`, `felucca_fm6.h` (FM6's factory patches),
+`felucca_samples.h` (the sample sets) and the screen's `ui_fonts.h`,
+`ui_icons.h`, `ui_keycaps.h` and `ui_palettes.h`, made in a full checkout of
+that version as its `tools/build.py` makes them (`generate()`): for example
+`python3 tools/gen_aa_font.py ui_fonts.h --preset inter-tight`. The samples
+and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
 
 ## Samples
 
@@ -32,10 +35,15 @@ checkout of that version (the samples need `assets/`, which is not copied).
 
 ## The plugin's side
 
-- `felucca_core.c` compiles the sources as one unit, the way
-  `tests/hostsim.c` does, with a prefix per compiled copy; it repeats the few
-  functions it needs from `ui.c` (not built: it needs the display), marked as
-  such.
+- `felucca_core.c` compiles the whole firmware as one unit, in
+  `felucca.c`'s order, the way Felucca's host tests (`tests/ui_test.c`,
+  `editor_test.c`, `backup_test.c`) build it, with a prefix per compiled copy:
+  sound, sequencer, screen and front panel, projects, user presets, the FM6
+  bank and the editor protocol. The hardware is replaced: the panel and screen
+  are the plugin's, the flash is RAM, the clock follows the audio rendered and
+  the main loop runs every 16 ms of it. Only `main.c`'s `felucca_init` is
+  repeated. Never built: the update and boot loader code (`ota.c`, `main.c`'s
+  boot loader paths); requests for them are taken and ignored.
 - `FeluccaEngine` hands each plugin instance a copy of its own.
 - Felucca 1.0 has four parts and no separate drum track (DRUM is an engine,
   on part 4 at power-on). Engine 1 (DIGITAL) is retired and not built
@@ -45,9 +53,8 @@ checkout of that version (the samples need `assets/`, which is not copied).
 - FM6 keeps a patch per part. The plugin calls `fm6_poll` (Felucca's main
   loop does) before each render, and saves each part's patch in the project,
   as Felucca's own projects do.
-- One known difference from the device: the FM6 patch bank (PTCH B1..B27)
-  lives in the device's flash, which the plugin does not have yet, so those
-  PTCH values play the init voice.
+- Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and the
+  oscilloscope on the HOME screen (silent).
 
 ## Updating
 

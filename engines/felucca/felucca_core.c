@@ -1,14 +1,18 @@
-/* felucca_core.c -- Felucca 1.0's DSP and sequencer (engines/felucca/upstream, GPL-3.0-only,
- * Leo Kuroshita / Hügelton Instruments) as a library the plugin can drive.
+/* felucca_core.c -- Felucca 1.0 (engines/felucca/upstream, GPL-3.0-only, Leo Kuroshita /
+ * Hügelton Instruments), the whole firmware, as a library the plugin can drive: a virtual
+ * FM-1 running Felucca, with its sound, sequencer, screen, front panel, projects, user
+ * presets, FM6 patch bank and editor protocol.
  *
  * Felucca is built as one compilation unit whose state is all file-level statics, so
  * one compiled copy is one synth. This file is compiled several times (CMakeLists.txt,
  * FELUCCA_COPIES), each copy with its own FEL_PREFIX, so each plugin instance gets a
  * copy of its own: no state is shared or swapped. felucca_core.h declares the API.
  *
- * The firmware's own sources are included unchanged, the way its host simulator
- * (upstream/tests/hostsim.c) builds them; what lives in its UI code (ui.c, which needs
- * the display) and is needed here is repeated below and marked as such.
+ * The firmware's own sources are included unchanged, in the order felucca.c includes them,
+ * the way its host tests (upstream/tests/ui_test.c, editor_test.c, backup_test.c) build
+ * them. What touches hardware is replaced below: the panel's buttons, keys and knobs and
+ * the screen are the plugin's, and the flash is RAM. Never built: the update and boot
+ * loader paths (ota.c, the boot loader's request): nothing here acts on them.
  *
  * A copy is given to one instance after another. To start each from the state the
  * program started with (no voices, tails or sequencer positions left from the last
@@ -25,8 +29,12 @@
 #endif
 #include "felucca_core_api.h"
 
-/* the firmware's globals that are not static: one per copy */
+/* the firmware's globals that are not static: one per copy (in one unit, so renaming
+ * persist_t's member "panel" along with them changes nothing) */
 #define bootguard FEL(bootguard)
+#define panel FEL(panel)
+#define settings FEL(settings)
+#define proj_slot FEL(proj_slot)
 
 #if !defined(__clang__) || !defined(FEL_BSS_SECTION)
 #error "Felucca's copies need Clang and their sections (CMakeLists.txt)"
@@ -36,6 +44,11 @@
 FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 
 #define __attribute__(x)
+#define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
+#define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
+#define FELUCCA_VERSION "v1.0"
+static uint8_t host_samples[3][0x14000];   /* the user sample slots USR1..3 (empty) */
+#define SMP_USER_XIP(k) ((const uint8_t *)host_samples[k])
 #define memset FEL(memset)
 #define memcpy FEL(memcpy)
 #define memcmp FEL(memcmp)
@@ -54,110 +67,151 @@ static struct { volatile uint32_t notes, buttons; } fm1_in;
 #include "../upstream/firmware/src/fx.c"
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
 #include "../upstream/firmware/src/usb.c"
+/* what goes out (the editor's replies and pushes): usb.c's queue holds 64 packets, less than one
+ * reply; while it waits for room (ota_idle), its packets move on to this one, which the plugin
+ * takes between audio blocks (FEL(midi_out)) */
+#define FEL_OUTQ 8192u
+static uint32_t fel_out[FEL_OUTQ], fel_out_r, fel_out_w;
+static void fel_out_drain(void)
+{
+    while (so_r != so_w && fel_out_w - fel_out_r < FEL_OUTQ)
+        fel_out[fel_out_w++ % FEL_OUTQ] = sx_out_q[so_r++ % SXQ];
+}
+static uint32_t ota_now_ms(void) { return fm1_ms; }   /* usb.c's SysEx sender waits on these */
+static void ota_idle(void) { fel_out_drain(); if (so_w - so_r >= SXQ) fm1_ms++; }   /* (still full: its 200 ms run out) */
 #include "../upstream/firmware/src/midi_uart.c"
 #include "../upstream/firmware/src/song_chain.c"
 #include "../upstream/firmware/src/seq.c"
 
-/* ---- from Felucca 1.0's ui.c and main.c (not built here: they need the display),
- * in the simpler form its host simulator (tests/hostsim.c) uses: no undo, no motion
- * recording, no browsing aliases ------------------------------------------------------------ */
-static void step_clear(step_t *st)
-{
-    st->n = 0;
-    st->time = ST_REST;
-    st->flags = 0;
-    st->vel = 0;
-    st->hit = st->acc = 0;
-    st->probability = 0;
-}
 
-static void track_defaults_steps(track_t *t)
+/* ---- the hardware, as Felucca's host tests replace it (tests/ui_test.c) ----------------------- */
+#define FM1_NCOL 11u
+static const int8_t FM1_KEYMAP[6][FM1_NCOL];
+static uint8_t fm1_led[FM1_NCOL];
+#define FM1_TICKS_PER_US 1u
+static uint32_t host_ticks, host_pressed, host_notes;
+static int32_t host_enc[7];
+static uint32_t fm1_ticks(void) { return host_ticks; }
+static uint32_t fm1_input_edges(int x) { uint32_t p = host_pressed; (void)x; host_pressed = 0; return p; }
+static uint32_t fm1_input_note_edges(void) { uint32_t n = host_notes; host_notes = 0; return n; }
+static int32_t fm1_enc_take(uint32_t e) { int32_t s = host_enc[e % 7u]; host_enc[e % 7u] = 0; return s; }
+static void fm1_wdt_feed(void) {}
+static void fm1_irq_off(void) {}
+static void fm1_irq_on(void) {}
+static uint16_t host_screen[240 * 240];   /* RGB565, as the LCD takes it (big endian) */
+static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
+{
+    uint32_t i, j;
+    for (j = 0; j < h && y + j < 240u; j++)
+        for (i = 0; i < w && x + i < 240u; i++)
+            host_screen[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
+}
+static void lcd_sync(void) {}
+#define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope, silent here */
+static int16_t scope_buf[SCOPE_N];
+static uint32_t scope_w;
+static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
+{
+    uint32_t i, j;
+    for (j = 0; j < h && y + j < 240u; j++)
+        for (i = 0; i < w && x + i < 240u; i++)
+            host_screen[(y + j) * 240u + x + i] = p[j * w + i];
+}
+static struct { uint32_t stage, page, home, ui_frames; } felucca_dbg;
+#include "../upstream/firmware/src/gfx.c"
+#include "../upstream/firmware/src/panel.c"
+#include "../upstream/firmware/src/ui.c"
+#include "../upstream/firmware/src/icons.c"
+#include "../upstream/firmware/src/ui_graph.c"
+#include "../upstream/firmware/src/ui_draw.c"
+#include "../upstream/firmware/src/ui_menu.c"
+#include "../upstream/firmware/src/ui_input.c"
+#include "../upstream/firmware/src/ui_layer.c"
+
+/* the flash: the storage objects' sectors in RAM (settings, four projects, two user preset banks,
+ * the FM6 bank; two copies each), as the 1 MiB part the firmware expects */
+#define FEL_NSECT 18u
+static uint32_t sect_addr[FEL_NSECT];    /* address + 1; 0: free */
+static uint8_t sect_data[FEL_NSECT][4096];
+static uint8_t *sect(uint32_t off)
+{
+    uint32_t base = off & ~4095u, i;
+    for (i = 0; i < FEL_NSECT; i++)
+        if (sect_addr[i] == base + 1u)
+            return sect_data[i] + (off - base);
+    for (i = 0; i < FEL_NSECT; i++)
+        if (!sect_addr[i]) {
+            sect_addr[i] = base + 1u;
+            memset(sect_data[i], 0xFF, 4096);
+            return sect_data[i] + (off - base);
+        }
+    return 0;
+}
+static uint8_t flash_ok = 1;
+static int st_read(uint32_t off, void *dst, uint32_t n)
+{
+    const uint8_t *p;
+    if ((off & 4095u) + n > 4096u)
+        return -1;
+    p = sect(off);
+    if (!p)
+        return -1;
+    memcpy(dst, p, n);
+    return 0;
+}
+static int st_erase(uint32_t off) { uint8_t *p = sect(off); if (!p) return -8; memset(p, 0xFF, 4096); return 0; }
+static int st_prog(uint32_t off, const void *src, uint32_t n)
+{
+    uint8_t *p;
+    if ((off & 4095u) + n > 4096u)
+        return -8;
+    p = sect(off);
+    if (!p)
+        return -8;
+    memcpy(p, src, n);
+    return 0;
+}
+static uint32_t irq_save(void) { return 0; }
+static void irq_restore(uint32_t f) { (void)f; }
+static uint32_t fl_jedec_ram(void) { return 0x856014u; }   /* the expected part: flash_ok */
+static void fl_plain_window_init(void) {}
+#define FL_FAR(fn) (fn)
+static void audio_silence(void) {}
+static void fl_inval(uint32_t off, uint32_t n) { (void)off; (void)n; }
+static int fl_erase4k(uint32_t off, uint32_t *took) { (void)off; *took = 0; return -1; }   /* no user samples yet */
+static int fl_write(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
+#include "../upstream/firmware/src/storage.c"
+#include "../upstream/firmware/src/upreset.c"
+#include "../upstream/firmware/src/project.c"
+#include "../upstream/firmware/src/editor.c"
+
+/* ---- from main.c (not built: the device's boot) --------------------------------------------- */
+/* power-on: the parts with their default sounds (TRK_DEF); the sequencers empty */
+static void felucca_init(void)
 {
     uint32_t i;
-    for (i = 0; i < NSTEP; i++)
-        step_clear(&t->step[i]);
-}
-
-static void track_defaults(track_t *t)
-{
-    uint32_t i;
-    for (i = 0; i < P_E0; i++)
-        t->p[i] = TP[i].def;
-    track_defaults_steps(t);
-}
-
-/* what a sound load leaves alone: the mix, the arpeggiator, the scale and key map, the pattern
- * parameters, the SLICER insert and the chord keys */
-static int param_kept(uint32_t i)
-{
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC;
-}
-
-/* preset_orig: a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1,
- * once TRANH, is PIANO (tools/gen_samples.py SMP_SET_ORIG). It loads as the original */
-static uint32_t preset_orig(const engine_t *e, uint32_t k)
-{
-    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
-}
-
-/* apply_preset_to: preset pi of the engine the track asked for, the sound only (DIGITAL, retired:
- * its preset converted to FM6, as fm4_load_preset) */
-static void apply_preset_to(track_t *t, uint32_t pi)
-{
-    const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    uint32_t i;
-    panic_req |= (uint8_t)(1u << trk_index(t));
-    t->user = 0;
-#if !FELUCCA_FM4
-    if (t->eng_req % NENGINES == ENGI_DIGITAL) {
-        uint8_t v[FP_SIZE + 1u];
-        const uint32_t tr = trk_index(t);
-        for (i = 0; i < P_E0; i++)
-            if (!param_kept(i))
-                t->p[i] = TP[i].def;
-        fm4_preset_values(t->p, pi);
-        t->preset = (uint8_t)fm4_convert(t->p, v);
-        t->eng_req = ENGI_FM6;
-        fm6_set_patch(tr, v);
-        fm6_slot[tr] = (uint8_t)t->p[P_E7];
-        return;
+    chain_defaults(&chain_config);
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    undo_depth++;                             /* (no undo copy of the power-on loads) */
+    fm6_init();                               /* every track's FM6 patch: the init voice */
+    for (i = 0; i < NTRK; i++) {
+        track_t *t = &trk[i];
+        track_defaults(t);
+        set_engine_of(t, TRK_DEF[i][0]);
+        apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
+        t->engine = t->eng_req;
+        track_defaults_steps(t);              /* (a sound load never touches them) */
+        if (TRK_DEF[i][2])
+            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
+        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
+        pat_last[i] = TRK_DEF[i][2];
     }
-#endif
-    if (!e->npresets)
-        return;
-    pi = preset_orig(e, pi % e->npresets);
-    t->preset = (uint8_t)pi;
-    for (i = 0; i < P_E0; i++)
-        if (!param_kept(i))
-            t->p[i] = TP[i].def;
-    for (i = 0; i < 8u; i++)
-        t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
-    t->p[P_ATK] = e->presets[pi].env[0];
-    t->p[P_DEC] = e->presets[pi].env[1];
-    t->p[P_SUS] = e->presets[pi].env[2];
-    t->p[P_REL] = e->presets[pi].env[3];
-    t->p[P_ED_FLT] = e->presets[pi].fenv;
-    t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;
-    {
-        static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
-        const preset_t *pr = &e->presets[pi];
-        for (i = 0; i < 4u; i++)
-            t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
-    }
-    fm6_track_loaded(t);   /* FM6: the preset's patch */
-}
-
-/* set_engine_of: the engine's defaults and its first preset (the audio side switches after a fade) */
-static void set_engine_of(track_t *t, uint32_t ei)
-{
-    const engine_t *e = ENGINES[ei % NENGINES];
-    uint32_t i;
-    t->eng_req = (uint8_t)(ei % NENGINES);
-    if (ei % NENGINES != ENGI_DIGITAL)
-        for (i = 0; i < 8u; i++)
-            t->p[P_E0 + i] = e->edit[i].def;
-    apply_preset_to(t, 0);
+    undo_depth--;
+    song.sel = 0;
+    song.master_q12 = 2048;
+    ui.home = 1;
+    ui.force = 1;
 }
 
 #undef __attribute__                     /* Felucca's code is done: attributes mean something again */
@@ -224,23 +278,39 @@ static void fill(fel_desc_t *out, const param_desc_t *d)
     out->nnames = n;
 }
 
-void FEL(init)(void)   /* felucca_init: four parts with their default sounds (TRK_DEF), empty patterns */
+/* the clock: fm1_ms and the tick counter follow the audio rendered, as on the device they follow
+ * its timer; the main loop runs about every 16 ms of it (main.c: ~60 UI frames a second) */
+static uint64_t fel_frames;
+static uint32_t fel_main_ms;
+
+static void fel_clock(void)
 {
-    uint32_t i;
-    chain_defaults(&chain_config);
-    for (i = 0; i < G_COUNT; i++)
-        song.g[i] = GP[i].def;
-    fm6_init();
-    for (i = 0; i < NTRK; i++) {
-        track_t *t = &trk[i];
-        track_defaults(t);
-        set_engine_of(t, TRK_DEF[i][0]);
-        apply_preset_to(t, TRK_DEF[i][1]);
-        t->engine = t->eng_req;
-        track_defaults_steps(t);
-    }
-    song.sel = 0;
-    song.master_q12 = 2048;
+    const uint64_t us = fel_frames * 1000000u / FS;
+    fm1_ms = (uint32_t)(us / 1000u);
+    host_ticks = (uint32_t)us;
+}
+
+/* one pass of main.c's loop, without what is the device's own (the watchdog, USB, the update and
+ * boot loader requests, the LEDs and the screen, drawn when the plugin asks) */
+static void fel_main_pass(void)
+{
+    usb.uboot_req = 0;                   /* the boot loader key or an update command: never acted on */
+    usb.ota_req = 0;
+    ed_service();                        /* the editor protocol */
+    ui_input();
+    settings_poll();
+}
+
+void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings and objects, then the parts */
+{
+    fel_frames = 0;
+    fel_main_ms = 0;
+    fel_clock();
+    persist_boot();
+    settings_init();
+    panel_init();
+    felucca_init();
+    usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
 uint32_t FEL(ctl)(void) { return CTL; }
@@ -317,12 +387,130 @@ void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* after PTCH (P_
     }
 }
 
-void FEL(midi)(uint32_t pkt) { midi_enqueue(pkt, 1u); }   /* as usb.c: a full ring flushes and panics (no stuck note) */
+void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }   /* as a USB-MIDI packet in: notes, clock, SysEx (the editor) */
 
 void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames a multiple of CTL */
 {
     uint32_t i;
-    fm6_poll();   /* as Felucca's main loop: a changed FM6 PTCH loads that patch */
-    for (i = 0; i + CTL <= frames; i += CTL)
+    for (i = 0; i + CTL <= frames; i += CTL) {
+        if (fm1_ms - fel_main_ms >= 16u) {
+            fel_main_ms = fm1_ms;
+            fel_main_pass();
+        }
         mix_block(out + 2u * i, CTL);
+        fel_frames += CTL;
+        fel_clock();
+    }
+}
+
+/* ---- the front panel and the screen -------------------------------------------------------------- */
+uint32_t FEL(nbuttons)(void) { return NB; }
+const char *FEL(button_name)(uint32_t b) { return b < NB ? B_NAME[b] : ""; }
+uint32_t FEL(nknobs)(void) { return NE; }
+const char *FEL(knob_name)(uint32_t k) { return k < NE ? E_NAME[k] : ""; }
+
+void FEL(button)(uint32_t b, int down)   /* by label (B_*): through the panel's calibration, as the matrix */
+{
+    uint32_t bit;
+    if (b >= NB)
+        return;
+    bit = 1u << panel.btn[b];
+    if (down) {
+        if (!(fm1_in.buttons & bit))
+            host_pressed |= bit;
+        fm1_in.buttons |= bit;
+    } else {
+        fm1_in.buttons &= ~bit;
+    }
+}
+
+void FEL(key)(uint32_t k, int down)   /* the 27 keys, 0 = the lowest */
+{
+    uint32_t bit;
+    if (k >= 27u)
+        return;
+    bit = 1u << k;
+    if (down) {
+        if (!(fm1_in.notes & bit))
+            host_notes |= bit;
+        fm1_in.notes |= bit;
+    } else {
+        fm1_in.notes &= ~bit;
+    }
+}
+
+void FEL(knob)(uint32_t role, int32_t steps)   /* by role (EN_*), clockwise +, as the panel turns it */
+{
+    if (role < NE)
+        host_enc[panel.enc[role] % 7u] += steps * panel.dir[role];
+}
+
+/* the screen, after drawing what changed: 240 x 240 RGB565, big endian as the LCD takes it */
+void FEL(draw)(uint16_t *screen)
+{
+    ui_draw();
+    if (screen)
+        memcpy(screen, host_screen, sizeof host_screen);
+}
+
+/* ---- MIDI and SysEx out (the editor's replies and pushes): USB-MIDI packets ----------------------- */
+uint32_t FEL(midi_out)(uint32_t *pkts, uint32_t max)
+{
+    uint32_t n = 0;
+    fel_out_drain();
+    while (fel_out_r != fel_out_w && n < max)
+        pkts[n++] = fel_out[fel_out_r++ % FEL_OUTQ];
+    return n;
+}
+
+/* ---- the transport ------------------------------------------------------------------------------ */
+void FEL(transport)(int play) { transport_req = play ? 1u : 2u; }   /* as PLAY; the next block acts on it */
+int FEL(playing)(void) { return song.playing != 0u; }
+
+/* ---- the device's stored objects, as the editor's full backup carries them (editor_backup.c):
+ * 0 the music now (a FUN8 project), 1 the settings, 2..5 the project slots, 6 and 7 the user
+ * preset banks, 8 the FM6 patch bank. Without stopping the transport: the plugin calls these
+ * between audio blocks. ------------------------------------------------------------------------- */
+uint32_t FEL(object_max)(void) { return ED_BK_MAX; }
+
+/* the object's bytes into out (at most max); its length (0: empty), or -1 */
+int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
+{
+    const uint8_t *p;
+    uint32_t len;
+    if (id == 0u) {
+        project_capture(&proj_scratch);
+        if (!proj_pack((project_store_t *)ED_BK_RAW, &proj_scratch))
+            return -1;
+        ++proj_wire_gen;
+    } else if (id == 1u) {
+        ed_bk_settings = persist_saved;
+        settings_export(&ed_bk_settings);
+    } else if (id > 8u) {
+        return -1;
+    }
+    p = ed_bk_object(id, &len);
+    if (!p || len > max)
+        return -1;
+    memcpy(out, p, len);
+    return (int32_t)len;
+}
+
+/* an object back (len 0: an empty slot), validated and converted as a backup restore does it;
+ * editor_backup.c's rc: 0 ok, 1 invalid, 2 validation failed, 4 storage */
+uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
+{
+    uint32_t rc;
+    if (id > 8u || len > ED_BK_MAX || (id == 0u && len != sizeof(project_store_t) && len != PROJ_STORE_V7))
+        return 1;
+    memcpy(ED_BK_RAW, data, len);
+    ed_bk_id = (uint8_t)id;
+    ed_bk_len = len;
+    ed_bk_pos = len;
+    ed_bk_crc = st_crc32(ED_BK_RAW, len);
+    rc = ed_bk_commit();
+    ed_bk_put = 0;
+    ed_bk_valid = 0;
+    ++proj_wire_gen;
+    return rc;
 }

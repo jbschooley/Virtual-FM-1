@@ -207,6 +207,71 @@ int main() {
         CHECK(tail < 1e-4, "an overflowing queue stops every note, as on the device (no stuck note)");
     }
 
+    // ---- the virtual device: editor protocol, objects, panel, transport, screen ----
+    {
+        FeluccaEngine f;
+        std::vector<float> l(256), r(256);
+        auto settle = [&](int blocks) { for (int k = 0; k < blocks; ++k) f.render(l.data(), r.data(), 256); };
+        auto request = [&](std::vector<uint8_t> body) {   // F0 7D 46 4C cmd args F7, then its reply
+            std::vector<uint8_t> m = {0xF0, 0x7D, 0x46, 0x4C};
+            m.insert(m.end(), body.begin(), body.end());
+            m.push_back(0xF7);
+            f.sysex(m.data(), int(m.size()));
+            settle(8);   // past the next main loop pass (16 ms)
+            auto got = f.takeSysex();
+            return got.empty() ? std::vector<uint8_t>{} : got.back();
+        };
+        auto info = request({1});   // INFO: version string first
+        const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
+        const size_t at = 5 + version.size() + 1;   // then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA v1.0" && info[at] == 14 && info[at + 1] == 91
+              && info[at + 4] == 83, "INFO answers, as Felucca 1.0 (14 engines, 91 parameters, P_E0 83)");
+        auto dump = request({4});   // DUMP: engine, preset, P_COUNT + G_COUNT values (2 bytes each)
+        CHECK(dump.size() == size_t(4 + 1 + 2 + 2 * (91 + 27) + 1) && dump[5] == 0, "DUMP gives the whole sound, longer than usb.c's queue");
+        // SET part 1's level (scope 0, id 0) to 50 through the protocol; the engine sees it
+        auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
+        CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
+        // the boot loader key is taken and does nothing
+        const uint8_t uboot[] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
+        f.sysex(uboot, 6);
+        settle(8);
+        CHECK(request({25}).size() == 7, "the boot loader key is ignored: the editor still answers PING");
+
+        // the music now, as an object, back into another instance
+        f.setEngine(2, 6);
+        f.setParam(2, 0, 77);
+        std::vector<uint8_t> runtime;
+        CHECK(f.object(0, runtime) && runtime.size() == 3584
+              && (runtime[0] | runtime[1] << 8 | runtime[2] << 16 | uint32_t(runtime[3]) << 24) == 0x46554E38u,
+              "the music now is a FUN8 project");
+        FeluccaEngine g;
+        CHECK(g.putObject(0, runtime) == 0 && g.engineOf(2) == 6 && g.param(2, 0) == 77, "and restores into another instance");
+        runtime[100] ^= 0x55;   // its hash no longer matches
+        CHECK(g.putObject(0, runtime) == 2, "a damaged project is refused");
+        std::vector<uint8_t> empty;
+        CHECK(g.object(2, empty) && empty.empty(), "an empty project slot has no bytes");
+        std::vector<uint8_t> settingsObj;
+        CHECK(g.object(1, settingsObj) && !settingsObj.empty(), "the settings object");
+
+        // PLAY on the panel starts the transport, PLAY again stops it
+        const auto names = f.buttonNames();
+        const int play = int(std::find(names.begin(), names.end(), std::string("PLAY")) - names.begin());
+        CHECK(play < int(names.size()) && !f.playing(), "a PLAY button; stopped at power-on");
+        f.button(play, true); settle(8); f.button(play, false); settle(8);
+        const bool started = f.playing();
+        f.button(play, true); settle(8); f.button(play, false); settle(8);
+        CHECK(started && !f.playing(), "PLAY starts and stops the sequencer");
+        f.transport(true); settle(2);
+        CHECK(f.playing(), "the plugin starts it too");
+        f.transport(false); settle(2);
+
+        std::vector<uint16_t> screen;
+        f.draw(screen);
+        int lit = 0;
+        for (auto v : screen) if (v != screen[0]) ++lit;
+        CHECK(screen.size() == 240u * 240u && lit > 1000, "the screen draws");
+    }
+
     // ---- a copy given back is as good as new ----
     {
         {   // leave a copy in a mess: other engines, edited values, tempo, notes still held, tails

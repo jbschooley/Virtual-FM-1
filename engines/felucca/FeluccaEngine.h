@@ -48,6 +48,31 @@ public:
     void midi(const uint8_t* bytes, int size);   // a channel message (notes, CCs ...)
     void render(float* left, float* right, int frames);
 
+    // ---- the virtual device: any thread (each takes the lock) ----
+    // A whole SysEx message (F0 .. F7) into its USB port: the editor protocol (F0 7D 46 4C ..).
+    // The update and boot loader messages are taken and ignored, as nothing here acts on them.
+    void sysex(const uint8_t* bytes, int size);
+    // What it sent out since the last call: whole SysEx messages (the editor's replies and pushes).
+    std::vector<std::vector<uint8_t>> takeSysex();
+    // The front panel, by Felucca's own labels (FX, SCL ... OCT+) and knob roles (SELECT ...
+    // KNOB 4); the 27 keys from the lowest. The main loop sees them within 16 ms of audio.
+    std::vector<std::string> buttonNames() const;
+    std::vector<std::string> knobNames() const;
+    void button(int label, bool down);
+    void key(int index, bool down);
+    void knob(int role, int steps);
+    // The screen, after drawing what changed: 240 x 240, RGB565 (native byte order).
+    static constexpr int kScreen = 240;
+    void draw(std::vector<uint16_t>& rgb565);
+    void transport(bool play);                 // PLAY: the next block starts or stops it
+    bool playing() const;
+    // The device's stored objects, as Felucca's full backup carries them: 0 the music now
+    // (a FUN8 project), 1 settings, 2..5 the project slots, 6 and 7 the user presets, 8 the
+    // FM6 bank. get: false if there is no such object (an empty one gives no bytes); put:
+    // Felucca's rc (0 ok, 1 invalid, 2 failed validation, 4 storage).
+    bool object(int id, std::vector<uint8_t>& out);
+    int putObject(int id, const std::vector<uint8_t>& bytes);
+
     // ---- any thread ----
     struct Desc {
         std::string label, unit;
@@ -87,6 +112,8 @@ private:
     int index_ = -1;
     mutable std::mutex lock_;
     std::array<int32_t, 2 * 32> block_{};      // one control block, interleaved
+    std::vector<uint8_t> sxOut_;               // SysEx coming out, until a message is whole
+    std::vector<std::vector<uint8_t>> sxDone_;
     int blockPos_ = 32;                        // frames of block_ already given out
     int ctl_ = 32;
 };
