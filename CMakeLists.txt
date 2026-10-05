@@ -237,6 +237,12 @@ if(FM1_BUILD_PLUGIN)
     file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
     juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
 
+    # iOS rounds an app's icon itself and shows any transparency as white: its icon fills the square
+    if(IOS)
+        set(fm1Icon icon-ios)
+    else()
+        set(fm1Icon icon)
+    endif()
     juce_add_plugin(VirtualFM1
         COMPANY_NAME "Bockage"
         BUNDLE_ID "com.bockage.virtualfm1"
@@ -245,8 +251,8 @@ if(FM1_BUILD_PLUGIN)
         PLUGIN_CODE Fm1c
         FORMATS ${FM1_FORMATS}
         PRODUCT_NAME "Virtual FM-1"
-        ICON_BIG "${CMAKE_SOURCE_DIR}/assets/icon-1024.png"
-        ICON_SMALL "${CMAKE_SOURCE_DIR}/assets/icon-256.png"
+        ICON_BIG "${CMAKE_SOURCE_DIR}/assets/${fm1Icon}-1024.png"
+        ICON_SMALL "${CMAKE_SOURCE_DIR}/assets/${fm1Icon}-256.png"
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT TRUE
