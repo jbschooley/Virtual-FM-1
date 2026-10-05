@@ -79,11 +79,33 @@ if(FM1_BUILD_FELUCCA)
     set(felDecl "")
     set(felTable "")
     set(felObjects "")
+    # What every copy reads and none writes, compiled once rather than in each copy: the
+    # sample sets (SMP_DATA, 194 KB) and the empty user sample slots. The copies include a
+    # felucca_samples.h written here from the vendored one, with SMP_DATA declared, not defined
+    # (its contents left as an unused array the compiler drops); felucca_shared.c defines it.
+    set(felSamplesIn ${CMAKE_SOURCE_DIR}/engines/felucca/generated/felucca_samples.h)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${felSamplesIn})
+    file(READ ${felSamplesIn} felS)
+    set(felSmpDecl "static const uint8_t SMP_DATA[")
+    string(FIND "${felS}" "${felSmpDecl}" felAt)
+    if(felAt LESS 0)
+        message(FATAL_ERROR "felucca_samples.h: no SMP_DATA array (a new generator? see CMakeLists.txt)")
+    endif()
+    string(SUBSTRING "${felS}" ${felAt} -1 felTail)
+    string(FIND "${felTail}" "};" felEnd)
+    math(EXPR felEnd "${felEnd} + 2")
+    string(SUBSTRING "${felTail}" 0 ${felEnd} felArray)
+    string(REPLACE "${felSmpDecl}" "const uint8_t fel_smp_data[" felArray "${felArray}")
+    file(WRITE ${CMAKE_BINARY_DIR}/felucca/shared/felucca_shared.c
+         "/* written by CMakeLists.txt: what every Felucca copy reads, once */\n#include <stdint.h>\n"
+         "const uint8_t fel_no_samples[3][0x14000] = {{0}};\n${felArray}\n")
+    string(REPLACE "${felSmpDecl}" "extern const uint8_t fel_smp_data[];\n#define SMP_DATA fel_smp_data\nstatic const uint8_t fel_smp_data_unused[" felHeader "${felS}")
+    file(WRITE ${CMAKE_BINARY_DIR}/felucca/shared/felucca_samples.h "${felHeader}")
     foreach(i RANGE 0 ${felLast})
         add_library(felucca_core_${i} OBJECT engines/felucca/felucca_core.c)
         # the copy's own sections, and the linker's symbols for where they start and stop
         if(APPLE)
-            set(felB "__DATA,__felb${i}")
+            set(felB "__DATA,__felb${i},zerofill")   # zeros at start: no space in the file
             set(felD "__DATA,__feld${i}")
             set(felBS "section$start$__DATA$__felb${i}")
             set(felBE "section$end$__DATA$__felb${i}")
@@ -101,7 +123,7 @@ if(FM1_BUILD_FELUCCA)
             "FEL_BSS_SECTION=\"${felB}\"" "FEL_DATA_SECTION=\"${felD}\""
             "FEL_BSS_START=\"${felBS}\"" "FEL_BSS_STOP=\"${felBE}\""
             "FEL_DATA_START=\"${felDS}\"" "FEL_DATA_STOP=\"${felDE}\"")
-        target_include_directories(felucca_core_${i} PRIVATE engines/felucca/generated engines/felucca)
+        target_include_directories(felucca_core_${i} PRIVATE ${CMAKE_BINARY_DIR}/felucca/shared engines/felucca/generated engines/felucca)
         set_target_properties(felucca_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
         target_compile_options(felucca_core_${i} PRIVATE -w -O2)   # Felucca's own code, as upstream builds it
         string(APPEND felDecl "#define FEL_PREFIX fel${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
@@ -113,7 +135,7 @@ if(FM1_BUILD_FELUCCA)
          "#ifdef FELUCCA_COPIES_DECLARE\n${felDecl}#endif\n"
          "#ifdef FELUCCA_COPIES_TABLE\n${felTable}#endif\n")
     configure_file(${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc COPYONLY)
-    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${felObjects})
+    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${CMAKE_BINARY_DIR}/felucca/shared/felucca_shared.c ${felObjects})
     target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()

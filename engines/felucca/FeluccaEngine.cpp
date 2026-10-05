@@ -4,9 +4,6 @@
 
 // The compiled copies (felucca_copies.inc, written by CMake: FELUCCA_COPIES of them):
 // first their declarations, then a table of their functions.
-// the user sample slots every copy reads (felucca_core.c): empty
-extern "C" const uint8_t fel_no_samples[3][0x14000] = {};
-
 extern "C" {
 #define FELUCCA_COPIES_DECLARE
 #include "felucca_copies.inc"

@@ -48,7 +48,8 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
 #define FELUCCA_VERSION "v1.0"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
- * one array of zeros for every copy (FeluccaEngine.cpp) rather than 240 KB of each one's state */
+ * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
+ * 240 KB of each one's state */
 extern const uint8_t fel_no_samples[3][0x14000];
 #define SMP_USER_XIP(k) ((const uint8_t *)fel_no_samples[k])
 #define memset FEL(memset)
