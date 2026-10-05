@@ -79,7 +79,7 @@ public:
     // nothing until the synth has been identified.
     void sendChange(const fm1::Sound& from, const fm1::Sound& to, fm1::edit::Channels ch);
 
-    std::optional<fm1::Identity> lastIdentity() const { return identity_; }
+    std::optional<fm1::Identity> lastIdentity() const { std::lock_guard<std::mutex> l(identityLock_); return identity_; }
 
 private:
     void run() override;
@@ -108,6 +108,7 @@ private:
     std::vector<int> pullPats_;
     std::vector<std::pair<int, fm1::seq::Pattern>> pushPats_;
     bool savePats_ = false;
-    std::optional<fm1::Identity> identity_;
+    std::optional<fm1::Identity> identity_;   // written by the session thread, under identityLock_
+    mutable std::mutex identityLock_;
     std::atomic<bool> cancel_{false};
 };

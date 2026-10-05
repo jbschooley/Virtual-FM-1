@@ -88,7 +88,7 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
         // not this instance's firmware: forget the synth and do nothing more with it
         rejected_ = true;
         rejectedName_ = fm1::firmwareFor(*id)->name();
-        identity_.reset();
+        { std::lock_guard<std::mutex> l(identityLock_); identity_.reset(); }
         {
             std::lock_guard<std::mutex> lock(firmwareLock_);
             firmware_.reset();
@@ -103,13 +103,15 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
             std::lock_guard<std::mutex> lock(firmwareLock_);
             firmware_ = std::move(f);
         }
-        identity_ = id;
+        { std::lock_guard<std::mutex> l(identityLock_); identity_ = id; }
         juce::MessageManager::callAsync([this, i = *id] { if (onIdentity) onIdentity(i); });
     }
     return id;
 }
 
 void Fm1Session::run() {
+    // the instance's choice may have changed since the synth identified itself
+    if (identity_ && acceptIdentity && !acceptIdentity(*identity_)) { std::lock_guard<std::mutex> l(identityLock_); identity_.reset(); }
     auto p = port();
     switch (op_) {
     case Op::Identify: {

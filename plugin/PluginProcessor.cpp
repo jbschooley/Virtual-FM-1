@@ -858,8 +858,19 @@ void FM1Processor::setFirmware(const juce::String& id) {
     if (index == firmwareIndex_.load()) return;
     firmwareIndex_ = index;
     pendingMismatch_.reset();
-    // a connected synth is checked again against the new choice
-    if (link.isOpen()) session.identify();
+    if (link.isOpen()) {
+        auto synth = session.lastIdentity();
+        if (synth && juce::String(fm1::firmwareIdFor(*synth)) != choices[size_t(index)].id) {
+            // the connected synth runs another firmware: stop whatever runs and let it go
+            session.cancel();
+            link.close();
+            if (live_) setLive(false);
+            autoConnect_ = false;
+            if (onStatus) onStatus("Disconnected: the FM-1 runs another firmware than " + juce::String(choices[size_t(index)].name) + ".");
+        } else if (!synth) {
+            session.identify();   // not identified yet: it is checked against the new choice
+        }
+    }
     if (juce::MessageManager::getInstance()->isThisTheMessageThread()) { if (onFirmwareChanged) onFirmwareChanged(); }
     else settingsNotify_ = true;
 }

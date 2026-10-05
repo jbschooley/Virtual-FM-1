@@ -38,20 +38,21 @@ bool Fm1Link::open(const juce::String& inputId, const juce::String& outputId) {
 void Fm1Link::close() {
     if (in_) in_->stop();
     in_.reset();
+    std::lock_guard<std::mutex> l(sendMutex_);   // not while the session thread is sending
     out_.reset();
     ports_ = {};
 }
 
 void Fm1Link::send(const fm1::Bytes& sysex) {
-    if (!out_ || sysex.size() < 2) return;
     std::lock_guard<std::mutex> l(sendMutex_);
+    if (!out_ || sysex.size() < 2) return;
     // MidiMessage::createSysExMessage wants the payload without F0/F7
     out_->sendMessageNow(juce::MidiMessage::createSysExMessage(sysex.data() + 1, int(sysex.size()) - 2));
 }
 
 void Fm1Link::sendRaw(const fm1::Bytes& midi) {
-    if (!out_ || midi.empty()) return;
     std::lock_guard<std::mutex> l(sendMutex_);
+    if (!out_ || midi.empty()) return;
     if (midi[0] == 0xF0) { out_->sendMessageNow(juce::MidiMessage::createSysExMessage(midi.data() + 1, int(midi.size()) - 2)); return; }
     out_->sendMessageNow(juce::MidiMessage(midi.data(), int(midi.size())));
 }

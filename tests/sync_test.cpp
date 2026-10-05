@@ -302,8 +302,16 @@ int main(int argc, char** argv) {
         session.sendChange(liveFrom, liveTo, fm1::edit::Channels{});
         juce::Thread::sleep(300);
         CHECK(fake.received.load() == before, "live edits stop once the synth is not accepted");
+        // the instance's choice changes after the synth was accepted: the next sync checks again
         session.acceptIdentity = nullptr;
         session.onRejected = nullptr;
+        session.identify(); waitIdle(session, 5000);
+        session.acceptIdentity = [](const fm1::Identity&) { return false; };
+        read.clear(); progress.clear();
+        const int readsBefore2 = fake.reads;
+        session.pull({0}); waitIdle(session, 8000);
+        CHECK(read.empty() && fake.reads == readsBefore2, "a sync started after the choice changed reads nothing");
+        session.acceptIdentity = nullptr;
         session.identify(); waitIdle(session, 5000);
     }
 
