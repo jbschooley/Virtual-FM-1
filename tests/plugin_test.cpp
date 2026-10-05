@@ -493,6 +493,31 @@ static int checks() {
             CHECK(all && felucca::restore(eb, *all, {}, err) && b->engineOf(1) == 6 && b->param(1, 0) == 61
                   && b->object(3, slot) && slot == music, "restored into the other: the music and the project slot");
             if (!err.isEmpty()) std::printf("  sync: %s\n", err.toRawUTF8());
+            {   // a lossy link (as a real FM-1 drops MIDI when its queue is full): a piece arrives
+                // cut short once, and another's answer is lost once; the object starts over
+                struct Lossy : felucca::Endpoint {
+                    felucca::Endpoint& e;
+                    int pieces = 0;
+                    explicit Lossy(felucca::Endpoint& x) : e(x) {}
+                    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
+                        auto a = felucca::argsOf(q);
+                        if (felucca::commandOf(q) == felucca::kBackupPut && a.size() > 2 && a[0] == 1) {
+                            ++pieces;
+                            if (pieces == 3) { auto cut = q; cut.erase(cut.end() - 4, cut.end() - 1); return e.ask(cut, t); }
+                            if (pieces == 7) { e.ask(q, t); return std::nullopt; }
+                        }
+                        return e.ask(q, t);
+                    }
+                    std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+                };
+                auto c = std::make_shared<FeluccaEngine>();
+                felucca::VirtualEndpoint ec(c);
+                Lossy lossy(ec);
+                std::vector<uint8_t> got;
+                juce::String lossErr;
+                CHECK(all && felucca::restore(lossy, *all, {}, lossErr) && c->object(3, got) && got == music && c->engineOf(1) == 6,
+                      "a piece cut short and an answer lost: restored all the same (" + lossErr + ")");
+            }
 
             felucca::Mirror mirror(ea, eb);
             CHECK(mirror.start(err), "live: both watched");

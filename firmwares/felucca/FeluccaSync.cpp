@@ -203,6 +203,12 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
     return out;
 }
 
+// What a BACKUP_PUT piece carries. Felucca takes up to 256 bytes, but a real FM-1 queues 64
+// USB-MIDI packets of what arrives: a 256-byte piece (about 100 packets, sent at once by CoreMIDI
+// through JUCE) often came in with some missing and was refused (seen on an FM-1 with Felucca
+// 1.0). 128 bytes is about 54 packets.
+static constexpr size_t kPutPiece = 128;
+
 bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juce::String& error) {
     uint32_t total = 0, done = 0;
     for (auto& [id, b] : objects) total += uint32_t(b.size());
@@ -225,22 +231,41 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
         auto it = objects.find(id);
         if (it == objects.end()) continue;
         const auto& b = it->second;
-        std::vector<uint8_t> q = {0, uint8_t(id)};
-        u32(q, uint32_t(b.size()));
-        u32(q, b.empty() ? 0u : crc32(b));
-        if (int rc = put(q, kFlash); rc != 0) { error = "the synth refused object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
-        for (size_t off = 0; off < b.size(); off += 256) {
-            const size_t n = std::min<size_t>(256, b.size() - off);
-            std::vector<uint8_t> d = {1, uint8_t(id)};
-            u32(d, uint32_t(off));
-            pack7(d, b.data() + off, n);
-            if (int rc = put(d, kAsk); rc != 0) { error = "the synth refused a piece of object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
-            done += uint32_t(n);
-            if (progress && !progress(int(done), int(total), "Writing Felucca's objects...")) {
-                put({3, uint8_t(id)}, kAsk);   // abort: nothing of it is written
-                error = "cancelled";
-                return false;
+        // A piece the synth refused (rc 1: it arrived incomplete, as when its MIDI queue was full)
+        // or did not answer: the object starts over, up to three times. Nothing of it is written
+        // until the commit, and a refused piece never moves the synth's write position.
+        const uint32_t doneBefore = done;
+        int pieceRc = 0, attempts = 0;
+        size_t failedAt = 0;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (attempt > 0) put({3, uint8_t(id)}, kAsk);   // abort what was staged
+            done = doneBefore;
+            attempts = attempt + 1;
+            std::vector<uint8_t> q = {0, uint8_t(id)};
+            u32(q, uint32_t(b.size()));
+            u32(q, b.empty() ? 0u : crc32(b));
+            if (int rc = put(q, kFlash); rc != 0) { error = "the synth refused object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
+            pieceRc = 0;
+            for (size_t off = 0; off < b.size() && pieceRc == 0; off += kPutPiece) {
+                const size_t n = std::min<size_t>(kPutPiece, b.size() - off);
+                std::vector<uint8_t> d = {1, uint8_t(id)};
+                u32(d, uint32_t(off));
+                pack7(d, b.data() + off, n);
+                if ((pieceRc = put(d, kAsk)) != 0) { failedAt = off; break; }
+                done += uint32_t(n);
+                if (progress && !progress(int(done), int(total), "Writing Felucca's objects...")) {
+                    put({3, uint8_t(id)}, kAsk);   // abort: nothing of it is written
+                    error = "cancelled";
+                    return false;
+                }
             }
+            if (pieceRc == 0 || (pieceRc != 1 && pieceRc != -1)) break;
+        }
+        if (pieceRc != 0) {
+            put({3, uint8_t(id)}, kAsk);
+            error = "the synth refused a piece of object " + juce::String(id) + " (" + say(pieceRc) + ", at byte "
+                    + juce::String(int(failedAt)) + ", " + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
+            return false;
         }
         if (int rc = put({2, uint8_t(id)}, kFlash); rc != 0) { error = "the synth did not take object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
     }
