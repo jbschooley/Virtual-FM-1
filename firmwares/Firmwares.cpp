@@ -18,7 +18,7 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
 
 std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
-    if (id.version >= 900) return "felucca";   // Felucca X.Y reports FM-1_9XY (0.4 beta: FM-1_904)
+    if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
 }
 

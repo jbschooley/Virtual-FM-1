@@ -5,7 +5,7 @@ namespace fm1 {
 namespace {
 
 // ---- Felucca (Leo Kuroshita) ----------------------------------------------------------
-// Answers M-VAVE's identity request as FM-1_904 (0.4 beta). Its other SysEx is for
+// Answers M-VAVE's identity request as FM-1_9XY for release X.Y (build.py --release), FM-1_900 otherwise. Its other SysEx is for
 // firmware updates only: no preset or pattern transfer, and it ignores FM-1+VA's
 // commands and DX7 dumps. It saves four projects (a sound and its sequence) in its
 // own format, and its sound parameters are not FM-1+VA's, so the plugin sends it nothing.
