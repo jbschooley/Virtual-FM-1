@@ -17,6 +17,7 @@ namespace fm1 {
 std::unique_ptr<Firmware> makeStockFirmware();
 std::unique_ptr<Firmware> makeFmVaFirmware();
 std::unique_ptr<Firmware> makeFeluccaFirmware();
+std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name);   // known by name only (Sloop)
 
 // The firmwares an instance can be set to (the dropdown at the top of the
 // editor). The choice decides what the editor shows; it is saved with the project.
@@ -29,7 +30,8 @@ struct FirmwareChoice {
 };
 const std::vector<FirmwareChoice>& firmwareChoices();
 const FirmwareChoice& firmwareChoice(const std::string& id);   // the default (FM-1+VA) for an unknown id
-std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs
+std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs ("sloop": none)
+bool isFirmwareChoice(const std::string& id);                 // a choice an instance can be set to
 constexpr const char* kDefaultFirmwareId = "baudgirl_fm1va";
 
 // ---- versions -----------------------------------------------------------------------------

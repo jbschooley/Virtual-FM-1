@@ -93,6 +93,9 @@ for the code. New work goes under the next version at the top.
   release it was made for and says so when loaded where the plugin plays
   another. Felucca music a project holds that this Felucca cannot read
   (from a newer Felucca, say) is kept in the project, not replaced.
+- **Sloop** (a groovebox firmware made from Felucca) is recognised when an
+  FM-1 running it connects: the plugin says it does not support Sloop yet
+  and leaves the synth alone, rather than taking it for a Felucca build.
 - **Init...** starts the current preset over from a blank FM sound, as an
   unsaved change.
 - **Bluetooth MIDI**: the iPad app can pair with Bluetooth MIDI devices,

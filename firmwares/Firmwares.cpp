@@ -18,6 +18,9 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
 
 std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
+    // Sloop (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
+    // does, FM-1_900: its editor's INFO says SLOOP
+    if (id.version >= 900 && id.editor.find("SLOOP") != std::string::npos) return "sloop";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
 }
@@ -59,6 +62,12 @@ const KnownVersion& currentVersion(const std::string& firmwareId) {
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
+    if (c.firmwareId == "sloop") {   // known by name only
+        c.support = Support::Deprecated;
+        c.text = id.name() + ": " + (id.editor.size() > 8 ? id.editor.substr(8) : std::string("Sloop"))
+               + ", which the plugin does not support yet";
+        return c;
+    }
     const auto& list = knownVersions(c.firmwareId);
     const std::string who = id.name();
     for (const auto& v : list)
@@ -95,11 +104,35 @@ VersionCheck checkVersion(const Identity& id) {
     return c;
 }
 
+namespace {
+// a firmware the plugin knows by name and does nothing with (not a choice: no instance plays it)
+class UnsupportedFirmware : public Firmware {
+public:
+    explicit UnsupportedFirmware(juce::String n) : name_(std::move(n)) {}
+    juce::String name() const override { return name_; }
+    juce::String summary() const override { return name_ + ": not supported yet"; }
+    bool has(Feature) const override { return false; }
+    juce::String cannot(Feature) const override { return "This FM-1 runs " + name_ + ", which the plugin does not support yet."; }
+    std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
+    std::vector<Bytes> editChanges(const Sound&, const Sound&, edit::Channels) const override { return {}; }
+private:
+    juce::String name_;
+};
+}  // namespace
+
+std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name) { return std::make_unique<UnsupportedFirmware>(name); }
+
+bool isFirmwareChoice(const std::string& id) {
+    for (const auto& c : firmwareChoices()) if (id == c.id) return true;
+    return false;
+}
+
 std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     const auto which = firmwareIdFor(id);
     std::unique_ptr<Firmware> f;
     if (which == "fm1_stock") f = makeStockFirmware();
     else if (which == "felucca") f = makeFeluccaFirmware();
+    else if (which == "sloop") f = makeUnsupportedFirmware("Sloop");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

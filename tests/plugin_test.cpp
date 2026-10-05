@@ -202,6 +202,16 @@ static int checks() {
         CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
         CHECK(at(900).text.find("development build") != std::string::npos, "a Felucca build that is not a release");
+        {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it
+            const fm1::Identity sloop{"FM-1", 900, "FELUCCA SLOOP 2.2"}, dev{"FM-1", 900, "FELUCCA v1.1-dev"};
+            const auto c = fm1::checkVersion(sloop);
+            CHECK(fm1::firmwareIdFor(sloop) == "sloop" && !fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "Sloop",
+                  "an FM-1 running Sloop is Sloop, which no instance plays");
+            CHECK(c.support == fm1::Support::Deprecated && c.text.find("SLOOP 2.2, which the plugin does not support yet") != std::string::npos,
+                  "and it says so: " + c.text);
+            CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
+                  "a Felucca build with its INFO is still Felucca");
+        }
         CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
               "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
     }

@@ -140,6 +140,16 @@ void FM1Editor::offerSwitch(const fm1::Identity& synth) {
     askingSwitch_ = true;
     const juce::String theirs = fm1::firmwareIdFor(synth);
     const auto& mine = fm1::firmwareChoice(proc_.firmwareId().toStdString());
+    if (!fm1::isFirmwareChoice(theirs.toStdString())) {   // a firmware no instance can play (Sloop): nothing to switch to
+        const auto v = fm1::checkVersion(synth);
+        auto info = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::InfoIcon)
+            .withTitle("The FM-1 runs " + fm1::firmwareFor(synth)->name())
+            .withMessage(juce::String(v.text) + ". The plugin stays disconnected from it.")
+            .withButton("OK").withAssociatedComponent(this);
+        juce::AlertWindow::showAsync(info, [this](int) { askingSwitch_ = false; });
+        library_.setStatus("Not connected: the FM-1 runs " + fm1::firmwareFor(synth)->name() + ", which the plugin does not support yet.");
+        return;
+    }
     const auto& other = fm1::firmwareChoice(theirs.toStdString());
     auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon)
         .withTitle("The FM-1 runs " + juce::String(other.name))

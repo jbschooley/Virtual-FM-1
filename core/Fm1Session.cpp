@@ -91,6 +91,18 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
     rejected_ = false;
     auto id = link_.ask<fm1::Identity>(fm1::kIdentityQuery,
         [](const fm1::Bytes& f) { return fm1::parseIdentity(f.data(), f.size()); }, 1000, 3);
+    if (id && id->version >= 900) {
+        // FM-1_9XY: Felucca, or a firmware made from it that answers alike (Sloop): its editor
+        // protocol's INFO names it (F0 7D 46 4C 01 F7 -> its name, 0-terminated, first)
+        auto name = link_.ask<std::string>(fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7},
+            [](const fm1::Bytes& f) -> std::optional<std::string> {
+                if (f.size() < 7 || f[1] != 0x7D || f[2] != 0x46 || f[3] != 0x4C || f[4] != 0x01) return std::nullopt;
+                std::string s;
+                for (size_t i = 5; i + 1 < f.size() && f[i] != 0; ++i) s += char(f[i]);
+                return s;
+            }, 500, 2);
+        if (name) id->editor = *name;
+    }
     if (id && acceptIdentity && !acceptIdentity(*id)) {
         // not this instance's firmware: forget the synth and do nothing more with it
         rejected_ = true;
