@@ -1,11 +1,19 @@
 // plugin_test -- the whole plugin (FM1Processor), without a host.
 //
 //   plugin_test render <golden.json> <out.txt>
-//       Renders every preset in golden.json through processBlock at 44.1 and
-//       48 kHz, with Hardware character off and on, and writes one line per
-//       case: a hash of the 16-bit output and its RMS. Comparing two runs shows
-//       whether a change altered the sound by even one sample (the restructure
-//       must not); the hashes are for comparing builds on one machine.
+//       Renders every preset in golden.json through processBlock at 44.1, 48
+//       and 96 kHz, with Hardware character off and on, at block sizes 64, 256
+//       and 1024, with notes, pitch bend and the mod wheel; plus the sequencer
+//       and the arpeggiator playing. One line per case: a hash of the exact
+//       float output and its RMS. Comparing two runs of one build against
+//       another on the same machine shows whether a change altered the sound
+//       at all (the restructure must not). ctest runs it to catch crashes; the
+//       comparison is done by hand, since the hashes differ between machines.
+//
+//   plugin_test checks
+//       Hardware character moves the engine to 44.1 kHz with a rate converter
+//       in other hosts: the reported latency follows it, and switching it on
+//       and off while running works.
 //
 //   plugin_test state-write <golden.json> <dir>
 //       Builds a known plugin state (presets, an unsaved edit, a pattern,
@@ -14,13 +22,16 @@
 //
 //   plugin_test state-check <dir>...
 //       Loads each saved state into a fresh plugin and checks it against its
-//       expected.txt: states saved by older versions must keep loading.
+//       expected.txt: states saved by older versions must keep loading. (The
+//       expected values come from the build that wrote the state, so this
+//       guards later versions' loading, not that build's own correctness.)
 //
 // The plugin keeps its library in a temporary folder (FM1_DATA_DIR) and never
 // connects to a synth (FM1_NO_DEVICE).
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -52,63 +63,137 @@ static std::vector<fm1::Sound> goldenSounds(const juce::File& f) {
     return out;
 }
 
+static void setEnv(const char* key, const char* value) {
+#if JUCE_WINDOWS
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
 // A fresh, empty data folder for each plugin instance.
 static juce::File freshDataDir() {
     auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("fm1-plugin-test", "");
     dir.createDirectory();
-    setenv("FM1_DATA_DIR", dir.getFullPathName().toRawUTF8(), 1);
+    setEnv("FM1_DATA_DIR", dir.getFullPathName().toRawUTF8());
     return dir;
 }
 
-static uint64_t fnv(uint64_t h, int16_t v) {
-    for (int i = 0; i < 2; ++i) { h ^= uint8_t(uint16_t(v) >> (8 * i)); h *= 1099511628211ull; }
+static uint64_t fnv(uint64_t h, float x) {
+    uint32_t bits;
+    std::memcpy(&bits, &x, sizeof bits);
+    for (int i = 0; i < 4; ++i) { h ^= uint8_t(bits >> (8 * i)); h *= 1099511628211ull; }
     return h;
+}
+
+enum class Play { Notes, Sequencer, Arp };
+
+// One case: a fresh plugin playing `s` for 1.5 s; the hash of its exact output and its RMS.
+static juce::String renderCase(const fm1::Sound& s, double rate, bool hw, int block, Play play) {
+    auto dir = freshDataDir();
+    juce::String line;
+    {
+        FM1Processor p;
+        auto set = p.settings();
+        set.hardwareCharacter = hw;
+        p.setSettings(set);
+        p.setCurrentSound(s);
+        if (play == Play::Sequencer) {
+            const juce::SpinLock::ScopedLockType l(p.sequencer.lock);
+            auto& pt = p.sequencer.patterns[0];
+            pt.length = 8; pt.tempo = 150; pt.rate = 7;
+            for (int i = 0; i < 8; ++i) pt.steps[size_t(i)].notes = {{48 + 5 * i, 70 + 7 * i, false}};
+            pt.steps[2].ratchet = 3; pt.steps[5].slide = true; pt.steps[6].notes.clear();
+        }
+        if (play == Play::Arp) { p.arp.syncToHost = false; p.arp.tempo = 140; p.arp.octaves = 2; p.arp.enabled = true; }
+        p.setPlayConfigDetails(0, 2, rate, block);
+        p.prepareToPlay(rate, block);
+        if (play == Play::Sequencer) { p.sequencer.syncToHost = false; p.sequencer.enabled = true; p.sequencer.play(); }
+        juce::AudioBuffer<float> buf(2, block);
+        uint64_t h = 1469598103934665603ull;
+        double sum = 0; long n = 0;
+        const int total = int(rate * 1.5), offAt = int(rate * 0.8), bendAt = int(rate * 0.3), wheelAt = int(rate * 0.5);
+        for (int pos = 0; pos < total; pos += block) {
+            juce::MidiBuffer midi;
+            auto inBlock = [&](int at) { return pos <= at && at < pos + block; };
+            if (pos == 0 && play != Play::Sequencer) for (int note : {48, 64, 71}) midi.addEvent(juce::MidiMessage::noteOn(1, note, juce::uint8(100)), 0);
+            if (inBlock(bendAt)) midi.addEvent(juce::MidiMessage::pitchWheel(1, 12000), bendAt - pos);
+            if (inBlock(wheelAt)) midi.addEvent(juce::MidiMessage::controllerEvent(1, 1, 90), wheelAt - pos);
+            if (inBlock(offAt) && play != Play::Sequencer)
+                for (int note : {48, 64, 71}) midi.addEvent(juce::MidiMessage::noteOff(1, note), offAt - pos);
+            buf.clear();
+            p.processBlock(buf, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < block; ++i) {
+                    float x = buf.getSample(ch, i);
+                    h = fnv(h, x);
+                    sum += double(x) * x; ++n;
+                }
+        }
+        const char* what = play == Play::Notes ? "notes" : (play == Play::Sequencer ? "seq" : "arp");
+        line = juce::String(int(rate)) + (hw ? " hw " : " -- ") + juce::String(block).paddedLeft(' ', 4) + " " + what + " "
+               + juce::String(s.slot).paddedLeft('0', 3) + " " + juce::String(fm1::voiceName(s.voice)) + " "
+               + juce::String::toHexString((juce::int64) h) + " rms " + juce::String(std::sqrt(sum / double(n)), 6);
+    }
+    dir.deleteRecursively();
+    return line;
 }
 
 static int render(const juce::File& golden, const juce::File& out) {
     auto sounds = goldenSounds(golden);
     CHECK(!sounds.empty(), "golden.json has presets");
     juce::StringArray lines;
-    for (double rate : {44100.0, 48000.0})
+    const int blocks[3] = {64, 256, 1024};
+    for (double rate : {44100.0, 48000.0, 96000.0})
         for (bool hw : {false, true})
-            for (const auto& s : sounds) {
-                auto dir = freshDataDir();
-                {
-                    FM1Processor p;
-                    auto set = p.settings();
-                    set.hardwareCharacter = hw;
-                    p.setSettings(set);
-                    p.setCurrentSound(s);
-                    const int block = 256;
-                    p.setPlayConfigDetails(0, 2, rate, block);
-                    p.prepareToPlay(rate, block);
-                    juce::AudioBuffer<float> buf(2, block);
-                    uint64_t h = 1469598103934665603ull;
-                    double sum = 0; long n = 0;
-                    const int total = int(rate * 1.5), offAt = int(rate * 0.8);
-                    for (int pos = 0; pos < total; pos += block) {
-                        juce::MidiBuffer midi;
-                        if (pos == 0) for (int note : {48, 64, 71}) midi.addEvent(juce::MidiMessage::noteOn(1, note, juce::uint8(100)), 0);
-                        if (pos <= offAt && offAt < pos + block)
-                            for (int note : {48, 64, 71}) midi.addEvent(juce::MidiMessage::noteOff(1, note), offAt - pos);
-                        buf.clear();
-                        p.processBlock(buf, midi);
-                        for (int ch = 0; ch < 2; ++ch)
-                            for (int i = 0; i < block; ++i) {
-                                float x = juce::jlimit(-1.0f, 1.0f, buf.getSample(ch, i));
-                                h = fnv(h, int16_t(std::lrint(x * 32767.0f)));
-                                sum += double(x) * x; ++n;
-                            }
-                    }
-                    lines.add(juce::String(int(rate)) + (hw ? " hw " : " -- ") + juce::String(s.slot).paddedLeft('0', 3) + " "
-                              + juce::String(fm1::voiceName(s.voice)) + " " + juce::String::toHexString((juce::int64) h)
-                              + " rms " + juce::String(std::sqrt(sum / double(n)), 6));
-                }
-                dir.deleteRecursively();
-            }
+            for (size_t i = 0; i < sounds.size(); ++i)
+                lines.add(renderCase(sounds[i], rate, hw, blocks[i % 3], Play::Notes));
+    for (double rate : {44100.0, 48000.0})
+        for (bool hw : {false, true}) {
+            lines.add(renderCase(sounds[1], rate, hw, 256, Play::Sequencer));
+            lines.add(renderCase(sounds[2], rate, hw, 512, Play::Arp));
+        }
     out.replaceWithText(lines.joinIntoString("\n") + "\n");
     std::printf("%d cases written to %s\n", lines.size(), out.getFullPathName().toRawUTF8());
     return g_fail ? 1 : 0;
+}
+
+static int checks() {
+    auto dir = freshDataDir();
+    {
+        FM1Processor p;
+        auto set = p.settings();
+        p.setPlayConfigDetails(0, 2, 48000.0, 256);
+        p.prepareToPlay(48000.0, 256);
+        CHECK(p.getLatencySamples() == 0, "no latency at 48 kHz without Hardware character");
+        set.hardwareCharacter = true;
+        p.setSettings(set);
+        CHECK(p.getLatencySamples() > 0 && p.getLatencySamples() < 40, "Hardware character at 48 kHz reports the rate converter's latency");
+        juce::AudioBuffer<float> buf(2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8(100)), 10);
+        float peak = 0;
+        for (int k = 0; k < 40; ++k) { buf.clear(); p.processBlock(buf, midi); midi.clear(); peak = std::max(peak, buf.getMagnitude(0, 256)); }
+        CHECK(peak > 0.01f, "a note sounds with Hardware character on at 48 kHz");
+        set.hardwareCharacter = false;
+        p.setSettings(set);
+        CHECK(p.getLatencySamples() == 0, "switching Hardware character off removes the latency");
+        p.setPlayConfigDetails(0, 2, 44100.0, 256);
+        p.prepareToPlay(44100.0, 256);
+        set.hardwareCharacter = true;
+        p.setSettings(set);
+        CHECK(p.getLatencySamples() == 0, "no rate converter (and no latency) in a 44.1 kHz host");
+        // a block larger than announced is still rendered whole
+        p.setPlayConfigDetails(0, 2, 48000.0, 128);
+        p.prepareToPlay(48000.0, 128);
+        juce::AudioBuffer<float> big(2, 2000);
+        juce::MidiBuffer m2;
+        m2.addEvent(juce::MidiMessage::noteOn(1, 64, juce::uint8(100)), 0);
+        p.processBlock(big, m2);
+        CHECK(big.getMagnitude(0, 1000, 1000) > 0.0f, "a block larger than announced is rendered to its end");
+    }
+    dir.deleteRecursively();
+    return 0;
 }
 
 // What a loaded state should show, one "key value" per line.
@@ -121,6 +206,10 @@ static juce::StringArray describe(FM1Processor& p) {
         const auto& s = p.bank.slot(i).sound;
         juce::MemoryBlock v(s.voice.data(), s.voice.size()), r(s.record.data(), s.record.size());
         d.add("slot " + juce::String(i) + " " + v.toBase64Encoding() + " " + r.toBase64Encoding());
+        if (const auto& dev = p.bank.slot(i).onDevice) {
+            juce::MemoryBlock dv(dev->voice.data(), dev->voice.size()), dr(dev->record.data(), dev->record.size());
+            d.add("onDevice " + juce::String(i) + " " + dv.toBase64Encoding() + " " + dr.toBase64Encoding());
+        }
     }
     for (auto* prm : p.getParameters())
         if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(prm))
@@ -132,7 +221,7 @@ static juce::StringArray describe(FM1Processor& p) {
             juce::String line = "pattern " + juce::String(i) + " len " + juce::String(pt.length) + " rate " + juce::String(pt.rate)
                 + " tempo " + juce::String(pt.tempo) + " gate " + juce::String(pt.gate) + " swing " + juce::String(pt.swing)
                 + " transpose " + juce::String(pt.transpose) + " chain " + juce::String(p.sequencer.chain[size_t(i)]) + " :";
-            for (int st = 0; st < pt.length; ++st) {
+            for (int st = 0; st < fm1::seq::kSteps; ++st) {
                 const auto& step = pt.steps[size_t(st)];
                 line << " " << step.rate << "/" << step.ratchet << "/" << step.gate << "/" << step.chance << "/" << step.transpose
                      << (step.accent ? "a" : "") << (step.slide ? "s" : "");
@@ -141,6 +230,11 @@ static juce::StringArray describe(FM1Processor& p) {
             d.add(line);
         }
     }
+    d.add("sequencer enabled " + juce::String(p.sequencer.enabled.load() ? 1 : 0) + " sync " + juce::String(p.sequencer.syncToHost.load() ? 1 : 0)
+          + " selected " + juce::String(p.sequencer.selected.load()) + " overdub " + juce::String(p.sequencer.overdub.load() ? 1 : 0));
+    d.add("arp enabled " + juce::String(p.arp.enabled.load() ? 1 : 0) + " mode " + juce::String(p.arp.mode.load()) + " octaves " + juce::String(p.arp.octaves.load())
+          + " rate " + juce::String(p.arp.rate.load()) + " tempo " + juce::String(p.arp.tempo.load()) + " gate " + juce::String(p.arp.gate.load())
+          + " swing " + juce::String(p.arp.swing.load()) + " latch " + juce::String(p.arp.latch.load() ? 1 : 0) + " sync " + juce::String(p.arp.syncToHost.load() ? 1 : 0));
     const auto& s = p.settings();
     d.add("settings bend " + juce::String(s.bendUp) + "/" + juce::String(s.bendDown) + " channel " + juce::String(s.midiChannel)
           + " fixedVelocity " + juce::String(s.fixedVelocity ? 1 : 0) + " velocity " + juce::String(s.velocity)
@@ -170,7 +264,12 @@ static int stateWrite(const juce::File& golden, const juce::File& dir) {
             pt.steps[5].slide = true; pt.steps[5].gate = 80; pt.steps[5].transpose = 5;
             pt.steps[5].notes = {{72, 64, false}};
             p.sequencer.chain[2] = 4;
+            p.sequencer.patterns[9].steps[40].notes = {{50, 33, false}};   // beyond the pattern's length
         }
+        p.sequencer.enabled = true; p.sequencer.syncToHost = false; p.sequencer.selected = 2; p.sequencer.overdub = true;
+        p.arp.enabled = true; p.arp.mode = 2; p.arp.octaves = 3; p.arp.rate = 4; p.arp.tempo = 133; p.arp.gate = 71;
+        p.arp.swing = 62; p.arp.latch = true; p.arp.syncToHost = false;
+        { auto dev = sounds[5]; dev.slot = 5; dev.voice[3] ^= 1; p.bank.markOnDevice(5, dev); }   // the synth holds a slightly different slot 5
         auto set = p.settings();
         set.bendUp = 7; set.bendDown = 2; set.midiChannel = 5; set.fixedVelocity = true; set.velocity = 77;
         set.hardwareCharacter = true; set.fm1VolumeDb = -12;
@@ -211,13 +310,14 @@ static int stateCheck(const juce::File& dir) {
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
-    setenv("FM1_NO_DEVICE", "1", 1);
+    setEnv("FM1_NO_DEVICE", "1");
     juce::String cmd = argc > 1 ? argv[1] : "";
     int rc = 2;
     if (cmd == "render" && argc == 4) rc = render(juce::File(argv[2]), juce::File(argv[3]));
+    else if (cmd == "checks") rc = checks();
     else if (cmd == "state-write" && argc == 4) rc = stateWrite(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "state-check" && argc >= 3) { for (int i = 2; i < argc; ++i) stateCheck(juce::File(argv[i])); rc = 0; }
-    else { std::printf("usage: plugin_test render <golden.json> <out.txt> | state-write <golden.json> <dir> | state-check <dir>...\n"); return 2; }
+    else { std::printf("usage: plugin_test render <golden.json> <out.txt> | checks | state-write <golden.json> <dir> | state-check <dir>...\n"); return 2; }
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return rc != 0 ? rc : (g_fail ? 1 : 0);
 }

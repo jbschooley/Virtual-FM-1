@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
 
     // Parameter freeze: hosts save automation and parameter values by id (VST3
     // hashes it, AU orders by version hint then id, LV2 names ports by it), so an
-    // existing parameter's id, version hint and range must never change.
+    // existing parameter's id, version hint and range (ends, step, skew) must never change.
     // tests/params-frozen.txt lists them; a new parameter is appended to it
     // (FM1_APPEND_FROZEN=1 params_test does that) with a higher version hint.
     {
@@ -115,7 +115,8 @@ int main(int argc, char** argv) {
             if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(p)) {
                 auto range = r->getNormalisableRange();
                 now.add(r->getParameterID() + "\t" + juce::String(r->getVersionHint()) + "\t"
-                        + juce::String(range.start) + "\t" + juce::String(range.end));
+                        + juce::String(range.start, 6) + "\t" + juce::String(range.end, 6) + "\t"
+                        + juce::String(range.interval, 6) + "\t" + juce::String(range.skew, 6));
             }
         juce::File frozen(juce::String(FM1_SOURCE_DIR) + "/tests/params-frozen.txt");
         juce::StringArray was;

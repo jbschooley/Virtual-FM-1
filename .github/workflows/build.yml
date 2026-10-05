@@ -83,7 +83,7 @@ jobs:
       - name: pluginval (installed VST3 and AU, strictest level)
         run: |
           set -e
-          curl -sL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+          curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
           unzip -q pluginval.zip
           for p in "/Library/Audio/Plug-Ins/VST3/Virtual FM-1.vst3" "/Library/Audio/Plug-Ins/Components/Virtual FM-1.component"; do
             pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process --timeout-ms 600000 --validate "$p"

@@ -203,10 +203,14 @@ if(FM1_BUILD_PLUGIN)
 
     # the whole plugin without a host: renders to compare builds, saved states that must keep loading
     add_executable(plugin_test tests/plugin_test.cpp)
-    target_compile_definitions(plugin_test PRIVATE $<TARGET_PROPERTY:VirtualFM1,COMPILE_DEFINITIONS>)
+    # the shared code's definitions, less those that say which plugin wrapper is being built
+    target_compile_definitions(plugin_test PRIVATE
+        $<FILTER:$<TARGET_PROPERTY:VirtualFM1,COMPILE_DEFINITIONS>,EXCLUDE,^JucePlugin_Build_|^JUCE_SHARED_CODE>)
     target_include_directories(plugin_test PRIVATE $<TARGET_PROPERTY:VirtualFM1,INCLUDE_DIRECTORIES>)
     target_link_libraries(plugin_test PRIVATE VirtualFM1 juce::juce_recommended_config_flags)
     add_test(NAME state_test COMMAND plugin_test state-check ${CMAKE_SOURCE_DIR}/tests/states/v3)
+    add_test(NAME plugin_checks COMMAND plugin_test checks)
+    add_test(NAME render_smoke COMMAND plugin_test render ${CMAKE_SOURCE_DIR}/tests/golden.json ${CMAKE_BINARY_DIR}/render.txt)
 
     # editor parameters: load/commit round trip
     juce_add_console_app(params_test PRODUCT_NAME "params_test")

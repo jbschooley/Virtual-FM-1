@@ -13,7 +13,7 @@ std::optional<Fm1Link::Ports> Fm1Link::findFm1() {
         for (const char* pat : patterns)
             for (const auto& d : list) {
                 auto low = d.name.toLowerCase();
-                bool ble = low.contains("bluetooth") || low.contains("ble");
+                bool ble = low.contains("bluetooth") || low.containsWholeWord("ble");   // not "cable", "Ableton"
                 if (low.contains(pat) && ble == bluetooth) return d;
             }
         return std::nullopt;
