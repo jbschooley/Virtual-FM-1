@@ -14,6 +14,7 @@
 #include "HardwareCharacter.h"
 #include "RateConverter.h"
 #include "Firmwares.h"
+#include "LibraryStore.h"
 #include "Params.h"
 #include "Sequencer.h"
 #include "Settings.h"
@@ -177,11 +178,11 @@ private:
         void timerCallback() override { p.backgroundTick(); }
     };
     void backgroundTick();
-    static juce::File libraryFile();
+    static juce::File libraryFile();     // the single file earlier versions kept (moved into store_ once)
+    LibraryStore store_;
     bool loadLibrary();          // false when there is no shared library yet
     void saveLibrary();
     bool libraryDirty_ = false;
-    juce::Time libraryLoadedTime_;
     bool autoConnect_ = true;    // off after the user disconnects by hand
     Background background_{*this};
     void timerCallback() override;               // live sending

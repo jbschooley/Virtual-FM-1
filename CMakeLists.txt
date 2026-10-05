@@ -127,6 +127,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/SeqMidi.cpp
         plugin/Arpeggiator.cpp
         plugin/BankModel.cpp
+        plugin/LibraryStore.cpp
         plugin/dexed_ui/DXLookNFeel.cpp
         plugin/dexed_ui/DXComponents.cpp
         plugin/dexed_ui/AlgoDisplay.cpp
@@ -210,6 +211,7 @@ if(FM1_BUILD_PLUGIN)
     target_link_libraries(plugin_test PRIVATE VirtualFM1 juce::juce_recommended_config_flags)
     add_test(NAME state_test COMMAND plugin_test state-check ${CMAKE_SOURCE_DIR}/tests/states/v3)
     add_test(NAME plugin_checks COMMAND plugin_test checks)
+    add_test(NAME library_test COMMAND plugin_test library ${CMAKE_SOURCE_DIR}/tests/golden.json)
     add_test(NAME render_smoke COMMAND plugin_test render ${CMAKE_SOURCE_DIR}/tests/golden.json ${CMAKE_BINARY_DIR}/render.txt)
 
     # editor parameters: load/commit round trip

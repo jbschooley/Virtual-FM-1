@@ -90,35 +90,28 @@ juce::File FM1Processor::libraryFile() {
    #endif
 }
 
+// The shared bank lives in a folder (plugin/LibraryStore.h). The first time,
+// it is copied from the single library file earlier versions kept, which is
+// left where it was so an older version still finds it.
 bool FM1Processor::loadLibrary() {
-    auto f = libraryFile();
-    if (!f.existsAsFile()) {   // carried over from the project's earlier name
-        auto old = f.getParentDirectory().getSiblingFile("FM-1 Companion").getChildFile("library.fm1lib");
-        if (old.existsAsFile()) { f.getParentDirectory().createDirectory(); old.copyFileTo(f); }
+    if (!store_.exists()) {
+        auto old = libraryFile();
+        if (!old.existsAsFile())   // the project's earlier name
+            old = old.getParentDirectory().getSiblingFile("FM-1 Companion").getChildFile("library.fm1lib");
+        BankModel scratch;
+        if (!store_.migrateFrom(old, scratch)) return false;
     }
-    if (!f.existsAsFile()) return false;
-    juce::MemoryBlock mb;
-    if (!f.loadFileAsData(mb)) return false;
-    auto v = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
-    if (!v.isValid() || !v.hasType("FM1Bank")) return false;
     int cur = bank.currentSlot();
     auto onLib = bank.onLibraryChange;
     bank.onLibraryChange = nullptr;
-    bank.fromState(v);
+    bool ok = store_.load(bank);
     bank.setCurrentSlot(cur);            // each instance keeps its own current preset
     bank.onLibraryChange = onLib;
-    libraryLoadedTime_ = f.getLastModificationTime();
-    return true;
+    return ok;
 }
 
 void FM1Processor::saveLibrary() {
-    auto f = libraryFile();
-    f.getParentDirectory().createDirectory();
-    juce::MemoryOutputStream os;
-    bank.toState().writeToStream(os);
-    juce::TemporaryFile tmp(f);
-    if (tmp.getFile().replaceWithData(os.getData(), os.getDataSize()) && tmp.overwriteTargetFileWithTemporary())
-        libraryLoadedTime_ = f.getLastModificationTime();
+    store_.save(bank);
     libraryDirty_ = false;
 }
 
@@ -134,7 +127,7 @@ void FM1Processor::backgroundTick() {
     }
     // the shared library: save our changes, or pick up another instance's
     if (libraryDirty_) saveLibrary();
-    else if (libraryFile().getLastModificationTime() > libraryLoadedTime_) {
+    else if (store_.changedElsewhere()) {
         bool edited = isEdited();
         if (loadLibrary() && !edited) loadCurrentIntoParams();
     }
@@ -168,7 +161,7 @@ void FM1Processor::writeDiagnostics() {
     for (auto& d : juce::MidiOutput::getAvailableDevices()) text << "  out: " << d.name << "\n";
     if (auto p = Fm1Link::findFm1()) text << "  findFm1: " << p->inputName << " / " << p->outputName << "\n";
     else text << "  findFm1: none\n";
-    text << "  library: " << libraryFile().getFullPathName() << (libraryFile().existsAsFile() ? "" : " (none yet)") << "\n";
+    text << "  library: " << store_.bankDir().getFullPathName() << (store_.exists() ? "" : " (none yet)") << "\n";
     juce::File f = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("fm1-companion.log");
     f.replaceWithText(text);
 }
@@ -543,7 +536,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (probe.slot(i).onDevice || probe.slot(i).sound.voice != init) return true;
         return false;
     };
-    if (!libraryFile().existsAsFile() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); saveLibrary(); }
+    if (!store_.exists() && saved.isValid() && hasContent(saved)) { bank.fromState(saved); saveLibrary(); }
     else if (saved.isValid()) bank.setCurrentSlot(int(saved.getProperty("current", 0)));
     loadedSlot_ = -1;
     loadCurrentIntoParams();

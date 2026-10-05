@@ -355,6 +355,116 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
     return g_fail ? 1 : 0;
 }
 
+// The bank folder (plugin/LibraryStore.h): moving the old single-file library
+// in, exact round trips, instances seeing each other's writes, and nothing lost
+// when two instances write the same slot.
+static int library(const juce::File& golden) {
+    auto sounds = goldenSounds(golden);
+    CHECK(sounds.size() >= 6, "golden.json has presets");
+    auto dir = freshDataDir();
+    {
+        // an old library.fm1lib with presets, and what the synth held for one slot
+        BankModel old;
+        for (size_t i = 0; i < sounds.size(); ++i) { auto s = sounds[i]; s.slot = int(i); old.setSound(int(i), s, false); }
+        { auto dev = sounds[2]; dev.slot = 2; dev.voice[7] ^= 3; old.markOnDevice(2, dev); }
+        juce::MemoryOutputStream os;
+        old.toState().writeToStream(os);
+        auto oldFile = dir.getChildFile("library.fm1lib");
+        oldFile.replaceWithData(os.getData(), os.getDataSize());
+        juce::MemoryBlock oldBytes;
+        oldFile.loadFileAsData(oldBytes);
+
+        // the first instance moves it into the folder
+        FM1Processor p;
+        LibraryStore store;
+        CHECK(store.exists(), "the bank folder is made from the old library");
+        CHECK(dir.getChildFile("migrated-from.txt").existsAsFile(), "the move is noted");
+        juce::MemoryBlock nowBytes;
+        oldFile.loadFileAsData(nowBytes);
+        CHECK(nowBytes == oldBytes, "the old library file is left as it was");
+        int same = 0;
+        for (int i = 0; i < BankModel::kSlots; ++i) {
+            const auto& a = old.slot(i);
+            const auto& b = p.bank.slot(i);
+            bool dev = a.onDevice.has_value() == b.onDevice.has_value()
+                       && (!a.onDevice || (a.onDevice->voice == b.onDevice->voice && a.onDevice->record == b.onDevice->record));
+            if (a.sound.voice == b.sound.voice && a.sound.record == b.sound.record && dev) ++same;
+        }
+        CHECK(same == BankModel::kSlots, "every slot, and what the synth held, arrives exactly (" + juce::String(same) + " of 128)");
+        auto f = store.slotFile(0).loadFileAsString();
+        CHECK(f.contains("\"format\": \"virtual-fm1\"") || f.contains("\"format\":\"virtual-fm1\""), "a slot file is a virtual-fm1 JSON document");
+        CHECK(f.contains("baudgirl.va") || f.contains("fm1.voice"), "a slot file carries its format tag");
+
+        // exact round trips through a slot file, FM and VA alike
+        int exact = 0;
+        for (const auto& s0 : sounds) {
+            BankModel::Slot s; s.sound = s0;
+            auto back = LibraryStore::slotFromText(LibraryStore::slotText(s, 5), s0.slot);
+            if (back && back->sound.voice == s0.voice && back->sound.record == s0.record) ++exact;
+        }
+        CHECK(exact == int(sounds.size()), "every golden preset round-trips through a slot file byte for byte");
+
+        // two instances: one writes, the other sees it
+        BankModel a, b;
+        LibraryStore sa, sb;
+        sa.load(a); sb.load(b);
+        CHECK(!sb.changedElsewhere(), "nothing changed yet");
+        auto s3 = sounds[3]; s3.slot = 3; s3.voice[0] = uint8_t((s3.voice[0] + 1) % 100);
+        a.setSound(3, s3, false);
+        CHECK(sa.save(a) == 1, "only the changed slot is written");
+        CHECK(sb.changedElsewhere(), "the other instance notices the write");
+        sb.load(b);
+        CHECK(b.slot(3).sound.voice == s3.voice, "and reads the new slot");
+        CHECK(!sb.changedElsewhere(), "and is up to date after reading");
+
+        // both write the same slot: the second write wins, the first is kept in .trash
+        BankModel c; LibraryStore sc; sc.load(c);
+        auto s4a = sounds[4]; s4a.slot = 4; s4a.voice[1] = 11;
+        auto s4b = sounds[4]; s4b.slot = 4; s4b.voice[1] = 22;
+        a.setSound(4, s4a, false); sa.save(a);
+        c.setSound(4, s4b, false); sc.save(c);
+        auto onDisk = LibraryStore::slotFromText(sc.slotFile(4).loadFileAsString(), 4);
+        CHECK(onDisk && onDisk->sound.voice[1] == 22, "the later write is on disk");
+        auto trashed = dir.getChildFile(".trash").findChildFiles(juce::File::findFiles, false, "005 replaced*.json");
+        CHECK(trashed.size() == 1, "the version it replaced is in .trash");
+        if (trashed.size() == 1) {
+            auto t = LibraryStore::slotFromText(trashed[0].loadFileAsString(), 4);
+            CHECK(t && t->sound.voice[1] == 11, "with the other instance's change in it");
+        }
+    }
+    dir.deleteRecursively();
+    return 0;
+}
+
+// Moving a real library: a copy of <old.fm1lib> in a scratch folder (the file
+// given is only read), then every slot compared with the original.
+static int migrate(const juce::File& source) {
+    auto dir = freshDataDir();
+    {
+        CHECK(source.copyFileTo(dir.getChildFile("library.fm1lib")), "copied " + source.getFullPathName());
+        juce::MemoryBlock mb;
+        source.loadFileAsData(mb);
+        BankModel orig;
+        orig.fromState(juce::ValueTree::readFromData(mb.getData(), mb.getSize()));
+        FM1Processor p;
+        int same = 0, va = 0, dev = 0;
+        for (int i = 0; i < BankModel::kSlots; ++i) {
+            const auto& a = orig.slot(i);
+            const auto& b = p.bank.slot(i);
+            bool d = a.onDevice.has_value() == b.onDevice.has_value()
+                     && (!a.onDevice || (a.onDevice->voice == b.onDevice->voice && a.onDevice->record == b.onDevice->record));
+            if (a.sound.voice == b.sound.voice && a.sound.record == b.sound.record && d) ++same;
+            if (fm1::engineOf(a.sound.record) == fm1::Engine::VA) ++va;
+            if (a.onDevice) ++dev;
+        }
+        std::printf("  %d of 128 slots identical after the move (%d VA presets, %d with the synth's copy)\n", same, va, dev);
+        CHECK(same == BankModel::kSlots, "the whole library arrives exactly");
+        std::printf("  folder: %s\n", LibraryStore().bankDir().getFullPathName().toRawUTF8());
+    }
+    dir.deleteRecursively();
+    return 0;
+}
+
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
     setEnv("FM1_NO_DEVICE", "1");
@@ -362,6 +472,8 @@ int main(int argc, char** argv) {
     int rc = 2;
     if (cmd == "render" && argc == 4) rc = render(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "checks") rc = checks();
+    else if (cmd == "library" && argc == 3) rc = library(juce::File(argv[2]));
+    else if (cmd == "migrate" && argc == 3) rc = migrate(juce::File(argv[2]));
     else if (cmd == "snapshot" && argc == 4) rc = snapshots(juce::File(argv[3]), juce::File(argv[2]));
     else if (cmd == "state-write" && argc == 4) rc = stateWrite(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "state-check" && argc >= 3) { for (int i = 2; i < argc; ++i) stateCheck(juce::File(argv[i])); rc = 0; }
