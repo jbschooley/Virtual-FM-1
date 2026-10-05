@@ -2,16 +2,33 @@
 
 FM1Editor::FM1Editor(FM1Processor& p)
     : AudioProcessorEditor(&p), proc_(p), library_(p), fm_(p), fx_(p), seq_(p), arp_(p), settings_(p) {
-    setSize(1100, 770);
+    setSize(1180, 830);
     auto bg = juce::Colour(0xff26262e);
-    tabs_.addTab("Library & Sync", bg, &library_, false);
-    tabs_.addTab("FM Editor", bg, &fm_, false);
-    tabs_.addTab("Effects & Envelope", bg, &fx_, false);
+    // presets and their editors in one window; what is not per preset in its own tab
+    library_.setEditorPages(&fm_, &fx_);
+    tabs_.addTab("Library", bg, &library_, false);
     tabs_.addTab("Sequencer", bg, &seq_, false);
     tabs_.addTab("Arpeggiator", bg, &arp_, false);
     tabs_.addTab("Settings", bg, &settings_, false);
     addAndMakeVisible(tabs_);
     addAndMakeVisible(keyboard_);
+    addAndMakeVisible(library_.connectionBar());
+    addAndMakeVisible(firmware_);
+    addChildComponent(unsupported_);
+    const auto& choices = fm1::firmwareChoices();
+    for (size_t i = 0; i < choices.size(); ++i) firmware_.addItem(choices[i].name, int(i) + 1);
+    firmware_.setTooltip("The firmware this instance plays and syncs with; saved with the project");
+    firmware_.onChange = [this] {
+        int i = firmware_.getSelectedItemIndex();
+        if (i >= 0) chooseFirmware(fm1::firmwareChoices()[size_t(i)].id);
+    };
+    unsupported_.setJustificationType(juce::Justification::centred);
+    unsupported_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.8f));
+    unsupported_.setFont(juce::FontOptions(16.0f));
+    proc_.onFirmwareChanged = [this] { showFirmware(); };
+    proc_.onFirmwareMismatch = [this](const fm1::Identity& id) { offerSwitch(id); };
+    showFirmware();
+    if (auto m = proc_.pendingMismatch()) juce::Timer::callAfterDelay(300, [this, id = *m] { offerSwitch(id); });
     keyState_.addListener(this);
 
     proc_.onStatus = [this](const juce::String& s) { library_.setStatus(s); };
@@ -41,6 +58,57 @@ FM1Editor::~FM1Editor() {
     proc_.session.onIdentity = nullptr;
     proc_.onGlobals = nullptr;
     proc_.onSettingsChanged = nullptr;
+    proc_.onFirmwareChanged = nullptr;
+    proc_.onFirmwareMismatch = nullptr;
+}
+
+void FM1Editor::showFirmware() {
+    const auto& f = fm1::firmwareChoice(proc_.firmwareId().toStdString());
+    const auto& choices = fm1::firmwareChoices();
+    for (size_t i = 0; i < choices.size(); ++i)
+        if (&choices[i] == &f) firmware_.setSelectedItemIndex(int(i), juce::dontSendNotification);
+    library_.setFirmware(f);
+    tabs_.setVisible(f.supported);
+    unsupported_.setVisible(!f.supported);
+    unsupported_.setText(juce::String(f.name) + " is not in the plugin yet.\n\n"
+                         "Its engines, its four-track sequencer, its presets and projects, and syncing with it are being added.\n"
+                         "Until then this instance is silent. Choose another firmware above to play.", juce::dontSendNotification);
+}
+
+void FM1Editor::chooseFirmware(const juce::String& id) {
+    if (id == proc_.firmwareId()) return;
+    auto synth = proc_.session.lastIdentity();
+    if (proc_.link.isOpen() && synth && juce::String(fm1::firmwareIdFor(*synth)) != id) {
+        // the connected synth runs something else: it will not sync with the new choice
+        auto name = fm1::firmwareChoice(id.toStdString()).name;
+        auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon)
+            .withTitle("Switch to " + juce::String(name) + "?")
+            .withMessage("The connected FM-1 runs " + fm1::firmwareFor(*synth)->name() + ". It will not sync with an instance set to "
+                         + name + ", and the plugin will disconnect from it.")
+            .withButton("Switch").withButton("Cancel").withAssociatedComponent(this);
+        juce::AlertWindow::showAsync(opts, [this, id](int r) {
+            if (r == 1) proc_.setFirmware(id);
+            else showFirmware();   // the dropdown back to the current choice
+        });
+        return;
+    }
+    proc_.setFirmware(id);
+}
+
+void FM1Editor::offerSwitch(const fm1::Identity& synth) {
+    proc_.clearPendingMismatch();
+    const juce::String theirs = fm1::firmwareIdFor(synth);
+    const auto& mine = fm1::firmwareChoice(proc_.firmwareId().toStdString());
+    const auto& other = fm1::firmwareChoice(theirs.toStdString());
+    auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("The FM-1 runs " + juce::String(other.name))
+        .withMessage("This instance is set to " + juce::String(mine.name) + ". Switch it to " + other.name
+                     + " to connect? If not, the plugin stays disconnected and syncs nothing.")
+        .withButton("Switch to " + juce::String(other.name)).withButton("Keep " + juce::String(mine.name)).withAssociatedComponent(this);
+    juce::AlertWindow::showAsync(opts, [this, theirs, mine = juce::String(mine.name)](int r) {
+        if (r == 1) { proc_.setFirmware(theirs); proc_.autoConnect(); }
+        else library_.setStatus("Not connected: the FM-1 runs another firmware than this instance (" + mine + "). Find FM-1 to try again.");
+    });
 }
 
 void FM1Editor::applyKeyboardVelocity() {
@@ -64,7 +132,13 @@ void FM1Editor::paint(juce::Graphics& g) { g.fillAll(juce::Colour(0xff1e1e24)); 
 
 void FM1Editor::resized() {
     auto r = getLocalBounds().reduced(8);
+    auto top = r.removeFromTop(28);
+    firmware_.setBounds(top.removeFromLeft(190));
+    top.removeFromLeft(10);
+    library_.connectionBar().setBounds(top);
+    r.removeFromTop(6);
     keyboard_.setBounds(r.removeFromBottom(64));
     r.removeFromBottom(6);
     tabs_.setBounds(r);
+    unsupported_.setBounds(r);
 }

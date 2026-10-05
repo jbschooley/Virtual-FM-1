@@ -437,6 +437,14 @@ const juce::String FM1Processor::getProgramName(int index) {
     return BankModel::bankName(index) + " " + juce::String(fm1::voiceName(bank.slot(index).sound.voice)).trimEnd();
 }
 
+void FM1Processor::initCurrent() {
+    fm1::Sound s = bank.current();
+    s.voice = fm1::packVoice(fm1::kInitEdit);
+    s.record = fm1::defaultRecord();
+    params.applyEdit(s);
+    setCurrentName("INIT VOICE");
+}
+
 void FM1Processor::setCurrentName(const juce::String& name) {
     editName_ = name.substring(0, 10).trimEnd();
     applyEditName();

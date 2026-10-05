@@ -66,6 +66,7 @@ public:
     fm1::Sound editedSound() const;               // the slot with the editor's changes applied
     juce::String editName() const { return editName_; }
     void setCurrentName(const juce::String& name);   // an edit, like any other setting
+    void initCurrent();                               // a blank FM sound, as an unsaved edit
     void setCurrentSound(const fm1::Sound& s);   // replace the current slot's sound and load it
     void selectSlot(int slot);                    // switch and load; unsaved edits are dropped
 

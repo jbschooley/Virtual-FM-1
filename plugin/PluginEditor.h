@@ -18,7 +18,13 @@ private:
     void handleNoteOn(juce::MidiKeyboardState*, int ch, int note, float vel) override;
     void handleNoteOff(juce::MidiKeyboardState*, int ch, int note, float vel) override;
 
+    void showFirmware();                                  // the editor for the instance's firmware
+    void chooseFirmware(const juce::String& id);         // from the dropdown
+    void offerSwitch(const fm1::Identity& synth);        // a synth with another firmware connected
+
     FM1Processor& proc_;
+    juce::ComboBox firmware_;
+    juce::Label unsupported_;
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
     LibraryPanel library_;
     FmEditorPanel fm_;

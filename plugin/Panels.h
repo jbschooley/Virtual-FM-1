@@ -6,6 +6,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "PluginProcessor.h"
+#include "Firmwares.h"
 #include "dexed_ui/DXLookNFeel.h"
 #include "dexed_ui/GlobalPanel.h"
 #include "dexed_ui/OperatorPanel.h"
@@ -30,6 +31,9 @@ private:
     int columns_, cellW_, cellH_;
 };
 
+// The library window: the preset list, and beside it the pages for the selected
+// preset (Sync, and the editors its engine has). The MIDI port controls live in
+// connectionBar(), which the editor puts in its top bar.
 class LibraryPanel : public juce::Component, private juce::ListBoxModel, private juce::Timer {
 public:
     explicit LibraryPanel(FM1Processor&);
@@ -39,6 +43,10 @@ public:
     void setStatus(const juce::String& s) { status_.setText(s, juce::dontSendNotification); }
     void setIdentity(const juce::String& s) { identity_.setText(s, juce::dontSendNotification); }
     void refreshFxChannel();   // after the FM-1's GLOBE settings are read
+    juce::Component& connectionBar() { return bar_; }
+    // The editor pages for presets, and which of them the firmware has.
+    void setEditorPages(juce::Component* fm, juce::Component* fx);
+    void setFirmware(const fm1::FirmwareChoice& f);
 
 private:
     int getNumRows() override { return BankModel::kSlots; }
@@ -52,12 +60,30 @@ private:
     std::vector<int> selectedSlots() const;
     void importJson(const juce::File& f);
 
+    // A component whose children are laid out by its owner.
+    struct Holder : juce::Component {
+        std::function<void()> layout;
+        void resized() override { if (layout) layout(); }
+    };
+    void layoutBar();
+    void layoutSync();
+    void showPagesFor(int slot);   // the engine's editor tab for the selected preset
+    void showInitMenu();
+
     FM1Processor& proc_;
+    Holder bar_, syncPage_;
+    juce::TabbedComponent pages_{juce::TabbedButtonBar::TabsAtTop};
+    juce::Component* fmPage_ = nullptr;
+    juce::Component* fxPage_ = nullptr;
+    juce::Label vaPage_;
+    bool vaEngine_ = true;
+    int pagesSlot_ = -1;
     juce::ComboBox inPorts_, outPorts_;
     juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
     juce::Label currentName_;
+    juce::TextButton init_{"Init..."};
     juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};
     juce::ToggleButton live_{"Live: send every change"};
     juce::ComboBox fxChannel_;

@@ -308,6 +308,53 @@ static int stateCheck(const juce::File& dir) {
     return 0;
 }
 
+// Pictures of the editor, drawn offscreen: the library with each of its pages,
+// the other tabs, and an instance set to a firmware the plugin cannot play yet.
+static int snapshots(const juce::File& outDir, const juce::File& golden) {
+    outDir.createDirectory();
+    auto sounds = goldenSounds(golden);
+    auto dir = freshDataDir();
+    {
+        FM1Processor p;
+        for (size_t i = 0; i < sounds.size(); ++i) { auto s = sounds[i]; s.slot = int(i); p.bank.setSound(int(i), s, false); }
+        p.selectSlot(1);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        ed->setVisible(true);
+        auto save = [&](const juce::String& name) {
+            auto img = ed->createComponentSnapshot(ed->getLocalBounds());
+            juce::FileOutputStream os(outDir.getChildFile(name + ".png"));
+            os.setPosition(0); os.truncate();
+            juce::PNGImageFormat().writeImageToStream(img, os);
+        };
+        auto* tabs = dynamic_cast<juce::TabbedComponent*>(ed->findChildWithID("tabs"));
+        CHECK(tabs != nullptr, "the editor has its tabs");
+        if (tabs == nullptr) return 1;
+        juce::TabbedComponent* pages = nullptr;
+        std::function<void(juce::Component*)> find = [&](juce::Component* c) {
+            for (auto* ch : c->getChildren()) {
+                if (auto* t = dynamic_cast<juce::TabbedComponent*>(ch); t != nullptr && t != tabs) pages = t;
+                find(ch);
+            }
+        };
+        find(ed.get());
+        CHECK(pages != nullptr, "the library has its pages");
+        for (int i = 0; pages != nullptr && i < pages->getNumTabs(); ++i) {
+            tabs->setCurrentTabIndex(0);
+            pages->setCurrentTabIndex(i);
+            save("library-" + pages->getTabNames()[i].replaceCharacters(" &", "__"));
+        }
+        for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("tab-" + tabs->getTabNames()[i]); }
+        p.setFirmware("felucca");
+        save("firmware-felucca");
+        p.setFirmware("fm1_stock");
+        tabs->setCurrentTabIndex(0);
+        save("firmware-stock");
+    }
+    dir.deleteRecursively();
+    std::printf("pictures in %s\n", outDir.getFullPathName().toRawUTF8());
+    return g_fail ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
     setEnv("FM1_NO_DEVICE", "1");
@@ -315,6 +362,7 @@ int main(int argc, char** argv) {
     int rc = 2;
     if (cmd == "render" && argc == 4) rc = render(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "checks") rc = checks();
+    else if (cmd == "snapshot" && argc == 4) rc = snapshots(juce::File(argv[3]), juce::File(argv[2]));
     else if (cmd == "state-write" && argc == 4) rc = stateWrite(juce::File(argv[2]), juce::File(argv[3]));
     else if (cmd == "state-check" && argc >= 3) { for (int i = 2; i < argc; ++i) stateCheck(juce::File(argv[i])); rc = 0; }
     else { std::printf("usage: plugin_test render <golden.json> <out.txt> | checks | state-write <golden.json> <dir> | state-check <dir>...\n"); return 2; }

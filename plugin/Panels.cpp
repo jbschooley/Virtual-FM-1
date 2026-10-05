@@ -109,10 +109,23 @@ static void showImportResult(juce::Component* near, const FM1Processor::ImportRe
 // ---- LibraryPanel -------------------------------------------------------------------
 
 LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
-    for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_, &list_, &currentName_,
-            &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &status_,
-            &sendEdit_, &live_, &fxChannel_})
+    for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_})
+        bar_.addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&currentName_, &init_, &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_,
+            &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &sendEdit_, &live_, &fxChannel_})
+        syncPage_.addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&list_, &pages_, &status_})
         addAndMakeVisible(c);
+    bar_.layout = [this] { layoutBar(); };
+    syncPage_.layout = [this] { layoutSync(); };
+    pages_.setOutline(0);
+    vaPage_.setJustificationType(juce::Justification::centred);
+    vaPage_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.75f));
+    vaPage_.setText("The VA engine is baud girl's, and its source is not published yet.\n"
+                    "Until it is, VA presets play through the FM engine here; their VA settings\n"
+                    "are kept exactly as stored, and sync to the FM-1 unchanged.", juce::dontSendNotification);
+    init_.setTooltip("Start the current preset over from a blank sound (an unsaved edit until you store it)");
+    init_.onClick = [this] { showInitMenu(); };
     refreshPorts();
     connect_.onClick = [this] {
         auto ins = Fm1Link::inputs(), outs = Fm1Link::outputs();
@@ -165,6 +178,7 @@ LibraryPanel::~LibraryPanel() = default;
 void LibraryPanel::refresh() {
     list_.updateContent();
     list_.repaint();
+    showPagesFor(proc_.bank.currentSlot());
     if (!list_.isRowSelected(proc_.bank.currentSlot()) && list_.getNumSelectedRows() <= 1) list_.selectRow(proc_.bank.currentSlot(), true, true);
     currentName_.setText(proc_.bank.slotLabel(proc_.bank.currentSlot()), juce::dontSendNotification);
 }
@@ -200,19 +214,30 @@ void LibraryPanel::timerCallback() {
 }
 
 void LibraryPanel::resized() {
-    auto r = getLocalBounds().reduced(10);
-    auto top = r.removeFromTop(28);
-    inPorts_.setBounds(top.removeFromLeft(230)); top.removeFromLeft(6);
-    outPorts_.setBounds(top.removeFromLeft(230)); top.removeFromLeft(6);
-    connect_.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
-    autoConnect_.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
-    identity_.setBounds(top);
-    r.removeFromTop(8);
+    auto r = getLocalBounds().reduced(6);
     status_.setBounds(r.removeFromBottom(24));
-    r.removeFromBottom(6);
-    list_.setBounds(r.removeFromLeft(360));
-    r.removeFromLeft(12);
-    currentName_.setBounds(r.removeFromTop(30));
+    r.removeFromBottom(4);
+    list_.setBounds(r.removeFromLeft(270));
+    r.removeFromLeft(8);
+    pages_.setBounds(r);
+}
+
+void LibraryPanel::layoutBar() {
+    auto top = bar_.getLocalBounds();
+    inPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
+    outPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
+    connect_.setBounds(top.removeFromLeft(80)); top.removeFromLeft(6);
+    autoConnect_.setBounds(top.removeFromLeft(84)); top.removeFromLeft(8);
+    identity_.setBounds(top);
+}
+
+void LibraryPanel::layoutSync() {
+    auto r = syncPage_.getLocalBounds().reduced(12).withTrimmedRight(std::max(0, syncPage_.getWidth() - 640));
+    {
+        auto head = r.removeFromTop(30);
+        init_.setBounds(head.removeFromRight(90));
+        currentName_.setBounds(head);
+    }
     r.removeFromTop(10);
     auto row = [&](juce::Component& a, juce::Component* b = nullptr) {
         auto rr = r.removeFromTop(30);
@@ -307,6 +332,50 @@ void LibraryPanel::importJson(const juce::File& f) {
 
 void LibraryPanel::refreshFxChannel() {
     fxChannel_.setSelectedId(proc_.channels.fx, juce::dontSendNotification);
+}
+
+void LibraryPanel::setEditorPages(juce::Component* fm, juce::Component* fx) {
+    fmPage_ = fm;
+    fxPage_ = fx;
+    setFirmware(fm1::firmwareChoice(proc_.firmwareId().toStdString()));
+}
+
+void LibraryPanel::setFirmware(const fm1::FirmwareChoice& f) {
+    vaEngine_ = f.vaEngine;
+    auto bg = juce::Colour(0xff26262e);
+    juce::String was = pages_.getNumTabs() > 0 ? pages_.getCurrentTabName() : juce::String("Sync");
+    pages_.clearTabs();
+    pages_.addTab("Sync", bg, &syncPage_, false);
+    if (fmPage_ != nullptr) pages_.addTab("FM", bg, fmPage_, false);
+    if (fxPage_ != nullptr) pages_.addTab("Effects & Envelope", bg, fxPage_, false);
+    if (vaEngine_) pages_.addTab("VA", bg, &vaPage_, false);
+    int keep = pages_.getTabNames().indexOf(was);
+    pages_.setCurrentTabIndex(keep >= 0 ? keep : 0, false);
+    pagesSlot_ = -1;
+    showPagesFor(proc_.bank.currentSlot());
+}
+
+// On a firmware with the VA engine, the selected preset's engine decides
+// between its editor tabs: a VA preset shows VA where FM was showing, and back.
+void LibraryPanel::showPagesFor(int slot) {
+    if (slot == pagesSlot_) return;
+    pagesSlot_ = slot;
+    if (!vaEngine_) return;
+    const bool va = fm1::engineOf(proc_.bank.slot(slot).sound.record) == fm1::Engine::VA;
+    auto names = pages_.getTabNames();
+    auto current = pages_.getCurrentTabName();
+    if (va && current == "FM") pages_.setCurrentTabIndex(names.indexOf("VA"));
+    else if (!va && current == "VA") pages_.setCurrentTabIndex(names.indexOf("FM"));
+}
+
+void LibraryPanel::showInitMenu() {
+    juce::PopupMenu m;
+    m.addSectionHeader("Start this preset over from");
+    m.addItem(1, "FM: INIT VOICE");
+    if (vaEngine_) m.addItem(2, "VA (needs baud girl's VA engine source)", false);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&init_), [this](int r) {
+        if (r == 1) { proc_.initCurrent(); refresh(); setStatus("A blank FM sound, not stored yet: Store keeps it, Revert drops it."); }
+    });
 }
 
 std::vector<int> LibraryPanel::selectedSlots() const {
