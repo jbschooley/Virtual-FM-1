@@ -68,11 +68,28 @@ void FM1Editor::showFirmware() {
     for (size_t i = 0; i < choices.size(); ++i)
         if (&choices[i] == &f) firmware_.setSelectedItemIndex(int(i), juce::dontSendNotification);
     library_.setFirmware(f);
-    tabs_.setVisible(f.supported);
-    unsupported_.setVisible(!f.supported);
-    unsupported_.setText(juce::String(f.name) + " is not in the plugin yet.\n\n"
-                         "Its engines, its four-track sequencer, its presets and projects, and syncing with it are being added.\n"
-                         "Until then this instance is silent. Choose another firmware above to play.", juce::dontSendNotification);
+    const bool isFelucca = juce::String(f.id) == "felucca";
+    const bool plays = proc_.emulates();
+   #if FM1_FELUCCA
+    if (isFelucca && plays) {
+        if (!felucca_) { felucca_ = std::make_unique<FeluccaPanel>(proc_); addAndMakeVisible(*felucca_); resized(); }
+        else felucca_->refresh();
+    } else felucca_.reset();
+   #endif
+    tabs_.setVisible(!isFelucca && plays);
+    unsupported_.setVisible(!plays);
+    juce::String why;
+    if (isFelucca) {
+       #if FM1_FELUCCA
+        why = "Every Felucca copy in the plugin is in use by other instances, so this one is silent.\n"
+              "Set another instance to a different firmware, or close one, then choose Felucca again.";
+       #else
+        why = "This build of the plugin does not include Felucca's engines (they need Clang).";
+       #endif
+    } else {
+        why = juce::String(f.name) + " is not in the plugin yet. This instance is silent; choose another firmware above to play.";
+    }
+    unsupported_.setText(why, juce::dontSendNotification);
 }
 
 void FM1Editor::chooseFirmware(const juce::String& id) {
@@ -144,4 +161,7 @@ void FM1Editor::resized() {
     r.removeFromBottom(6);
     tabs_.setBounds(r);
     unsupported_.setBounds(r);
+   #if FM1_FELUCCA
+    if (felucca_) felucca_->setBounds(r);
+   #endif
 }

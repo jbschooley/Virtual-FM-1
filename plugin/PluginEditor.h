@@ -3,6 +3,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "Panels.h"
+#include "FeluccaPanel.h"
 #include "PluginProcessor.h"
 
 class FM1Editor : public juce::AudioProcessorEditor,
@@ -27,6 +28,9 @@ private:
     bool askingSwitch_ = false;
     juce::ComboBox firmware_;
     juce::Label unsupported_;
+   #if FM1_FELUCCA
+    std::unique_ptr<FeluccaPanel> felucca_;   // while set to Felucca
+   #endif
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
     LibraryPanel library_;
     FmEditorPanel fm_;

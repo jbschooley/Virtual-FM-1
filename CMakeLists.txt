@@ -206,6 +206,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/Arpeggiator.cpp
         plugin/BankModel.cpp
         plugin/LibraryStore.cpp
+        plugin/FeluccaPanel.cpp
         plugin/dexed_ui/DXLookNFeel.cpp
         plugin/dexed_ui/DXComponents.cpp
         plugin/dexed_ui/AlgoDisplay.cpp
@@ -223,6 +224,7 @@ if(FM1_BUILD_PLUGIN)
 
     target_link_libraries(VirtualFM1 PRIVATE
         fm1_engine fm1_sync FM1Assets
+        $<$<BOOL:${FM1_BUILD_FELUCCA}>:fm1_felucca>
         juce::juce_audio_utils
         juce::juce_audio_devices
         juce::juce_dsp
@@ -286,7 +288,8 @@ if(FM1_BUILD_PLUGIN)
     target_compile_definitions(plugin_test PRIVATE
         $<FILTER:$<TARGET_PROPERTY:VirtualFM1,COMPILE_DEFINITIONS>,EXCLUDE,^JucePlugin_Build_|^JUCE_SHARED_CODE>)
     target_include_directories(plugin_test PRIVATE $<TARGET_PROPERTY:VirtualFM1,INCLUDE_DIRECTORIES>)
-    target_link_libraries(plugin_test PRIVATE VirtualFM1 juce::juce_recommended_config_flags)
+    # fm1_felucca directly too: its FM1_FELUCCA definition changes FM1Processor's members
+    target_link_libraries(plugin_test PRIVATE VirtualFM1 $<$<BOOL:${FM1_BUILD_FELUCCA}>:fm1_felucca> juce::juce_recommended_config_flags)
     add_test(NAME state_test COMMAND plugin_test state-check ${CMAKE_SOURCE_DIR}/tests/states/v3 ${CMAKE_SOURCE_DIR}/tests/states/v4)
     add_test(NAME plugin_checks COMMAND plugin_test checks)
     add_test(NAME library_test COMMAND plugin_test library ${CMAKE_SOURCE_DIR}/tests/golden.json)

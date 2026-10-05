@@ -192,6 +192,54 @@ static int checks() {
         p.processBlock(big, m2);
         CHECK(big.getMagnitude(0, 1000, 1000) > 0.0f, "a block larger than announced is rendered to its end");
     }
+   #if FM1_FELUCCA
+    // an instance set to Felucca plays Felucca's engines, and keeps them in its project
+    {
+        const int inUse = FeluccaEngine::copiesInUse();
+        juce::MemoryBlock project;
+        int felParamValue = 0, felGlobalValue = 0;
+        {
+            FM1Processor p;
+            p.setPlayConfigDetails(0, 2, 48000.0, 256);
+            p.prepareToPlay(48000.0, 256);
+            p.setFirmware("felucca");
+            CHECK(p.emulates() && p.felucca() != nullptr, "set to Felucca, the instance plays it");
+            CHECK(FeluccaEngine::copiesInUse() == inUse + 1, "with a copy of its own");
+            CHECK(p.getLatencySamples() > 0, "at 48 kHz, with the converter's latency");
+            juce::AudioBuffer<float> buf(2, 256);
+            float peak = 0;
+            for (int k = 0; k < 100; ++k) {
+                juce::MidiBuffer m;
+                if (k == 0) { m.addEvent(juce::MidiMessage::noteOn(1, 48, juce::uint8(100)), 5); m.addEvent(juce::MidiMessage::noteOn(2, 60, juce::uint8(100)), 9); }
+                buf.clear();
+                p.processBlock(buf, m);
+                peak = std::max(peak, buf.getMagnitude(0, 256));
+            }
+            CHECK(peak > 0.01f, "notes on channels 1 and 2 play Felucca's parts");
+            p.felucca()->setEngine(1, 6);                 // part 2: TRIO
+            const int eid = p.felucca()->firstEngineParam() + 2;
+            auto ed = p.felucca()->paramDesc(1, eid);
+            felParamValue = ed.min + (ed.max - ed.min) / 3;   // something other than its default
+            if (felParamValue == p.felucca()->param(1, eid)) ++felParamValue;
+            p.felucca()->setParam(1, eid, felParamValue);
+            auto gd = p.felucca()->globalDesc(1);         // SWING
+            felGlobalValue = gd.max;
+            p.felucca()->setGlobal(1, felGlobalValue);
+            p.getStateInformation(project);
+            p.setFirmware("baudgirl_fm1va");
+            CHECK(FeluccaEngine::copiesInUse() == inUse, "switching away gives the copy back");
+            CHECK(p.getLatencySamples() == 0, "and the latency goes with it");
+        }
+        FM1Processor q;
+        q.setStateInformation(project.getData(), int(project.getSize()));
+        CHECK(q.firmwareId() == "felucca" && q.felucca() != nullptr, "a Felucca project opens set to Felucca");
+        if (q.felucca() != nullptr) {
+            CHECK(q.felucca()->engineOf(1) == 6, "with each part's engine");
+            CHECK(q.felucca()->param(1, q.felucca()->firstEngineParam() + 2) == felParamValue, "its parameters");
+            CHECK(q.felucca()->global(1) == felGlobalValue, "and the globals");
+        }
+    }
+   #endif
     dir.deleteRecursively();
     return 0;
 }

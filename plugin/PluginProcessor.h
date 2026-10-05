@@ -15,6 +15,9 @@
 #include "RateConverter.h"
 #include "Firmwares.h"
 #include "LibraryStore.h"
+#if FM1_FELUCCA
+ #include "FeluccaEngine.h"
+#endif
 #include "Params.h"
 #include "Sequencer.h"
 #include "Settings.h"
@@ -102,6 +105,9 @@ public:
     juce::String firmwareId() const;
     void setFirmware(const juce::String& id);           // message thread
     bool emulates() const;                               // false: the plugin cannot play this firmware yet
+   #if FM1_FELUCCA
+    FeluccaEngine* felucca() const { return felucca_.get(); }   // while set to Felucca (null if no copy was free)
+   #endif
     std::function<void()> onFirmwareChanged;            // message thread
     // A synth connected that runs another firmware: the connection was closed
     // before anything was read. The editor offers to switch (message thread).
@@ -155,6 +161,16 @@ public:
 
 private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
+   #if FM1_FELUCCA
+    std::unique_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
+    RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
+    juce::AudioBuffer<float> felBuf_;
+    bool felConvert_ = false;
+    void prepareFelucca();
+    void renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos);
+    juce::ValueTree feluccaState() const;
+    void setFeluccaState(const juce::ValueTree& t);
+   #endif
     std::optional<fm1::Identity> pendingMismatch_;
     std::optional<Fm1Session::Globals> globals_;
     PluginSettings settings_;
