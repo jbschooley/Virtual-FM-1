@@ -342,30 +342,28 @@ void LibraryPanel::setEditorPages(juce::Component* fm, juce::Component* fx) {
 
 void LibraryPanel::setFirmware(const fm1::FirmwareChoice& f) {
     vaEngine_ = f.vaEngine;
-    auto bg = juce::Colour(0xff26262e);
-    juce::String was = pages_.getNumTabs() > 0 ? pages_.getCurrentTabName() : juce::String("Sync");
-    pages_.clearTabs();
-    pages_.addTab("Sync", bg, &syncPage_, false);
-    if (fmPage_ != nullptr) pages_.addTab("FM", bg, fmPage_, false);
-    if (fxPage_ != nullptr) pages_.addTab("Effects & Envelope", bg, fxPage_, false);
-    if (vaEngine_) pages_.addTab("VA", bg, &vaPage_, false);
-    int keep = pages_.getTabNames().indexOf(was);
-    pages_.setCurrentTabIndex(keep >= 0 ? keep : 0, false);
     pagesSlot_ = -1;
+    pagesVa_ = -1;   // build them again
     showPagesFor(proc_.bank.currentSlot());
 }
 
-// On a firmware with the VA engine, the selected preset's engine decides
-// between its editor tabs: a VA preset shows VA where FM was showing, and back.
+// The tabs for the selected preset: Sync, its engine's editor (FM, or VA in the same place),
+// Effects & Envelope. The editor tab stays open when the engine changes with the preset.
 void LibraryPanel::showPagesFor(int slot) {
-    if (slot == pagesSlot_) return;
-    pagesSlot_ = slot;
-    if (!vaEngine_) return;
-    const bool va = fm1::engineOf(proc_.bank.slot(slot).sound.record) == fm1::Engine::VA;
-    auto names = pages_.getTabNames();
-    auto current = pages_.getCurrentTabName();
-    if (va && current == "FM") pages_.setCurrentTabIndex(names.indexOf("VA"));
-    else if (!va && current == "VA") pages_.setCurrentTabIndex(names.indexOf("FM"));
+    pagesSlot_ = slot;   // (the engine may change with the slot staying: a pull, an import)
+    const int va = vaEngine_ && fm1::engineOf(proc_.bank.slot(slot).sound.record) == fm1::Engine::VA ? 1 : 0;
+    if (va == pagesVa_) return;
+    pagesVa_ = va;
+    auto bg = juce::Colour(0xff26262e);
+    juce::String was = pages_.getNumTabs() > 0 ? pages_.getCurrentTabName() : juce::String("Sync");
+    if (was == "FM" || was == "VA") was = va ? "VA" : "FM";
+    pages_.clearTabs();
+    pages_.addTab("Sync", bg, &syncPage_, false);
+    if (va) pages_.addTab("VA", bg, &vaPage_, false);
+    else if (fmPage_ != nullptr) pages_.addTab("FM", bg, fmPage_, false);
+    if (fxPage_ != nullptr) pages_.addTab("Effects & Envelope", bg, fxPage_, false);
+    const int keep = pages_.getTabNames().indexOf(was);
+    pages_.setCurrentTabIndex(keep >= 0 ? keep : 0, false);
 }
 
 void LibraryPanel::showInitMenu() {

@@ -95,6 +95,7 @@ private:
     juce::Label vaPage_;
     bool vaEngine_ = true;
     int pagesSlot_ = -1;
+    int pagesVa_ = -1;         // the tabs shown are for a VA preset (1), an FM one (0), not built (-1)
     juce::ComboBox inPorts_, outPorts_;
     juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
     juce::Label identity_;
