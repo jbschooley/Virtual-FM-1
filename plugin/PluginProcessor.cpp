@@ -564,7 +564,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     // the release it was made for: a later plugin playing a newer one can say so
     v.setProperty("firmwareVersion", juce::String(fm1::currentVersion(firmwareId().toStdString()).label), nullptr);
    #if FM1_FELUCCA
-    if (felucca_ || feluccaSaved_.isValid()) v.addChild(feluccaState(), -1, nullptr);
+    if (auto fs = feluccaState(); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
    #endif
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
@@ -981,18 +981,20 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 // Felucca reads its own older formats, so a later version converts it as the device does.
 juce::ValueTree FM1Processor::feluccaState() const {
     auto engine = felucca();
+    std::lock_guard<std::mutex> g(felStateLock_);
     if (!engine) return feluccaSaved_.isValid() ? feluccaSaved_.createCopy() : juce::ValueTree("Felucca");
     juce::ValueTree t("Felucca");
     std::vector<uint8_t> music;
     if (!engine->object(0, music) || music.empty()) return t;
-    // music this Felucca could not read: saved as it came if nothing was changed since, else
-    // beside the new music, for a newer plugin
-    if (felUnread_.isValid() && music == felUnreadBase_) return felUnread_.createCopy();
+    // music this Felucca could not read: the project's part as it came while nothing changed,
+    // else beside the new music
+    if (felOriginal_.isValid() && music == felBase_) return felOriginal_.createCopy();
     t.setProperty("version", juce::String(engine->version()), nullptr);   // the Felucca it was saved with ("v1.0")
     t.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
-    if (felUnread_.isValid()) {
+    const auto& unread = felOriginal_.isValid() ? felOriginal_ : felUnread_;
+    if (unread.isValid()) {
         juce::ValueTree kept("Unread");
-        kept.copyPropertiesFrom(felUnread_, nullptr);
+        kept.copyPropertiesFrom(unread, nullptr);
         t.addChild(kept, -1, nullptr);
     }
     return t;
@@ -1001,25 +1003,38 @@ juce::ValueTree FM1Processor::feluccaState() const {
 void FM1Processor::setFeluccaState(const juce::ValueTree& t) {
     if (!t.isValid()) return;
     auto engine = felucca();
-    if (!engine) { feluccaSaved_ = t.createCopy(); return; }   // no copy free: kept for later, and saved
-    feluccaSaved_ = {};
+    {
+        std::lock_guard<std::mutex> g(felStateLock_);
+        if (!engine) { feluccaSaved_ = t.createCopy(); return; }   // no copy free: kept for later, and saved
+        feluccaSaved_ = {};
+    }
     applyFeluccaState(*engine, t);
 }
 
-bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t) {
-    felUnread_ = {};
-    felUnreadBase_.clear();
+bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t, bool announce) {
+    const auto carried = t.getChildWithName("Unread");   // unread music from an earlier time: carried on
+    {
+        std::lock_guard<std::mutex> g(felStateLock_);
+        felOriginal_ = {};
+        felUnread_ = carried.isValid() ? carried.createCopy() : juce::ValueTree();
+        felBase_.clear();
+    }
     juce::MemoryOutputStream music;
     if (!juce::Base64::convertFromBase64(music, t.getProperty("music").toString()) || music.getDataSize() == 0) return true;
     const auto* b = static_cast<const uint8_t*>(music.getData());
     if (f.putObject(0, std::vector<uint8_t>(b, b + music.getDataSize())) == 0) return true;
-    // a newer Felucca's, or damaged: keep it untouched (saved again), and say so
-    felUnread_ = t.createCopy();
-    f.object(0, felUnreadBase_);
-    const juce::String from = t.getProperty("version").toString();
-    status("This project's Felucca music" + (from.isNotEmpty() ? " (saved with Felucca " + from + ")" : juce::String())
-           + " could not be read by the Felucca built in (" + juce::String(f.version()) + "): newer, or damaged. Felucca plays "
-           "its power-on music; the project keeps its own as it was, for a newer plugin.");
+    // a newer Felucca's, or damaged: kept untouched (saved again), and said
+    {
+        std::lock_guard<std::mutex> g(felStateLock_);
+        felOriginal_ = t.createCopy();
+        f.object(0, felBase_);
+    }
+    if (announce) {
+        const juce::String from = t.getProperty("version").toString();
+        status("This project's Felucca music" + (from.isNotEmpty() ? " (saved with Felucca " + from + ")" : juce::String())
+               + " could not be read by the Felucca built in (" + juce::String(f.version()) + "): newer, or damaged. Felucca plays "
+               "its power-on music; the project keeps its own in the file, as it was.");
+    }
     return false;
 }
 
@@ -1198,13 +1213,20 @@ void FM1Processor::setFirmware(const juce::String& id) {
                     }
                     if (msg.isNotEmpty()) status(msg);
                 }
-                if (feluccaSaved_.isValid()) {
-                    applyFeluccaState(*next, feluccaSaved_);   // before the audio thread sees it
+                juce::ValueTree saved;
+                {
+                    std::lock_guard<std::mutex> g(felStateLock_);
+                    saved = feluccaSaved_;
                     feluccaSaved_ = {};
                 }
+                if (saved.isValid()) applyFeluccaState(*next, saved, false);   // before the audio thread sees it
             }
         }
-        if (!want && felucca_) feluccaSaved_ = feluccaState();
+        if (!want && felucca_) {
+            auto kept = feluccaState();
+            std::lock_guard<std::mutex> g(felStateLock_);
+            feluccaSaved_ = kept;
+        }
         if ((want && next) || (!want && felucca_)) {
             suspendProcessing(true);
             std::atomic_store(&felucca_, next);

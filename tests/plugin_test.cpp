@@ -537,6 +537,22 @@ static int checks() {
                 saved = juce::ValueTree::readFromData(again.getData(), again.getSize()).getChildWithName("Felucca");
                 CHECK(saved.getProperty("music").toString() != unread && saved.getChildWithName("Unread").getProperty("music").toString() == unread,
                       "after a change, the new music is saved and the unread one beside it");
+                {   // and carried on: loaded again and saved again, and through switching firmware away and back
+                    juce::ValueTree st2("FM1Companion");
+                    st2.setProperty("firmware", "felucca", nullptr);
+                    st2.addChild(saved.createCopy(), -1, nullptr);
+                    juce::MemoryOutputStream os2;
+                    st2.writeToStream(os2);
+                    FM1Processor reopened;
+                    reopened.setStateInformation(os2.getData(), int(os2.getDataSize()));
+                    reopened.setFirmware("baudgirl_fm1va");
+                    reopened.setFirmware("felucca");
+                    juce::MemoryBlock third;
+                    reopened.getStateInformation(third);
+                    auto s3 = juce::ValueTree::readFromData(third.getData(), third.getSize()).getChildWithName("Felucca");
+                    CHECK(s3.getChildWithName("Unread").getProperty("music").toString() == unread,
+                          "the unread music is carried on through a reload, a save and a firmware switch");
+                }
             }
         }
         if (q.felucca() != nullptr) {

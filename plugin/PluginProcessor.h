@@ -200,12 +200,16 @@ private:
     void renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos);
     juce::ValueTree feluccaState() const;
     void setFeluccaState(const juce::ValueTree& t);
-    bool applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t);   // false: Felucca could not read it
-    // A project's Felucca music this Felucca could not read (from a newer one, or damaged): kept
-    // as it was and saved again, so a newer plugin still has it; felUnreadBase_ is what played
-    // instead, to tell whether anything changed since.
-    juce::ValueTree felUnread_;
-    std::vector<uint8_t> felUnreadBase_;
+    // false: Felucca could not read it; announce: say so (not again when switching back)
+    bool applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t, bool announce = true);
+    // A project's Felucca music this Felucca could not read (from a newer one, or damaged) is
+    // never dropped. felOriginal_: the project's Felucca part as it came, saved again as it is
+    // while what plays (felBase_, the power-on music) is unchanged. felUnread_: such music
+    // carried on beside newer music, as an "Unread" child, through every later save and load.
+    // Guarded, with feluccaSaved_, by felStateLock_: hosts save state off the message thread.
+    juce::ValueTree felOriginal_, felUnread_;
+    std::vector<uint8_t> felBase_;
+    mutable std::mutex felStateLock_;
     void applyHostToFelucca(FeluccaEngine& f);       // audio thread: automation into Felucca
     std::vector<juce::RangedAudioParameter*> felParams_;   // felparams::entries(), in order
    #endif
