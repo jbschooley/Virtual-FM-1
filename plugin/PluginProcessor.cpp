@@ -64,6 +64,9 @@ FM1Processor::FM1Processor()
 }
 
 juce::File FM1Processor::libraryFile() {
+    // tests and harnesses point this elsewhere so they never touch the user's library
+    auto dir = juce::SystemStats::getEnvironmentVariable("FM1_DATA_DIR", {});
+    if (dir.isNotEmpty()) return juce::File(dir).getChildFile("library.fm1lib");
    #if JUCE_LINUX
     // ~/.config/Virtual FM-1 (userApplicationDataDirectory is ~/.config there)
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)

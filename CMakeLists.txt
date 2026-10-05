@@ -177,11 +177,13 @@ if(FM1_BUILD_PLUGIN)
     target_link_libraries(host_test PRIVATE fm1_test_juce)
     add_dependencies(host_test VirtualFM1_VST3)
     add_test(NAME host_test COMMAND host_test "${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/VST3/Virtual FM-1.vst3" 2)
+    # the loaded plugin keeps its library here, not in the user's
+    set_tests_properties(host_test PROPERTIES ENVIRONMENT "FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data")
     if(FM1_BUILD_LV2 AND UNIX AND NOT APPLE)
         # LV2 hosts find plugins by URI on LV2_PATH
         add_dependencies(host_test VirtualFM1_LV2)
         add_test(NAME host_test_lv2 COMMAND host_test "urn:bockage:virtualfm1" 2)
-        set_tests_properties(host_test_lv2 PROPERTIES ENVIRONMENT "LV2_PATH=${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/LV2")
+        set_tests_properties(host_test_lv2 PROPERTIES ENVIRONMENT "LV2_PATH=${CMAKE_BINARY_DIR}/VirtualFM1_artefacts/$<CONFIG>/LV2;FM1_DATA_DIR=${CMAKE_BINARY_DIR}/test-data")
     endif()
 
     # editor parameters: load/commit round trip
