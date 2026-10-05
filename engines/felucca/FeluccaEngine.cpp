@@ -67,7 +67,7 @@ void FeluccaEngine::reset() {
 void FeluccaEngine::midi(const uint8_t* b, int n) {
     if (!core_ || n < 1) return;
     const uint8_t status = b[0];
-    if (status < 0x80 || status >= 0xF0) return;   // channel messages only; Felucca takes no clock or SysEx
+    if (status < 0x80 || status >= 0xF0) return;   // channel messages only (SysEx: sysex(); no MIDI clock: the host's tempo instead)
     // a USB-MIDI event packet: cable 0, code index = the status nibble
     const uint32_t pkt = uint32_t(status >> 4) | uint32_t(status) << 8 | uint32_t(n > 1 ? b[1] : 0) << 16 | uint32_t(n > 2 ? b[2] : 0) << 24;
     std::lock_guard<std::mutex> g(lock_);
@@ -319,6 +319,10 @@ int FeluccaEngine::putObject(int id, const std::vector<uint8_t>& bytes) {
 }
 
 std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8_t>& m) {
+    if (core_) {   // a frame from the host still waiting would make Felucca drop this one: serve it first
+        std::lock_guard<std::mutex> g(lock_);
+        core_->service_ready();
+    }
     sysex(m.data(), int(m.size()));
     if (core_) {
         std::lock_guard<std::mutex> g(lock_);

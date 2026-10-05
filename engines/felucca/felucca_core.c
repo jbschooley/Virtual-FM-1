@@ -149,7 +149,12 @@ static struct { uint32_t stage, page, home, ui_frames; } felucca_dbg;
 #include "../upstream/firmware/src/icons.c"
 #include "../upstream/firmware/src/ui_graph.c"
 #include "../upstream/firmware/src/ui_draw.c"
+/* HOME > PANEL calibrates the device's button matrix: the plugin's panel has none (its buttons
+ * go by label), and the setup waits for real buttons, holding up the audio. It says so instead. */
+static void fel_panel_setup(void) { ui_message("PANEL: ON THE FM-1"); }
+#define panel_setup() fel_panel_setup()
 #include "../upstream/firmware/src/ui_menu.c"
+#undef panel_setup
 #include "../upstream/firmware/src/ui_input.c"
 #include "../upstream/firmware/src/ui_layer.c"
 
@@ -415,12 +420,28 @@ void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* after PTCH (P_
 
 void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }
 
-/* the editor protocol now, between audio blocks: a request just given gets its reply */
+/* the editor protocol now, between audio blocks: a request just given gets its reply. Felucca
+ * holds one frame at a time (usb.c drops another while one waits): FEL(service_ready) says
+ * whether a new one would be taken, after serving what waited. Without audio rendered
+ * meanwhile, its clock moves on by what its editor needs to push changes (5 ms between
+ * passes, 20 ms between pushes of one value), as time would on the device. */
+static uint64_t fel_served_at;
 void FEL(service)(void)
 {
     usb.uboot_req = 0;
     usb.ota_req = 0;
+    if (fel_frames == fel_served_at) {
+        fel_wait_ms += 25u;
+        fel_clock();
+    }
+    fel_served_at = fel_frames;
     ed_service();
+}
+int FEL(service_ready)(void)
+{
+    if (sx_ready)
+        FEL(service)();
+    return !sx_ready;
 }   /* as a USB-MIDI packet in: notes, clock, SysEx (the editor) */
 
 void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames a multiple of CTL */

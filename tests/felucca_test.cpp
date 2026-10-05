@@ -265,6 +265,15 @@ int main() {
         CHECK(f.playing(), "the plugin starts it too");
         f.transport(false); settle(2);
 
+        // a request while a frame from the host still waits (Felucca holds one at a time): both answered
+        {
+            const uint8_t ping[] = {0xF0, 0x7D, 0x46, 0x4C, 25, 0xF7};
+            f.sysex(ping, 6);
+            auto out = f.request({0xF0, 0x7D, 0x46, 0x4C, 1, 0xF7});
+            bool gotInfo = false, gotPing = false;
+            for (auto& m : out) { gotInfo = gotInfo || (m.size() > 5 && m[4] == 1); gotPing = gotPing || (m.size() > 5 && m[4] == 25); }
+            CHECK(gotInfo && gotPing, "a request answered though the host's frame waited");
+        }
         // a flash command from the editor while playing: Felucca stops the transport first
         // (ed_flash_stop waits for the audio side, which must not hang the plugin)
         f.transport(true); settle(2);

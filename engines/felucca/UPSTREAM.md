@@ -50,19 +50,27 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
   (`FELUCCA_FM4` 0): a DIGITAL sound arrives as FM6 with a converted patch,
   as on the device, and the operator envelopes (`P_FM1_ATK` ..
   `P_FM4_LEVEL`), which only DIGITAL reads, are neither shown nor automated.
-- FM6 keeps a patch per part. The plugin calls `fm6_poll` (Felucca's main
-  loop does) before each render, and saves each part's patch in the project,
-  as Felucca's own projects do.
-- Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and the
-  oscilloscope on the HOME screen (silent).
+- The main loop's pass in the plugin is `ed_service`, `ui_input` (which runs
+  `fm6_poll`) and `settings_poll`; the screen is drawn when the plugin shows
+  it. HOME > PANEL (calibrating the device's button matrix) only says
+  "PANEL: ON THE FM-1": the plugin's buttons go by label.
+- The editor protocol answers SysEx from the host, but its replies and
+  pushes are not sent back to the host (they go to the plugin's own sync).
+- Not yet: user sample slots (USR1..USR3 are empty), the LEDs, the
+  oscilloscope on the HOME screen (silent), and MIDI clock in (`G_CLOCK`
+  USB or TRS: the plugin gives the host's tempo instead).
 
 ## Updating
 
-1. Check out the new release of Felucca, generate the two headers as above,
+1. Check out the new release of Felucca, generate the seven headers as above,
    and run its `tests/run_tests.sh` there.
 2. Replace `upstream/` and `generated/` with the new files, and update the
    version and commit above.
-3. Compare `felucca_core.c`'s copies of `ui.c` functions with the new `ui.c`.
+3. Compare `felucca_core.c` with the new `felucca.c` (its include order),
+   `main.c` (`felucca_init`, the main loop's pass) and the host tests' stubs
+   (`tests/ui_test.c`, `editor_test.c`, `backup_test.c`); its non-static
+   globals must still get a name per copy (`nm` on one copy's object: only
+   `fel*_` symbols).
 4. Build and run ctest: `felucca_regress` must pass on the new goldens, and
    `felucca_test` checks the plugin's side. If the goldens changed, the
    sound changed: see the multi-firmware plan on keeping old versions.
