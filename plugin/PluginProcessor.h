@@ -177,6 +177,7 @@ private:
     juce::ValueTree feluccaSaved_;                    // Felucca's state while it has no engine: kept, saved
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
+    bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;
     bool felConvert_ = false;

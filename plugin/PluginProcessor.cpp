@@ -914,8 +914,14 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     const int n = buffer.getNumSamples();
     if (buffer.getNumChannels() == 0) { midi.clear(); return; }
     applyHostToFelucca(f);
-    if (settings_.hostTempo && pos)
+    if (settings_.hostTempo && pos) {   // the host's tempo, and its PLAY and STOP as Felucca's
         if (auto bpm = pos->getBpm(); bpm && *bpm > 0) f.setGlobal(0 /* G_BPM */, int(std::lround(*bpm)));
+        const bool playing = pos->getIsPlaying();
+        if (playing != felHostPlaying_) {
+            felHostPlaying_ = playing;
+            f.transport(playing);
+        }
+    }
     const int need = felConvert_ ? felL_.inputNeeded(n) : n;
     if (felBuf_.getNumSamples() < need) felBuf_.setSize(2, need, false, false, true);   // a block larger than announced
     float* l = felBuf_.getWritePointer(0);
@@ -926,7 +932,8 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         int at = felConvert_ && n > 0 ? int(juce::int64(meta.samplePosition) * need / n) : meta.samplePosition;
         at = juce::jlimit(0, std::max(0, need - 1), at);
         if (at > p0) { f.render(l + p0, r + p0, at - p0); p0 = at; }
-        if (m.getRawDataSize() <= 3) f.midi(m.getRawData(), m.getRawDataSize());   // Felucca takes channel messages
+        if (m.isSysEx()) f.sysex(m.getRawData(), m.getRawDataSize());   // the editor protocol, from the host
+        else if (m.getRawDataSize() <= 3) f.midi(m.getRawData(), m.getRawDataSize());
     }
     if (p0 < need) f.render(l + p0, r + p0, need - p0);
     const int chans = buffer.getNumChannels();

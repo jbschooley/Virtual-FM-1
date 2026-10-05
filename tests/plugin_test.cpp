@@ -301,6 +301,48 @@ static int checks() {
             }
         }
 
+        // the host's transport and tempo drive Felucca's while "Tempo follows the host" is on;
+        // the host's SysEx reaches Felucca's editor protocol
+        {
+            struct Head : juce::AudioPlayHead {
+                bool playing = false;
+                juce::Optional<PositionInfo> getPosition() const override {
+                    PositionInfo p;
+                    p.setBpm(97.0);
+                    p.setIsPlaying(playing);
+                    return p;
+                }
+            } head;
+            FM1Processor tp;
+            tp.setPlayConfigDetails(0, 2, 44100.0, 256);
+            tp.prepareToPlay(44100.0, 256);
+            tp.setFirmware("felucca");
+            tp.setPlayHead(&head);
+            auto f = tp.felucca();
+            CHECK(f != nullptr && tp.settings().hostTempo, "an instance following the host");
+            if (f) {
+                juce::AudioBuffer<float> b(2, 256);
+                juce::MidiBuffer m;
+                auto blocks = [&](int k) { for (int i = 0; i < k; ++i) { m.clear(); tp.processBlock(b, m); } };
+                blocks(4);
+                CHECK(!f->playing() && f->global(0) == 97, "stopped with the host, at its tempo");
+                head.playing = true;
+                blocks(4);
+                const bool started = f->playing();
+                head.playing = false;
+                blocks(4);
+                CHECK(started && !f->playing(), "the host's PLAY and STOP start and stop Felucca's sequencer");
+                const uint8_t ping[] = {0xF0, 0x7D, 0x46, 0x4C, 25, 0xF7};
+                m.clear();
+                m.addEvent(juce::MidiMessage::createSysExMessage(ping + 1, 4), 0);
+                tp.processBlock(b, m);
+                blocks(8);
+                auto replies = f->takeSysex();
+                CHECK(!replies.empty() && replies.back().size() == 7 && replies.back()[4] == 25, "the host's SysEx reaches Felucca's editor protocol");
+            }
+            tp.setPlayHead(nullptr);
+        }
+
         // with no copy free, a Felucca project still keeps (and saves) its Felucca sound
         {
             std::vector<std::unique_ptr<FeluccaEngine>> taken;
