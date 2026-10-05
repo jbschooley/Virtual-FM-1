@@ -6,8 +6,39 @@ for the code. New work goes under the next version at the top.
 
 ## [Unreleased]
 
+### Changed
+
+- **Firmware choice**: a dropdown at the top sets which firmware an
+  instance plays and syncs with (M-VAVE stock, FM-1+VA, Felucca), saved
+  with the project. When an FM-1 running another firmware connects, the
+  plugin asks before doing anything with it; if you keep your choice it
+  stays disconnected. Felucca shows a page saying it is not in the plugin
+  yet, and is silent.
+- **The editor is rearranged**: the preset list now sits beside the FM,
+  Effects & Envelope and (on FM-1+VA) VA pages and the sync buttons, all in
+  the Library tab; Sequencer, Arpeggiator and Settings have their own tabs;
+  the MIDI connection moved to the top bar. The window is a little larger.
+- **Your presets are a folder**: the shared library moved to
+  Documents/Virtual FM-1/Banks/FM-1, one readable JSON file per preset, so
+  it can be backed up and synced with ordinary tools. The first run copies
+  the old library file over and leaves it where it was. When two instances
+  change the same preset, the one replaced is kept in a .trash folder.
+- **Projects keep the sound they use**, not the whole 128-preset bank, so
+  they are about half the size. If that preset has changed in your library
+  since, the project still sounds as saved and the difference shows as
+  unsaved changes. Settings > Library can keep the whole bank in projects,
+  to take them to another computer.
+- **Hardware character** in a project not at 44.1 kHz now runs the engine
+  at the FM-1's own 44.1 kHz and converts, so the FM-1's aliasing comes
+  through too. It adds under a millisecond of latency, reported to the host.
+
 ### Added
 
+- **Init...** starts the current preset over from a blank FM sound, as an
+  unsaved change.
+- **Bluetooth MIDI**: the iPad app can pair with Bluetooth MIDI devices,
+  and Find FM-1 also finds an FM-1 paired over Bluetooth. Syncing still
+  needs USB: FM-1+VA answers only over USB.
 - **FM-1_094** (baud girl's beta): reading the current sound and the GLOBE
   settings works as on FM-1_093. 094 changes only the identity reply's
   checksum, which M-VAVE's own updater rejected on 093.
@@ -16,6 +47,14 @@ for the code. New work goes under the next version at the top.
 
 ### Fixed
 
+- Two instances at different sample rates (two projects at 44.1 and
+  96 kHz open in one host, say) put each other out of tune and changed
+  each other's envelope speeds.
+- Presets with operator feedback or an LFO could start slightly
+  differently each time, from whatever memory held; they now start the
+  same way every time.
+- A host sending a larger audio block than it announced could crash the
+  plugin when the chorus or phaser was on.
 - An FM-1 running **Felucca** is recognised as Felucca instead of being
   taken for FM-1+VA: the plugin no longer tries to pull from it, and live
   editing sends it nothing, since Felucca does not take FM-1+VA presets.
