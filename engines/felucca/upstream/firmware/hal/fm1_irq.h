@@ -14,6 +14,7 @@
  */
 #pragma once
 #include <stdint.h>
+#define FM1_IRQ_TARGET 1
 
 #define FM1_VEC ((volatile uint32_t *)0x01C7FE00u)
 #define FM1_ICFG(n) (*(volatile uint32_t *)(0x1EEF100u + 4u * ((n) >> 3)))

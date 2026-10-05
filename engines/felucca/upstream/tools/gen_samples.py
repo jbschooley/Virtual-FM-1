@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build the SAMPLE engine's sample sets from WAV files into a C header.
+"""Build the SAMPLER engine's sample sets from WAV files into a C header.
 
-Samples are stored as IMA ADPCM (4 bit). Roots come from the file names, loops
-from the WAV 'smpl' chunk; the ADPCM state at the loop start is stored so loops
-restart exactly.
+Samples are stored as IMA ADPCM (4 bit) at their native rate; loop points
+and roots come from the WAV 'smpl' chunk and the file name (C3 = MIDI 60
+naming), single-cycle waves get their root from rate / loop length.
+The ADPCM state at the loop start is stored so loops restart exactly.
 
-Sources:
-  assets/samples-cc0/   Versilian Studios samples (CC0): PIANO, TRANH, FLUTE, SAX,
-                        and hand percussion for the GM kit
-  gen_waves.py          Felucca's own drum sounds (the Hügelton Sample Pack)
-One SAMPLE preset is written per set.
+Libraries:
+  cc0        assets/samples-cc0/ (tools/fetch_cc0.py, Versilian Studios, CC0):
+             PIANO, FLUTE, SAX (set 1, once TRANH, is an alias of PIANO)
+  generated  Felucca's own drum kit from tools/gen_waves.py (always built), with
+             CC0 hand percussion: one GM-mapped kit, PERC
+SAMPLE's factory presets end before PERC. Its initializer remains in the table
+for old projects; every sample set and SET / USR index stays in its original place.
+A retired set keeps its index as an alias: the original's name and zones (no data), and a
+preset equal to the original's (SMP_SET_ORIG), so old projects and presets play it and
+browsing skips it (params.c enum_orig, ui.c preset_orig).
 
-With FELUCCA_SLICE=1 the SLICE engine's built-in BREAK (eng_slice.c) is rendered here
-too: one bar of 16ths arranged from Felucca's own generated drums, stored after every set
-and not one of the SAMPLE sets. Its slice table (decoder states on a 128-point grid, the hits as AUTO
-slices) is written with it: SLC_BREAK_INIT.
+The SLICE engine's built-in BREAK (eng_slice.c) is rendered here too: one bar of 16ths
+arranged from the generated drums (no third-party loop), stored after every set (their
+offsets do not move) and NOT one of the SAMPLE sets (the SET list, its presets and the
+USR1-3 numbers stay as they were). Its slice table (decoder states on a 128-point grid,
+the hits as AUTO slices) is written with it: SLC_BREAK_INIT.
 
-The header is cached in build/gen_samples.cache under a hash of every input.
+The header is cached (build/gen_samples.cache) under a hash of every
+input file, this script, sampleio.py and the Python version, so unchanged
+inputs skip the slow pitch detection.
 """
 import hashlib
+import math
 import os
 import re
 import subprocess
@@ -37,16 +47,17 @@ CACHE = SRC / "build" / "gen_samples.cache"
 CC0 = SRC / "assets" / "samples-cc0"
 TR = 22050                                   # stored sample rate
 
-# set -> kind ("oneshot" decaying, "sus" looped sustain, "kit" one sample per key).
-# The other slots are user sets loaded from the web editor.
-CC0_SETS = [("PIANO", "oneshot"), ("TRANH", "oneshot"), ("FLUTE", "sus"), ("SAX", "sus"), ("KIT", "kit")]
-MEASURED_TUNING = ("TRANH",)                 # recordings not at A440 (the dan tranh is ~+35 ct)
+# CC0 library: set -> kind ("oneshot" decaying, "sus" looped sustain, "kit" one sample per key)
+# Built-in sets (piano, flute, sax, GM percussion); the other slots of the 8 are for the user
+# (USR1-3, loaded from the web editor). TRANH was removed (66 KB of flash); its index 1 stays, an alias of PIANO ("alias": the set named)
+CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"), ("KIT", "kit")]
+MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
 
 KIT_BASE = 53                     # F3, the lowest FM-1 key
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
-# GM drum map (General MIDI percussion, channel 10): role -> [(lo, hi, root)].
+# GM drum map (General MIDI percussion key map): role -> [(lo, hi, root)].
 # One sample can serve several GM notes; a range is pitched around its root.
 GM_KIT = {
     "kick": [(35, 36, 36)], "rim": [(37, 37, 37)], "snare": [(38, 38, 38), (40, 40, 40)],
@@ -61,7 +72,8 @@ GM_ROLE_WORDS = [("bassdrum", "kick"), ("kick", "kick"), ("snare", "snare"), ("h
                  ("ohat", "ohh"), ("clap", "clap"), ("tom lo", "tomlo"), ("tom hi", "tomhi"), ("tom", "tom"),
                  ("rim", "rim"), ("cowbell", "cowbell"), ("tamb", "tamb"), ("shaker", "shaker"),
                  ("conga", "conga"), ("claves", "claves"), ("wood", "wood"), ("crash", "crash"), ("ride", "ride")]
-GM_KEEP = {"crash": 0.8, "ride": 0.8, "ohh": 0.5}
+GM_KEEP = {"crash": 0.5, "ride": 0.5, "ohh": 0.5}  # the cymbals cut to 0.5 s (saves flash) ...
+GM_FADE = {"crash": 0.2, "ride": 0.2}            # ... with a long raised-cosine fade (s); the others 30 ms linear
 GM_CC0_ROLES = ("tamb", "shaker", "conga", "claves", "wood")   # the CC0 set is orchestral: hand percussion only
 
 # SLICE's BREAK: (step, GM role, gain) on a bar of 16ths; the open hat is choked by the next hat
@@ -75,7 +87,18 @@ SLC_GRID, SLC_AUTO = 128, 32                 # eng_slice.c slc_src_t
 ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75),
        "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
 
+# PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s
+SET_KEEP = {"PIANO": 0.75}
+SET_FADE = {"PIANO": 0.15}
+
 _wavs = {}
+
+
+def cos_fade(x, fade):
+    """fade the last `fade` samples of x out on a raised cosine (no corner at either end)"""
+    n = len(x)
+    for i in range(fade):
+        x[n - fade + i] *= 0.5 + 0.5 * math.cos(math.pi * (i + 1) / fade)
 
 
 def wav(path):
@@ -123,7 +146,7 @@ def cc0_entries(setname, kind):
         else:
             root = hz_to_midi(detect_hz(x, sr))
         x = resample(x, sr, TR)
-        keep = {"oneshot": 1.0, "sus": 0.95, "kit": 0.6}[kind]
+        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95, "kit": 0.6}[kind]
         x = x[:int(keep * TR)]
         n = len(x)
         if kind == "sus":                            # crossfaded sustain loop in the steady part
@@ -133,9 +156,12 @@ def cc0_entries(setname, kind):
                 x[le - xf + i] = x[le - xf + i] * (1 - a) + x[ls - xf + i] * a
             loop = (ls, le)
         else:
-            fade = int(0.08 * TR)
-            for i in range(fade):
-                x[n - fade + i] *= 1 - i / fade
+            if setname in SET_FADE:                  # a shortened set: a long raised-cosine fade-out
+                cos_fade(x, int(SET_FADE[setname] * TR))
+            else:
+                fade = int(0.08 * TR)
+                for i in range(fade):
+                    x[n - fade + i] *= 1 - i / fade
             loop = None
         pk = peak(x)
         out.append((p.name, [int(v * 30000 / pk) for v in x], loop, root))
@@ -174,9 +200,12 @@ def gm_kit_entry(role, path):
     while end > 64 and abs(x[end - 1]) < 0.004 * pk:
         end -= 1
     x = x[:end]
-    fade = min(len(x) // 4, int(0.03 * TR))
-    for i in range(fade):
-        x[len(x) - fade + i] *= 1 - i / fade
+    if role in GM_FADE:
+        cos_fade(x, min(len(x) // 2, int(GM_FADE[role] * TR)))
+    else:
+        fade = min(len(x) // 4, int(0.03 * TR))
+        for i in range(fade):
+            x[len(x) - fade + i] *= 1 - i / fade
     return [int(v * 30000 / pk) for v in x]
 
 
@@ -223,6 +252,7 @@ def break_loop():
 class Builder:
     def __init__(self):
         self.zones, self.sets, self.blob, self.kinds = [], [], bytearray(), {}
+        self.alias = {}                         # set index -> the set index it aliases
         self.brk = None
 
     def slice_break(self):
@@ -271,6 +301,12 @@ class Builder:
         self.sets.append(("PERC", z0, len(self.zones) - z0))
         self.kinds["PERC"] = "kit"
 
+    def alias_set(self, name):
+        """a retired set's index: the zones of the earlier set `name` (no data of its own)"""
+        orig = next(i for i, (n, _, _) in enumerate(self.sets) if n == name)
+        self.alias[len(self.sets)] = orig
+        self.sets.append(self.sets[orig])
+
     def cc0_set(self, name, kind):
         entries = []
         for k, (_, s, loop, root) in enumerate(cc0_entries(name, kind)):
@@ -306,14 +342,24 @@ class Builder:
             L.append('    {"NONE", 0, 1},')
         L.append("};")
         L.append(f"#define SMP_NSETS {max(1, len(sets))}")
-        L.append("static const preset_t SMP_PRESET_TABLE[] = {")
         named = sets or [("NONE", 0, 0)]
+        perc = next((i for i, (name, _, _) in enumerate(named) if name == "PERC"), len(named))
+        L.append(f"#define SMP_NPRESETS {perc}")
+        L.append(f"#define SMP_PERC_PRESET {perc}")
+        L.append("/* PERC and later private SET initializers are retained, outside factory browsing. */")
+        L.append("static const preset_t SMP_PRESET_TABLE[] = {")
         for i, (name, _, _) in enumerate(named):
             k = self.kinds.get(name, "wave")
             a, d, s_, r = ENV[k]
             loop = 0 if k == "kit" else 1
-            L.append(f'    {{"{name}", {{{i}, 0, 0, {loop}, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
+            pat = ", PAT(12)" if k == "kit" else ""     # a kit: engines.c PATTERNS[11] BEAT
+            si = self.alias.get(i, i)                   # an alias: the original's preset (hidden by its name)
+            L.append(f'    {{"{name}", {{{si}, 0, 0, {loop}, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0{pat}}},')
         L.append("};")
+        orig = [self.alias.get(i, i) for i in range(len(named))]
+        L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")
+        L.append("static const uint8_t SMP_SET_ORIG[] = {" + ", ".join(map(str, orig)) + "};")
+        L.append(f"#define SMP_NALIAS {sum(1 for i, o in enumerate(orig) if o != i and i < perc)}   /* among the presets */")
         names = ", ".join(f'"{n}"' for n, _, _ in named)
         L.append("#define SMP_SET_NAMES_INIT " + names)
         L.append("static const char *const SMP_SET_NAMES[] = {" + names + "};")
@@ -341,13 +387,18 @@ class Builder:
         return f"samples: {len(self.sets)} sets, {len(self.zones)} zones, {len(self.blob)} B ADPCM{brk}"
 
 
+def slice_on():
+    """the SLICE engine is built (src/core.h: on unless FELUCCA_SLICE=0)"""
+    return os.environ.get("FELUCCA_SLICE", "1") != "0"
+
+
 def input_key(have_cc0):
     """hash of everything the header depends on"""
     h = hashlib.sha256()
     here = Path(__file__).resolve().parent
     for p in (here / "gen_samples.py", here / "sampleio.py"):
         h.update(p.read_bytes())
-    h.update(repr((sys.version_info[:2], have_cc0, os.environ.get("FELUCCA_SLICE") == "1")).encode())   # sum() differs across versions
+    h.update(repr((sys.version_info[:2], have_cc0, slice_on())).encode())   # sum() differs across versions
     files = sorted(GENDIR.glob("*.wav"))
     if have_cc0:
         files += sorted(CC0.glob("*/*.wav"))
@@ -374,10 +425,12 @@ def main(out):
     b = Builder()
     if have_cc0:
         for name, kind in CC0_SETS:
-            if kind != "kit":                       # the CC0 KIT feeds the GM kit
+            if kind == "alias":
+                b.alias_set(name)
+            elif kind != "kit":                     # the CC0 KIT feeds the GM kit
                 b.cc0_set(name, kind)
     b.gm_kit(have_cc0)
-    if os.environ.get("FELUCCA_SLICE") == "1":       # SLICE's BREAK: only when that engine is built
+    if slice_on():                                  # SLICE's BREAK: only when that engine is built
         b.slice_break()                             # last: the sets' offsets stay as they were
     text = b.header()
     Path(out).write_text(text)

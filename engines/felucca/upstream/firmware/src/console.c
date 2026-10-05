@@ -167,6 +167,26 @@ static void con_flr(const char *p)                  /* flash read over SPI (no X
 }
 #endif
 
+#if FELUCCA_UAC
+static void con_uac(void)                              /* USB audio input: stream state and glitches */
+{
+    uint32_t p = uac.pkts;
+    con_kv("uac_alt", uac.alt);
+    con_kv("uac_starts", (int32_t)uac.starts);
+    con_kv("uac_pkts", (int32_t)p);
+    con_kv("uac_rate_hz", p ? 44000 + (int32_t)(uac.frames - 44u * p) * 1000 / (int32_t)p : 0);   /* < 5 h */
+    con_kv("uac_underruns", (int32_t)uac.underruns);
+    con_kv("uac_overruns", (int32_t)uac.overruns);
+    con_kv("uac_missed", (int32_t)uac.missed);
+    con_kv("uac_stalls", (int32_t)uac.stalls);
+    con_kv("uac_adj_up", (int32_t)uac.adj_up);
+    con_kv("uac_adj_down", (int32_t)uac.adj_down);
+    con_kv("uac_fill", (int32_t)uac.fill_min);
+    con_kv("uac_fill_lo", uac.fill_lo == 0xFFFFFFFFu ? -1 : (int32_t)uac.fill_lo);
+    con_kv("uac_fill_hi", (int32_t)uac.fill_hi);
+}
+#endif
+
 static void con_status(void)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
@@ -176,6 +196,7 @@ static void con_status(void)
     con_kv("uptime_ms", (int32_t)fm1_ms);
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
     con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
+    con_kv("audio_late", (int32_t)felucca_dbg.late);
     con_kv("voices_shed", (int32_t)shed_count);
     con_kv("voices_given_up", (int32_t)voice_kills);
     con_kv("track", (int32_t)song.sel + 1);
@@ -198,6 +219,15 @@ static void con_status(void)
     con_kv("usb_max_gap_polls", (int32_t)usb.max_gap);
     con_kv("midi_rx_pkts", (int32_t)usb.rx_pkts);
     con_kv("midi_tx_pkts", (int32_t)usb.tx_pkts);
+#if FELUCCA_UAC
+    con_uac();
+#endif
+    con_kv("uart_enabled", FELUCCA_UART);
+#if FELUCCA_UART
+    con_kv("uart_rx_bytes", (int32_t)um.bytes);
+    con_kv("uart_rx_msgs", (int32_t)um.msgs);
+    con_kv("uart_rx_drops", (int32_t)um.drops);
+#endif
 #if FELUCCA_FLASH
     con_kv("flash", flash_ok);
 #endif
@@ -213,6 +243,69 @@ static void con_dbg(void)
     uint32_t i;
     for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof felucca_dbg / 4u; i++)
         con_kx(NAMES[i], w[i]);
+#if FELUCCA_UAC
+    con_uac();
+#endif
+}
+
+/* input scan (hal/fm1_input.h fm1_in_stat) since the last `inp`, then cleared: tick gaps (= LED
+ * on-time of a column), per-column LED share in 1/1000, the tick cost, encoder transitions */
+static void con_inp(void)
+{
+    static uint32_t t_last;
+    uint32_t now = fm1_ticks(), win = now - t_last, i, k;
+    uint32_t win_us = win / FM1_TICKS_PER_US;
+    t_last = now;
+    con_kv("window_ms", (int32_t)(win_us / 1000u));
+    con_kv("ticks_per_s", (int32_t)(win_us >= 1000u ? fm1_in_stat.ticks * 1000u / (win_us / 1000u) : 0u));
+    con_kv("gap_max_us", (int32_t)(fm1_in_stat.gap_max / FM1_TICKS_PER_US));
+    con_puts("gap_hist <.15 .3 .6 1.2 2.4 4.8 9.6 more ms:");
+    for (i = 0; i < FM1_GAP_BINS; i++) {
+        con_putc(' ');
+        con_dec((int32_t)fm1_in_stat.gap_hist[i]);
+    }
+    con_puts("\r\n");
+    con_kv("tick_cost_avg_ns", (int32_t)(fm1_in_stat.ticks ? fm1_in_stat.cost_sum / fm1_in_stat.ticks * 1000u / FM1_TICKS_PER_US : 0u));
+    con_kv("tick_cost_max_us", (int32_t)(fm1_in_stat.cost_max / FM1_TICKS_PER_US));
+    con_kv("tick_cpu_permille", (int32_t)(win >= 1000u ? fm1_in_stat.cost_sum / (win / 1000u) : 0u));
+    con_puts("led_on_permille:");
+    for (i = 0; i < FM1_NCOL; i++) {
+        con_putc(' ');
+        con_dec((int32_t)(win >= 1000u ? fm1_in_stat.on[i] / (win / 1000u) : 0u));
+    }
+    con_puts("\r\nled_on_max_us:");
+    for (i = 0; i < FM1_NCOL; i++) {
+        con_putc(' ');
+        con_dec((int32_t)(fm1_in_stat.on_max[i] / FM1_TICKS_PER_US));
+    }
+    con_puts("\r\nenc moves/lost/detent state:");
+    for (k = 0; k < FM1_NENC; k++) {
+        con_putc(' ');
+        con_dec((int32_t)fm1_in_stat.enc_moves[k]);
+        con_putc('/');
+        con_dec((int32_t)fm1_in_stat.enc_lost[k]);
+        con_putc('/');
+        con_dec(fm1_in.enc_rest[k]);
+    }
+    con_puts("\r\n");
+    {   /* note keys, from the first scan that saw the contact (us): debounced press, note-on, DAC out */
+        uint32_t n = fm1_in_stat.press_n, m = fm1_in_stat.kb_n;
+        con_kv("key_presses", (int32_t)n);
+        con_kv("key_press_avg_us", (int32_t)(n ? fm1_in_stat.press_sum / n / FM1_TICKS_PER_US : 0u));
+        con_kv("key_press_max_us", (int32_t)(fm1_in_stat.press_max / FM1_TICKS_PER_US));
+        con_kv("key_notes", (int32_t)m);
+        con_kv("key_noteon_avg_us", (int32_t)(m ? fm1_in_stat.kb_sum / m / FM1_TICKS_PER_US : 0u));
+        con_kv("key_noteon_max_us", (int32_t)(fm1_in_stat.kb_max / FM1_TICKS_PER_US));
+        con_kv("key_dac_avg_us", (int32_t)(m ? fm1_in_stat.dac_sum / m / FM1_TICKS_PER_US : 0u));
+        con_kv("key_dac_max_us", (int32_t)(fm1_in_stat.dac_max / FM1_TICKS_PER_US));
+    }
+    con_kv("timer_irqs", (int32_t)felucca_dbg.timer_irqs);
+    con_kv("nested", (int32_t)felucca_dbg.nested);
+    {
+        uint32_t k2 = fm1__lock();
+        memset((void *)&fm1_in_stat.gap_max, 0, sizeof fm1_in_stat - sizeof fm1_in_stat.last);
+        fm1__unlock(k2);
+    }
 }
 
 static void con_crash(void)
@@ -246,13 +339,15 @@ static void con_params(void)
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
-        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
+        con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
         con_dbg();
     else if (con_word(&p, "crash"))
         con_crash();
+    else if (con_word(&p, "inp"))
+        con_inp();
     else if (con_word(&p, "params"))
         con_params();
     else if (con_word(&p, "memr"))

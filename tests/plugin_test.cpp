@@ -29,6 +29,7 @@
 // The plugin keeps its library in a temporary folder (FM1_DATA_DIR) and never
 // connects to a synth (FM1_NO_DEVICE).
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -198,6 +199,7 @@ static int checks() {
         const int inUse = FeluccaEngine::copiesInUse();
         juce::MemoryBlock project;
         int felParamValue = 0, felGlobalValue = 0;
+        std::array<uint8_t, 155> felPatch{};
         {
             FM1Processor p;
             p.setPlayConfigDetails(0, 2, 48000.0, 256);
@@ -225,6 +227,11 @@ static int checks() {
             auto gd = p.felucca()->globalDesc(1);         // SWING
             felGlobalValue = gd.max;
             p.felucca()->setGlobal(1, felGlobalValue);
+            p.felucca()->setEngine(2, p.felucca()->fm6Engine());   // part 3: FM6, with an edited patch
+            felPatch = p.felucca()->fm6Patch(2);
+            for (int i = 145; i < 155; ++i) felPatch[size_t(i)] = uint8_t('a' + (i - 145));   // its name
+            felPatch[134] = uint8_t((felPatch[134] + 7) % 32);                               // its algorithm
+            p.felucca()->setFm6Patch(2, felPatch);
             p.getStateInformation(project);
             p.setFirmware("baudgirl_fm1va");
             CHECK(FeluccaEngine::copiesInUse() == inUse, "switching away gives the copy back");
@@ -261,12 +268,15 @@ static int checks() {
                     au.processBlock(b, m);
                     CHECK(wave->getText(wave->getValue(), 32) == juce::String(wd.names.size() > 1 ? wd.names[1] : std::string("?")),
                           "the host shows Felucca's own value names");
-                    // defaults are Felucca's own; the drum track has what it has on the device
+                    // defaults are Felucca's own; four parts alike; nothing for what the device never reads
                     CHECK(std::abs(bpm->getDefaultValue() - (120.0f - 40.0f) / 200.0f) < 1e-6f, "fel_bpm's default is Felucca's 120");
-                    int drums = 0;
-                    for (const auto& en : felparams::entries()) if (en.track == 3) ++drums;
-                    CHECK(drums == 10 && au.apvts.getParameter("fel_t4_pan") && !au.apvts.getParameter("fel_t4_atk"),
-                          "the drum track: pattern, slicer, pan and mute only");
+                    int perPart[4] = {};
+                    for (const auto& en : felparams::entries()) if (en.track >= 0) ++perPart[en.track];
+                    CHECK(perPart[0] == 70 && perPart[1] == 70 && perPart[2] == 70 && perPart[3] == 70
+                          && au.apvts.getParameter("fel_t4_atk") && au.apvts.getParameter("fel_t3_m2dst") && au.apvts.getParameter("fel_rtype"),
+                          "four parts, each with the same parameters (1.0's modulation and chords too)");
+                    CHECK(!au.apvts.getParameter("fel_t1_fm1_atk") && !au.apvts.getParameter("fel_t1_ed_fx"),
+                          "none for parameters nothing on the device reads");
                     // a project's Felucca sound wins over host values saved stale
                     f->setParam(0, 0, ld.min + 30);
                     au.feluccaChanged(0);
@@ -340,6 +350,11 @@ static int checks() {
             CHECK(q.felucca()->engineOf(1) == 6, "with each part's engine");
             CHECK(q.felucca()->param(1, q.felucca()->firstEngineParam() + 2) == felParamValue, "its parameters");
             CHECK(q.felucca()->global(1) == felGlobalValue, "and the globals");
+            juce::AudioBuffer<float> qb(2, 256);
+            juce::MidiBuffer qm;
+            q.prepareToPlay(44100.0, 256);
+            q.processBlock(qb, qm);   // (where Felucca's main loop would load PTCH's slot)
+            CHECK(q.felucca()->fm6Patch(2) == felPatch, "and an FM6 part's own patch");
         }
     }
    #endif

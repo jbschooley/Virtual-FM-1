@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 UART1 as MIDI IN: PH8 -> input
  * channel 1 -> UART1 RX, 31250 baud, RX DMA into a ring, polled (no IRQ).
- * The MIDI parser is src/midi_uart.c. Untested on hardware.
+ * The MIDI parser is midi_uart.c. RX verified on hardware.
  *
  *   fm1_uart1_midi_init(ring, len)   len a power of two, ring aligned 16;
  *                                    before TIMER5 starts (PORTH RMW)

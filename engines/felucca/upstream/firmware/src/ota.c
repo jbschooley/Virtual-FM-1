@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* M-UPGRADE update entry.
+/* M-UPGRADE entry: "step 1 lite".
  *
  * The updater talks SysEx (F0 pack7(00 59 cmd len24 body chk) F7):
  *   cmd 0x11  handshake -> we answer our package identity (FELUCCA_ID)
@@ -12,7 +12,8 @@
  * Nothing is committed before the host's "success"; any failure erases the
  * staging area and Felucca carries on.
  *
- * The firmware (felucca.c) and the host test supply these hooks:
+ * Portable core: the firmware (felucca.c) and the Mac test (ota_test.c)
+ * supply these hooks:
  *   ota_wire_send(p, n)        one complete F0..F7 message to the host
  *   ota_frame_get(&p, &n)      next received SysEx (7-bit bytes between F0/F7), 0 if none
  *   ota_frame_done()           release it

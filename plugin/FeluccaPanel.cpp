@@ -4,36 +4,37 @@
 
 namespace {
 
-// Felucca 0.9-beta's per-track parameters (core.h P_*), in its own order, grouped as
-// its pages group them. Ids beyond what a version has are skipped.
-struct GroupDef { const char* title; int first, last; bool parts, drums; };
+// Felucca 1.0's per-track parameters (core.h P_*), in its own order, grouped as its
+// pages group them. Ids beyond what a version has are skipped. Not here: P_ED_FX and the
+// DIGITAL engine's operator envelopes (61-80), which 1.0 neither builds nor shows.
+struct GroupDef { const char* title; int first, last; };
 const GroupDef kTrackGroups[] = {
-    {"Engine", -1, -1, true, false},   // the engine's eight: from firstEngineParam()
-    {"Envelope", 1, 4, true, false},
-    {"Envelope to", 5, 7, true, false},
-    {"LFO", 9, 12, true, false},
-    {"LFO to", 13, 16, true, false},
-    {"Voice", 37, 44, true, false},
-    {"Arpeggiator", 17, 24, true, false},
-    {"Scale", 25, 28, true, false},
-    {"Sequencer", 29, 32, true, true},
-    {"Sends", 33, 36, true, false},
-    {"Slicer", 45, 48, true, true},
-    {"Mix", 0, 0, true, false},
-    {"Mix", 39, 40, false, true},   // the drum track: PAN and MUTE (its level and reverb are globals)
+    {"Engine", -1, -1},   // the engine's eight: from firstEngineParam()
+    {"Envelope", 1, 4},
+    {"Envelope to", 5, 7},
+    {"LFO", 9, 12},
+    {"LFO to", 13, 16},
+    {"Modulation", 49, 60},
+    {"Voice", 37, 44},
+    {"Chord", 81, 82},
+    {"Arpeggiator", 17, 24},
+    {"Scale", 25, 28},
+    {"Sequencer", 29, 32},
+    {"Sends", 33, 36},
+    {"Slicer", 45, 48},
+    {"Mix", 0, 0},
 };
 // the global settings worth editing here (the rest are the device's own pages and actions)
-const int kGlobals[] = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24, 25, 26};
+const int kGlobals[] = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
 
 FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
-    const char* names[4] = {"PART 1", "PART 2", "PART 3", "DRUMS"};
     for (int i = 0; i < 4; ++i) {
         auto& b = trackButtons_[i];
-        b.setButtonText(names[i]);
+        b.setButtonText("PART " + juce::String(i + 1));
         b.setClickingTogglesState(true);
         b.setRadioGroupId(4701);
         b.onClick = [this, i] { if (trackButtons_[i].getToggleState()) selectTrack(i); };
@@ -65,7 +66,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
     };
     info_.setColour(juce::Label::textColourId, kDim);
     info_.setFont(juce::FontOptions(12.0f));
-    info_.setText("MIDI channels 1-3 play the parts, channel 10 the drums, as on the FM-1 with Felucca.", juce::dontSendNotification);
+    info_.setText("MIDI channels 1-4 play the parts, as on the FM-1 with Felucca.", juce::dontSendNotification);
     view_.setViewedComponent(&content_, false);
     view_.setScrollBarsShown(true, false);
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
@@ -107,16 +108,13 @@ void FeluccaPanel::build() {
     engineBox_.clear(juce::dontSendNotification);
     presetBox_.clear(juce::dontSendNotification);
     if (f == nullptr) { loading_ = false; return; }
-    const bool drums = track_ >= f->parts();
-    engineBox_.setEnabled(!drums);
-    presetBox_.setEnabled(!drums);
-    if (!drums) {
-        for (int e = 0; e < f->engines(); ++e) engineBox_.addItem(f->engineName(e), e + 1);
-        engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
-        auto presets = f->presetNames(f->engineOf(track_));
-        for (size_t i = 0; i < presets.size(); ++i) presetBox_.addItem(presets[i], int(i) + 1);
-        presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
-    }
+    if (track_ >= f->parts()) track_ = 0;
+    for (int e : f->enginesShown()) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
+    engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
+    auto presets = f->presetNames(f->engineOf(track_));
+    for (size_t i = 0; i < presets.size(); ++i)
+        if (!presets[i].empty()) presetBox_.addItem(presets[i], int(i) + 1);   // (an alias: not offered)
+    presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
     auto addControl = [&](Group& g, int id, const FeluccaEngine::Desc& d) {
         if (d.label.empty() || d.max <= d.min) return;   // fixed or unused
         Control c;
@@ -172,7 +170,6 @@ void FeluccaPanel::build() {
         content_.addAndMakeVisible(*g.header);
     };
     for (const auto& def : kTrackGroups) {
-        if ((drums && !def.drums) || (!drums && !def.parts)) continue;
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {
@@ -213,7 +210,7 @@ void FeluccaPanel::loadValues() {
                 c.box->setSelectedId(v - d.min + 1, juce::dontSendNotification);
             }
         }
-    if (track_ < f->parts()) presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
+    presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
     loading_ = false;
 }
 

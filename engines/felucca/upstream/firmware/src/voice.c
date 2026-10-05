@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Voice allocation, envelopes, LFO and per-track rendering. Runs in the
- * audio ISR.
+/* Voice allocation, envelopes, LFO and per-track rendering.
+ * Runs in the audio ISR.
  *
  * Each synth part has its own NVOICE voices (so MONO / LEGATO / UNISON keep using
  * v[0..]), but only NVOICE of all the parts' voices sound at once: a part that starts
@@ -9,15 +9,9 @@
  * released voice, else the oldest extra UNISON voice, else the oldest held voice of a
  * POLY part that is not its lowest note. A voice taken from another part fades out
  * over one block (stage 4: the envelope goes to 0, the block's amplitude ramp
- * declicks it); one of the part's own is restarted in place. Extra UNISON
- * voices only start when there is room. The drum track has its own voices (drums.c). */
+ * declicks it); one of the part's own is restarted in place, as before. Extra UNISON
+ * voices only start when there is room. */
 static uint32_t vage;                                   /* voice ages: one clock for every part */
-/* engines that play recorded material (a position, not a phase): no phases kept or spread */
-#if FELUCCA_SLICE
-static int eng_sampled(const engine_t *e) { return e == &ENG_SAMPLE || e == &ENG_SLICE; }
-#else
-static int eng_sampled(const engine_t *e) { return e == &ENG_SAMPLE; }
-#endif
 static int32_t lfo_wave(track_t *t, uint32_t ph)
 {
     switch (t->p[P_LWAVE]) {
@@ -34,12 +28,27 @@ static int32_t lfo_wave(track_t *t, uint32_t ph)
     }
 }
 
+/* the S&H value of a new LFO cycle. Parts 1..3 draw it from the shared generator (rng); part 4 has its
+ * own xorshift, so the shared sequence, which also seeds the engines' noise (PHYS, VOICE, ..), does not
+ * depend on part 4's LFO (the golden renders rely on it) */
+#define LFO_SHARED_RNG 3u
+static uint32_t lfo_rand(track_t *t)
+{
+    uint32_t s = t->lfo_rnd ? t->lfo_rnd : 0x9E3779B9u;
+    if ((uint32_t)(t - trk) < LFO_SHARED_RNG)
+        return rng();
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return s;
+}
+
 static void track_lfo_tick(track_t *t)
 {
     uint32_t old = t->lfo_ph;
     t->lfo_ph += LFO_INC[t->p[P_LRATE] & 127];
     if (t->lfo_ph < old)
-        t->lfo_rnd = rng();
+        t->lfo_rnd = lfo_rand(t);
     t->lfo_val = lfo_wave(t, t->lfo_ph);
     if (t->lfo_fade < 32767) {
         int32_t step = (int32_t)(ENV_LIN[t->p[P_LFADE] & 127] >> 9);
@@ -51,7 +60,13 @@ static void track_lfo_tick(track_t *t)
 static uint32_t trk_nvoice(const track_t *t)
 {
     uint32_t c = ENGINES[t->engine]->poly;
-    return c && c < NPOLY ? c : NPOLY;
+    return c && c < NVOICE ? c : NVOICE;
+}
+
+/* the part's voice mode: P_VOICE, POLY for an engine of hits (engine_t.oneshot: DRUM) */
+static uint32_t trk_vmode(const track_t *t)
+{
+    return ENGINES[t->engine]->oneshot ? V_POLY : (uint32_t)t->p[P_VOICE];
 }
 
 /* ------------------------------------------------- the shared voice budget --- */
@@ -74,13 +89,14 @@ static uint32_t lowest_held(const track_t *t)           /* index of the lowest h
 }
 
 /* the voice to give up for a new one (see the top); soft: only released voices and
- * extra UNISON voices of other parts. Returns its index, *pp its part; NVOICE = none */
+ * extra voices of other non-POLY parts (also ones left after a mode change).
+ * Returns its index, *pp its part; NVOICE = none */
 static uint32_t voice_victim(const track_t *self, int soft, track_t **pp)
 {
     uint32_t p, i, best = NVOICE, cat = 4;
     for (p = 0; p < NPART; p++) {
         track_t *t = &trk[p];
-        uint32_t mode = (uint32_t)t->p[P_VOICE], nu = mode == V_UNISON ? trk_nvoice(t) : 1u;
+        uint32_t mode = trk_vmode(t);
         uint32_t low = mode == V_POLY ? lowest_held(t) : NVOICE;
         if (soft && t == self)
             continue;
@@ -91,8 +107,8 @@ static uint32_t voice_victim(const track_t *self, int soft, track_t **pp)
                 continue;
             if (!v->gate)
                 c = 1;                                  /* released */
-            else if (mode == V_UNISON && i > 0 && i < nu)
-                c = 2;                                  /* an extra UNISON voice */
+            else if (mode != V_POLY && i > 0)
+                c = 2;                                  /* extra UNISON, or a voice left by a mode / cap change */
             else if (!soft && mode == V_POLY && i != low)
                 c = 3;                                  /* held, not the bass */
             else
@@ -124,12 +140,21 @@ static int voice_room(track_t *t, int soft)
         return 1;
     k = voice_victim(t, soft, &vp);
     if (k == NVOICE)
-        return !soft;                                   /* hard: over the budget (cannot happen with 3 parts) */
+        return !soft;                                   /* hard: over the budget (cannot happen: each of the
+                                                         * NPART < NVOICE parts protects one voice at most) */
     voice_kill(&vp->v[k]);
     return 1;
 }
 
-/* POLY allocation (within the engine's voice cap). Same note: reuse its voice. Else a free voice: ROTATE takes
+static voice_t *voice_reuse(track_t *t, voice_t *v)
+{
+    if (v->stage == 4u)
+        voice_room(t, 0);                               /* its budget was taken before this block */
+    return v;
+}
+
+/* POLY allocation (within the engine's voice cap). DRUM: reuse its lane; other engines: the same note.
+ * Else a free voice: ROTATE takes
  * the next one round-robin (release tails ring out), REUSE (or any GLIDE) takes
  * the free voice whose last pitch is closest, so poly portamento moves each
  * voice the shortest way. Steal: the oldest released voice, else the oldest
@@ -140,9 +165,14 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
 {
     uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
     int32_t bd = 0x7FFFFFFF;
+    if (t->engine == ENGI_DRUM) {
+        voice_t *v = drum_reuse(t, note);
+        if (v)
+            return voice_reuse(t, v);
+    }
     for (i = 0; i < np; i++) {
         if (t->v[i].active && t->v[i].note == note)
-            return &t->v[i];
+            return voice_reuse(t, &t->v[i]);
         nfree += !t->v[i].active;
     }
     if (nfree && voices_busy() >= NVOICE) {
@@ -186,10 +216,10 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         for (i = 0; i < np; i++)                         /* oldest held, not the bass */
             if (i != low && (best == np || t->v[i].age < t->v[best].age))
                 best = i;
-    return &t->v[best == np ? 0 : best];
+    return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: RATE = fixed speed, TIME = the same time for any interval */
+/* glide: RATE = a fixed speed, TIME = the same time for any interval */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {
@@ -212,6 +242,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     int sounding = v->active && v->stage != 0;
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2];
     int32_t s0 = v->s[0], s1 = v->s[1], s4 = v->s[4], s5 = v->s[5], s6 = v->s[6], s7 = v->s[7];
+    uint32_t keep = e->keep;
     v->note = (uint8_t)note;
     v->vel = (uint8_t)vel;
     v->gate = 1;
@@ -219,27 +250,31 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     v->stage = 1;
     v->age = ++vage;
     v->pitch16 = (int32_t)note * 16;
+    v->mvel = t->m_vel;                                 /* mod.c: the note's VEL and RAND */
+    v->mrnd = t->m_rnd;
+    t->m_vi = (uint8_t)(v - t->v);
     glide_set(t, v, glide);
     if (!sounding) {
         v->env = 0;
         v->env_out = 0;
     }                                                   /* sounding: the attack starts from the current level */
     e->note_on(t, v);
-    if (sounding && !eng_sampled(e)) {                 /* retrigger / steal: keep phases and filter states */
-        v->ph[0] = ph0;                                 /* (resetting them clicks) */
+    if (sounding && !e->sampled) {                     /* retrigger / steal: keep phases and filter */
+        v->ph[0] = ph0;                                 /* states (resetting them clicks) */
         v->ph[1] = ph1;
         v->ph[2] = ph2;
-        if (e == &ENG_ANALOG) {
+        if (keep & 0x01u)                               /* engine_t.keep: the slots the engines use */
             v->s[0] = s0;
+        if (keep & 0x02u)
             v->s[1] = s1;
-        } else if (e == &ENG_DIGITAL) {
-            v->s[5] = s5;
-            v->s[6] = s6;
-            v->s[7] = s7;                               /* op 4 phase; the modulator envelope restarts */
-        } else if (e == &ENG_LOFI) {
-            v->s[0] = s0;
+        if (keep & 0x10u)
             v->s[4] = s4;
-        }
+        if (keep & 0x20u)
+            v->s[5] = s5;
+        if (keep & 0x40u)
+            v->s[6] = s6;
+        if (keep & 0x80u)
+            v->s[7] = s7;
     }
 }
 
@@ -259,7 +294,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
                 continue;                                   /* no room for this extra UNISON voice */
             /* level: about the same sum for 8 or 4 voices at random phases */
             voice_start(t, v, note, nv >= NVOICE ? vel * 36u / 100u : nv > 1u ? vel / 2u : vel, glide);
-            if (nv > 1u && i && !eng_sampled(ENGINES[t->engine])) {   /* random start phases: */
+            if (nv > 1u && i && !ENGINES[t->engine]->sampled) {   /* random start phases: */
                 static uint32_t seed = 0x1234567u;          /* in phase they stack, evenly spread they cancel */
                 seed = seed * 1664525u + 1013904223u;
                 v->ph[0] += seed;
@@ -267,6 +302,8 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
         } else {                                            /* legato: new pitch, same envelope */
             v->note = (uint8_t)note;
             v->pitch16 = (int32_t)note * 16;
+            v->mvel = t->m_vel;
+            v->mrnd = t->m_rnd;
             if (vel > v->vel && nv == 1u)
                 v->vel = (uint8_t)vel;
             glide_set(t, v, glide);
@@ -302,13 +339,9 @@ static void mono_remove(track_t *t, uint32_t note)
 
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
-    uint32_t any = 0, i, mode = (uint32_t)t->p[P_VOICE];
+    uint32_t any = 0, i, mode = trk_vmode(t);
     if (t->p[P_MUTE])
         return;
-    if (is_drum(t)) {                                   /* the drum track: GM drums (drums.c) */
-        drum_on(note, vel);
-        return;
-    }
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
             ;
@@ -319,6 +352,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         t->xp_vel[i] = (uint8_t)vel;
         return;
     }
+    mod_note(t, note, vel);                             /* the matrix's VEL / KEY / RAND */
     for (i = 0; i < NVOICE; i++)
         any |= t->v[i].gate;
     if (!any) {                                        /* fresh phrase: LFO retrigger and fade */
@@ -330,7 +364,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         t->nmono = 0;                                   /* no stale mono stack after a mode change */
         t->mono_note = 0;
         v->fine = 0;
-        voice_start(t, v, note, vel, t->p[P_GLIDE] != 0);
+        voice_start(t, v, note, vel, t->p[P_GLIDE] != 0 && !ENGINES[t->engine]->oneshot);
         return;
     }
     {
@@ -351,18 +385,16 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 
 static void trk_note_off(track_t *t, uint32_t note)
 {
-    uint32_t i, k = 0, mode = (uint32_t)t->p[P_VOICE];
-    if (is_drum(t))
-        return;                                         /* one-shots */
+    uint32_t i, k = 0, mode = trk_vmode(t);
     for (i = 0; i < t->xp_n; i++)                       /* not sounding yet (engine switch): forget it */
         if (t->xp_note[i] != note) {
             t->xp_note[k] = t->xp_note[i];
             t->xp_vel[k++] = t->xp_vel[i];
         }
     t->xp_n = (uint8_t)k;
+    mono_remove(t, note);                              /* a mode change must not retain a released key */
     if (mode != V_POLY) {
         uint32_t nv = mode == V_UNISON ? trk_nvoice(t) : 1u;
-        mono_remove(t, note);
         if (t->mono_note == note) {
             uint32_t next = mono_pick(t);
             if (next) {                                 /* fall back to a held note, legato */
@@ -377,8 +409,8 @@ static void trk_note_off(track_t *t, uint32_t note)
             }
         }
     }
-    for (i = 0; i < NVOICE; i++)                        /* POLY voices (also ones left from another mode) */
-        if (t->v[i].note == note && t->v[i].gate && (mode == V_POLY || i >= (mode == V_UNISON ? trk_nvoice(t) : 1u))) {
+    for (i = 0; i < NVOICE; i++)                        /* a fallback above already has its new pitch */
+        if (t->v[i].note == note && t->v[i].gate) {
             t->v[i].gate = 0;
             t->v[i].stage = 3;
         }
@@ -424,7 +456,7 @@ static void engine_block(track_t *t)
             v->stage = 0;
             v->env = v->env_out = 0;
         }
-        t->engine = t->eng_req % NENGINES;
+        t->engine = eng_idx(t->eng_req);
         t->xf_on = 0;
         t->nmono = 0;
         t->mono_note = 0;
@@ -476,6 +508,8 @@ static int32_t env_tick(track_t *t, voice_t *v)
 }
 
 /* render one block of a part into out (cleared here); returns the voices rendered */
+/* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
+static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
 static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
 {
     const engine_t *e = ENGINES[t->engine];
@@ -485,6 +519,18 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
     int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
     int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
+    int32_t bend, bend16, bend_fine;
+    uint32_t ti = (uint32_t)(t - trk);
+    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
+        midi_bend_q8[ti] = midi_bend_target[ti] = 0;
+    } else {
+        int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];
+        /* ~6 ms smoothing, with an exact landing (no permanent small offset). */
+        midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
+    }
+    bend = midi_bend_q8[ti];
+    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
+    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     uint32_t nr = 0, fade = t->xf_on && t->xf;
     int16_t pe_new[8];
     for (i = 0; i < n; i++)
@@ -495,7 +541,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             t->p[P_E0 + i] = t->pe_old[i];
         }
     track_lfo_tick(t);
-    if (e->block)                                       /* the engine's per-part work (DRAWBAR: bars, rotor) */
+    if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
     for (i = 0; i < NVOICE; i++) {
         voice_t *v = &t->v[i];
@@ -505,10 +551,20 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             continue;
         {
             env = env_tick(t, v);
+            if (e->ownenv && v->active) {               /* the engine's envelopes (FM6): they end the voice */
+                if (e->done(t, v)) {
+                    v->active = v->gate = 0;
+                    v->stage = 0;
+                    v->env = v->env_out = 0;
+                    continue;
+                }
+                v->env = 1 << 24;                       /* (the ADSR's release never ends it) */
+                env = 32767;
+            }
             if (e->amp)                                 /* the engine's own amplitude curve */
                 env = e->amp(t, v, env);
-            m.envq15 = env;
-            m.amp1 = mulq15(env, v->vel * 258);
+            m.envq15 = e->ownenv ? 0 : env;
+            m.amp1 = e->ownenv ? env : mulq15(env, v->vel * 258);
             if (p[P_LD_AMP])
                 m.amp1 = mulq15(m.amp1, 32767 - mulq15((lfo + 32768) >> 1, p[P_LD_AMP] * 258));
             if (fade)                                   /* linear to 0 over the fade */
@@ -523,17 +579,20 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
                 st = 1;
             v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
         }
-        if (!env && !m.amp0 && v->stage == 2 && !eng_sampled(e))
+        if (!env && !m.amp0 && v->stage == 2 && !e->sampled)
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */
-        pitch = v->pitch_cur + tune + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
+        pitch = v->pitch_cur + tune + bend16 + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
-        m.inc = PITCH_INC[m.pitch16];
-        if (v->fine + tune_fine)                        /* unison detune and fine tune, below 1/16 st */
-            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine));
+        m.inc = pitch_inc(m.pitch16);
+        m.fine = v->fine + tune_fine + bend_fine;
+        if (v->fine + tune_fine + bend_fine)             /* residual below 1/16 semitone */
+            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine + bend_fine));
         m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7);
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
+        if (mod.on)                                     /* the modulation matrix (mod.c) */
+            mod_voice(t, v, &m, v->fine + tune_fine + bend_fine);
         e->render(t, v, out, n, &m);
         nr++;
     }

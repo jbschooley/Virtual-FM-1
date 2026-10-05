@@ -22,18 +22,13 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
-    /* DTN in cents: whole 1/16 semitones from the table, the rest as a fine factor */
-    int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;            /* rem: 1/1600 semitone */
-    uint32_t inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
-    inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
+    uint32_t inc2 = det ? cents_inc(m->pitch16, det, 0) : inc1;      /* DTN in cents */
     uint32_t pw = 0x80000000u + (uint32_t)((m->shape - (64 << 8)) << 15);
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
     int32_t nz = noise * 200, drv = p[P_E6];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
     int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
     tsvf_coef(&flt, cut, p[P_E5]);
-    if (det == 0)
-        inc2 = inc1;
     for (i = 0; i < n; i++) {
         int32_t a, b, s;
         switch (wave) {
@@ -65,7 +60,8 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
             s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
         if (drv)
             s = softclip(((s >> 2) * (drive >> 2)) >> 11);   /* pre-shifts: drive is up to 3x, no overflow */
-        {   /* filter: linear up to half scale, then a soft knee (only resonance peaks saturate) */
+        {   /* filter, linear up to half scale, then a soft knee (only resonance peaks saturate); soft_knee()
+             * written out: the host compiler makes this loop 1 % slower with the call */
             int32_t y = tsvf_lp(&flt, s >> 1, &ic1, &ic2), a = y < 0 ? -y : y;
             if (a > 16000) {
                 a = 16000 + (softclip((a - 16000) * 2) >> 1);
@@ -73,7 +69,7 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
             }
             s = y << 1;
         }
-        out[i] += mulq15(mulq15(s, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(s, m, i) << 1;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;
@@ -89,7 +85,7 @@ static const preset_t ANALOG_PRESETS[] = {
     {"PWM STR", {4, 8, 40, 0, 75, 20, 0, 48}, {60, 80, 110, 85}, 8, 0, FX(0, 50, 20, 60), PAT(5)},
     {"ACID", {0, 0, 0, 0, 50, 100, 25, 64}, {0, 55, 20, 30}, 48, 1, FX(20, 0, 45, 15), PAT(1)},
     {"SINE KEY", {3, 6, 50, 0, 127, 0, 0, 0}, {2, 80, 30, 70}, 0, 0, FX(0, 30, 25, 40), PAT(6)},
-    {"RAVE", {4, 30, 64, 0, 85, 20, 30, 64}, {20, 80, 110, 60}, 10, 1, FX(30, 40, 30, 30), ARP(1, 2, 2, 50)},
+    {"RAVE", {4, 30, 64, 0, 85, 20, 30, 64}, {20, 80, 110, 60}, 10, 1, FX(30, 40, 30, 30), PAT(13)},
     {"SUB BASS", {3, 0, 0, 0, 40, 0, 20, 0}, {0, 60, 100, 20}, 0, 1, FX(0, 0, 0, 10), PAT(8)},
     {"PLUCK", {0, 8, 50, 0, 30, 40, 0, 64}, {0, 88, 0, 60}, 55, 0, FX(0, 20, 50, 30), PAT(3)},
     {"BRASS", {0, 10, 64, 0, 45, 20, 10, 64}, {35, 70, 90, 45}, 40, 0, FX(0, 20, 20, 40), PAT(6)},
@@ -98,8 +94,9 @@ static const preset_t ANALOG_PRESETS[] = {
 };
 
 static const engine_t ENG_ANALOG = {
-    "ANALOG", {"OSC", "FLT"},
-    {
+    .name = "ANALOG",
+    .page_title = {"OSC", "FLT"},
+    .edit = {
         {"WAVE", F_ENUM, 0, 4, 0, N_ANALOG_WAVE, 0},
         {"DTN", F_INT, 0, 127, 10, 0, "ct"},
         {"MIX", F_PCT, 0, 127, 64, 0, 0},
@@ -109,6 +106,10 @@ static const engine_t ENG_ANALOG = {
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"KTR", F_PCT, 0, 127, 64, 0, 0},
     },
-    ANALOG_PRESETS, sizeof(ANALOG_PRESETS) / sizeof(ANALOG_PRESETS[0]), 1, analog_note_on, analog_render,
-    0xF986, {P_E4, P_E5, P_ATK, P_REL},
+    .presets = ANALOG_PRESETS,
+    .npresets = NELEM(ANALOG_PRESETS),
+    .note_on = analog_note_on,
+    .render = analog_render,
+    .knob = {P_E4, P_E5, P_ATK, P_REL},
+    .keep = 0x03,                /* the filter */
 };

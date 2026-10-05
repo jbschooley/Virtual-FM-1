@@ -53,7 +53,7 @@ if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()
 
-# ---- Felucca's engines (engines/felucca: Felucca 0.9-beta, GPL-3.0-only) -------------
+# ---- Felucca's engines (engines/felucca: Felucca 1.0, GPL-3.0-only) -------------
 # Felucca's synth is one compilation unit with all its state in file-level statics, so
 # one compiled copy plays one instance. felucca_core.c is compiled FELUCCA_COPIES times,
 # each copy with its own symbol prefix; an instance takes a free copy while it plays
@@ -129,7 +129,7 @@ target_include_directories(engine_test PRIVATE engines/fm1_fx)   # HardwareChara
 add_test(NAME engine_test COMMAND engine_test ${CMAKE_SOURCE_DIR}/tests/golden.json)
 
 if(FM1_BUILD_FELUCCA)
-    # Felucca's own regression (83 golden renders) on the vendored sources and generated tables
+    # Felucca's own regression (87 golden renders) on the vendored sources and generated tables
     if(NOT WIN32)
         add_executable(felucca_regress engines/felucca/upstream/tests/regress.c)
         target_include_directories(felucca_regress PRIVATE engines/felucca/generated engines/felucca/upstream/firmware/src)

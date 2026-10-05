@@ -311,7 +311,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const bool isFelucca = false;
    #endif
     // the host's MIDI on the chosen channel only (SysEx and the on-screen keyboard always pass)
-    // (not for Felucca, which routes channels itself: 1-3 its parts, 10 its drums)
+    // (not for Felucca, which routes channels itself: 1-4 its parts)
     if (int ch = inputChannel_.load(); ch > 0 && !isFelucca) {
         filtered_.clear();
         for (const auto meta : midi) {
@@ -954,7 +954,7 @@ juce::ValueTree FM1Processor::feluccaState() const {
     auto& f = *engine;
     // the version of Felucca it was saved with, and each value's label: a later Felucca with
     // parameters added or moved gets each value by its name (plan: match by label)
-    t.setProperty("version", "0.9-beta", nullptr);
+    t.setProperty("version", "1.0", nullptr);
     for (int k = 0; k < f.tracks(); ++k) {
         juce::ValueTree tr("Track");
         tr.setProperty("i", k, nullptr);
@@ -967,6 +967,10 @@ juce::ValueTree FM1Processor::feluccaState() const {
         }
         tr.setProperty("params", ps.joinIntoString(","), nullptr);
         tr.setProperty("labels", ls.joinIntoString(","), nullptr);
+        if (k < f.parts()) {   // the part's FM6 patch (an edited one is only here), as Felucca's projects keep it
+            const auto patch = f.fm6Patch(k);
+            tr.setProperty("fm6", juce::Base64::toBase64(patch.data(), patch.size()), nullptr);
+        }
         t.addChild(tr, -1, nullptr);
     }
     juce::StringArray gs, gl;
@@ -1009,6 +1013,7 @@ void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
     for (const auto& tr : t) {
         const int k = tr.getProperty("i", -1);
         if (k < 0 || k >= f.tracks()) continue;
+        if (k == 3 && t.getProperty("version").toString() == "0.9-beta") continue;   // 0.9's drum track: no part 4 sound
         if (k < f.parts()) {   // the engine first: its parameters' ranges depend on it
             f.setEngine(k, int(tr.getProperty("engine", 0)));
             f.applyPreset(k, int(tr.getProperty("preset", 0)));
@@ -1016,6 +1021,14 @@ void FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t)
         apply(tr.getProperty("params").toString(), tr.getProperty("labels").toString(), f.paramCount(),
               [&](int id) { return id >= f.firstEngineParam() ? "E" + juce::String(id - f.firstEngineParam()) : juce::String(f.paramDesc(k, id).label); },
               [&](int id, int v) { f.setParam(k, id, v); });
+        if (k < f.parts()) {   // after PTCH: the saved patch stays rather than PTCH's slot loading
+            juce::MemoryOutputStream patch;
+            if (juce::Base64::convertFromBase64(patch, tr.getProperty("fm6").toString()) && patch.getDataSize() == 155) {
+                std::array<uint8_t, 155> v{};
+                std::memcpy(v.data(), patch.getData(), v.size());
+                f.setFm6Patch(k, v);
+            }
+        }
     }
     apply(t.getProperty("globals").toString(), t.getProperty("globalLabels").toString(), f.globalCount(),
           [&](int id) { return juce::String(f.globalDesc(id).label); }, [&](int id, int v) { f.setGlobal(id, v); });

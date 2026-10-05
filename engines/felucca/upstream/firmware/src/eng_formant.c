@@ -85,10 +85,7 @@ static void fres_coef(fres_t *r, uint32_t f16, uint32_t bw16)
 static void formant_note_on(track_t *t, voice_t *v)
 {
     (void)t;
-    formant_nz ^= formant_nz << 13;                     /* a random vowel for this note (RAND) */
-    formant_nz ^= (int32_t)((uint32_t)formant_nz >> 17);
-    formant_nz ^= formant_nz << 5;
-    v->s[7] = (int32_t)(((uint32_t)formant_nz >> 25) << 25);   /* TALK starts over, random vowel kept */
+    v->s[7] = (int32_t)((noise32(&formant_nz) >> 25) << 25);   /* TALK starts over; a random vowel (RAND) */
     if (!v->env && !v->env_out) {                       /* a fresh voice (not a retrigger): from rest */
         uint32_t i;
         v->ph[0] = 0;                                   /* the opening starts at zero: no click */
@@ -188,14 +185,9 @@ static void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, con
         a = (int32_t)(((int64_t)r4.a * a + (int64_t)r4.b * y7 + (int64_t)r4.c * y8 + (1 << 29)) >> 30);
         y8 = y7;
         y7 = clamp(a, -(1 << 28), 1 << 28);             /* int32 state stays far from overflow */
-        s = clamp((int32_t)(((int64_t)y7 * og + (int64_t)(y7 - y8) * ogk) >> 21), -200000, 200000);
-        a = s < 0 ? -s : s;
-        if (a > 24000) {                                /* soft knee: only peaks saturate */
-            a = 24000 + (softclip((a - 24000) * 2) >> 1);
-            s = s < 0 ? -a : a;
-        }
+        s = soft_knee(clamp((int32_t)(((int64_t)y7 * og + (int64_t)(y7 - y8) * ogk) >> 21), -200000, 200000), 24000);
         ph += inc;
-        out[i] += mulq15(mulq15(s, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(s, m, i) << 1;
     }
     v->ph[0] = ph;
     v->ph[1] = (uint32_t)y7;
@@ -219,8 +211,9 @@ static const preset_t FORMANT_PRESETS[] = {
 };
 
 static const engine_t ENG_FORMANT = {
-    "VOICE", {"VOWL", "TONE"},
-    {
+    .name = "VOICE",
+    .page_title = {"VOWL", "TONE"},
+    .edit = {
         {"VOWL", F_INT, 0, 127, 0, 0, 0},
         {"VOWL2", F_INT, 0, 127, 64, 0, 0},
         {"TALK", F_TIME, 0, 127, 0, 0, 0},
@@ -230,6 +223,10 @@ static const engine_t ENG_FORMANT = {
         {"Q", F_PCT, 0, 127, 64, 0, 0},
         {"RAND", F_PCT, 0, 127, 0, 0, 0},
     },
-    FORMANT_PRESETS, sizeof(FORMANT_PRESETS) / sizeof(FORMANT_PRESETS[0]), 0, formant_note_on, formant_render,
-    0xF81F, {P_E0, P_E4, P_E5, P_E2}, 4,
+    .presets = FORMANT_PRESETS,
+    .npresets = NELEM(FORMANT_PRESETS),
+    .note_on = formant_note_on,
+    .render = formant_render,
+    .knob = {P_E0, P_E4, P_E5, P_E2},
+    .poly = 4,
 };

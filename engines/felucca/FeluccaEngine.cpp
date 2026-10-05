@@ -121,6 +121,29 @@ std::vector<std::string> FeluccaEngine::presetNames(int e) const {
     return out;
 }
 
+std::vector<int> FeluccaEngine::enginesShown() const {
+    std::vector<int> out;
+    if (!core_) return out;
+    for (uint32_t n = 0; n < core_->engines_shown(); ++n) out.push_back(int(core_->engine_shown(n)));
+    return out;
+}
+
+int FeluccaEngine::fm6Engine() const { return core_ ? int(core_->fm6_engine()) : -1; }
+
+std::array<uint8_t, 155> FeluccaEngine::fm6Patch(int track) const {
+    std::array<uint8_t, 155> v{};
+    if (!core_) return v;
+    std::lock_guard<std::mutex> g(lock_);   // render's fm6_poll may be loading a patch into it
+    core_->fm6_patch_get(uint32_t(track), v.data());
+    return v;
+}
+
+void FeluccaEngine::setFm6Patch(int track, const std::array<uint8_t, 155>& v) {
+    if (!core_) return;
+    std::lock_guard<std::mutex> g(lock_);   // many bytes: not while the audio side reads them
+    core_->fm6_patch_set(uint32_t(track), v.data());
+}
+
 FeluccaEngine::Desc FeluccaEngine::paramDesc(int track, int id) const {
     fel_desc_t d{};
     if (!core_) return {};

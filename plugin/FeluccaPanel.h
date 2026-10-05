@@ -1,7 +1,7 @@
 // FeluccaPanel -- the editor for an instance set to Felucca: a track's engine, preset
 // and every parameter, and the global settings, built from what Felucca says about
 // them (names, ranges, value names), so a new Felucca version's changes show up
-// without changes here. The groups follow Felucca 0.9-beta's parameter order.
+// without changes here. The groups follow Felucca 1.0's parameter order.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>

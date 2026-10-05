@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM-1 hardware guards. Every violation raises the CPU exception (vector 1) and
+/* FM-1 hardware guards (after the SDK's
+ * cpu/wl82/debug.c). Every violation raises the CPU exception (vector 1) and
  * ends in the fault report of fm1_irq.h, so install that first.
  *
  *   EMU stack limit   sp outside [_ustack_lo, _sstack_top] -> EMU_MSG bit 3.

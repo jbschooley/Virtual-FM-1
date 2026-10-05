@@ -2,7 +2,7 @@
 //
 // They exist in every build (with or without Felucca's engines) so that a project has
 // the same parameter list everywhere. Their ids come from a fixed table named after
-// Felucca 0.9-beta's own parameters (core.h P_* and G_*), not from Felucca's numbering,
+// Felucca's own parameters (core.h P_* and G_*; the table follows Felucca 1.0), not from Felucca's numbering,
 // which shifts when Felucca adds a parameter: "fel_t2_lrate" is part 2's LFO rate in every
 // version. A later Felucca maps its numbering onto the same names here; a parameter it
 // adds gets a new id (with a higher version hint), never an old one.
@@ -22,8 +22,8 @@ namespace felparams {
 
 struct Entry {
     juce::String id;      // the host parameter's id
-    int track = -1;       // 0..3 (3 = drums), -1 for a global
-    int index = 0;        // Felucca 0.9-beta's parameter number (P_* or G_*)
+    int track = -1;       // part 0..3, -1 for a global
+    int index = 0;        // Felucca 1.0's parameter number (P_* or G_*)
     float def = 0.0f;     // Felucca's default, 0..1 (0 for an engine's own eight)
 };
 

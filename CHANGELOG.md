@@ -33,15 +33,15 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
-- **Felucca**: an instance set to Felucca plays Felucca 0.9-beta's own
-  engines (ANALOG, DIGITAL, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL, GRAIN
-  and the drum track), built from its source with its author's agreement.
-  MIDI channels 1-3 play its three parts and channel 10 its drums, as on
-  the FM-1. Its editor shows each part's engine, preset and every
-  parameter by Felucca's own names, and the global settings; the project
-  keeps them. Its tempo follows the host unless you turn that off. Its
-  parameters can be automated from the host (191 of them: each part's,
-  the drum track's and the global ones). Up to 8 instances can play
+- **Felucca**: an instance set to Felucca plays Felucca 1.0's own engines
+  (ANALOG, FM6, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL, GRAIN, PHYS, NOISE,
+  SLICE and DRUM), built from its source with its author's agreement. MIDI
+  channels 1-4 play its four parts, as on the FM-1. Its editor shows each
+  part's engine, preset and every parameter by Felucca's own names (the
+  modulation matrix and chords too), and the global settings; the project
+  keeps them, with each part's FM6 patch. Its tempo follows the host unless
+  you turn that off. Its parameters can be automated from the host (292 of
+  them: each part's and the global ones). Up to 8 instances can play
   Felucca at once. Not yet: its sequencer's steps, its presets and
   projects, and syncing with a synth running Felucca. Built on macOS, iOS and Linux;
   the Windows build does not include Felucca yet.

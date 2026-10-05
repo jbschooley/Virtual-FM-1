@@ -54,15 +54,20 @@ public:
         int fmt = 0, min = 0, max = 0, def = 0;
         std::vector<std::string> names;        // for a list (fmt 8)
     };
-    int tracks() const;                        // 4: three parts and the drum track
-    int parts() const;                         // 3
+    int tracks() const;                        // 4 parts (Felucca 1.0: each with any engine)
+    int parts() const;                         // the same
     int engines() const;
-    int paramCount() const;                    // per track (57)
+    int paramCount() const;                    // per track (91 in 1.0)
     int firstEngineParam() const;              // P_E0: the engine's eight follow
     int globalCount() const;
     std::string engineName(int e) const;
     std::string enginePage(int e, int page) const;   // the titles of its two edit pages
-    std::vector<std::string> presetNames(int e) const;
+    std::vector<std::string> presetNames(int e) const;   // by number; "" for an alias (not offered)
+    std::vector<int> enginesShown() const;     // the engines one can pick, in Felucca's order
+    int fm6Engine() const;                     // FM6's engine number
+    // FM6's patch of a track: the 155-byte DX7 single-voice layout (the FM-1's VCED)
+    std::array<uint8_t, 155> fm6Patch(int track) const;
+    void setFm6Patch(int track, const std::array<uint8_t, 155>& v);   // after PTCH (E7): it keeps this patch
     Desc paramDesc(int track, int id) const;   // engine parameters are the track's engine's
     bool paramRange(int track, int id, int& min, int& max) const;   // without allocating (audio thread)
     bool globalRange(int id, int& min, int& max) const;

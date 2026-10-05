@@ -1,43 +1,66 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FELUCCA boot and main loop. Boot order: WDT first, boot-loop guard, fatal
- * vectors, guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
+/* FELUCCA boot and main loop. Boot order: WDT first, boot-loop guard, fatal vectors,
+ * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 
 
+/* TIMER5 outranks ALNK0, so the scan keeps its 100 us pace while a half buffer renders: before,
+ * the ticks stopped for the whole render (0.7 ms idle, several ms loaded), the column lit when it
+ * began stayed lit that long (a ~16 Hz flicker over all LEDs, beating with the scan) and the
+ * encoders lost frames. Nested in ALNK0 it only scans (GPIO + fm1_in, nothing the audio ISR touches)
+ * and counts ms; USB and UART polls wait for the first tick after the render, as they always did,
+ * and the time spent nested is handed to the audio ISR so its load figures stay render-only.
+ * The USB audio stream cannot wait for the render (one packet per 1 ms frame, a render takes up to
+ * ~5 ms): uac_service also runs nested. It touches only EP4 (INDEX is set on every access) and the
+ * consumer side of the audio ring, and usb_poll never runs nested, so the two never interleave. */
 void fm1_timer5_irq(void)
 {
-    static uint32_t sub;
+    static uint32_t sub, owed;
+    uint32_t t0 = fm1_ticks(), usb_due = sub % 5u == 0u;
     fm1_timer5_ack();
     felucca_dbg.timer_irqs++;
-    if (felucca_dbg.in_audio)
-        felucca_dbg.nested++;                      /* only possible if this IRQ outranks ALNK0 */
     fm1_input_tick();
-    if (sub % 5u == 0u)
-        usb_poll();                             /* 2 kHz: all USB SIE traffic lives here */
-#if FELUCCA_UART
-    if (sub % 5u == 2u)
-        uart_midi_poll();                       /* 2 kHz: <= ~7 bytes per call at 31250 baud */
-#endif
-    if (++sub == 10u)
-        sub = 0;
-    {   /* milliseconds from the 24 MHz TIMER4: TIMER5 ticks coalesce while ALNK0 renders */
+    {   /* milliseconds from the 24 MHz TIMER4 (robust to a late tick) */
         static uint32_t last, acc;
-        uint32_t now = fm1_ticks();
-        acc += now - last;
-        last = now;
+        acc += t0 - last;
+        last = t0;
         while (acc >= 1000u * FM1_TICKS_PER_US) {
             acc -= 1000u * FM1_TICKS_PER_US;
             fm1_ms++;
         }
     }
+    if (usb_due)
+        owed |= 1u;                             /* 2 kHz: all USB SIE traffic lives here */
+#if FELUCCA_UART
+    if (sub % 5u == 2u)
+        owed |= 2u;                             /* 2 kHz: <= ~7 bytes per call at 31250 baud */
+#endif
+    if (++sub == 10u)
+        sub = 0;
+    if (felucca_dbg.in_audio) {
+        felucca_dbg.nested++;
+#if FELUCCA_UAC
+        if (usb_due)
+            uac_service();
+#endif
+        t5_nested_ticks += fm1_ticks() - t0;
+        return;
+    }
+    if (owed & 1u)
+        usb_poll();
+#if FELUCCA_UART
+    if (owed & 2u)
+        uart_midi_poll();
+#endif
+    owed = 0;
 }
 extern void isr_timer5(void);
 
 static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 kHz */
 {
-    fm1_timer5_start(isr_timer5, 1);   /* below ALNK0 (3): no nesting into audio */
+    fm1_timer5_start(isr_timer5, 4);   /* above ALNK0 (3): the scan nests into the render (see fm1_timer5_irq) */
 }
 
 static void hexs(char *b, uint32_t v)
@@ -53,40 +76,46 @@ static void fm1_fault(const fm1_crash_t *c)
     char b[12];
     uint32_t t0;
     fm1_audio_stop();
-    lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
-    draw_text_box(0, 8, 240, &FONT_S, "FELUCCA CRASH", C_WHITE, 1);
+    lcd_fill(0, 0, 240, 240, UI_CRASH_BG);            /* fixed, outside the palettes */
+    draw_text_line(0, 8, 240, &AF_M, "FELUCCA CRASH", UI_CRASH_INK, UI_CRASH_BG, 1);
     hexs(b, c->vec);
-    draw_text_box(10, 40, 220, &FONT_S, b, C_WHITE, 0);
+    draw_text_line(10, 40, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->pc);
-    draw_text_box(10, 60, 220, &FONT_S, b, C_WHITE, 0);
+    draw_text_line(10, 60, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->emu);
-    draw_text_box(10, 84, 220, &FONT_S, b, C_WHITE, 0);
+    draw_text_line(10, 84, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->dbg);
-    draw_text_box(10, 102, 220, &FONT_S, b, C_WHITE, 0);
+    draw_text_line(10, 102, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->rets);
-    draw_text_box(10, 120, 220, &FONT_S, b, C_WHITE, 0);
+    draw_text_line(10, 120, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     t0 = fm1_ticks();
     while ((uint32_t)(fm1_ticks() - t0) < 4000u * 1000u * FM1_TICKS_PER_US)
         ;
     fm1_reboot();
 }
 
-/* power-on: three parts with their default sounds (TRK_DEF), the drum track, empty patterns */
+/* power-on: the parts with their default sounds (TRK_DEF); the sequencers empty */
 static void felucca_init(void)
 {
     uint32_t i;
+    chain_defaults(&chain_config);
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
+    undo_depth++;                             /* (no undo copy of the power-on loads) */
+    fm6_init();                               /* every track's FM6 patch: the init voice */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         track_defaults(t);
-        if (i < NPART) {
-            set_engine_of(t, TRK_DEF[i][0]);
-            apply_preset_to(t, TRK_DEF[i][1]);   /* with its sends */
-            t->engine = t->eng_req;
-        }
-        track_defaults_steps(t);              /* the sequencers start empty */
+        set_engine_of(t, TRK_DEF[i][0]);
+        apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
+        t->engine = t->eng_req;
+        track_defaults_steps(t);              /* (a sound load never touches them) */
+        if (TRK_DEF[i][2])
+            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
+        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
+        pat_last[i] = TRK_DEF[i][2];
     }
+    undo_depth--;
     song.sel = 0;
     song.master_q12 = 2048;
     ui.home = 1;
@@ -103,14 +132,17 @@ static void fm1_main(void)
 #endif
     settings_init();
     lcd_init();
-    draw_text_box(0, 100, 240, &FONT_L, "FELUCCA", C_HI, 1);
-    draw_text_box(0, 130, 240, &FONT_S, "MULTI-ENGINE SYNTH", C_GRAY, 1);
+    lcd_fill(0, 0, 240, 240, T_BG);
+    draw_text_box(0, 94, 240, &AF_L, "FELUCCA", T_THEME, 1);
+    draw_text_box(0, 134, 240, &AF_S, "MULTI-ENGINE SYNTH", T_MID, 1);
     if (felucca_dbg.magic != DBG_MAGIC) {
         memset(&felucca_dbg, 0, sizeof felucca_dbg);
         felucca_dbg.magic = DBG_MAGIC;
     }
     felucca_dbg.boots++;
     felucca_dbg.max_us = 0;
+    felucca_dbg.in_audio = 0;                       /* .noinit: a reset inside the audio ISR left it set, and
+                                                       TIMER5 would treat every tick as nested (no USB poll) */
     felucca_dbg.prev_stage = felucca_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
     felucca_dbg.prev_page = felucca_dbg.page;
     felucca_dbg.prev_home = felucca_dbg.home;
@@ -134,7 +166,7 @@ static void fm1_main(void)
         settings_save();
     }
     fm1_delay_ms(400);
-    lcd_fill(0, 0, 240, 240, C_BLACK);
+    lcd_fill(0, 0, 240, 240, T_BG);
 
     for (;;) {
         uint32_t m = fm1_ms;
@@ -159,25 +191,27 @@ static void fm1_main(void)
             }
         }
         {   /* OCT- + OCT+ held 5 s: enter UBOOT with RAM intact (debug / update); a countdown
-             * shows from 2 s, letting go cancels it */
-            static uint32_t t0, shown;
+             * shows from 2 s over the whole screen (the menu and the dialogs too: ui_draw), letting
+             * go cancels it */
+            static uint32_t t0;
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if ((fm1_in.buttons & both) != both) {
-                if (shown)
-                    ui_say("UPDATE MODE ", "CANCELLED");
-                shown = 0;
+                if (ui.uboot) {
+                    ui.uboot = 0;
+                    ui.force = 1;                       /* what the countdown covered */
+                    ui_message("UPDATE CANCELLED");
+                }
                 t0 = fm1_ms;
             } else if (fm1_ms - t0 > 2000u && fm1_ms - t0 <= 5000u) {
                 uint32_t left = (5000u - (fm1_ms - t0) + 999u) / 1000u;
-                if (left != shown) {
-                    char d[4] = {(char)('0' + left), '.', '.', 0};
-                    ui_say("UPDATE MODE IN ", d);
-                    shown = left;
+                if (left != ui.uboot) {
+                    ui.uboot = (uint8_t)left;
+                    ui.force = 1;
                 }
             } else if (fm1_ms - t0 > 5000u) {
                 fm1_audio_stop();
-                lcd_fill(0, 0, 240, 240, C_BLACK);
-                draw_text_box(0, 110, 240, &FONT_S, "UBOOT", RGB(80, 120, 255), 1);
+                lcd_fill(0, 0, 240, 240, T_BG);
+                draw_text_box(0, 110, 240, &AF_M, "UBOOT", T_THEME, 1);
                 usb_detach();
                 fm1_delay_ms(30);
                 bootguard.pending = 0;                  /* intentional reset: not a failed boot */
@@ -192,14 +226,14 @@ static void fm1_main(void)
             panic_req = (1u << NTRK) - 1u;               /* every track (bit per track) */
             if (flash_ok)
                 ota_session();                          /* returns only if nothing was committed */
-            lcd_fill(0, 0, 240, 240, C_BLACK);
+            lcd_fill(0, 0, 240, 240, T_BG);
             ui.force = 1;
         }
 #endif
         if (usb.uboot_req) {                            /* SysEx F0 22 24 35 7D F7 from the host */
             fm1_audio_stop();
-            lcd_fill(0, 0, 240, 240, C_BLACK);
-            draw_text_box(0, 110, 240, &FONT_S, "UBOOT (USB)", C_WHITE, 1);
+            lcd_fill(0, 0, 240, 240, T_BG);
+            draw_text_box(0, 110, 240, &AF_M, "UBOOT (USB)", T_THEME, 1);
             fm1_delay_ms(20);
             usb_detach();
             fm1_delay_ms(30);
@@ -214,6 +248,7 @@ static void fm1_main(void)
         felucca_dbg.home = ui.home;
         felucca_dbg.stage = 1;
         ui_input();
+        settings_poll();                              /* queued settings save: only while stopped */
         felucca_dbg.stage = 2;
         ui_leds();
         ui_draw();

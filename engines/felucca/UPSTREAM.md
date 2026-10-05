@@ -2,7 +2,7 @@
 
 `upstream/` is part of [Felucca](https://github.com/hugelton/Felucca), Leo
 Kuroshita's firmware for the M-VAVE FM-1 (Hügelton Instruments), at
-**v0.9-beta** (commit `e5a908d0383848cd85149de6dc35150c792231fc`, 2026-10-03).
+**v1.0** (commit `727f272015da26eb2d0291bd652eba28ff57cb37`, 2026-10-05).
 It is GPL-3.0-only; see `upstream/LICENSE` and `upstream/LICENSING.md`. The
 author has agreed to its use in Virtual FM-1 under the GPL
 ([issue #1](https://github.com/hugelton/Felucca/issues/1)).
@@ -12,20 +12,23 @@ Copied unchanged:
 - `firmware/src/` and `firmware/hal/`: the DSP, sequencer and the rest of the
   firmware (the plugin builds only what Felucca's own host build builds)
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: Felucca's
-  regression (83 golden renders), run by ctest as `felucca_regress`
-- `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`: the generators
+  regression (87 golden renders), run by ctest as `felucca_regress`
+- `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`,
+  `gen_fm6_patches.py`: the generators
+- `LICENSE`, `LICENSING.md`, `LICENSES/`: its licences, and those of the
+  parts it takes from others (msfa in FM6, DaisySP and Rings in PHYS)
 
 `generated/` holds what Felucca's build generates and the plugin needs:
-`felucca_tables.h` and `felucca_samples.h` (the sample sets), made with
-`python3 tools/gen_tables.py` and `python3 tools/gen_samples.py` in a full
+`felucca_tables.h`, `felucca_fm6.h` (FM6's factory patches) and
+`felucca_samples.h` (the sample sets), made with `python3 tools/gen_tables.py`,
+`python3 tools/gen_fm6_patches.py` and `python3 tools/gen_samples.py` in a full
 checkout of that version (the samples need `assets/`, which is not copied).
 
 ## Samples
 
 `felucca_samples.h` includes the CC0 Versilian sets and the drum sounds that
-`tools/gen_waves.py` makes, which `LICENSING.md` calls the "Hügelton Sample
-Pack", all rights reserved. They are built in for now; whether a released
-plugin may carry them is still to be asked of the author.
+`tools/gen_waves.py` makes, the "Hügelton Sample Pack". Since 1.0 Felucca's
+`LICENSING.md` puts the Sample Pack under GPL-3.0-only with the rest.
 
 ## The plugin's side
 
@@ -34,9 +37,17 @@ plugin may carry them is still to be asked of the author.
   functions it needs from `ui.c` (not built: it needs the display), marked as
   such.
 - `FeluccaEngine` hands each plugin instance a copy of its own.
-- One known difference from the device: applying a preset does not load
-  its 16-step pattern into an empty sequencer (`load_pat16`), since the
-  plugin does not show Felucca's sequencer yet; add it when it does.
+- Felucca 1.0 has four parts and no separate drum track (DRUM is an engine,
+  on part 4 at power-on). Engine 1 (DIGITAL) is retired and not built
+  (`FELUCCA_FM4` 0): a DIGITAL sound arrives as FM6 with a converted patch,
+  as on the device, and the operator envelopes (`P_FM1_ATK` ..
+  `P_FM4_LEVEL`), which only DIGITAL reads, are neither shown nor automated.
+- FM6 keeps a patch per part. The plugin calls `fm6_poll` (Felucca's main
+  loop does) before each render, and saves each part's patch in the project,
+  as Felucca's own projects do.
+- One known difference from the device: the FM6 patch bank (PTCH B1..B27)
+  lives in the device's flash, which the plugin does not have yet, so those
+  PTCH values play the init voice.
 
 ## Updating
 

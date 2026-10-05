@@ -246,9 +246,7 @@ static void trio_sync(uint32_t w, uint32_t *php, uint32_t inc, int32_t g, const 
  * TUNE) that m->inc carries */
 static uint32_t trio_inc(int32_t pitch16, int32_t semi, int32_t ct, int32_t fine)
 {
-    int32_t d16 = ct * 16 / 100, rem = ct * 16 - d16 * 100;      /* rem: 1/1600 semitone */
-    uint32_t inc = PITCH_INC[clamp(pitch16 + semi * 16 + d16, 0, 2047)];
-    return inc + (uint32_t)((int32_t)(inc >> 12) * (rem * 2367 / 16000 + fine));
+    return cents_inc(pitch16 + semi * 16, ct, fine);
 }
 
 static void trio_note_on(track_t *t, voice_t *v)
@@ -273,7 +271,7 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     uint32_t w1 = ws->w[0], w2 = ws->w[1], w3 = ws->w[2], i;
     uint32_t ring = ws->flags & TRIO_RING, sync = ws->flags & TRIO_SYNC;
     int32_t g1 = ws->g[0], g2 = ws->g[1], g3 = ws->g[2];
-    uint32_t base = PITCH_INC[m->pitch16];
+    uint32_t base = pitch_inc(m->pitch16);
     int32_t fine = (base >> 12) ? (int32_t)(m->inc - base) / (int32_t)(base >> 12) : 0;
     uint32_t inc1 = m->inc;
     uint32_t inc2 = trio_inc(m->pitch16, p[P_E1], p[P_E3], fine);
@@ -283,7 +281,8 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     uint32_t mode = (uint32_t)p[P_E4] & 3u;
     int32_t reso = p[P_E6], k = 8192 - reso * 7168 / 127; /* damping 2.0 .. 0.25 (Q12): no self-oscillation */
     int32_t ma = TRIO_MIX[mode][0], mb = TRIO_MIX[mode][1], mc = TRIO_MIX[mode][2];
-    int32_t a1, a2, a3, g, cut, cur;
+    int32_t a1, a2, a3, cut, cur;
+    tsvf_t flt;
     int32_t mix[CTL], cr[CTL + 1];                      /* blocks are CTL long (dsp.c amp_at) */
     int16_t wx[CTL];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2], ph3s = ph2;   /* state in locals: out[] may alias v->s[] */
@@ -298,12 +297,10 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     /* the cutoff wanders a little, once per block (the slightly unstable filter of the chips) */
     drift += (((int32_t)(noise32(&nst) >> 22) - 512) - drift) >> 3;
     cut = clamp((p[P_E5] << 8) + m->cutoff + drift, 0, 127 << 8);
-    g = SVF_G[cut >> 8];
-    if ((cut >> 8) < 127)
-        g += ((SVF_G[(cut >> 8) + 1] - g) * (cut & 255)) >> 8;
-    a1 = (int32_t)((4096u << 13) / (uint32_t)(4096 + ((g * (g + k)) >> 12)));
-    a2 = (a1 * g) >> 12;
-    a3 = (a2 * g) >> 12;
+    tsvf_coef_k(&flt, cut, k);
+    a1 = flt.a1;
+    a2 = flt.a2;
+    a3 = flt.a3;
     for (i = 0; i < n; i++) {
         mix[i] = cr[i] = 0;
         wx[i] = -1;
@@ -322,12 +319,7 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     for (i = 0; i < n; i++) {
         int32_t x = cur + cr[i], y, v1, v2, v3, a;     /* one sample late: its corrections are complete */
         cur = mix[i];
-        a = x < 0 ? -x : x;                             /* the input saturates above 16000 (soft knee) */
-        if (a > 16000) {
-            a = 16000 + (softclip((a - 16000) * 2) >> 1);
-            x = x < 0 ? -a : a;
-        }
-        x >>= 1;
+        x = soft_knee(x, 16000) >> 1;                   /* the input saturates above 16000 */
         /* SVF (dsp.c tsvf_lp, with the band-pass out); the band-pass state is compressed */
         v3 = x - ic2;
         v1 = (a1 * ic1 + a2 * v3) >> 13;
@@ -336,13 +328,8 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         ic2 = clamp(2 * v2 - ic2, -150000, 150000);
         a = clamp(ic1, -49152, 49152);                  /* beyond +-49152 a quarter of the excess */
         ic1 = a + ((ic1 - a) >> 2);
-        y = (x * ma + v1 * mb + v2 * mc) >> 10;
-        a = y < 0 ? -y : y;                             /* linear up to half scale, then a soft knee */
-        if (a > 16000) {
-            a = 16000 + (softclip((a - 16000) * 2) >> 1);
-            y = y < 0 ? -a : a;
-        }
-        out[i] += mulq15(mulq15(y << 1, amp_at(m, i)), VOICE_FS) << 1;
+        y = soft_knee((x * ma + v1 * mb + v2 * mc) >> 10, 16000);   /* linear up to half scale */
+        out[i] += voice_amp(y << 1, m, i) << 1;
     }
     prev = cur + cr[n];
     v->ph[0] = ph0;
@@ -359,15 +346,16 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
 static const preset_t TRIO_PRESETS[] = {
     /* name, {WAVE, INT2, INT3, DTN, MODE, CUT, RES, PW}, {A D S R}, fenv, mono */
     {"FAT BASS", {0, 0, -12, 9, 0, 62, 45, 64}, {0, 62, 60, 25}, 40, 1, FX(10, 0, 10, 10), PAT(2)},
-    {"ARP LEAD", {2, 12, 0, 4, 0, 88, 25, 32}, {0, 60, 90, 30}, 8, 0, FX(0, 0, 35, 20), ARP(1, 3, 2, 45), PAT(4)},
+    {"ARP LEAD", {2, 12, 0, 4, 0, 88, 25, 32}, {0, 60, 90, 30}, 8, 0, FX(0, 0, 35, 20), PAT(13)},
     {"SYNC LEAD", {9, 9, 0, 0, 0, 82, 30, 64}, {2, 70, 100, 40}, 18, 1, FX(0, 10, 40, 25), PAT(4)},
     {"RING BELL", {13, 0, 18, 6, 1, 96, 30, 64}, {0, 92, 0, 80}, 0, 0, FX(0, 20, 35, 55), PAT(7)},
     {"CHIP CHOIR", {1, 0, 12, 7, 1, 62, 95, 40}, {70, 90, 110, 85}, 30, 0, FX(0, 50, 20, 65), PAT(5)},
 };
 
 static const engine_t ENG_TRIO = {
-    "TRIO", {"OSC", "TONE"},
-    {
+    .name = "TRIO",
+    .page_title = {"OSC", "TONE"},
+    .edit = {
         {"WAVE", F_ENUM, 0, 15, 0, N_TRIO_WAVE, 0},
         {"INT2", F_SEMI, -24, 24, 0, 0, 0},
         {"INT3", F_SEMI, -24, 24, -12, 0, 0},
@@ -377,6 +365,9 @@ static const engine_t ENG_TRIO = {
         {"RES", F_PCT, 0, 127, 40, 0, 0},
         {"PW", F_PCT, 0, 127, 64, 0, 0},
     },
-    TRIO_PRESETS, sizeof(TRIO_PRESETS) / sizeof(TRIO_PRESETS[0]), 1, trio_note_on, trio_render,
-    0xFFE0, {P_E5, P_E6, P_E7, P_E1},
+    .presets = TRIO_PRESETS,
+    .npresets = NELEM(TRIO_PRESETS),
+    .note_on = trio_note_on,
+    .render = trio_render,
+    .knob = {P_E5, P_E6, P_E7, P_E1},
 };

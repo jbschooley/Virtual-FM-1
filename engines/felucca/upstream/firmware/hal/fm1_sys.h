@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM-1 system HAL: P33 access, watchdog, reset reason, reboot / UBOOT entry.
- * Call with interrupts off so nothing else touches P33.
+/* FM-1 system HAL: P33 access, watchdog, reset reason, reboot / UBOOT entry
+ * No vendor code; call with interrupts off
+ * (no IRQs are enabled yet, so nothing else touches P33).
  *
  *   fm1_reset_reason()   snapshot P3_RST_SRC / RST_SRC (call first thing)
  *   fm1_wdt_arm(t)       reset-mode watchdog, t = 0xA 1 s .. 0xF 32 s
@@ -46,7 +47,7 @@ static uint8_t fm1__p33_xfer(uint8_t b)
 static void fm1__p33_cs(uint32_t a)
 {
     if (a & 0x8000u) {
-        FM1_P33_CON |= (1u << 0) | (1u << 8);    /* R3 (RTC) domain */
+        FM1_P33_CON |= (1u << 0) | (1u << 8);    /* RTC domain */
     } else {
         FM1_P33_CON &= ~(1u << 8);
         FM1_P33_CON |= 1u << 0;

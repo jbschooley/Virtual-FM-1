@@ -7,7 +7,7 @@
  * .ram_text and touches only SFRs, the stack and RAM buffers: no .rodata, no
  * libcalls, no XIP-resident helpers. Call the fl_*_ram() entry points with
  * interrupts disabled. Same sequence as the AC79 SDK flash driver
- * (enter_spi_code, norflash_erase, norflash_wait_ok, exit_spi_code).
+ * (cpu.a/vm_sfc.c.o: enter_spi_code, norflash_erase, norflash_wait_ok, exit_spi_code).
  */
 #pragma once
 #include <stdint.h>

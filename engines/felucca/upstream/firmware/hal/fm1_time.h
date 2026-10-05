@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 time base: TIMER4 free-running from the 24 MHz crystal.
+ * Measured on hardware: under mask-ROM UBOOT the crystal runs and TIMER4 counts
+ * 24 MHz, matching the host's measurement of the same interval to 0.3 %.
  * TIMER4 is not used by the ROM or the SPL. No interrupts, no ROM calls.
  *
  * JL_TIMER4 = 0x10800: CON [1:0]=1 run, [3:2]=2 OSC source, [7:4]=0 /1,

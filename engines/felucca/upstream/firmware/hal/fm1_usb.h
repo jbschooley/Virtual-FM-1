@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM-1 USB0 full-speed device controller, register level only.
+/* FM-1 USB0 full-speed device controller, register level only
  * The protocol (descriptors, EP0 requests,
  * MIDI / CDC / SysEx) is the driver src/usb.c, shared with the update loader
  * and the host tests; this header is every USB register access it makes.
@@ -12,6 +12,8 @@
  *   EP DMA:                fm1_usb_ep0_buf, fm1_usb_ep_txbuf / _rxbuf,
  *                          fm1_usb_ep0_send / fm1_usb_ep_send (csync first),
  *                          fm1_usb_rx_sync (ssync before reading an RX buffer)
+ *   EP4 (own slots): fm1_usb_ep4_txbuf, fm1_usb_ep4_send (csync first);
+ *                          isochronous mode is TXCSR2 bit 6 through the SIE (usb.c)
  *   fm1_usb_ep_enable(m)   CON0 &= ~(m << 19), m = bit per endpoint
  *   fm1_usb_sof_take()     SOF pending -> clear, 1
  * No IRQ: everything is polled (usb_poll from the TIMER5 ISR). */
@@ -25,6 +27,8 @@
 #define FM1_USB_EP0_ADR (*(volatile uint32_t *)0x11818u)
 #define FM1_USB_EP_TADR(n) (*(volatile uint32_t *)(0x1181Cu + 8u * ((n) - 1u)))  /* EP1..3 */
 #define FM1_USB_EP_RADR(n) (*(volatile uint32_t *)(0x11820u + 8u * ((n) - 1u)))  /* EP1..3 */
+#define FM1_USB_EP4_CNT (*(volatile uint32_t *)0x11834u)
+#define FM1_USB_EP4_TADR (*(volatile uint32_t *)0x11838u)
 #define FM1_USB_EP4_RADR (*(volatile uint32_t *)0x1183Cu)
 #define FM1_USB_IO_CON0 (*(volatile uint32_t *)0x51000u)
 #define FM1_CLK_CON1 (*(volatile uint32_t *)0x10010u)
@@ -90,6 +94,16 @@ FM1_INLINE void fm1_usb_ep_send(uint32_t ep, void *p, uint32_t n)
     __asm__ volatile("csync" ::: "memory");
     FM1_USB_EP_TADR(ep) = (uint32_t)(uintptr_t)p;
     FM1_USB_EP_CNT(ep) = n;
+}
+/* EP4 IN (the USB audio stream, isochronous): its DMA address and count have their own
+ * registers (SDK usb_set_dma_taddr / usb_write_ep_cnt, id 0, ep 4) */
+FM1_INLINE void fm1_usb_ep4_txbuf(void *p) { FM1_USB_EP4_TADR = (uint32_t)(uintptr_t)p; }
+FM1_INLINE void fm1_usb_ep4_send(void *p, uint32_t n)
+{
+    __asm__ volatile("csync" ::: "memory");
+    FM1_USB_EP4_TADR = (uint32_t)(uintptr_t)p;
+    FM1_USB_EP4_CNT = n;
+    __asm__ volatile("csync" ::: "memory");
 }
 FM1_INLINE void fm1_usb_rx_sync(void) { __asm__ volatile("ssync" ::: "memory"); }
 

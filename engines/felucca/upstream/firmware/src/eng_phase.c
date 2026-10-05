@@ -130,14 +130,15 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     int32_t depth = (p[P_E2] << 8) + m->cutoff + mulq15(m->envq15, p[P_E3] * 256);
     uint32_t dcw, inc = m->inc, inc2;
     int32_t det = p[P_E4], line2 = det != 0 || p[P_E5], ring = p[P_E5], sub = p[P_E6] * 200;
-    int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;
+    int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;   /* (cents_inc(), written out: the host
+                                                                 * compiler makes the loop slower with it) */
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2];
     int32_t tg0 = v->s[0], tg1 = v->s[1];                    /* WAVE / WAVE2 toggles */
     pd_t b1, b2;
     depth = clamp(depth + (m->shape - (64 << 8)), 0, 127 << 8);
     dcw = (uint32_t)depth * 65535u / (127u << 8);
     dcw = (dcw * 56000u) >> 16;                              /* the classic range of the bend */
-    inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
+    inc2 = pitch_inc(clamp(m->pitch16 + d16, 0, 2047));
     inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
     pd_setup(&b1, w1, dcw);
     pd_setup(&b2, w2 ? w2 - 1u : w1, dcw);                   /* WAVE2 (every other cycle) */
@@ -160,7 +161,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
             ph2 += inc >> 1;
             s += mulq15(osc_sine(ph2), sub);
         }
-        out[i] += mulq15(mulq15(s, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(s, m, i) << 1;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;
@@ -180,8 +181,9 @@ static const preset_t PHASE_PRESETS[] = {
 };
 
 static const engine_t ENG_PHASE = {
-    "PHASE", {"PHS", "LINE"},
-    {
+    .name = "PHASE",
+    .page_title = {"PHS", "LINE"},
+    .edit = {
         {"WAVE", F_ENUM, 0, 7, 0, N_PD_WAVE, 0},
         {"WAVE2", F_ENUM, 0, 8, 0, N_PD_WAVE2, 0},
         {"DCW", F_PCT, 0, 127, 60, 0, 0},
@@ -191,6 +193,9 @@ static const engine_t ENG_PHASE = {
         {"SUB", F_PCT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
-    PHASE_PRESETS, sizeof(PHASE_PRESETS) / sizeof(PHASE_PRESETS[0]), 0, phase_note_on, phase_render,
-    0x05DF, {P_E2, P_E3, P_E4, P_REL},
+    .presets = PHASE_PRESETS,
+    .npresets = NELEM(PHASE_PRESETS),
+    .note_on = phase_note_on,
+    .render = phase_render,
+    .knob = {P_E2, P_E3, P_E4, P_REL},
 };

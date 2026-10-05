@@ -124,7 +124,7 @@ def drum_cowbell():
 
 
 def drum_metal_hat(decay):
-    """808-style hat: six detuned squares + a little noise, band-passed, short"""
+    """metallic hat: six detuned squares + a little noise, band-passed, short"""
     fr = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0]
     out, ph, lp, hp = [], [0.0] * 6, 0.0, 0.0
     for i in range(int(decay * 5 * SR)):
@@ -143,7 +143,7 @@ def drum_metal_hat(decay):
 
 
 def drum_cymbal(decay, bell):
-    """noise + six inharmonic square partials (the 808 trick), high-passed"""
+    """noise + six inharmonic square partials (those of drum_metal_hat), high-passed"""
     fr = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0]
     out, hp, hp2, ph = [], 0.0, 0.0, [0.0] * 6
     for i in range(int(decay * 4 * SR)):
@@ -191,7 +191,7 @@ def main(outdir):
            ("COWBELL", drum_cowbell()), ("CRASH", drum_cymbal(0.25, False)), ("RIDE", drum_cymbal(0.3, True))]
     for name, s in kit:
         write_wav(out / f"D {name}.wav", norm(s), SR)
-    for note, f in (("C2", 65.41), ("C3", 130.81), ("C4", 261.63)):    # E-mu naming: C3 = MIDI 60
+    for note, f in (("C2", 65.41), ("C3", 130.81), ("C4", 261.63)):    # note names: C3 = MIDI 60
         write_wav(out / f"P PLUCK {note}.wav", norm(pluck(f * 2)), SR)
     print(f"generated waves into {out}")
 

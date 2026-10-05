@@ -1,6 +1,7 @@
 // felucca_test -- Felucca's engines as the plugin drives them (engines/felucca/FeluccaEngine):
 // the pool of compiled copies, sound, independence of instances, parameters, engines, presets.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -61,14 +62,19 @@ int main() {
 
     // ---- what it is ----
     FeluccaEngine a;
-    CHECK(a.tracks() == 4 && a.parts() == 3, "three parts and a drum track");
-    CHECK(a.engines() == 9, "nine engines");
-    CHECK(a.engineName(0) == "ANALOG" && a.engineName(1) == "DIGITAL", "engines by name");
-    CHECK(a.presetNames(0).size() == 12, "ANALOG has 12 presets");
+    CHECK(a.tracks() == 4 && a.parts() == 4, "four parts");
+    CHECK(a.engines() == 14, "fourteen engine numbers");
+    const int fm6 = a.fm6Engine();
+    CHECK(a.engineName(0) == "ANALOG" && a.engineName(fm6) == "FM6", "engines by name");
+    const auto shown = a.enginesShown();
+    CHECK(shown.size() == 13 && shown[0] == 0 && shown[1] == fm6 && std::find(shown.begin(), shown.end(), 1) == shown.end(),
+          "thirteen to pick, in Felucca's order, never DIGITAL's retired number");
     std::printf("  engines:");
-    for (int e = 0; e < a.engines(); ++e) std::printf(" %s(%zu)", a.engineName(e).c_str(), a.presetNames(e).size());
+    for (int e : shown) std::printf(" %s(%zu)", a.engineName(e).c_str(), a.presetNames(e).size());
     std::printf("\n");
-    CHECK(a.engineOf(0) == 0 && a.engineOf(1) == 1 && a.engineOf(2) == 3, "power-on: ANALOG, DIGITAL, LOFI");
+    CHECK(!a.presetNames(0).empty(), "ANALOG has presets");
+    CHECK(a.engineOf(0) == 0 && a.engineOf(1) == fm6 && a.engineOf(2) == 3 && a.engineName(a.engineOf(3)) == "DRUM",
+          "power-on: ANALOG, FM6, LOFI, DRUM");
 
     // ---- sound ----
     double rms = 0;
@@ -129,18 +135,19 @@ int main() {
     {
         FeluccaEngine f;
         const int pe0 = f.firstEngineParam();
-        CHECK(f.paramCount() == 57 && pe0 == 49 && f.globalCount() == 27, "57 parameters per track, 8 of them the engine's; 27 globals");
+        CHECK(f.paramCount() == 91 && pe0 == 83 && f.globalCount() == 27, "91 parameters per track, 8 of them the engine's; 27 globals");
         auto lvl = f.paramDesc(0, 0);
         CHECK(lvl.label == "LVL" || lvl.label == "LEVEL", "the first track parameter is the level");
         f.setParam(0, 0, lvl.max + 50);
         CHECK(f.param(0, 0) == lvl.max, "values are kept in range");
         auto e0 = f.paramDesc(0, pe0);
-        f.setEngine(0, 1);
+        f.setEngine(0, f.fm6Engine());
         auto e1 = f.paramDesc(0, pe0);
-        CHECK(f.engineOf(0) == 1, "the engine switches");
+        CHECK(f.engineOf(0) == f.fm6Engine(), "the engine switches");
         CHECK(e0.label != e1.label, "and the engine parameters' names follow it");
-        std::printf("  engine parameter 1: %s on ANALOG, %s on DIGITAL\n", e0.label.c_str(), e1.label.c_str());
-        auto names = f.presetNames(1);
+        std::printf("  engine parameter 1: %s on ANALOG, %s on FM6\n", e0.label.c_str(), e1.label.c_str());
+        f.setEngine(1, 1);
+        CHECK(f.engineOf(1) == f.fm6Engine(), "DIGITAL (retired) arrives as FM6, as on the device");
         f.applyPreset(0, 2);
         CHECK(f.presetOf(0) == 2, "a preset applies");
         auto bpm = f.globalDesc(0);
@@ -149,6 +156,40 @@ int main() {
         int enums = 0;
         for (int id = 0; id < f.paramCount(); ++id) if (!f.paramDesc(0, id).names.empty()) ++enums;
         CHECK(enums > 5, "list parameters carry their value names");
+    }
+
+    // ---- SAMPLE's retired preset plays as the one it stands for ----
+    {
+        FeluccaEngine f;
+        int sample = -1;
+        for (int e : f.enginesShown()) if (f.engineName(e) == "SAMPLE") sample = e;
+        CHECK(sample >= 0, "there is a SAMPLE engine");
+        if (sample >= 0) {
+            const auto names = f.presetNames(sample);
+            CHECK(names.size() > 1 && names[1].empty() && !names[0].empty(), "its preset 1 is an alias, not offered");
+            f.setEngine(0, sample);
+            f.applyPreset(0, 1);
+            CHECK(f.presetOf(0) == 0, "and loads as preset 0");
+        }
+    }
+
+    // ---- FM6's patch: read, written, and kept over PTCH's slot ----
+    {
+        FeluccaEngine f;
+        const int fm6 = f.fm6Engine();
+        CHECK(f.engineOf(1) == fm6, "part 2 plays FM6");
+        auto patch = f.fm6Patch(1);
+        const auto factory = patch;
+        for (int i = 145; i < 155; ++i) patch[size_t(i)] = uint8_t('A' + (i - 145));   // VCED's name
+        patch[134] = uint8_t((patch[134] + 5) % 32);                                       // the algorithm
+        f.setFm6Patch(1, patch);
+        CHECK(f.fm6Patch(1) == patch, "a patch set reads back");
+        std::vector<float> l(256), r(256);
+        f.render(l.data(), r.data(), 256);   // Felucca's main loop would load PTCH's slot if it disagreed
+        CHECK(f.fm6Patch(1) == patch && patch != factory, "and stays: PTCH's slot does not replace it");
+        f.applyPreset(1, 1);
+        f.render(l.data(), r.data(), 256);
+        CHECK(f.fm6Patch(1) != patch, "a preset brings its own patch");
     }
 
     // ---- a copy given back is as good as new ----

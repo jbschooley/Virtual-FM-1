@@ -415,7 +415,7 @@ static void grain_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     lp = 4000 + ((clamp((p[P_E7] << 8) + m->cutoff, 0, 127 << 8) * 28767) >> 15);
     for (i = 0; i < n; i++) {
         y += mulq15(clamp(acc[i], -65535, 65535) - y, lp);
-        out[i] += mulq15(mulq15(y, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(y, m, i) << 1;
     }
     v->s[2] = y;
 }
@@ -425,12 +425,13 @@ static const preset_t GRAIN_PRESETS[] = {
     {"CLOUD PAD", {2, 50, 92, 88, 0, 40, 14, 100}, {70, 90, 120, 90}, 0, 0, FX(0, 40, 25, 85), PAT(5)},
     {"GLITCH", {3, 64, 24, 112, 0, 100, 90, 127}, {0, 70, 100, 30}, 0, 0, FX(10, 0, 50, 25), PAT(4)},
     {"FROZEN", {0, 40, 108, 72, 0, 0, 10, 92}, {50, 100, 127, 100}, 0, 0, FX(0, 30, 20, 95), PAT(5)},
-    {"SHIMMER", {1, 30, 70, 100, 12, 30, 24, 110}, {30, 90, 110, 90}, 0, 0, FX(0, 50, 40, 90), PAT(7)},
+    {"SHIMMER", {0, 30, 70, 100, 12, 30, 24, 110}, {30, 90, 110, 90}, 0, 0, FX(0, 50, 40, 90), PAT(7)},
 };
 
 static const engine_t ENG_GRAIN = {
-    "GRAIN", {"GRAN", "SPRY"},
-    {
+    .name = "GRAIN",
+    .page_title = {"GRAN", "SPRY"},
+    .edit = {
         {"SRC", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
         {"POS", F_PCT, 0, 127, 32, 0, 0},
         {"SIZE", F_PCT, 0, 127, 80, 0, 0},
@@ -440,6 +441,11 @@ static const engine_t ENG_GRAIN = {
         {"RAND", F_PCT, 0, 127, 10, 0, 0},
         {"TONE", F_PCT, 0, 127, 127, 0, 0},
     },
-    GRAIN_PRESETS, sizeof(GRAIN_PRESETS) / sizeof(GRAIN_PRESETS[0]), 1, grain_note_on, grain_render,
-    0x87F0, {P_E1, P_E2, P_E3, P_E5}, GR_POLY, 0, 0, grain_block,
+    .presets = GRAIN_PRESETS,
+    .npresets = NELEM(GRAIN_PRESETS),
+    .note_on = grain_note_on,
+    .render = grain_render,
+    .knob = {P_E1, P_E2, P_E3, P_E5},
+    .poly = GR_POLY,
+    .block = grain_block,
 };

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* DRAWBAR: a tonewheel-style additive organ. Felucca's own design.
+/* WHEEL: a tonewheel-style additive organ. Felucca's own design.
  *
  * Partials: nine sines per voice at the classic drawbar footages, 16' 5 1/3' 8' 4' 2 2/3' 2'
  * 1 3/5' 1 1/3' 1' (0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 times the note), each with a level 0..8
@@ -91,7 +91,7 @@ static const int32_t DRW_ROT_SPD[2][3] = {
     {0, DRW_HZ(0.7), DRW_HZ(5.8)},   /* low rotor */
 };
 
-typedef struct {                 /* per part, once per block (drawbar_block) */
+typedef struct {                 /* per part, once per block (wheel_block) */
     int32_t g[DRW_NP];           /* bar gains, Q15, normalised */
     int32_t pk, plev;            /* percussion: partial (DRW_NP = off), level Q15 */
     uint32_t pdec;               /* its decay per block, Q16 */
@@ -127,7 +127,7 @@ static int32_t drw_level(const int16_t *p, uint32_t k)
 }
 
 /* once per block, before the voices: bar gains, percussion, click, drive, the rotors */
-static void drawbar_block(track_t *t)
+static void wheel_block(track_t *t)
 {
     drw_trk_t *T = &drw_t[drw_part(t)];
     const int16_t *p = t->p;
@@ -174,7 +174,7 @@ static void drawbar_block(track_t *t)
     }
 }
 
-static void drawbar_note_on(track_t *t, voice_t *v)
+static void wheel_note_on(track_t *t, voice_t *v)
 {
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, k, held = 0;
     drw_vc_t *V = &drw_v[drw_part(t)][vi];
@@ -193,7 +193,7 @@ static void drawbar_note_on(track_t *t, voice_t *v)
     V->gate = 1;
 }
 
-static void drawbar_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const drw_trk_t *T = &drw_t[drw_part(t)];
     drw_vc_t *V = &drw_v[drw_part(t)][(uint32_t)(v - t->v) % NVOICE];
@@ -263,10 +263,10 @@ static void drawbar_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, con
             acc[i] = (softclip((acc[i] * dg) >> 9) * dcomp) >> 8;
     }
     for (i = 0; i < n; i++)                             /* acc: Q15 with headroom to 4.0 */
-        out[i] += mulq15(mulq15(acc[i] >> 1, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(acc[i] >> 1, m, i) << 1;
 }
 
-static const preset_t DRAWBAR_PRESETS[] = {
+static const preset_t WHEEL_PRESETS[] = {
     /* name, {REG, SUB, BODY, TOP, PERC, CLICK, DRIVE, ROTR}, {A D S R}, fenv, mono */
     {"FULL ORGAN", {15, 0, 0, 0, 0, 30, 20, 1}, {0, 64, 127, 45}, 0, 0, FX(0, 0, 10, 35), PAT(5)},
     {"JAZZ PERC", {4, 0, 0, 0, 2, 50, 8, 1}, {0, 64, 127, 40}, 0, 0, FX(0, 0, 0, 25), PAT(3)},
@@ -275,9 +275,10 @@ static const preset_t DRAWBAR_PRESETS[] = {
     {"ROCK DRIVE", {7, 0, 0, 0, 0, 70, 100, 2}, {0, 64, 127, 40}, 0, 0, FX(35, 0, 10, 25), PAT(4)},
 };
 
-static const engine_t ENG_DRAWBAR = {
-    "WHEEL", {"BARS", "TONE"},
-    {
+static const engine_t ENG_WHEEL = {
+    .name = "WHEEL",
+    .page_title = {"BARS", "TONE"},
+    .edit = {
         {"REG", F_ENUM, 0, 15, 4, N_DRW_REG, 0},
         {"SUB", F_INT, -8, 8, 0, 0, 0},
         {"BODY", F_INT, -8, 8, 0, 0, 0},
@@ -287,6 +288,10 @@ static const engine_t ENG_DRAWBAR = {
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"ROTR", F_ENUM, 0, 2, 1, N_DRW_ROTR, 0},
     },
-    DRAWBAR_PRESETS, sizeof(DRAWBAR_PRESETS) / sizeof(DRAWBAR_PRESETS[0]), -1, drawbar_note_on, drawbar_render,
-    0xBC1F, {P_E0, P_E4, P_E6, P_E7}, 0, 0, 0, drawbar_block,
+    .presets = WHEEL_PRESETS,
+    .npresets = NELEM(WHEEL_PRESETS),
+    .note_on = wheel_note_on,
+    .render = wheel_render,
+    .knob = {P_E0, P_E4, P_E6, P_E7},
+    .block = wheel_block,
 };

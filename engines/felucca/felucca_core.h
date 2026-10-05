@@ -49,6 +49,11 @@ typedef struct {
     X(uint32_t, preset_of, (uint32_t track))                                     \
     X(void, set_engine, (uint32_t track, uint32_t e))                            \
     X(void, apply_preset, (uint32_t track, uint32_t pi))                         \
+    X(uint32_t, engines_shown, (void))                                           \
+    X(uint32_t, engine_shown, (uint32_t n))                                      \
+    X(uint32_t, fm6_engine, (void))                                              \
+    X(void, fm6_patch_get, (uint32_t track, uint8_t *v155))                      \
+    X(void, fm6_patch_set, (uint32_t track, const uint8_t *v155))                \
     X(void, midi, (uint32_t usbMidiPacket))                                      \
     X(void, render, (int32_t *interleavedStereo, uint32_t frames))
 

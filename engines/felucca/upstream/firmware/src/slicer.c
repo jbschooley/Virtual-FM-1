@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICER: a per-track insert, a tempo-synced 16-step gate / stutter. It works on the track's dry
  * mono signal after DIST and before LEVEL / PAN / the sends (fx.c mix_part), so the sends follow
- * the chopped sound; on the drum track before its pan and reverb send (slicer_drums).
+ * the chopped sound.
  *   P_SLCR    OFF / GATE / STUT
  *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
@@ -59,7 +59,7 @@ typedef struct {
     uint8_t rec_on;              /* recording this step */
 } sl_t;
 static sl_t sl[NTRK];
-static int32_t sl_dbuf[CTL];     /* the drum track's dry mono signal (slicer_drums) */
+static uint8_t sl_lent;          /* perform.c has borrowed sl_buf: STUT plays live, records nothing */
 
 static void slicer_start(void)   /* seq_start: the next block starts step 0 of every track */
 {
@@ -76,17 +76,15 @@ static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_S
 static void sl_enter(const track_t *t, sl_t *s)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
-    int32_t sw;
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
-    sw = (t->p[P_SSWING] + song.g[G_SWING]) * (int32_t)s->base / 250;   /* as seq.c step_samples */
-    s->len = s->base + (uint32_t)((s->idx & 1u) ? -sw : sw);
+    s->len = swing_step_len(t, s->base, s->idx);   /* core.h, as seq.c step_samples */
     s->pos = 0;
     s->bit = (uint8_t)((sl_pattern(t) >> s->idx) & 1u);
     s->rp = 0;
     s->loop = 0;
     s->rec_on = 0;
-    if (mode != SL_STUT) {
+    if (mode != SL_STUT || sl_lent) {
         s->rec = 0;                                 /* nothing old to repeat when STUT comes on */
     } else if (s->bit) {
         s->rec = 0;                                 /* a live step: record it */
@@ -171,32 +169,4 @@ static int slicer_busy(const track_t *t)
 {
     const sl_t *s = &sl[t - trk];
     return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
-}
-
-/* the drum track: as drums_render, through the SLICER when it is on (or still fading) */
-static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
-{
-    const track_t *t = TDRUM;
-    const sl_t *s = &sl[TRK_DRUM];
-    uint32_t i;
-    if (t->p[P_SLCR] == SL_OFF && !s->gc && !s->w) {
-        slicer_track(t, 0, n);
-        drums_render(ml, mr, rev, n);
-        return;
-    }
-    for (i = 0; i < n; i++)
-        sl_dbuf[i] = 0;
-    drums_render_mono(sl_dbuf, n);
-    slicer_track(t, sl_dbuf, n);
-    {
-        int32_t send = song.g[G_DRREV] * 258, pan = t->p[P_PAN];
-        int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
-        for (i = 0; i < n; i++) {
-            int32_t x = sl_dbuf[i];
-            ml[i] += (x * gl) >> 12;
-            mr[i] += (x * gr) >> 12;
-            if (send)
-                rev[i] += mulq15(x, send);
-        }
-    }
 }

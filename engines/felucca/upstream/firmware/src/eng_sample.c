@@ -29,7 +29,7 @@ static const int8_t IMA_IDX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
 static uint32_t pow2_q16(int32_t d16)
 {
     uint32_t u = (uint32_t)(d16 + 192 * 16), oct = u / 192u;     /* no loop for negative d16 */
-    uint32_t r = PITCH_INC[1600 + u % 192u] / (PITCH_INC[1600] >> 16);   /* 2^(d/192) via the pitch table */
+    uint32_t r = pitch_inc(1600 + u % 192u) / (pitch_inc(1600) >> 16);   /* 2^(d/192) via the pitch table */
     return oct >= 16u ? r << (oct - 16u) : r >> (16u - oct);
 }
 
@@ -125,18 +125,27 @@ static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 
 static void sample_note_on(track_t *t, voice_t *v)
 {
-    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu;
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu, width = 128u;
     if (si < SMP_NSETS) {
         const smp_set_t *set = &SMP_SETS[si];
-        for (i = 0; i < set->nz; i++)
-            if (v->note >= SMP_ZONES[set->z0 + i].lo && v->note <= SMP_ZONES[set->z0 + i].hi)
+        for (i = 0; i < set->nz; i++) {
+            const smp_zone_t *z = &SMP_ZONES[set->z0 + i];
+            /* A single-note hat/cymbal takes precedence over a broad tom zone. */
+            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
                 zi = set->z0 + i;
+                width = z->hi - z->lo;
+            }
+        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? set->z0 : zi);
     } else {                                        /* user slot: silent if empty */
         uint32_t k = si - SMP_NSETS;
-        for (i = 0; i < usr_nz[k]; i++)
-            if (v->note >= usr_zone[k][i].lo && v->note <= usr_zone[k][i].hi)
+        for (i = 0; i < usr_nz[k]; i++) {
+            const smp_zone_t *z = &usr_zone[k][i];
+            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
                 zi = 0x8000u | k << 5 | i;
+                width = z->hi - z->lo;
+            }
+        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? 0 : zi);
     }
     v->ph[0] = 0;
@@ -172,6 +181,10 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
             if (v->ph[0] >= z->n) {                   /* one-shot reached its end */
                 v->s[6] = 1;
                 v->s[3] = 0;
+                if (frac >= 65536u) {                /* past the last sample-to-zero interval */
+                    v->s[2] = 0;
+                    frac &= 65535u;
+                }
                 break;
             }
             v->s[3] = sample_next(z, v, p[P_E3]);
@@ -182,17 +195,39 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
         if (drv)
             s = softclip(s + (((s >> 2) * (drv * 150)) >> 11));   /* = s * drv * 600 / 32768, no overflow */
         v->s[7] += mulq15(s - v->s[7], lp);           /* gentle tone control (CUT) */
-        out[i] += mulq15(mulq15(v->s[7], amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(v->s[7], m, i) << 1;
         if (v->s[6])
             break;
     }
     v->ph[1] = frac;
 }
 
+/* SMP_SETS index of "PERC", the GM-mapped kit (tools/gen_samples.py GM_KIT), -1 = none */
+static int32_t smp_perc_set(void)
+{
+    static int16_t set = -2;
+    uint32_t i;
+    if (set == -2) {
+        set = -1;
+        for (i = 0; i < SMP_NSETS; i++)
+            if (str_eq(SMP_SETS[i].name, "PERC"))
+                set = (int16_t)i;
+    }
+    return set;
+}
+
+/* the GM kit (PERC): the first C (key 7) is the kick (C2), no scale */
+static int32_t sample_keys(const track_t *t, uint32_t k)
+{
+    if (smp_perc_set() < 0 || (uint32_t)t->p[P_E0] % SMP_NALL != (uint32_t)smp_perc_set())
+        return -1;
+    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
+}
 
 static const engine_t ENG_SAMPLE = {
-    "SAMPLE", {"SET", "TONE"},
-    {
+    .name = "SAMPLE",
+    .page_title = {"SET", "TONE"},
+    .edit = {
         {"SET", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
         {"TUNE", F_SEMI, -24, 24, 0, 0, 0},
         {"BITS", F_INT, 0, 127, 0, 0, 0},
@@ -202,6 +237,11 @@ static const engine_t ENG_SAMPLE = {
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
-    SMP_PRESET_TABLE, sizeof(SMP_PRESET_TABLE) / sizeof(SMP_PRESET_TABLE[0]), -1, sample_note_on, sample_render,
-    0xFFFF, {P_E0, P_E4, P_ATK, P_REL},
+    .presets = SMP_PRESET_TABLE,
+    .npresets = SMP_NPRESETS,
+    .note_on = sample_note_on,
+    .render = sample_render,
+    .knob = {P_E0, P_E4, P_ATK, P_REL},
+    .sampled = 1,
+    .keys = sample_keys,
 };
