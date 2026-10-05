@@ -249,7 +249,7 @@ private:
     std::atomic<bool> libraryDirty_{false};
     void reportLibrary();
     juce::String lastLibraryReport_;
-    bool autoConnect_ = true;    // off after the user disconnects by hand
+    bool autoConnect_ = true;    // the app: connect when the synth appears; off after the user disconnects by hand
     Background background_{*this};
     void timerCallback() override;               // live sending
     void applyEditName();

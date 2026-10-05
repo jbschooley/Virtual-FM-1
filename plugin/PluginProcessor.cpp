@@ -181,7 +181,9 @@ void FM1Processor::backgroundTick() {
         if (msg.isNotEmpty()) status(msg);
     }
    #endif
-    // the synth: connect when it appears, let go when it disappears
+    // the synth: let go when it disappears; the app also connects when it appears (a plugin
+    // only when asked, with Connect or Find FM-1: several instances in a project would each
+    // take the synth)
     if (session.busy()) return;
     if (link.isOpen()) {
         bool present = false;
@@ -191,7 +193,7 @@ void FM1Processor::backgroundTick() {
             if (live_) setLive(false);
             if (onStatus) onStatus("The FM-1 was disconnected.");
         }
-    } else if (autoConnect_) {
+    } else if (autoConnect_ && wrapperType == wrapperType_Standalone) {
         if (auto p = Fm1Link::findFm1()) {
             bool ok = connect(p->inputId, p->outputId, true);
             diag(juce::String("auto-connect to ") + p->inputName + (ok ? ": ok" : ": could not open the ports"));
