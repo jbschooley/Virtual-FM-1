@@ -39,6 +39,7 @@
 #include "PluginProcessor.h"
 #if FM1_FELUCCA
  #include "FeluccaDevice.h"
+ #include "FeluccaPanel.h"
 #endif
 
 static int g_fail = 0, g_pass = 0;
@@ -616,6 +617,32 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
         for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("tab-" + tabs->getTabNames()[i]); }
         p.setFirmware("felucca");
         save("firmware-felucca");
+       #if FM1_FELUCCA
+        {   // Felucca's own front panel, its screen drawn
+            juce::Button* device = nullptr;
+            std::function<void(juce::Component*)> findButton = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) {
+                    if (auto* b = dynamic_cast<juce::Button*>(ch); b != nullptr && b->getButtonText() == "DEVICE") device = b;
+                    findButton(ch);
+                }
+            };
+            findButton(ed.get());
+            CHECK(device != nullptr, "the Felucca editor has its DEVICE view");
+            auto press = [](juce::Button* b) { b->setToggleState(!b->getToggleState(), juce::dontSendNotification); if (b->onClick) b->onClick(); };
+            if (device != nullptr) {
+                press(device);
+                std::function<void(juce::Component*)> draw = [&](juce::Component* c) {
+                    for (auto* ch : c->getChildren()) {
+                        if (auto* v = dynamic_cast<FeluccaDeviceView*>(ch)) v->refreshScreen();
+                        draw(ch);
+                    }
+                };
+                draw(ed.get());
+                save("felucca-device");
+                press(device);
+            }
+        }
+       #endif
         p.setFirmware("fm1_stock");
         tabs->setCurrentTabIndex(0);
         save("firmware-stock");

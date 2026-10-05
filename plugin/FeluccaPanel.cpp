@@ -31,7 +31,159 @@ const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0x
 
 }  // namespace
 
-FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
+// ---- Felucca's front panel -------------------------------------------------------------------
+
+// An endless knob: dragging up or turning the wheel clockwise gives steps, as the encoders do.
+struct FeluccaDeviceView::Knob : juce::Component {
+    std::function<void(int)> turned;
+    juce::String name;
+    float angle = 0.0f, dragRest = 0.0f;
+    int lastY = 0;
+    void paint(juce::Graphics& g) override {
+        auto r = getLocalBounds().toFloat();
+        auto label = r.removeFromBottom(14.0f);
+        const float d = std::min(r.getWidth(), r.getHeight()) - 4.0f;
+        auto c = r.withSizeKeepingCentre(d, d);
+        g.setColour(juce::Colour(0xff3a3a46));
+        g.fillEllipse(c);
+        g.setColour(juce::Colour(0xff6fb7c9));
+        g.drawEllipse(c, 1.5f);
+        const auto mid = c.getCentre();
+        g.drawLine(mid.x, mid.y, mid.x + std::sin(angle) * d * 0.42f, mid.y - std::cos(angle) * d * 0.42f, 2.0f);
+        g.setColour(juce::Colour(0xffa0a0b0));
+        g.setFont(juce::FontOptions(10.0f));
+        g.drawText(name, label, juce::Justification::centred);
+    }
+    void step(int n) {
+        if (n == 0) return;
+        angle += 0.2f * float(n);
+        if (turned) turned(n);
+        repaint();
+    }
+    void mouseDown(const juce::MouseEvent& e) override { lastY = e.y; dragRest = 0.0f; }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        dragRest += float(lastY - e.y) / 6.0f;   // 6 pixels a step
+        lastY = e.y;
+        const int n = int(dragRest);
+        dragRest -= float(n);
+        step(n);
+    }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) override {
+        step(w.deltaY > 0 ? 1 : w.deltaY < 0 ? -1 : 0);
+    }
+};
+
+// One of the 27 keys (from F, as Felucca's key map has them): held while the mouse is down.
+struct FeluccaDeviceView::Key : juce::Component {
+    std::function<void(bool)> pressed;
+    bool black = false, down = false;
+    void paint(juce::Graphics& g) override {
+        g.setColour(down ? juce::Colour(0xff6fb7c9) : black ? juce::Colour(0xff0e0e12) : juce::Colour(0xffd8d8e0));
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 3.0f);
+        if (black) { g.setColour(juce::Colour(0xff50505c)); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 3.0f, 1.0f); }
+    }
+    void mouseDown(const juce::MouseEvent&) override { down = true; if (pressed) pressed(true); repaint(); }
+    void mouseUp(const juce::MouseEvent&) override { down = false; if (pressed) pressed(false); repaint(); }
+};
+
+FeluccaDeviceView::FeluccaDeviceView(FM1Processor& p) : proc_(p) {}
+
+// the controls, by Felucca's own names, once there is a Felucca to ask
+void FeluccaDeviceView::build() {
+    auto f = engine();
+    if (!f || !buttons_.isEmpty()) return;
+    const auto buttonNames = f ? f->buttonNames() : std::vector<std::string>{};
+    for (size_t i = 0; i < buttonNames.size(); ++i) {
+        auto* b = buttons_.add(new juce::TextButton(buttonNames[i]));
+        const int label = int(i);
+        // held while the mouse is down: HOME, SAVE, SEQ and REC mean something else held
+        b->onStateChange = [this, b, label] {
+            const bool down = b->isDown();
+            if (down == b->getProperties()["down"].operator bool()) return;
+            b->getProperties().set("down", down);
+            if (auto e = engine()) e->button(label, down);
+        };
+        addAndMakeVisible(b);
+    }
+    const auto knobNames = f ? f->knobNames() : std::vector<std::string>{};
+    for (size_t i = 0; i < knobNames.size(); ++i) {
+        auto* k = knobs_.add(new Knob());
+        k->name = knobNames[i];
+        const int role = int(i);
+        k->turned = [this, role](int n) { if (auto e = engine()) e->knob(role, n); };
+        addAndMakeVisible(k);
+    }
+    for (int i = 0; i < 27; ++i) {
+        auto* k = keys_.add(new Key());
+        k->black = ((0x54A >> ((i + 5) % 12)) & 1) != 0;   // seq.c key_black: key 0 is an F
+        k->pressed = [this, i](bool down) { if (auto e = engine()) e->key(i, down); };
+        addAndMakeVisible(k);
+    }
+    resized();
+}
+
+FeluccaDeviceView::~FeluccaDeviceView() { stopTimer(); }
+
+void FeluccaDeviceView::visibilityChanged() {
+    if (isVisible()) { build(); startTimerHz(30); } else stopTimer();
+}
+
+void FeluccaDeviceView::timerCallback() {
+    auto f = engine();
+    if (!f) return;
+    f->draw(px_);
+    juce::Image::BitmapData d(screen_, juce::Image::BitmapData::writeOnly);
+    for (int y = 0; y < 240; ++y)
+        for (int x = 0; x < 240; ++x) {
+            const uint16_t v = px_[size_t(y * 240 + x)];
+            d.setPixelColour(x, y, juce::Colour(uint8_t(((v >> 11) & 31) * 255 / 31), uint8_t(((v >> 5) & 63) * 255 / 63), uint8_t((v & 31) * 255 / 31)));
+        }
+    repaint(screenArea_);
+}
+
+void FeluccaDeviceView::paint(juce::Graphics& g) {
+    g.fillAll(juce::Colour(0xff26262e));
+    g.drawImage(screen_, screenArea_.toFloat(), juce::RectanglePlacement::stretchToFit);
+    g.setColour(juce::Colour(0xff50505c));
+    g.drawRect(screenArea_.expanded(1));
+}
+
+void FeluccaDeviceView::resized() {
+    auto r = getLocalBounds().reduced(8);
+    auto keys = r.removeFromBottom(std::min(70, r.getHeight() / 5));
+    r.removeFromBottom(8);
+    // the screen at a whole multiple of 240 that fits, the controls beside it
+    const int side = std::max(240, std::min(r.getHeight(), r.getWidth() * 3 / 5) / 240 * 240);
+    screenArea_ = r.removeFromLeft(side).withHeight(side);
+    r.removeFromLeft(12);
+    auto knobRow = r.removeFromTop(std::min(90, r.getHeight() / 3));
+    const int kw = knobRow.getWidth() / std::max(1, knobs_.size());
+    for (auto* k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(2));
+    r.removeFromTop(8);
+    const int cols = 4, rows = (buttons_.size() + cols - 1) / cols;
+    const int bw = r.getWidth() / cols, bh = std::min(40, r.getHeight() / std::max(1, rows));
+    for (int i = 0; i < buttons_.size(); ++i)
+        buttons_[i]->setBounds(r.getX() + (i % cols) * bw + 2, r.getY() + (i / cols) * bh + 2, bw - 4, bh - 4);
+    // a keyboard: the white keys side by side, each black one over the gap before the next white
+    int whites = 0;
+    for (auto* k : keys_) whites += k->black ? 0 : 1;
+    const float ww = float(keys.getWidth()) / float(std::max(1, whites));
+    int w = 0;
+    for (auto* k : keys_) {
+        if (k->black) {
+            const int x = keys.getX() + int(float(w) * ww - ww * 0.3f);
+            k->setBounds(x, keys.getY(), int(ww * 0.6f), keys.getHeight() * 3 / 5);
+            k->toFront(false);
+        } else {
+            k->setBounds(keys.getX() + int(float(w) * ww), keys.getY(), int(ww), keys.getHeight());
+            ++w;
+        }
+    }
+}
+
+// ---- the parameters ---------------------------------------------------------------------------
+
+FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), device_(p) {
     for (int i = 0; i < 4; ++i) {
         auto& b = trackButtons_[i];
         b.setButtonText("PART " + juce::String(i + 1));
@@ -40,7 +192,11 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
         b.onClick = [this, i] { if (trackButtons_[i].getToggleState()) selectTrack(i); };
         addAndMakeVisible(b);
     }
-    for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_}) addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&engineBox_, &presetBox_, &hostTempo_, &info_, &view_, &deviceButton_}) addAndMakeVisible(c);
+    addChildComponent(device_);
+    deviceButton_.setClickingTogglesState(true);
+    deviceButton_.setTooltip("Felucca's own screen, buttons, knobs and keys: its sequencer, projects and user presets as on the device");
+    deviceButton_.onClick = [this] { showDevice(deviceButton_.getToggleState()); };
     engineBox_.setTooltip("The part's engine: its own defaults and first preset");
     engineBox_.onChange = [this] {
         auto e = engine();
@@ -57,7 +213,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
         proc_.feluccaChanged(track_);
         loadValues();
     };
-    hostTempo_.setTooltip("On: Felucca's tempo is the host's. Off: its own BPM (Global > BPM). Saved with the project.");
+    hostTempo_.setTooltip("On: Felucca's tempo is the host's, and the host's PLAY and STOP start and stop its sequencer. Off: its own BPM (Global > BPM) and PLAY. Saved with the project.");
     hostTempo_.onClick = [this] {
         auto s = proc_.settings();
         s.hostTempo = hostTempo_.getToggleState();
@@ -72,6 +228,16 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p) {
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
     refresh();
     startTimerHz(10);   // automation shows as it plays
+}
+
+void FeluccaPanel::showDevice(bool on) {
+    device_.setVisible(on);
+    view_.setVisible(!on);
+    info_.setVisible(!on);
+    for (auto& b : trackButtons_) b.setVisible(!on);
+    engineBox_.setVisible(!on);
+    presetBox_.setVisible(!on);
+    if (!on) refresh();   // what the device changed
 }
 
 void FeluccaPanel::timerCallback() {
@@ -228,6 +394,8 @@ void FeluccaPanel::resized() {
     presetBox_.setBounds(top.removeFromLeft(170));
     top.removeFromLeft(12);
     hostTempo_.setBounds(top.removeFromLeft(200));
+    deviceButton_.setBounds(top.removeFromRight(84));
+    device_.setBounds(r.withTrimmedTop(6));
     r.removeFromTop(4);
     info_.setBounds(r.removeFromTop(18));
     r.removeFromTop(6);

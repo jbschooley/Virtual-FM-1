@@ -10,6 +10,31 @@
 
 #if FM1_FELUCCA
 
+// Felucca's own front panel: its screen, buttons, knobs and keys, played as on the device.
+class FeluccaDeviceView : public juce::Component, private juce::Timer {
+public:
+    explicit FeluccaDeviceView(FM1Processor&);
+    ~FeluccaDeviceView() override;
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    void visibilityChanged() override;
+    void refreshScreen() { timerCallback(); }   // the screen now (it follows 30 times a second while shown)
+
+private:
+    struct Knob;
+    struct Key;
+    void build();
+    void timerCallback() override;
+    std::shared_ptr<FeluccaEngine> engine() const { return proc_.felucca(); }
+    FM1Processor& proc_;
+    juce::Image screen_{juce::Image::RGB, 240, 240, true};
+    std::vector<uint16_t> px_;
+    juce::Rectangle<int> screenArea_;
+    juce::OwnedArray<juce::TextButton> buttons_;
+    juce::OwnedArray<Knob> knobs_;
+    juce::OwnedArray<Key> keys_;
+};
+
 class FeluccaPanel : public juce::Component, private juce::Timer {
 public:
     explicit FeluccaPanel(FM1Processor&);
@@ -40,12 +65,15 @@ private:
     void build();          // the groups and their controls for the selected track
     void loadValues();
     void layoutContent();
+    void showDevice(bool on);
 
     FM1Processor& proc_;
     int track_ = 0;
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;
     juce::ToggleButton hostTempo_{"Tempo follows the host"};
+    juce::TextButton deviceButton_{"DEVICE"};   // Felucca's own front panel instead of the parameters
+    FeluccaDeviceView device_;
     juce::Label info_;
     juce::Viewport view_;
     juce::Component content_;
