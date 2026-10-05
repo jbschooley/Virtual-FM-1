@@ -10,7 +10,8 @@
 // Profiles today:
 //   FM-1+VA (baud girl)  read-back protocol: presets, patterns, memory reads
 //   M-VAVE (stock)       takes DX7 voices and parameter changes, sends nothing back
-//   Felucca              identity only; no preset or pattern transfer
+//   Felucca              identity only here: its sync is its own editor protocol
+//                        (firmwares/felucca/FeluccaSync, run as session jobs)
 
 #pragma once
 

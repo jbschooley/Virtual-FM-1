@@ -21,9 +21,10 @@ so when an instance is set to it.
 
 | Option | Default | What |
 |---|---|---|
-| `FM1_BUILD_FELUCCA` | on with Clang | Felucca's engines (eight copies, so eight instances can play it) |
+| `FM1_BUILD_FELUCCA` | on with Clang | Felucca's engines |
+| `FELUCCA_COPIES` | 8 | Felucca copies compiled in: up to that many instances play without sharing one (more share, at some CPU) |
 | `FM1_BUILD_PLUGIN` / `_AU` / `_LV2` / `_AAX` | on / on / on / off | the formats ([`AAX.md`](AAX.md)) |
-| `FM1_BUILD_TOOLS` | on | `fm1_probe`, the command-line check against a real FM-1 |
+| `FM1_BUILD_TOOLS` | on | `fm1_probe`, the command-line check against a real FM-1 (macOS) |
 | `FM1_COPY_PLUGIN` | on | copy the plugins into your plug-in folders after building |
 | `FM1_SANITIZE` | empty | e.g. `address,undefined` or `thread`: a sanitizer build for testing |
 
@@ -31,7 +32,9 @@ The iPad app and AUv3: [`IOS.md`](IOS.md). Packaging: `scripts/`.
 
 ## Tests
 
-`ctest` runs them all. None touches your library or a connected FM-1: the
+`ctest` runs them all, where they are built: `sync_test` (and `fm1_probe`)
+on macOS only, `host_test_lv2` on Linux only, `felucca_regress` and
+`felucca_test` with Clang (not MSVC). None touches your library or a connected FM-1: the
 plugin's tests point the library at a temporary folder (`FM1_DATA_DIR`) and
 never connect (`FM1_NO_DEVICE`). A scratch program of your own that creates an
 `FM1Processor` would save into your real library: set those two first.
@@ -43,8 +46,8 @@ never connect (`FM1_NO_DEVICE`). A scratch program of your own that creates an
 | `seq_test` | the sequencer and arpeggiator |
 | `json_test` | the JSON preset and pattern format ([`JSON-FORMAT.md`](JSON-FORMAT.md)) |
 | `params_test` | the host parameters: every released id is still there, unchanged (`tests/params-frozen.txt`) |
-| `sync_test` | the sync session against a simulated FM-1+VA on virtual MIDI ports; identities and each firmware's releases |
-| `plugin_checks` | the whole plugin without a host: rates and latency, projects, the library, Felucca (its state, host parameters, transport, device file, sync between two of its copies), the version messages |
+| `sync_test` | (macOS) the sync session against a simulated FM-1+VA on virtual MIDI ports, and identities |
+| `plugin_checks` | the whole plugin without a host: each firmware's releases, rates and latency, projects, the library, Felucca (its state, host parameters, transport, device file, sync between two of its copies, more instances than copies), the version messages |
 | `state_test` | projects saved by earlier versions (`tests/states/`) still load as they did |
 | `library_test` | the library folder: moving the old library file in, instances seeing each other's writes |
 | `render_smoke` | renders every preset in many configurations (below) |
@@ -68,11 +71,17 @@ never connect (`FM1_NO_DEVICE`). A scratch program of your own that creates an
 - **Old projects**: `state_test`. When the saved state changes, add a new
   corpus folder with `plugin_test state-write`, keeping the old ones.
 - **Felucca's backup file**: `node tests/felucca_backup_check.mjs <Felucca's web/fm1backup.js> <file.json>`
-  reads a file the plugin wrote with Felucca's own web editor code.
+  reads a file the plugin wrote with Felucca's own web editor code
+  (`web/fm1backup.js` is in Felucca's full source, not vendored here).
 - **Plugin formats**: pluginval at its strictest level runs in CI on the
   installed VST3 and AU (macOS).
-- **Linux**: `scripts/test-linux-docker.sh` builds and tests as CI does, in
-  Docker. CI (`.github/workflows/build.yml`) builds, tests and packages on
+- **Linux**: `scripts/test-linux-docker.sh` builds and runs the tests as
+  CI's Linux job does (not its packaging), in Docker. Building on Linux
+  natively needs clang, ninja-build and these libraries (Ubuntu names):
+  libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev
+  libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev
+  libxrandr-dev libxrender-dev libxi-dev; `host_test` also needs a display
+  (Xvfb in CI). CI (`.github/workflows/build.yml`) builds, tests and packages on
   macOS, Windows and Linux for a version tag, or when started by hand.
 - **Memory and threads**: a build with `-DFM1_SANITIZE=address,undefined`
   (or `thread`) and `ctest`.
@@ -88,7 +97,7 @@ line: `identify`, `pull`, `dump <file.syx>` (all 128 presets), `patterns 0 15
 - **Never send an update or boot loader message** (M-VAVE's `F0 22 24 35 ...`,
   Felucca's update frames). The plugin's code never does; keep it that way.
 - **Installing firmware** is done only with each author's own installer
-  (Felucca's `tools/fm1_install.py` or web installer, baud girl's web
+  (Felucca's `tools/fm1_install.py` in its full source, or its web installer, baud girl's web
   installer, M-VAVE's updater), from a starting point the author tested. If an
   install fails half way and the FM-1 no longer starts, recovering it needs
   [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) and a
@@ -97,10 +106,11 @@ line: `identify`, `pull`, `dump <file.syx>` (all 128 presets), `patterns 0 15
 ## Code from elsewhere
 
 - `engines/dx7/msfa/`: Google's msfa (Apache-2.0), changes listed in its
-  `NOTICE.md`. Its files have CRLF line endings: keep them.
+  `NOTICE.md`. Some of its files have CRLF line endings (`file` shows which):
+  keep each file's.
 - `engines/felucca/upstream/`: Felucca (GPL-3.0-only), unchanged; updating it
   is described in `engines/felucca/UPSTREAM.md`.
-- `plugin/dexed_ui/`: Dexed's look and panels (GPL-3.0).
+- `plugin/dexed_ui/`: Dexed's look and panels (GPL-3.0-or-later).
 - `third_party/JUCE`: a submodule. Licences: [`THIRD_PARTY.md`](../THIRD_PARTY.md).
 
 ## Changes

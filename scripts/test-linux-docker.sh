@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds and tests on Linux in Docker (Ubuntu 24.04, Clang, as CI's linux job), from a
+# Builds and tests on Linux in Docker (Ubuntu 24.04, Clang, as CI's linux job; not its packaging), from a
 # Mac or anywhere Docker runs, without touching your build folders:
 #   scripts/test-linux-docker.sh
 # On Apple silicon it runs amd64 under emulation (about 20 minutes).

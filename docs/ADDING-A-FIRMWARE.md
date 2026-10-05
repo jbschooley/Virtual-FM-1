@@ -26,7 +26,8 @@ building, the tests and the rules for working with a real FM-1.
 1. **A choice.** Add it to `firmwareChoices()` in `firmwares/Firmwares.cpp`:
    its id (saved in projects: never change it), its name, whether presets can
    use baud girl's VA engine, whether the plugin can play it. Add its releases
-   to `knownVersions()` (below), with exactly one `Current`.
+   to `knownVersions()` (below), with exactly one `Current` (`plugin_checks`
+   checks it).
 2. **Recognise it.** `firmwareIdFor()` picks the firmware from the identity
    the synth gives M-VAVE's updater handshake (`FM-1_093`). A firmware with
    its own identity range or name gets a line there. If its MIDI port has its
@@ -96,8 +97,9 @@ author's name for it, how well the plugin works with it, and a note:
 the editor shows it when the synth is not on a current or tested one. A release
 the list does not have is never refused: a newer one is synced as the newest
 the plugin knows and said to be untested; an older one is said to be older.
-Felucca is supported from 1.0: any Felucca before it (the 0.x betas) is
-treated as Deprecated, with Felucca's installer to update it.
+Felucca is supported from 1.0: any Felucca release before it (the 0.x betas,
+FM-1_901 to 909) is treated as Deprecated, with Felucca's installer to update
+it; a build that is not a release (FM-1_900) is Older.
 
 **When a firmware releases a new version:**
 

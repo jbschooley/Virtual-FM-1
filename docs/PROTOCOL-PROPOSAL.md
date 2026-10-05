@@ -94,8 +94,8 @@ glide time, drive, CC7 volume, overdub. A firmware sends the ones it has.
 ## What Felucca's editor protocol shows
 
 Felucca has its own protocol (`F0 7D 46 4C`, documented in its
-`web/EDITOR_PROTOCOL.md`), and Virtual FM-1 syncs with it fully: backup and
-restore, and live sync both ways. Building that showed which ideas are worth
+`web/EDITOR_PROTOCOL.md`), and Virtual FM-1 syncs with it: backup and restore
+of everything but user samples, and live sync both ways. Building that showed which ideas are worth
 having in any firmware's protocol, whatever its framing:
 
 ### 6. Parameters that describe themselves
@@ -104,8 +104,8 @@ Felucca answers `DESC` for every parameter: its label, unit, display format,
 range, default and, for a list, each value's name. A tool builds an editor
 from that with no code for the firmware, and a newer release's new parameters
 show up by themselves. `INFO` gives the counts (parameters, engines, globals,
-steps) and where each block starts, so a tool knows the layout before reading
-values. Labels stay the same across releases, so stored values are matched by
+steps) and where the engine's parameters start, so a tool knows the layout
+before reading values. Labels stay the same across releases, so stored values are matched by
 label, and Felucca's own files survive its updates.
 
 *Proposed:* a `DESC` request (`1A`, reply `57`) answering the same fields for
@@ -115,8 +115,8 @@ a parameter id, and a count in Hello.
 
 With `WATCH` on, Felucca sends what changes on the device (a knob, a step, a
 part selected, a preset loaded) without being asked, at most one message per
-value every 20 ms, and never for the tool's own writes; `PING` keeps watching
-alive. A tool and the device then stay the same without polling. Two lessons
+value every 20 ms, and never for the tool's own writes. Any request keeps
+watching alive; `PING` is the one meant for it. A tool and the device then stay the same without polling. Two lessons
 from implementing the other side:
 
 - Asking to watch again must not reset what the device counts as known, or a
