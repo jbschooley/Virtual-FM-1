@@ -132,6 +132,12 @@ private:
     std::array<uint8_t, 156> vced_{};   // the editor's copy of the sound, from the parameters
     std::unique_ptr<OperatorPanel> ops_[6];
     std::unique_ptr<GlobalPanel> global_;
+    // narrow (a phone): the preset strip, then one page at a time, scaled to fit: Dexed's three
+    // global boxes (Algorithm, LFO, Pitch EG) and OP1..OP6
+    juce::TextButton pageButtons_[9];
+    int page_ = 3;   // 0..2 a global box, 3..8 OP1..OP6
+    void layoutWide();
+    void layoutCompact();
     char opStatus_[7] = "111111";
     int tick_ = 0;
 };

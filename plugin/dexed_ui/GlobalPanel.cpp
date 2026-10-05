@@ -6,76 +6,87 @@
 
 using namespace juce;
 
-std::unique_ptr<DXSlider> GlobalPanel::knob(const String& name, int x, int y, std::unique_ptr<SA>& att, const String& paramId, int envPos) {
+std::unique_ptr<DXSlider> GlobalPanel::knob(Component& part, const String& name, int x, int y, std::unique_ptr<SA>& att, const String& paramId, int envPos) {
     auto s = std::make_unique<DXSlider>(name);
     s->setSliderStyle(Slider::RotaryVerticalDrag);
     s->setTextBoxStyle(Slider::NoTextBox, false, 80, 20);
-    s->setPopupDisplayEnabled(true, true, this);
+    s->setPopupDisplayEnabled(true, true, &part);
     s->setBounds(x, y, 34, 34);
     if (envPos >= 0) s->onDragStart = [this, envPos] { pitchEnv_->vPos = char(envPos); pitchEnv_->repaint(); };
-    addAndMakeVisible(*s);
+    part.addAndMakeVisible(*s);
     att = std::make_unique<SA>(apvts_, paramId, *s);
     return s;
 }
 
 GlobalPanel::GlobalPanel(AudioProcessorValueTreeState& apvts, uint8_t* vced, DXLookNFeel& lnf)
     : vced_(vced), lnf_(lnf), apvts_(apvts) {
-    setSize(864, 144);
+    preset_.setSize(kPresetW, kH);
+    preset_.painter = [this](Graphics& g) { paintPreset(g); };
+    for (int b = 0; b < 3; ++b) {
+        dexed_[b].setSize(kDexedX[b + 1] - kDexedX[b], kH);
+        dexed_[b].painter = [this, b](Graphics& g) { paintDexed(g, b); };
+    }
+    // positions below are in the old 864 px panel, where Dexed's strip started at x 325; each
+    // box's controls go into that box, moved by where it starts
+    auto& algoBox = dexed_[0];
+    auto& lfoBox = dexed_[1];
+    auto& pegBox = dexed_[2];
+    const int dxA = -325 - kDexedX[0], dxL = -325 - kDexedX[1], dxP = -325 - kDexedX[2];
 
     algoDisplay_ = std::make_unique<AlgoDisplay>();
     algoDisplay_->algo = &algoValue_;
-    algoDisplay_->setBounds(335, 30, 152, 91);
-    addAndMakeVisible(*algoDisplay_);
-    algo_ = knob("Algorithm", 501, 22, algoA_, Params::vcedId(134));
-    feedback_ = knob("Feedback", 501, 81, feedbackA_, Params::vcedId(135));
+    algoDisplay_->setBounds(335 + dxA, 30, 152, 91);
+    algoBox.addAndMakeVisible(*algoDisplay_);
+    algo_ = knob(algoBox, "Algorithm", 501 + dxA, 22, algoA_, Params::vcedId(134));
+    feedback_ = knob(algoBox, "Feedback", 501 + dxA, 81, feedbackA_, Params::vcedId(135));
 
     lfoWave_ = std::make_unique<ComboBoxImage>();
     for (auto* t : {"TRIANGLE", "SAW DOWN", "SAW UP", "SQUARE", "SINE", "S&HOLD"}) lfoWave_->addItem(t, lfoWave_->getNumItems() + 1);
     lfoWave_->setImage(lnf_.imageLFO);
-    lfoWave_->setBounds(583, 8, 36, 26);
-    addAndMakeVisible(*lfoWave_);
+    lfoWave_->setBounds(583 + dxL, 8, 36, 26);
+    lfoBox.addAndMakeVisible(*lfoWave_);
     lfoWaveA_ = std::make_unique<CA>(apvts_, Params::vcedId(142), *lfoWave_);
 
-    pms_ = knob("Pitch mod sens", 666, 5, pmsA_, Params::vcedId(143));
-    lfoSpeed_ = knob("LFO speed", 564, 50, lfoSpeedA_, Params::vcedId(137));
-    lfoDelay_ = knob("LFO delay", 603, 50, lfoDelayA_, Params::vcedId(138));
-    lfoPmd_ = knob("LFO pitch mod depth", 646, 50, lfoPmdA_, Params::vcedId(139));
-    lfoAmd_ = knob("LFO amp mod depth", 686, 50, lfoAmdA_, Params::vcedId(140));
+    pms_ = knob(lfoBox, "Pitch mod sens", 666 + dxL, 5, pmsA_, Params::vcedId(143));
+    lfoSpeed_ = knob(lfoBox, "LFO speed", 564 + dxL, 50, lfoSpeedA_, Params::vcedId(137));
+    lfoDelay_ = knob(lfoBox, "LFO delay", 603 + dxL, 50, lfoDelayA_, Params::vcedId(138));
+    lfoPmd_ = knob(lfoBox, "LFO pitch mod depth", 646 + dxL, 50, lfoPmdA_, Params::vcedId(139));
+    lfoAmd_ = knob(lfoBox, "LFO amp mod depth", 686 + dxL, 50, lfoAmdA_, Params::vcedId(140));
 
     lfoSync_ = std::make_unique<ToggleButton>("LFO key sync");
     lfoSync_->setButtonText({});
-    lfoSync_->setBounds(565, 96, 48, 26);
-    lfoSync_->onStateChange = [this] { repaint(); };
-    addAndMakeVisible(*lfoSync_);
+    lfoSync_->setBounds(565 + dxL, 96, 48, 26);
+    lfoSync_->onStateChange = [this] { dexed_[1].repaint(); };
+    lfoBox.addAndMakeVisible(*lfoSync_);
     lfoSyncA_ = std::make_unique<BA>(apvts_, Params::vcedId(141), *lfoSync_);
     oscSync_ = std::make_unique<ToggleButton>("OSC key sync");
     oscSync_->setButtonText({});
-    oscSync_->setBounds(650, 96, 48, 26);
-    oscSync_->onStateChange = [this] { repaint(); };
-    addAndMakeVisible(*oscSync_);
+    oscSync_->setBounds(650 + dxL, 96, 48, 26);
+    oscSync_->onStateChange = [this] { dexed_[1].repaint(); };
+    lfoBox.addAndMakeVisible(*oscSync_);
     oscSyncA_ = std::make_unique<BA>(apvts_, Params::vcedId(136), *oscSync_);
 
     pitchEnv_ = std::make_unique<PitchEnvDisplay>();
     pitchEnv_->pvalues = vced_ + 126;
-    pitchEnv_->setBounds(751, 10, 93, 30);
-    addAndMakeVisible(*pitchEnv_);
+    pitchEnv_->setBounds(751 + dxP, 10, 93, 30);
+    pegBox.addAndMakeVisible(*pitchEnv_);
     const int lx[4] = {739, 767, 795, 823}, ly[4] = {57, 57, 56, 56};
     for (int i = 0; i < 4; ++i) {
-        pegL_[i] = knob("Pitch EG level " + String(i + 1), lx[i], ly[i], pegLA_[i], Params::vcedId(130 + i), i);
-        pegR_[i] = knob("Pitch EG rate " + String(i + 1), lx[i], 96, pegRA_[i], Params::vcedId(126 + i), i);
+        pegL_[i] = knob(pegBox, "Pitch EG level " + String(i + 1), lx[i] + dxP, ly[i], pegLA_[i], Params::vcedId(130 + i), i);
+        pegR_[i] = knob(pegBox, "Pitch EG rate " + String(i + 1), lx[i] + dxP, 96, pegRA_[i], Params::vcedId(126 + i), i);
     }
 
     // this project's left area
     name.setBounds(16, 36, 190, 26);
     name.setInputRestrictions(10);
     name.setFont(FontOptions(18.0f));
-    addAndMakeVisible(name);
+    preset_.addAndMakeVisible(name);
     slotLabel.setBounds(16, 66, 206, 34);
     slotLabel.setJustificationType(juce::Justification::topLeft);
     slotLabel.setFont(FontOptions(13.0f));
     slotLabel.setColour(Label::textColourId, Colours::white.withAlpha(0.8f));
-    addAndMakeVisible(slotLabel);
-    transpose_ = knob("Transpose", 250, 44, transposeA_, Params::vcedId(144));
+    preset_.addAndMakeVisible(slotLabel);
+    transpose_ = knob(preset_, "Transpose", 250, 44, transposeA_, Params::vcedId(144));
     storeButton.setBounds(16, 104, 58, 26);
     revertButton.setBounds(78, 104, 58, 26);
     sendButton.setBounds(140, 104, 96, 26);
@@ -84,7 +95,7 @@ GlobalPanel::GlobalPanel(AudioProcessorValueTreeState& apvts, uint8_t* vced, DXL
     revertButton.setTooltip("Drop the editor's changes and go back to the stored preset");
     sendButton.setTooltip("Play this sound on the FM-1 without saving it there");
     liveButton.setTooltip("Send every change to the FM-1 as you edit, without saving it there");
-    for (auto* c : std::initializer_list<juce::Component*>{&storeButton, &revertButton, &sendButton, &liveButton}) addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&storeButton, &revertButton, &sendButton, &liveButton}) preset_.addAndMakeVisible(c);
     refresh();
 }
 
@@ -112,10 +123,18 @@ GlobalPanel::~GlobalPanel() {
     oscSyncA_.reset();
 }
 
-void GlobalPanel::paint(Graphics& g) {
+void GlobalPanel::paintDexed(Graphics& g, int box) {
+    const int x0 = kDexedX[box], w = kDexedX[box + 1] - x0;   // the image is at twice the size
+    g.drawImage(lnf_.imageGlobal, 0, 0, w, kH, 650 + 2 * x0, 0, 2 * w, 288);
+    if (box == 1) {
+        g.drawImage(lnf_.imageLight, 619 - 325 - x0, 102, 14, 14, 0, lfoSync_->getToggleState() ? 28 : 0, 28, 28);
+        g.drawImage(lnf_.imageLight, 705 - 325 - x0, 102, 14, 14, 0, oscSync_->getToggleState() ? 28 : 0, 28, 28);
+    }
+}
+
+void GlobalPanel::paintPreset(Graphics& g) {
     g.setColour(DXLookNFeel::background);
-    g.fillRoundedRectangle(0.0f, 0.0f, 320.0f, 144.0f, 8.0f);
-    g.drawImage(lnf_.imageGlobal, 325, 0, 539, 144, 650, 0, 1078, 288);
+    g.fillRoundedRectangle(0.0f, 0.0f, float(kPresetW), float(kH), 8.0f);
     g.setColour(Colours::white);
     g.setFont(FontOptions(15.0f, Font::bold));
     g.drawText("Preset", 16, 10, 100, 20, Justification::centredLeft, true);
@@ -124,8 +143,6 @@ void GlobalPanel::paint(Graphics& g) {
     g.setFont(FontOptions(13.0f));
     g.setColour(Colours::white);
     g.drawText("Live", 292, 104, 30, 26, Justification::centredLeft, true);
-    g.drawImage(lnf_.imageLight, 619, 102, 14, 14, 0, lfoSync_->getToggleState() ? 28 : 0, 28, 28);
-    g.drawImage(lnf_.imageLight, 705, 102, 14, 14, 0, oscSync_->getToggleState() ? 28 : 0, 28, 28);
 }
 
 void GlobalPanel::refresh() {

@@ -452,7 +452,21 @@ FmEditorPanel::FmEditorPanel(FM1Processor& p) : proc_(p) {
     }
     global_ = std::make_unique<GlobalPanel>(proc_.apvts, vced_.data(), lnf_);
     global_->setOpStatus(opStatus_);
-    addAndMakeVisible(*global_);
+    addAndMakeVisible(global_->presetPart());
+    for (int b = 0; b < 3; ++b) addAndMakeVisible(global_->dexedPart(b));
+    const char* boxNames[3] = {"Algorithm", "LFO", "Pitch EG"};
+    for (int i = 0; i < 9; ++i) {
+        auto& b = pageButtons_[i];
+        b.setButtonText(i < 3 ? juce::String(boxNames[i]) : "OP" + juce::String(i - 2));
+        b.setClickingTogglesState(true);
+        b.setRadioGroupId(4801);
+        b.setLookAndFeel(&juce::LookAndFeel::getDefaultLookAndFeel());   // (Dexed's draws no toggled state)
+        b.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffe0a040));   // the page shown
+        b.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+        b.onClick = [this, i] { if (pageButtons_[i].getToggleState()) { page_ = i; resized(); } };
+        addChildComponent(b);
+    }
+    pageButtons_[page_].setToggleState(true, juce::dontSendNotification);
     auto rename = [this] { proc_.setCurrentName(global_->name.getText()); };
     global_->name.onReturnKey = rename;
     global_->name.onFocusLost = rename;
@@ -496,10 +510,63 @@ void FmEditorPanel::timerCallback() {
 
 void FmEditorPanel::paint(juce::Graphics& g) { g.fillAll(DXLookNFeel::lightBackground.darker(0.4f)); }
 
+// Wide enough for Dexed's layout (866 x 584): the six operators and the global strip as
+// Dexed has them. Narrower (a phone): the preset strip, a row of pages, one page at a time.
 void FmEditorPanel::resized() {
+    if (getWidth() >= 866 && getHeight() >= 584) layoutWide();
+    else layoutCompact();
+}
+
+void FmEditorPanel::layoutWide() {
+    for (auto& b : pageButtons_) b.setVisible(false);
     int x0 = std::max(0, (getWidth() - 866) / 2), y0 = 4;
-    for (int i = 0; i < 6; ++i) ops_[size_t(i)]->setBounds(x0 + 2 + (i % 3) * 288, y0 + (i / 3) * 218, 287, 218);
-    global_->setBounds(x0 + 2, y0 + 436 + 4, 864, 144);
+    for (int i = 0; i < 6; ++i) {
+        ops_[size_t(i)]->setTransform({});
+        ops_[size_t(i)]->setVisible(true);
+        ops_[size_t(i)]->setBounds(x0 + 2 + (i % 3) * 288, y0 + (i / 3) * 218, 287, 218);
+    }
+    auto& preset = global_->presetPart();
+    preset.setTransform({});
+    preset.setBounds(x0 + 2, y0 + 440, GlobalPanel::kPresetW, GlobalPanel::kH);
+    for (int b = 0; b < 3; ++b) {   // Dexed's strip, its three boxes side by side
+        auto& box = global_->dexedPart(b);
+        box.setTransform({});
+        box.setVisible(true);
+        box.setBounds(x0 + 2 + 325 + GlobalPanel::kDexedX[b], y0 + 440, GlobalPanel::kDexedX[b + 1] - GlobalPanel::kDexedX[b], GlobalPanel::kH);
+    }
+}
+
+void FmEditorPanel::layoutCompact() {
+    // a component drawn at its own size, scaled into a place
+    auto place = [](juce::Component& c, int w, int h, juce::Rectangle<int> into, float maxScale) {
+        const float s = std::max(0.1f, std::min({maxScale, float(into.getWidth()) / float(w), float(into.getHeight()) / float(h)}));
+        c.setBounds(0, 0, w, h);
+        c.setTransform(juce::AffineTransform::scale(s).translated(float(into.getX()) + (float(into.getWidth()) - float(w) * s) / 2.0f,
+                                                                 float(into.getY())));
+        c.setVisible(true);
+        return int(std::ceil(float(h) * s));
+    };
+    auto r = getLocalBounds().reduced(4);
+    // the preset strip gives way to the page when the room is short (a phone on its side)
+    const int presetH = place(global_->presetPart(), GlobalPanel::kPresetW, GlobalPanel::kH,
+                              r.withHeight(std::max(40, r.getHeight() - 2 * 36 - 6 - 180)), 1.0f);
+    r.removeFromTop(presetH + 6);
+    auto buttons = [&](int from, int n) {   // a row of page buttons
+        auto row = r.removeFromTop(32);
+        const int bw = row.getWidth() / n;
+        for (int i = from; i < from + n; ++i) {
+            pageButtons_[i].setVisible(true);
+            pageButtons_[i].setBounds(row.removeFromLeft(i == from + n - 1 ? row.getWidth() : bw).reduced(1, 0));
+        }
+        r.removeFromTop(4);
+    };
+    buttons(0, 3);
+    buttons(3, 6);
+    r.removeFromTop(2);
+    for (int i = 0; i < 6; ++i) ops_[size_t(i)]->setVisible(false);
+    for (int b = 0; b < 3; ++b) global_->dexedPart(b).setVisible(false);
+    if (page_ < 3) place(global_->dexedPart(page_), GlobalPanel::kDexedX[page_ + 1] - GlobalPanel::kDexedX[page_], GlobalPanel::kH, r, 2.0f);
+    else place(*ops_[size_t(page_ - 3)], 287, 218, r, 2.0f);
 }
 
 // ---- FxPanel -------------------------------------------------------------------------
