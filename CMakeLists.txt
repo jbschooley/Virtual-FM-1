@@ -316,6 +316,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/LibraryStore.cpp
         plugin/FeluccaPanel.cpp
         plugin/FeluccaSeqPanel.cpp
+        plugin/FeluccaMidi.cpp
         plugin/FeluccaParams.cpp
         plugin/FeluccaDevice.cpp
         plugin/dexed_ui/DXLookNFeel.cpp

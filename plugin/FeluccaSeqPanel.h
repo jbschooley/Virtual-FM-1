@@ -5,6 +5,7 @@
 // FM-1: Pull and Send of the patterns on demand, and every edit while Live runs.
 #pragma once
 
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #if FM1_FELUCCA
@@ -42,6 +43,11 @@ public:
     void setNoteLevel(int k, int level);       // SLOOP
     void setNoteRatchet(int k, int ratchet);   // SLOOP
     void setPatternParam(int id, int value);
+    // MIDI files: every track's pattern out; a file's notes onto the selected track (or its lanes)
+    juce::MidiFile exportMidi() const;
+    juce::String importMidi(const juce::MidiFile& file);   // what was done, for the user
+    void say(const juce::String& text);       // a message in the info line, held for 6 s
+    juce::String infoText() const { return info_.getText(); }
     const felucca::TrackPattern& pattern() const { return pat_; }
     void showView(int v);                      // 0 pattern, 1 song, 2 motion
 
@@ -64,6 +70,7 @@ private:
     juce::Colour trackColour(int t) const;
 
     FM1Processor& proc_;
+    juce::uint32 sayUntil_ = 0;
     int track_ = 0, sel_ = 0, page_ = 0, cols_ = 16, lowNote_ = 48, view_ = 0, playhead_ = -1, tick_ = 0;
     bool loading_ = false, forceDrums_ = false, drumsChoice_ = false;
     unsigned scaleMask_ = 0xFFFu;
@@ -72,7 +79,9 @@ private:
     felucca::TrackPattern pat_;
 
     juce::TextButton trackButtons_[4], play_{"Play"}, pageButtons_[4], octDown_{"-"}, octUp_{"+"}, notesView_{"Notes"}, drumsView_{"Drums"},
-        patternTab_{"Pattern"}, songTab_{"Song"}, motionTab_{"Motion"}, pull_{"Pull patterns"}, send_{"Send patterns"};
+        patternTab_{"Pattern"}, songTab_{"Song"}, motionTab_{"Motion"}, pull_{"Pull patterns"}, send_{"Send patterns"},
+        importMidi_{"Import MIDI..."}, exportMidi_{"Export MIDI..."};
+    std::unique_ptr<juce::FileChooser> chooser_;
     juce::ComboBox len_, div_, time_;
     juce::Slider swing_, gate_, vel_, chance_;
     juce::Label lenLabel_, divLabel_, swingLabel_, gateLabel_, stepLabel_, velLabel_, chanceLabel_, info_;

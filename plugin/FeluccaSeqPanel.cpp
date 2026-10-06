@@ -4,6 +4,7 @@
 
 #include "FeluccaDevice.h"
 #include "FeluccaEngine.h"
+#include "FeluccaMidi.h"
 #include "PluginProcessor.h"
 
 namespace {
@@ -564,6 +565,31 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     pull_.setTooltip("Every track's pattern from the connected FM-1 (Felucca: and its song chain and motion)");
     send_.setTooltip("Every track's pattern to the connected FM-1 (Felucca: and its song chain and motion); its RAM, not saved there");
     pull_.onClick = [this] { proc_.feluccaPullPatterns(); };
+    for (auto* b : {&importMidi_, &exportMidi_}) addAndMakeVisible(b);
+    exportMidi_.setTooltip("Every track's pattern as a MIDI file: one pass of each, as the sequencer plays it (drum lanes on channel 10)");
+    importMidi_.setTooltip("A MIDI file's notes onto the selected track's steps at its DIV (or onto its drum lanes), replacing them");
+    exportMidi_.onClick = [this] {
+        chooser_ = std::make_unique<juce::FileChooser>("Export the patterns as a MIDI file", juce::File(), "*.mid");
+        chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+            [this](const juce::FileChooser& c) {
+                auto f = c.getResult();
+                if (f == juce::File()) return;
+                f = f.withFileExtension(".mid");
+                juce::FileOutputStream out(f);
+                const bool ok = out.openedOk() && (out.setPosition(0), out.truncate(), exportMidi().writeTo(out));
+                say(ok ? "Exported " + f.getFileName() : "Could not write " + f.getFullPathName());
+            });
+    };
+    importMidi_.onClick = [this] {
+        chooser_ = std::make_unique<juce::FileChooser>("Import a MIDI file onto this track", juce::File(), "*.mid;*.midi");
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& c) {
+            auto f = c.getResult();
+            if (!f.existsAsFile()) return;
+            juce::FileInputStream in(f);
+            juce::MidiFile file;
+            say(in.openedOk() && file.readFrom(in) ? importMidi(file) : "Not a MIDI file: " + f.getFileName());
+        });
+    };
     send_.onClick = [this] { proc_.feluccaSendPatterns(); };
 
     auto label = [this](juce::Label& l, const juce::String& t) {
@@ -705,9 +731,10 @@ void FeluccaSeqPage::timerCallback() {
     const bool synth = proc_.feluccaSynth() && !proc_.session.busy();
     pull_.setEnabled(synth);
     send_.setEnabled(synth);
-    info_.setText(proc_.feluccaLiveOn() ? "Live with the FM-1: every edit here reaches it." :
-                  proc_.feluccaSynth() ? "Connected: Pull or Send the patterns, or turn Live on (Library > Sync)." : "",
-                  juce::dontSendNotification);
+    if (juce::Time::getMillisecondCounter() >= sayUntil_)   // (a message said lately stays)
+        info_.setText(proc_.feluccaLiveOn() ? "Live with the FM-1: every edit here reaches it." :
+                      proc_.feluccaSynth() ? "Connected: Pull or Send the patterns, or turn Live on (Library > Sync)." : "",
+                      juce::dontSendNotification);
     // what the device itself changed (its panel, recording, a synced FM-1): read again now and then,
     // not while the mouse is down on a control
     if (++tick_ % 5 == 0 && !isMouseButtonDownAnywhere()) {
@@ -864,6 +891,64 @@ void FeluccaSeqPage::setPatternParam(int id, int value) {
     grid_->repaint();
 }
 
+void FeluccaSeqPage::say(const juce::String& text) {
+    info_.setText(text, juce::dontSendNotification);
+    sayUntil_ = juce::Time::getMillisecondCounter() + 6000;
+}
+
+juce::MidiFile FeluccaSeqPage::exportMidi() const {
+    felmidi::Song song;
+    auto f = engine();
+    if (!f) return {};
+    song.sloop = sloop();
+    song.bpm = f->global(0);   // G_BPM (both)
+    EngineEndpoint e(f, dialect());
+    for (int t = 0; t < f->tracks(); ++t) {
+        juce::String err;
+        auto p = felucca::readPattern(e, t, err);
+        if (!p) continue;
+        felmidi::Track tr;
+        tr.index = t;
+        tr.pattern = *p;
+        tr.drums = felucca::isDrumTrack(dialect(), t);
+        tr.swing = std::clamp(p->swing + f->global(1), 0, 100);   // its own plus G_SWING
+        const auto names = f->paramDesc(t, felucca::kDiv).names;
+        tr.stepQuarters = felmidi::divQuarters(size_t(p->div) < names.size() ? names[size_t(p->div)] : "1/16");
+        song.tracks.push_back(tr);
+    }
+    return felmidi::toMidi(song);
+}
+
+juce::String FeluccaSeqPage::importMidi(const juce::MidiFile& file) {
+    auto f = engine();
+    if (!f) return {};
+    const auto names = f->paramDesc(track_, felucca::kDiv).names;
+    const double q = felmidi::divQuarters(size_t(pat_.div) < names.size() ? names[size_t(pat_.div)] : "1/16");
+    const bool drums = drumsView();
+    auto r = felmidi::fromMidi(file, pat_, sloop(), drums, q);
+    // written as edits: to this instance's device, and to the FM-1 while Live
+    struct EditEndpoint : felucca::Endpoint {
+        FM1Processor& p;
+        const felucca::Dialect& d;
+        EditEndpoint(FM1Processor& pr, const felucca::Dialect& dl) : p(pr), d(dl) {}
+        const felucca::Dialect& dialect() const override { return d; }
+        std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return p.feluccaEdit(q); }
+        std::vector<fm1::Bytes> pushes() override { return {}; }
+    } edit(proc_, dialect());
+    juce::String err;
+    const auto known = pat_;
+    if (!felucca::writePattern(edit, track_, r.pattern, err, &known)) return "The import stopped: " + err;
+    readPattern();
+    loadControls();
+    grid_->repaint();
+    juce::String said = juce::String(r.notes) + (drums ? " drum hits" : " notes") + " on " + trackButtons_[track_].getButtonText()
+                      + ", LEN " + juce::String(r.pattern.len);
+    if (r.crowded) said << "; " << r.crowded << " left out (4 notes a step at most)";
+    if (r.pastEnd) said << "; " << r.pastEnd << " past step 64 left out";
+    if (r.unmapped) said << "; " << r.unmapped << " not near any drum lane left out";
+    return said;
+}
+
 void FeluccaSeqPage::loadControls() {
     loading_ = true;
     len_.setSelectedId(std::clamp(pat_.len, 1, felucca::kSteps), juce::dontSendNotification);
@@ -939,6 +1024,10 @@ void FeluccaSeqPage::resized() {
             send_.setBounds(b.removeFromRight(120));
             b.removeFromRight(4);
             pull_.setBounds(b.removeFromRight(120));
+            b.removeFromRight(10);
+            exportMidi_.setBounds(b.removeFromRight(110));
+            b.removeFromRight(4);
+            importMidi_.setBounds(b.removeFromRight(110));
             info_.setBounds(b);
         }
     }
@@ -946,10 +1035,9 @@ void FeluccaSeqPage::resized() {
         auto b = bar(28);
         for (auto* t : {&patternTab_, &songTab_, &motionTab_}) if (t->isVisible()) t->setBounds(b.removeFromLeft(80)), b.removeFromLeft(4);
         b = bar(28);
-        pull_.setBounds(b.removeFromLeft(b.getWidth() / 2 - 2));
-        b.removeFromLeft(4);
-        send_.setBounds(b);
-        info_.setBounds(0, 0, 0, 0);
+        const int q4 = (b.getWidth() - 12) / 4;
+        for (auto* c : {&pull_, &send_, &importMidi_, &exportMidi_}) { c->setBounds(b.removeFromLeft(q4)); b.removeFromLeft(4); }
+        info_.setBounds(bar(18));   // (a phone: the messages on a line of their own)
     }
     if (view_ != 0) {
         for (auto* c : std::initializer_list<juce::Component*>{&len_, &div_, &swing_, &gate_, &lenLabel_, &divLabel_, &swingLabel_, &gateLabel_,

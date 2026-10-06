@@ -58,6 +58,7 @@
  #include "FeluccaDevice.h"
  #include "FeluccaPanel.h"
  #include "FeluccaSeqPanel.h"
+ #include "FeluccaMidi.h"
 #endif
 
 static int g_fail = 0, g_pass = 0;
@@ -672,6 +673,20 @@ static int checks() {
             page.setPatternParam(felucca::kLen, 32);
             page.setPatternParam(felucca::kSwing, 25);
             CHECK(f->param(1, felucca::kLen) == 32 && f->param(1, felucca::kSwing) == 25, who + "LEN and swing");
+            {   // the tab's MIDI file: exported, then imported onto another track
+                page.selectStep(4);
+                page.setStepTime(felucca::kNote);   // (a note again: it was tied above)
+                const auto file = page.exportMidi();
+                int ons = 0;
+                for (int t = 0; t < file.getNumTracks(); ++t)
+                    for (auto* ev : *file.getTrack(t)) ons += ev->message.isNoteOn();
+                CHECK(file.getNumTracks() == f->tracks() && ons >= 1, who + "exported: a MIDI track a track, with its notes");
+                page.selectTrack(2);
+                const auto said = page.importMidi(file);
+                auto s4 = felucca::readStep(e, 2, 4);
+                CHECK(s4 && s4->time == felucca::kNote && s4->note[0] == 65, who + "imported onto part 3: " + said);
+                page.selectTrack(1);
+            }
             if (juce::String(id) == "felucca") {
                 page.selectStep(6);
                 page.setStepChance(30);
@@ -705,6 +720,79 @@ static int checks() {
                 auto d5 = felucca::readDrumStep(e, 5);
                 CHECK(d5 && d5->has(12), who + "a drum hit on lane 13 (RIDE)");
             }
+        }
+        // MIDI files (FeluccaMidi): out as the firmware plays the steps, and back
+        {
+            auto events = [](const juce::MidiFile& f) {
+                std::vector<std::tuple<int, int, int, int, int>> out;   // channel, note, vel, on, off
+                for (int t = 0; t < f.getNumTracks(); ++t) {
+                    juce::MidiMessageSequence seq(*f.getTrack(t));
+                    seq.updateMatchedPairs();
+                    for (int i = 0; i < seq.getNumEvents(); ++i) {
+                        auto* e = seq.getEventPointer(i);
+                        if (!e->message.isNoteOn()) continue;
+                        out.push_back({e->message.getChannel(), e->message.getNoteNumber(), e->message.getVelocity(),
+                                       int(e->message.getTimeStamp()), e->noteOffObject ? int(e->noteOffObject->message.getTimeStamp()) : -1});
+                    }
+                }
+                return out;
+            };
+            auto has = [](const auto& ev, int ch, int note, int vel, int on, int off) {
+                for (auto& [c, n, v, a, b] : ev) if (c == ch && n == note && v == vel && a == on && (off < 0 || b == off)) return true;
+                return false;
+            };
+            // Felucca: C4 tied over step 2, an accented chord on step 5, a kick and a closed hat on step 7
+            felucca::TrackPattern fp;
+            fp.len = 16; fp.gate = 64;
+            fp.steps.assign(64, {});
+            for (auto& st : fp.steps) st.time = felucca::kRest, st.n = 0;
+            fp.steps[0] = {}; fp.steps[0].n = 1; fp.steps[0].note = {60, 0, 0, 0}; fp.steps[0].time = felucca::kNote; fp.steps[0].vel = 100;
+            fp.steps[1].time = felucca::kTie;
+            fp.steps[4] = {}; fp.steps[4].n = 2; fp.steps[4].note = {64, 67, 0, 0}; fp.steps[4].time = felucca::kNote; fp.steps[4].flags = felucca::kAccent;
+            fp.steps[6].hit = 1 | 8; fp.steps[6].vel = 90;
+            felmidi::Song fs;
+            fs.bpm = 100;
+            fs.tracks.push_back({0, fp, false, true, 0, felmidi::divQuarters("1/16")});
+            const auto ef = events(felmidi::toMidi(fs));
+            // 480 a quarter: a 1/16 step is 120 ticks; GATE 64 of 128: 60 ticks
+            CHECK(has(ef, 1, 60, 100, 0, 180), "Felucca: a note tied into the next step sounds to that step's gate");
+            CHECK(has(ef, 1, 64, 127, 480, 540) && has(ef, 1, 67, 127, 480, 540), "an accented chord plays at 127");
+            CHECK(has(ef, 10, 36, 90, 720, 780) && has(ef, 10, 42, 90, 720, 780), "drum lanes as GM notes on channel 10");
+            fs.tracks[0].swing = 50;   // odd steps 50/250 of a step late: 24 ticks
+            CHECK(has(events(felmidi::toMidi(fs)), 1, 64, 127, 480, -1), "an even step is not moved by swing");
+            fp.steps[5] = fp.steps[4];
+            fs.tracks[0].pattern = fp;
+            CHECK(has(events(felmidi::toMidi(fs)), 1, 64, 127, 624, -1), "an odd one is (120 x 5 + 24)");
+            // back in: the same steps
+            fs.tracks[0].swing = 0;
+            fs.tracks[0].pattern.steps[5] = {};
+            auto back = felmidi::fromMidi(felmidi::toMidi(fs), fp, false, false, 0.25);
+            CHECK(back.pattern.steps[0].time == felucca::kNote && back.pattern.steps[0].note[0] == 60 && back.pattern.steps[1].time == felucca::kTie
+                  && back.pattern.steps[4].n == 2 && back.pattern.steps[4].note[1] == 67 && back.pattern.len == 8,
+                  "and back from the file: the tie, the chord, LEN to the beat after the last step");
+            auto lanesBack = felmidi::fromMidi(felmidi::toMidi(fs), fp, false, true, 0.25);
+            CHECK((lanesBack.pattern.steps[6].hit & 9) == 9, "drum notes back onto Felucca's lanes");
+            // SLOOP: a ghost note with a ratchet of 2; the drum track's levels
+            felucca::TrackPattern sp;
+            sp.len = 16; sp.gate = 64;
+            sp.steps.assign(64, {});
+            sp.steps[2].n = 1; sp.steps[2].note = {48, 0, 0, 0}; sp.steps[2].time = felucca::kNote; sp.steps[2].vel = 100;
+            sp.steps[2].lvl = 1; sp.steps[2].rat = 1;
+            felucca::TrackPattern dp;
+            dp.len = 16; dp.gate = 64;
+            dp.drums.assign(64, {});
+            dp.drums[0].set(0, true, 3, 0);   // kick, hard
+            dp.drums[2].set(4, true, 2, 0);   // hat, soft
+            felmidi::Song ss;
+            ss.sloop = true;
+            ss.tracks.push_back({0, sp, false, false, 0, 0.25});
+            ss.tracks.push_back({3, dp, true, false, 0, 0.25});
+            const auto es = events(felmidi::toMidi(ss));
+            CHECK(has(es, 1, 48, 42, 240, 270) && has(es, 1, 48, 42, 300, 330), "SLOOP: a ghost note (42) ratcheted: two hits, each its share of the gate");
+            CHECK(has(es, 10, 36, 127, 0, 60) && has(es, 10, 42, 72, 240, 300), "its drum track: levels as velocities (hard 127, soft 72)");
+            auto drumsBack = felmidi::fromMidi(felmidi::toMidi(ss), dp, true, true, 0.25);
+            CHECK(drumsBack.pattern.drums[0].has(0) && drumsBack.pattern.drums[0].level(0) == 3 && drumsBack.pattern.drums[2].level(4) == 2,
+                  "and back onto its lanes, levels from the velocities");
         }
         // the device file: SLOOP's own backup format, in the library's SLOOP folder
         {
