@@ -1,4 +1,4 @@
-// FeluccaParams -- Felucca's parameters as host parameters, for automation.
+// FeluccaParams -- Felucca's and SLOOP's parameters as host parameters, for automation.
 //
 // They exist in every build (with or without Felucca's engines) so that a project has
 // the same parameter list everywhere. Their ids come from a fixed table named after
@@ -23,13 +23,15 @@ namespace felparams {
 struct Entry {
     juce::String id;      // the host parameter's id
     int track = -1;       // part 0..3, -1 for a global
-    int index = 0;        // Felucca 1.0's parameter number (P_* or G_*)
-    float def = 0.0f;     // Felucca's default, 0..1 (0 for an engine's own eight)
+    int index = 0;        // Felucca 1.0's parameter number (P_* or G_*), or SLOOP 2.3's
+    float def = 0.0f;     // its default, 0..1 (0 for an engine's own eight)
+    bool sloop = false;   // SLOOP's ("slp_..."), not Felucca's
 };
 
+// Felucca's, then SLOOP's (added after them: a project's earlier parameters keep their places)
 const std::vector<Entry>& entries();
 int indexOf(const juce::String& id);   // -1 if not one of these
-int entryFor(int track, int index);    // the entry for Felucca's parameter (track -1: global), or -1
+int entryFor(int track, int index, bool sloop = false);   // the entry for the parameter (track -1: global), or -1
 
 // What the host shows for an entry at a 0..1 value: set by the instance once it exists.
 struct TextSource { std::function<juce::String(int entry, float value01)> text; };

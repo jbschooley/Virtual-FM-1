@@ -373,6 +373,46 @@ static int checks() {
                   && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.3",
                   "a project keeps both, apart");
         }
+        {   // host automation of SLOOP's own parameters ("slp_..."), and Felucca's left alone meanwhile
+            FM1Processor au;
+            au.setPlayConfigDetails(0, 2, 44100.0, 128);
+            au.prepareToPlay(44100.0, 128);
+            au.setFirmware("sloop");
+            auto f = au.felucca();
+            auto* level = au.apvts.getParameter("slp_t1_level");
+            auto* wave = au.apvts.getParameter("slp_t1_e0");
+            auto* kit = au.apvts.getParameter("slp_dr_kit");
+            auto* dust = au.apvts.getParameter("slp_dust");
+            auto* felLevel = au.apvts.getParameter("fel_t1_level");
+            CHECK(f && level && wave && kit && dust && felLevel, "SLOOP's parameters are host parameters");
+            if (f && level && wave && kit && dust && felLevel) {
+                int perTrack[4] = {}, globals = 0;
+                for (const auto& en : felparams::entries()) if (en.sloop) { if (en.track >= 0) ++perTrack[en.track]; else ++globals; }
+                CHECK(perTrack[0] == 57 && perTrack[1] == 57 && perTrack[2] == 57 && perTrack[3] == 9 && globals == 16
+                      && !au.apvts.getParameter("slp_t1_ed_fx") && !au.apvts.getParameter("slp_dr_level") && au.apvts.getParameter("slp_t3_chord"),
+                      "three parts alike, the drum track's kit, pattern and slicer, sixteen globals; not its preset trim");
+                const auto ld = f->paramDesc(0, 0);
+                CHECK(std::abs(level->getValue() - float(f->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
+                      "the host sees SLOOP's values once the instance is set to SLOOP");
+                const float felBefore = felLevel->getValue();
+                juce::AudioBuffer<float> b(2, 128);
+                juce::MidiBuffer m;
+                au.processBlock(b, m);
+                level->setValueNotifyingHost(0.25f);
+                felLevel->setValueNotifyingHost(felBefore > 0.5f ? 0.1f : 0.9f);   // Felucca's: not SLOOP's level
+                au.processBlock(b, m);
+                CHECK(f->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches SLOOP");
+                const auto kd = f->paramDesc(3, f->firstEngineParam());
+                kit->setValueNotifyingHost(float(2) / float(kd.max - kd.min));
+                au.processBlock(b, m);
+                CHECK(f->param(3, f->firstEngineParam()) == kd.min + 2 && kit->getText(kit->getValue(), 32) == juce::String(kd.names.size() > 2 ? kd.names[2] : std::string("?")),
+                      "the drum kit, with SLOOP's own names");
+                f->setGlobal(27, 40);
+                au.feluccaChanged();
+                CHECK(std::abs(dust->getValue() - 40.0f / 127.0f) < 1e-5f, "an edit in SLOOP reaches the host");
+                CHECK(std::abs(au.apvts.getParameter("slp_bpm")->getDefaultValue() - (90.0f - 40.0f) / 200.0f) < 1e-6f, "slp_bpm's default is SLOOP's 90");
+            }
+        }
         {
             FM1Processor q;
             q.setStateInformation(project.getData(), int(project.getSize()));
@@ -556,7 +596,7 @@ static int checks() {
                     // defaults are Felucca's own; four parts alike; nothing for what the device never reads
                     CHECK(std::abs(bpm->getDefaultValue() - (120.0f - 40.0f) / 200.0f) < 1e-6f, "fel_bpm's default is Felucca's 120");
                     int perPart[4] = {};
-                    for (const auto& en : felparams::entries()) if (en.track >= 0) ++perPart[en.track];
+                    for (const auto& en : felparams::entries()) if (en.track >= 0 && !en.sloop) ++perPart[en.track];
                     CHECK(perPart[0] == 70 && perPart[1] == 70 && perPart[2] == 70 && perPart[3] == 70
                           && au.apvts.getParameter("fel_t4_atk") && au.apvts.getParameter("fel_t3_m2dst") && au.apvts.getParameter("fel_rtype"),
                           "four parts, each with the same parameters (1.0's modulation and chords too)");

@@ -131,7 +131,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   for backups. With an FM-1
   running Felucca: pull everything, send everything, or keep both in step live.
 - **SLOOP 2.3**, built from its source the same way: its nine engines on three
-  parts and a drum track, in the same editor, Library and Device tabs. Its
+  parts and a drum track, in the same editor and as host parameters, Library
+  and Device tabs. Its
   projects and user presets are kept in the library as the file SLOOP's web
   editor uses for backups (`SLOOP/SLOOP device.json`). With an FM-1 running
   SLOOP: pull, send and live, as with Felucca.

@@ -10,8 +10,9 @@ for the code. New work goes under the next version at the top.
 
 - **SLOOP 2.3** (isod89's groovebox firmware, built on Felucca) as a firmware
   choice, built from its source: its nine engines on three parts and a drum
-  track, played and edited in the Felucca editor, with its own screen and front
-  panel on the Device tab. Its projects and user presets are kept in the
+  track, played and edited in the Felucca editor and as host parameters for
+  automation ("SLOOP P1 ...", "SLOOP DRUMS KIT", "SLOOP DUST" ...), with its own
+  screen and front panel on the Device tab. Its projects and user presets are kept in the
   library as SLOOP's own backup file (`SLOOP/SLOOP device.json`). With an FM-1
   running SLOOP: Pull, Send, Live and a part's sound, as with Felucca (tried on
   an FM-1 running SLOOP 2.3: a full backup, Send, and Live from the plugin's

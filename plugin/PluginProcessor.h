@@ -128,9 +128,11 @@ public:
     bool feluccaLive(bool on);
     bool feluccaLiveOn() const { return felLive_.load(); }
     std::function<void()> onFeluccaLive;   // live sync ended (message thread)
-    // The host parameter of Felucca's parameter (track -1: a global), or null: for change gestures.
+    // The host parameter of Felucca's (or SLOOP's, as it plays) parameter (track -1: a global), or
+    // null: for change gestures.
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
-        const int e = felparams::entryFor(track, index);
+        auto f = felucca();
+        const int e = felparams::entryFor(track, index, f && f->flavor() == FeluccaEngine::Flavor::Sloop);
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
     }
    #endif

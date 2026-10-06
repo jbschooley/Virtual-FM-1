@@ -80,7 +80,7 @@ FM1Processor::FM1Processor()
     felText_->text = [this](int entry, float v) -> juce::String {
         auto f = felucca();
         const auto& e = felparams::entries()[size_t(entry)];
-        if (!f || f->flavor() != FeluccaEngine::Flavor::Felucca) return juce::String(v, 3);   // (Felucca's parameters)
+        if (!f || e.sloop != (f->flavor() == FeluccaEngine::Flavor::Sloop)) return juce::String(v, 3);   // (the other firmware's)
         auto d = e.track < 0 ? f->globalDesc(e.index) : f->paramDesc(e.track, e.index);
         if (d.max <= d.min) return {};
         const int value = d.min + int(std::lround(v * float(d.max - d.min)));
@@ -1200,8 +1200,8 @@ bool FM1Processor::feluccaLive(bool on) {
 // Host automation into Felucca: each value the host changed since the last block, spread
 // over the parameter's range in Felucca now.
 void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
-    if (f.flavor() != FeluccaEngine::Flavor::Felucca) return;   // (the host parameters are Felucca's; SLOOP has none yet)
     const auto& all = felparams::entries();
+    const bool sloop = f.flavor() == FeluccaEngine::Flavor::Sloop;   // (each firmware its own parameters)
     // just after a project loaded or an engine arrived, Felucca's own sound is the truth
     // (feluccaChanged gives it to the host): what the host holds now counts as given
     if (felResync_.exchange(false)) {
@@ -1213,6 +1213,7 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
         if (v == felApplied_[i]) continue;
         felApplied_[i] = v;
         const auto& e = all[i];
+        if (e.sloop != sloop) continue;   // (the other firmware's: given when it plays)
         if (e.track < 0 && e.index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
         int min = 0, max = 0;
         if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
@@ -1223,11 +1224,12 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
 
 void FM1Processor::feluccaChanged(int track) {
     auto f = felucca();
-    if (!f || f->flavor() != FeluccaEngine::Flavor::Felucca) return;   // (the host parameters are Felucca's)
+    if (!f) return;
+    const bool sloop = f->flavor() == FeluccaEngine::Flavor::Sloop;
     const auto& all = felparams::entries();
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
-        if (track >= 0 && e.track != track) continue;
+        if (e.sloop != sloop || (track >= 0 && e.track != track)) continue;
         int min = 0, max = 0;
         if (!(e.track < 0 ? f->globalRange(e.index, min, max) : f->paramRange(e.track, e.index, min, max)) || max <= min) continue;
         const int value = e.track < 0 ? f->global(e.index) : f->param(e.track, e.index);

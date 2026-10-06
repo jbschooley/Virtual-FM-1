@@ -55,6 +55,29 @@ const int kGlobalRange[27][3] = {
     {0, 1, 0}, {0, 1, 0}, {0, 13, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
     {0, 1, 0}, {0, 0, 0}, {0, 0, 0}};
 
+// SLOOP 2.3's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the
+// slicer (48), then CHORD (49) and the engine's eight from 50. Not P_ED_FX (8): SLOOP's level
+// trim, which its presets set. Its drum track (4) has its kit (E1), pattern and slicer only, as
+// the device shows it; its level and reverb are globals (DRLVL, DRREV).
+constexpr int kSloopEngineFirst = 50;
+const int kSloopTrackRange[50][3] = {
+    {0, 127, 104}, {0, 127, 10}, {0, 127, 70}, {0, 127, 90}, {0, 127, 60}, {-64, 63, 0},
+    {-64, 63, 0}, {-64, 63, 0}, {-64, 63, 0}, {0, 127, 60}, {0, 4, 0}, {0, 127, 0},
+    {0, 127, 0}, {-64, 63, 0}, {-64, 63, 0}, {-64, 63, 0}, {0, 127, 0}, {0, 5, 0},
+    {0, 5, 2}, {1, 4, 1}, {1, 127, 64}, {0, 100, 0}, {0, 127, 127}, {0, 1, 0},
+    {0, 1, 0}, {0, 11, 0}, {0, 15, 0}, {0, 2, 0}, {-24, 24, 0}, {1, 64, 16},
+    {0, 5, 2}, {0, 100, 0}, {1, 127, 64}, {0, 127, 0}, {0, 127, 0}, {0, 127, 0},
+    {0, 127, 0}, {0, 3, 0}, {0, 127, 0}, {-64, 63, 0}, {0, 1, 0}, {0, 1, 0},
+    {0, 2, 0}, {0, 1, 0}, {0, 127, 40}, {0, 2, 0}, {1, 16, 1}, {0, 5, 1},
+    {0, 127, 127}, {0, 5, 0}};
+const int kSloopDrumIds[] = {29, 30, 31, 32, 45, 46, 47, 48};   // the pattern and the slicer
+const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
+    {"bpm", 0, {40, 240, 90}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"dtime", 4, {0, 5, 1}},
+    {"dfdbk", 5, {0, 120, 60}}, {"dcolor", 6, {0, 127, 70}}, {"dmix", 7, {0, 127, 90}}, {"rsize", 8, {0, 127, 90}},
+    {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}},
+    {"drlvl", 25, {0, 127, 100}}, {"drrev", 26, {0, 127, 16}}, {"dust", 27, {0, 127, 0}},
+    {"duck", 28, {0, 127, 0}}, {"filt", 29, {-64, 63, 0}}};
+
 float defaultOf(const int r[3]) { return r[1] > r[0] ? float(r[2] - r[0]) / float(r[1] - r[0]) : 0.0f; }
 std::vector<Entry> build() {
     std::vector<Entry> out;
@@ -65,6 +88,16 @@ std::vector<Entry> build() {
         for (int e = 0; e < 8; ++e) out.push_back({"fel_t" + juce::String(t + 1) + "_e" + juce::String(e), t, kEngineFirst + e, 0.0f});
     }
     for (const auto& g : kGlobal) out.push_back({"fel_" + juce::String(g.name), -1, g.index, defaultOf(kGlobalRange[g.index])});
+    // SLOOP's
+    auto name = [](int i) { return i == 49 ? juce::String("chord") : juce::String(kTrack[i]); };
+    for (int t = 0; t < 3; ++t) {
+        for (int i = 0; i < kSloopEngineFirst; ++i)
+            if (i != 8) out.push_back({"slp_t" + juce::String(t + 1) + "_" + name(i), t, i, defaultOf(kSloopTrackRange[i]), true});
+        for (int e = 0; e < 8; ++e) out.push_back({"slp_t" + juce::String(t + 1) + "_e" + juce::String(e), t, kSloopEngineFirst + e, 0.0f, true});
+    }
+    out.push_back({"slp_dr_kit", 3, kSloopEngineFirst, 0.0f, true});
+    for (int i : kSloopDrumIds) out.push_back({"slp_dr_" + name(i), 3, i, defaultOf(kSloopTrackRange[i]), true});
+    for (const auto& g : kSloopGlobal) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true});
     return out;
 }
 
@@ -81,30 +114,33 @@ int indexOf(const juce::String& id) {
     return -1;
 }
 
-int entryFor(int track, int index) {
+int entryFor(int track, int index, bool sloop) {
     const auto& all = entries();
-    for (size_t i = 0; i < all.size(); ++i) if (all[i].track == track && all[i].index == index) return int(i);
+    for (size_t i = 0; i < all.size(); ++i) if (all[i].sloop == sloop && all[i].track == track && all[i].index == index) return int(i);
     return -1;
 }
 
 void addTo(juce::AudioProcessorValueTreeState::ParameterLayout& layout, std::shared_ptr<TextSource> text) {
     const auto& all = entries();
-    std::unique_ptr<juce::AudioProcessorParameterGroup> groups[5];
-    const char* titles[5] = {"Felucca part 1", "Felucca part 2", "Felucca part 3", "Felucca part 4", "Felucca global"};
-    for (int g = 0; g < 5; ++g) groups[g] = std::make_unique<juce::AudioProcessorParameterGroup>("felucca" + juce::String(g), titles[g], " | ");
+    std::unique_ptr<juce::AudioProcessorParameterGroup> groups[10];
+    const char* titles[10] = {"Felucca part 1", "Felucca part 2", "Felucca part 3", "Felucca part 4", "Felucca global",
+                              "SLOOP part 1", "SLOOP part 2", "SLOOP part 3", "SLOOP drums", "SLOOP global"};
+    const char* ids[10] = {"felucca0", "felucca1", "felucca2", "felucca3", "felucca4", "sloop0", "sloop1", "sloop2", "sloop3", "sloop4"};
+    for (int g = 0; g < 10; ++g) groups[g] = std::make_unique<juce::AudioProcessorParameterGroup>(ids[g], titles[g], " | ");
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
-        // the host's name: where it is and Felucca's name for it
-        const juce::String where = e.track < 0 ? juce::String() : "P" + juce::String(e.track + 1) + " ";
-        const juce::String what = e.id.substring(e.track < 0 ? 4 : 7).toUpperCase();   // after "fel_" or "fel_tN_"
-        const juce::String name = "Felucca " + where + what;
+        // the host's name: which firmware, where it is and the firmware's name for it
+        const juce::String where = e.track < 0 ? juce::String() : e.sloop && e.track == 3 ? juce::String("DRUMS ") : "P" + juce::String(e.track + 1) + " ";
+        const juce::String what = e.id.substring(e.track < 0 ? 4 : 7).toUpperCase();   // after "fel_" / "fel_tN_" ("slp_", "slp_tN_", "slp_dr_")
+        const juce::String name = juce::String(e.sloop ? "SLOOP " : "Felucca ") + where + what;
         const int entry = int(i);
-        auto attrs = juce::AudioParameterFloatAttributes().withStringFromValueFunction([text, entry](float v, int) {
+        auto attrs = juce::AudioParameterFloatAttributes().withStringFromValueFunction([text, entry, sloop = e.sloop](float v, int) {
             if (text && text->text) return text->text(entry, v);
-            return juce::String("(Felucca)");
+            return juce::String(sloop ? "(SLOOP)" : "(Felucca)");
         });
-        groups[e.track < 0 ? 4 : e.track]->addChild(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID{e.id, 2}, name, juce::NormalisableRange<float>(0.0f, 1.0f), e.def, attrs));
+        const int g = (e.sloop ? 5 : 0) + (e.track < 0 ? 4 : e.track);
+        groups[g]->addChild(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{e.id, e.sloop ? 3 : 2}, name, juce::NormalisableRange<float>(0.0f, 1.0f), e.def, attrs));
     }
     for (auto& g : groups) layout.add(std::move(g));
 }
