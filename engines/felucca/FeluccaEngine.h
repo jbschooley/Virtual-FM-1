@@ -81,6 +81,8 @@ public:
     int selected() const;                      // the selected part: Felucca's keys play it
     void select(int track);                    // as ALGORITHM does on the device
     bool playing() const;
+    int stepOf(int track) const;               // the step it plays now (0-based), -1 while stopped
+    unsigned armed() const;                    // live recording armed: a bit per track
     // The device's stored objects, as Felucca's full backup carries them: 0 the music now
     // (a FUN8 project), 1 settings, 2..5 the project slots, 6 and 7 the user presets, 8 the
     // FM6 bank. get: false if there is no such object (an empty one gives no bytes); put:

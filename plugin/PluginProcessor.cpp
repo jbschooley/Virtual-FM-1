@@ -1184,7 +1184,14 @@ bool FM1Processor::feluccaLive(bool on) {
         else {
             p.progress(0, 1, "Live with the FM-1: changes on either side reach the other.");
             while (!p.cancelled()) {
-                if (!mirror.tick(err)) { r = {false, "Live sync stopped: " + err + "."}; break; }
+                std::vector<fm1::Bytes> edits;
+                {
+                    std::lock_guard<std::mutex> g(felEditsLock_);
+                    edits.swap(felEdits_);
+                }
+                bool ok = true;
+                for (auto& e : edits) if (!(ok = mirror.forward(e, err))) break;
+                if (!ok || !mirror.tick(err)) { r = {false, "Live sync stopped: " + err + "."}; break; }
                 juce::Thread::sleep(50);
             }
             mirror.stop();
@@ -1195,6 +1202,66 @@ bool FM1Processor::feluccaLive(bool on) {
     });
     if (!started) felLive_ = false;
     return started;
+}
+
+std::optional<fm1::Bytes> FM1Processor::feluccaEdit(const fm1::Bytes& request) {
+    auto f = felucca();
+    if (!f) return std::nullopt;
+    auto reply = f->ask(request);
+    if (felLive_) {
+        std::lock_guard<std::mutex> g(felEditsLock_);
+        if (felEdits_.size() < 4096) felEdits_.push_back(request);
+    }
+    return reply;
+}
+
+// Copies the patterns (Felucca: and its chain and motion) between the two, from -> to
+static bool copySequencer(felucca::Endpoint& from, felucca::Endpoint& to, int tracks, juce::String& err, const felucca::Progress& progress) {
+    if (!felucca::copyPatterns(from, to, tracks, err, false, progress)) return false;
+    if (felucca::isSloop(from.dialect())) return true;   // (SLOOP's chain is in its settings: not carried)
+    auto chain = felucca::readChain(from);
+    if (!chain) { err = "no answer to SONG"; return false; }
+    if (!to.ask(felucca::chainWrite(chain->rows), 4000)) { err = "no answer to SONG"; return false; }
+    for (int t = 0; t < tracks; ++t) {
+        auto src = felucca::readMotion(from, t), dst = felucca::readMotion(to, t);
+        if (!src || !dst) { err = "no answer to MOTION"; return false; }
+        if (src->events.size() == dst->events.size() && src->on == dst->on
+            && std::equal(src->events.begin(), src->events.end(), dst->events.begin(),
+                          [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value; }))
+            continue;
+        if (!to.ask(felucca::motionClear(t), 4000)) { err = "no answer to MOTION"; return false; }
+        for (auto& e : src->events)
+            if (!to.ask(felucca::motionSet(t, e.step, e.param, e.value), 4000)) { err = "no answer to MOTION"; return false; }
+        if (!to.ask(felucca::motionOn(t, src->on), 4000)) { err = "no answer to MOTION"; return false; }
+    }
+    return true;
+}
+
+bool FM1Processor::feluccaPullPatterns() {
+    auto f = felucca();
+    if (!f || !feluccaSynth()) return false;
+    return session.job("Reading the FM-1's patterns...", [this, f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
+        felucca::VirtualEndpoint mine(f);
+        auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
+        juce::String err;
+        if (!copySequencer(synth, mine, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Could not read the patterns: " + err + "."};
+        felResync_ = true;
+        return Fm1Session::JobResult{true, "Pulled the FM-1's patterns."};
+    });
+}
+
+bool FM1Processor::feluccaSendPatterns() {
+    auto f = felucca();
+    if (!f || !feluccaSynth()) return false;
+    return session.job("Sending the patterns to the FM-1...", [f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
+        felucca::VirtualEndpoint mine(f);
+        auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
+        juce::String err;
+        if (!copySequencer(mine, synth, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Sending the patterns stopped: " + err + "."};
+        return Fm1Session::JobResult{true, "Sent the patterns to the FM-1 (not saved there)."};
+    });
 }
 
 // Host automation into Felucca: each value the host changed since the last block, spread

@@ -500,6 +500,114 @@ static int checks() {
                   "Live carries a drum step whole: lanes past the fourth, their levels and ratchets");
             mirror.stop();
         }
+        // the sequencers through the editor protocol (FeluccaSeq): both firmwares
+        {
+            struct Injecting : felucca::Endpoint {
+                felucca::Endpoint& e;
+                std::vector<fm1::Bytes> extra;
+                explicit Injecting(felucca::Endpoint& x) : e(x) {}
+                const felucca::Dialect& dialect() const override { return e.dialect(); }
+                std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { return e.ask(q, t); }
+                std::vector<fm1::Bytes> pushes() override { auto p = e.pushes(); p.insert(p.end(), extra.begin(), extra.end()); extra.clear(); return p; }
+            };
+            std::vector<float> l(256), r(256);
+            for (auto flavor : {Fl::Felucca, Fl::Sloop}) {
+                const bool slp = flavor == Fl::Sloop;
+                const juce::String who = slp ? "SLOOP: " : "Felucca: ";
+                auto a = std::make_shared<FeluccaEngine>(flavor), b = std::make_shared<FeluccaEngine>(flavor);
+                felucca::VirtualEndpoint ea(a), eb(b);
+                felucca::Step st;
+                st.n = 2; st.note = {60, 64, 0, 0}; st.time = felucca::kNote; st.flags = felucca::kAccent | felucca::kSlide; st.vel = 100;
+                if (slp) { st.lvl = 0x9B; st.rat = 0x86; } else { st.hit = 0x85; st.acc = 0x81; st.chance = 40; }
+                CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 1, 5, st), 400).has_value(), who + "a step written");
+                auto back = felucca::readStep(ea, 1, 5);
+                CHECK(back && *back == st, who + "and read back the same: notes, tie, accent and slide, " + (slp ? "levels and ratchets" : "lanes, accents and chance"));
+                CHECK(ea.ask(felucca::paramWrite(1, felucca::kLen, 24), 400) && felucca::readParam(ea, 1, felucca::kLen) == 24, who + "LEN set and read");
+                if (slp) {
+                    felucca::DrumStep ds;
+                    ds.set(0, true, 3, 0); ds.set(9, true, 1, 2); ds.set(15, true, 2, 3);
+                    CHECK(ea.ask(felucca::drumWrite(ea.dialect(), 7, ds), 400) && felucca::readDrumStep(ea, 7) == ds
+                          && ds.has(9) && ds.level(9) == 1 && ds.ratchet(15) == 3, who + "a drum step, every lane's level and ratchet");
+                }
+                juce::String err;
+                CHECK(felucca::copyPatterns(ea, eb, 4, err), who + "every pattern copied (" + err + ")");
+                auto pa = felucca::readPattern(ea, 1, err), pb = felucca::readPattern(eb, 1, err);
+                CHECK(pa && pb && *pa == *pb && pb->len == 24 && pb->steps[5] == st, who + "the other side has them");
+                if (slp) { auto da = felucca::readPattern(ea, 3, err), db = felucca::readPattern(eb, 3, err); CHECK(da && db && da->drums == db->drums && db->drums[7].has(15), who + "drum track too"); }
+                // the playhead
+                CHECK(a->stepOf(0) == -1, who + "stopped: no step");
+                a->transport(true);
+                for (int k = 0; k < 40; ++k) a->render(l.data(), r.data(), 256);
+                const int at = a->stepOf(0);
+                CHECK(a->playing() && at >= 0 && at < 16, who + "playing: the step it plays (" + juce::String(at) + ")");
+                a->transport(false);
+                for (int k = 0; k < 4; ++k) a->render(l.data(), r.data(), 256);
+                // Live: the tab's own edit forwarded to the synth's side
+                {
+                    Injecting ia(ea);
+                    felucca::Mirror m(ia, eb);
+                    CHECK(m.start(err), who + "live started");
+                    felucca::Step other = st;
+                    other.note = {48, 0, 0, 0}; other.n = 1;
+                    CHECK(m.forward(felucca::stepWrite(ea.dialect(), 2, 9, other), err) && felucca::readStep(ea, 2, 9) == other, who + "an edit forwarded to the synth");
+                    if (slp) {
+                        // a step edit on the device: SLOOP pushes RELOAD naming nothing new; the patterns come again
+                        felucca::Step dev = st; dev.note = {72, 0, 0, 0}; dev.n = 1;
+                        ea.ask(felucca::stepWrite(ea.dialect(), 0, 3, dev), 400);
+                        auto td = ea.ask(felucca::frame(felucca::kTrackDump, {0}), 400);
+                        const auto tda = td ? felucca::argsOf(*td) : std::vector<uint8_t>{};
+                        if (tda.size() >= 3) ia.extra.push_back(felucca::frame(felucca::kReload, {tda[1], tda[2], 0}));
+                        CHECK(m.tick(err) && felucca::readStep(eb, 0, 3) == dev, who + "a reload that names nothing new re-reads the patterns (" + err + ")");
+                        felucca::Step dev2 = dev; dev2.note = {74, 0, 0, 0};
+                        ea.ask(felucca::stepWrite(ea.dialect(), 0, 4, dev2), 400);
+                        ea.ask(felucca::frame(felucca::kTrack, {1}), 400);
+                        auto t1 = ea.ask(felucca::frame(felucca::kTrackDump, {1}), 400);
+                        const auto t1a = t1 ? felucca::argsOf(*t1) : std::vector<uint8_t>{};
+                        if (t1a.size() >= 3) ia.extra.push_back(felucca::frame(felucca::kReload, {t1a[1], t1a[2], 1}));
+                        CHECK(m.tick(err) && felucca::readStep(eb, 0, 4) != dev2, who + "a track selected is not a pattern re-read");
+                    } else {
+                        // a chain playing: its step pushes are not the pattern's
+                        // project A: the pattern with another first step, which the chain plays
+                        const auto own = felucca::readStep(ea, 0, 0);
+                        felucca::Step chainStep = st; chainStep.note = {30, 0, 0, 0}; chainStep.n = 1;
+                        ea.ask(felucca::stepWrite(ea.dialect(), 0, 0, chainStep), 400);
+                        std::vector<uint8_t> music;
+                        a->object(0, music);
+                        a->putObject(2, music);
+                        if (own) ea.ask(felucca::stepWrite(ea.dialect(), 0, 0, *own), 400);
+                        ea.ask(felucca::chainWrite({{0, 1}}), 400);
+                        auto started = ea.ask(felucca::chainPlay(true), 400);
+                        for (int k = 0; k < 8; ++k) a->render(l.data(), r.data(), 256);
+                        auto ch = felucca::readChain(ea);
+                        CHECK(ch && ch->running && ch->rows.size() == 1, who + "a song chain plays");
+                        juce::Thread::sleep(1100);   // (the mirror polls about once a second)
+                        CHECK(m.tick(err), who + "polled");
+                        const auto before = felucca::readStep(eb, 0, 0);
+                        CHECK(felucca::readStep(ea, 0, 0) == chainStep && before != chainStep, who + "the chain's step plays where the pattern's was");
+                        ia.extra.push_back(felucca::frame(felucca::kStepChanged, {0, 0}));
+                        CHECK(m.tick(err) && felucca::readStep(eb, 0, 0) == before, who + "a step push while a chain plays is not carried");
+                        ea.ask(felucca::chainPlay(false), 400);
+                        for (int k = 0; k < 8; ++k) a->render(l.data(), r.data(), 256);
+                        // motion on the selected track: its values are not carried
+                        ea.ask(felucca::motionSet(0, 2, 9, 30), 400);
+                        ea.ask(felucca::motionOn(0, true), 400);
+                        auto mo = felucca::readMotion(ea, 0);
+                        CHECK(mo && mo->on && mo->events.size() == 1 && mo->events[0].param == 9 && mo->events[0].value == 30, who + "motion set and read");
+                        juce::Thread::sleep(1100);
+                        m.tick(err);
+                        const int bRate = b->param(0, 9), bLen = b->param(0, felucca::kLen);
+                        std::vector<uint8_t> q1 = {0, 9}, q2 = {0, uint8_t(felucca::kLen)};
+                        auto v14 = [](std::vector<uint8_t>& q, int v) { q.push_back(uint8_t((v + 8192) & 127)); q.push_back(uint8_t(((v + 8192) >> 7) & 127)); };
+                        v14(q1, (bRate + 11) % 100); v14(q2, bLen == 20 ? 21 : 20);
+                        ia.extra.push_back(felucca::frame(felucca::kChanged, q1));
+                        ia.extra.push_back(felucca::frame(felucca::kChanged, q2));
+                        CHECK(m.tick(err) && b->param(0, 9) == bRate && b->param(0, felucca::kLen) != bLen,
+                              who + "with motion on, a motion parameter is not carried; LEN is");
+                    }
+                    m.stop();
+                }
+            }
+        }
         // the device file: SLOOP's own backup format, in the library's SLOOP folder
         {
             const auto where = felucca::DeviceStore::defaultFile(felucca::sloopDialect());   // (named only: never written here)

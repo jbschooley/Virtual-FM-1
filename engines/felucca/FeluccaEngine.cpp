@@ -435,6 +435,18 @@ std::optional<std::vector<uint8_t>> FeluccaEngine::ask(const std::vector<uint8_t
     return std::nullopt;
 }
 
+int FeluccaEngine::stepOf(int track) const {
+    if (!core_ || track < 0) return -1;
+    auto g = bind();
+    return int(core_->step_of(uint32_t(track)));
+}
+
+unsigned FeluccaEngine::armed() const {
+    if (!core_) return 0;
+    auto g = bind();
+    return core_->armed();
+}
+
 int FeluccaEngine::selected() const {
     if (!core_) return 0;
     auto g = bind();

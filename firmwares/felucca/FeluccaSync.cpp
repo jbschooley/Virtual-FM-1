@@ -1,4 +1,5 @@
 #include "FeluccaSync.h"
+#include "FeluccaSeq.h"
 
 #include "Fm1Link.h"
 
@@ -63,7 +64,7 @@ const Dialect& feluccaDialect() {
 const Dialect& sloopDialect() {
     static const Dialect d{"SLOOP", 34, 35, 36, false,
                            {0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34}, {6, 7, 2, 3, 4, 5, 0, 1}, 7, false, "sloop-backup",
-                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29}, 3, 33};
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30}, 3, 33};
     return d;
 }
 
@@ -368,10 +369,26 @@ bool Mirror::start(juce::String& error) {
         auto ta = t ? argsOf(*t) : std::vector<uint8_t>{};
         if (ta.empty()) { error = "a synth did not say which track is selected"; return false; }
         s->sel = ta[0];
+        if (auto d = s->ep.ask(frame(kTrackDump, {uint8_t(s->sel)}), kAsk); d && argsOf(*d).size() >= 3)   // (engine, preset)
+            s->lastReload = frame(kReload, {argsOf(*d)[1], argsOf(*d)[2], uint8_t(s->sel)});
         s->pinged = juce::Time::getMillisecondCounter();
         s->ep.pushes();   // what was pending before: not ours to carry
     }
     return true;
+}
+
+bool Mirror::forward(const Bytes& request, juce::String& error) {
+    if (a_.ep.ask(request, kFlash)) return true;
+    error = "the synth did not take an edit";
+    return false;
+}
+
+// Felucca: whether a song chain plays (SONG) and whether the selected track's motion plays
+// (MOTION): neither is pushed. About once a second.
+void Mirror::poll(Side& s) {
+    if (isSloop(s.ep.dialect()) || !s.ep.dialect().fm6) return;
+    if (auto c = readChain(s.ep)) s.chainRunning = c->running;
+    if (auto m = readMotion(s.ep, s.sel)) s.selMotion = m->on && !m->events.empty();
 }
 
 void Mirror::stop() {
@@ -398,6 +415,7 @@ bool Mirror::tick(juce::String& error) {
             if (!ok) { error = s == &a_ ? juce::String("the synth stopped answering") : "the plugin's " + juce::String(s->ep.dialect().name) + " stopped answering"; return false; }
             s->pinged = now;
         }
+        if (now - s->polled >= 1000) { s->polled = now; poll(*s); }
         auto& echoes = s->echoes;
         echoes.erase(std::remove_if(echoes.begin(), echoes.end(), [now](auto& e) { return now - e.second > 2000; }), echoes.end());
     }
@@ -424,6 +442,9 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
             v14(q, r14(a, 2));
             return must(to.ep.ask(frame(kSet, q), kAsk), "SET");
         }
+        // Felucca's motion playing on that track sets these values itself: not carried (a knob
+        // turn on them is not either; the firmware cannot tell the two apart: gaps list)
+        if (from.selMotion && motionParam(a[1])) return true;
         std::vector<uint8_t> q = {uint8_t(from.sel), a[1]};
         v14(q, r14(a, 2));
         return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
@@ -434,6 +455,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
     }
     if (cmd == kStepChanged && a.size() >= 2) {   // index, track
+        if (from.chainRunning) return true;   // Felucca: a chain's steps, not the pattern's
         const auto& d = from.ep.dialect();
         if (d.drumStep >= 0 && a[1] == d.drumTrack) {   // SLOOP's drum lanes, whole
             auto r = from.ep.ask(frame(d.drumStep, {a[0]}), kAsk);
@@ -452,12 +474,19 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         auto& echoes = from.echoes;
         for (auto it = echoes.begin(); it != echoes.end(); ++it)
             if (it->first == push) { echoes.erase(it); return true; }   // our own load, coming back
+        const bool same = push == from.lastReload;   // nothing it names changed: steps did (SLOOP)
+        from.lastReload = push;
         from.sel = a[2];
         if (to.sel != a[2]) {
             if (!must(to.ep.ask(frame(kTrack, {a[2]}), kAsk), "TRACK")) return false;
             to.sel = a[2];
         }
-        return copyTrackSound(from, to, a[2], error);
+        if (!copyTrackSound(from, to, a[2], error)) return false;
+        // SLOOP pushes RELOAD, not STEP_CHANGED, for step edits on its SEQ layer and drum screen,
+        // undo and section switches: the patterns again (up to each track's length; only what
+        // differs is written)
+        if (same && isSloop(from.ep.dialect())) return copyPatterns(from.ep, to.ep, 4, error, true);
+        return true;
     }
     return true;
 }

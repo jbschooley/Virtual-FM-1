@@ -35,6 +35,7 @@ enum Cmd : int {
     kUpList = 16, kUpGet = 17, kUpPut = 18, kUpStore = 19, kUpLoad = 20, kUpErase = 21,   // user presets
     kWatch = 22, kChanged = 23, kReload = 24, kPing = 25, kStepChanged = 26,
     kTrack = 27, kTrackDump = 29, kTrackStep = 30, kTrackParam = 31, kTrackChanged = 32,
+    kSong = 33, kMotion = 64,   // (Felucca's)
     kBackupList = 65, kBackupGet = 66, kBackupPut = 67, kFm6Get = 68, kFm6Put = 69
 };
 
@@ -120,16 +121,24 @@ public:
     // False when a side stopped answering (the error says which).
     bool tick(juce::String& error);
     void stop();                               // both unwatched
+    // A request made on side b (the plugin's own device: the Sequencer tab's edits), done on side a
+    // too: neither firmware pushes what its editor writes, so it is carried here. False when a did
+    // not answer.
+    bool forward(const Bytes& request, juce::String& error);
 
 private:
     struct Side {
         Endpoint& ep;
         int sel = 0;
-        juce::uint32 pinged = 0;
+        juce::uint32 pinged = 0, polled = 0;
+        bool chainRunning = false;             // Felucca: a song chain plays (its step pushes are the chain's)
+        bool selMotion = false;                // Felucca: the selected track's motion is on, with events
+        Bytes lastReload;                      // the last RELOAD it pushed (engine, preset, track)
         uint8_t caps = 0;                      // its INFO 53 01 (no RELOAD echo of our loads: kCapNoEcho)
         std::vector<std::pair<Bytes, juce::uint32>> echoes;   // RELOADs our own loads will push, and when
     };
     bool carry(Side& from, Side& to, const Bytes& push, juce::String& error);
+    void poll(Side& s);                        // what is never pushed and a mirror must know
     bool copyTrackSound(Side& from, Side& to, int track, juce::String& error);
     Side a_, b_;
 };

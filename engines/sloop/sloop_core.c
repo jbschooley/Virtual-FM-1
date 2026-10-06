@@ -554,6 +554,15 @@ void FEL(select)(uint32_t t)
 
 void FEL(transport)(int play) { transport_req = play ? 1u : 2u; }
 int FEL(playing)(void) { return song.playing != 0u; }
+/* the step a track plays now (0-based, within its length), -1 while stopped: the playhead (seq.c:
+ * seq_abs, the transport grid's step last played) */
+int32_t FEL(step_of)(uint32_t track)
+{
+    if (track >= NTRK || !song.playing || trk[track].seq_abs == SEQ_NONE)
+        return -1;
+    return (int32_t)(trk[track].seq_abs % trk_len(&trk[track]));
+}
+uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit per track */
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor.c v6): 0 the
  * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks. The user

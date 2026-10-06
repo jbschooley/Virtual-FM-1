@@ -18,6 +18,7 @@
 #if FM1_FELUCCA
  #include "FeluccaEngine.h"
  #include "FeluccaDevice.h"
+ #include "FeluccaSeq.h"
 #endif
 #include "Params.h"
 #include "Sequencer.h"
@@ -126,6 +127,15 @@ public:
     bool feluccaPullSound(int track);
     bool feluccaSendSound(int track);
     bool feluccaLive(bool on);
+    // The Sequencer tab's edits: an editor-protocol request done on this instance's device (its
+    // reply, or none), and while Live runs also on the FM-1 (neither firmware pushes what its
+    // editor writes). Any thread.
+    std::optional<fm1::Bytes> feluccaEdit(const fm1::Bytes& request);
+    // Every track's pattern (steps and LEN / DIV / SWG / GATE; Felucca: its song chain and motion
+    // too) from the connected FM-1 into this instance, or from here to it. Only what differs is
+    // written; its RAM, not saved there.
+    bool feluccaPullPatterns();
+    bool feluccaSendPatterns();
     bool feluccaLiveOn() const { return felLive_.load(); }
     std::function<void()> onFeluccaLive;   // live sync ended (message thread)
     // The host parameter of Felucca's (or SLOOP's, as it plays) parameter (track -1: a global), or
@@ -200,6 +210,8 @@ private:
     felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
     felucca::DeviceStore& deviceFor(const FeluccaEngine& f) { return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : felDevice_; }
     std::atomic<bool> felLive_{false};                // a live mirror job is running
+    std::mutex felEditsLock_;
+    std::vector<fm1::Bytes> felEdits_;                // the tab's edits for the live job to carry to the FM-1
     std::mutex felDeviceLock_;
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
     juce::AudioBuffer<float> felBuf_;

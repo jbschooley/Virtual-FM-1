@@ -74,6 +74,8 @@ typedef struct {
     X(uint32_t, selected, (void))                                                \
     X(void, select, (uint32_t track))                                            \
     X(int, playing, (void))                                                      \
+    X(int32_t, step_of, (uint32_t track))                                        \
+    X(uint32_t, armed, (void))                                                   \
     X(uint32_t, object_max, (void))                                              \
     X(int32_t, object_get, (uint32_t id, uint8_t *out, uint32_t max))            \
     X(uint32_t, object_put, (uint32_t id, const uint8_t *data, uint32_t len))
