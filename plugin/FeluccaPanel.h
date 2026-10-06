@@ -106,7 +106,7 @@ private:
     void timerCallback() override { update(); }
     void update();
     FM1Processor& proc_;
-    juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"}, liveButton_{"Live"};
+    juce::TextButton pullButton_{"Pull from FM-1"}, sendButton_{"Send to FM-1"};
     juce::Label about_, problem_, status_;
 };
 

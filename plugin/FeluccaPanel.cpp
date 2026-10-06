@@ -560,7 +560,7 @@ void FeluccaSoundPage::layoutContent() {
 // ---- the Sync page ---------------------------------------------------------------------------
 
 FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
-    for (auto* c : std::initializer_list<juce::Component*>{&pullButton_, &sendButton_, &liveButton_, &about_, &problem_, &status_}) addAndMakeVisible(c);
+    for (auto* c : std::initializer_list<juce::Component*>{&pullButton_, &sendButton_, &about_, &problem_, &status_}) addAndMakeVisible(c);
     status_.setColour(juce::Label::textColourId, kText);
     status_.setFont(juce::FontOptions(13.0f));
     status_.setJustificationType(juce::Justification::topLeft);
@@ -591,21 +591,15 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
                 if (ok && self) { self->proc_.feluccaSend(); self->update(); }
             }));
     };
-    liveButton_.setClickingTogglesState(true);
-    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as " + name + "'s web editor follows it. "
-                           "Pull or send first so both start the same.");
-    liveButton_.onClick = [this] { proc_.feluccaLive(liveButton_.getToggleState()); update(); };
     proc_.onFeluccaLive = [this] { update(); };
     update();
     startTimerHz(4);
 }
 
 void FeluccaSyncPage::update() {
-    const bool synth = proc_.feluccaSynth(), live = proc_.feluccaLiveOn(), busy = proc_.session.busy();
+    const bool synth = proc_.feluccaSynth(), busy = proc_.session.busy();
     pullButton_.setEnabled(synth && !busy);
     sendButton_.setEnabled(synth && !busy);
-    liveButton_.setEnabled(synth && (live || !busy));
-    liveButton_.setToggleState(live, juce::dontSendNotification);
     const auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
     if (problem != problem_.getText()) problem_.setText(problem, juce::dontSendNotification);
 }
@@ -615,10 +609,8 @@ void FeluccaSyncPage::resized() {
     about_.setBounds(r.removeFromTop(40));
     r.removeFromTop(8);
     auto row = r.removeFromTop(30);
-    const int w = (row.getWidth() - 12) / 3;
-    pullButton_.setBounds(row.removeFromLeft(w)); row.removeFromLeft(6);
-    sendButton_.setBounds(row.removeFromLeft(w)); row.removeFromLeft(6);
-    liveButton_.setBounds(row);
+    pullButton_.setBounds(row.removeFromLeft(row.getWidth() / 2 - 3)); row.removeFromLeft(6);
+    sendButton_.setBounds(row);
     r.removeFromTop(10);
     status_.setBounds(r.removeFromTop(60));
     problem_.setBounds(r.removeFromTop(60));

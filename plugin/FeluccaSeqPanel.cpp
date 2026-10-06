@@ -784,7 +784,7 @@ void FeluccaSeqPage::timerCallback() {
     send_.setEnabled(synth);
     if (juce::Time::getMillisecondCounter() >= sayUntil_)   // (a message said lately stays)
         info_.setText(proc_.feluccaLiveOn() ? "Live with the FM-1: every edit here reaches it." :
-                      proc_.feluccaSynth() ? "Connected: Pull or Send the patterns, or turn Live on (Library > Sync)." : "",
+                      proc_.feluccaSynth() ? "Connected: Pull or Send the patterns, or turn Live on (top bar)." : "",
                       juce::dontSendNotification);
     // what the device itself changed (its panel, recording, a synced FM-1): read again now and then,
     // not while the mouse is down on a control

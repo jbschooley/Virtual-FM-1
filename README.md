@@ -81,7 +81,7 @@ Logic needs a restart to pick up a new Audio Unit.
    list. Changes stay unsaved until **Store**, as on the FM-1; **Revert** drops
    them.
 5. **Send to FM-1** plays your sound on the synth without saving it there;
-   **Live** sends every change as you make it. **Store to FM-1** saves the
+   **Live** (top bar) sends every change as you make it. **Store to FM-1** saves the
    preset on the synth. **Push changed** writes every preset that differs.
 6. The **Sequencer** tab pulls and pushes patterns; **Arpeggiator** works like
    the FM-1's. Both follow your host's tempo and transport.

@@ -121,6 +121,7 @@ private:
     int pagesEngine_ = -1;     // the tabs shown are for this fm1::Engine, or not built (-1)
     juce::ComboBox inPorts_, outPorts_;
     juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
+    void refreshLive();
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
     juce::TextButton selectMode_{"Select"};   // touch: each tap adds or removes a preset (shift / cmd-click on a desktop)
@@ -130,7 +131,7 @@ private:
     juce::Label currentName_;
     juce::TextButton init_{"Init..."};
     juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};
-    juce::ToggleButton live_{"Live: send every change"};
+    juce::TextButton live_{"Live"};   // (in the top bar)
     juce::ComboBox fxChannel_;
     juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Store to FM-1 (saves the preset)"},
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},

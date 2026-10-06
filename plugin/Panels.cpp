@@ -105,14 +105,14 @@ static void showImportResult(juce::Component* near, const FM1Processor::ImportRe
 // ---- LibraryPanel -------------------------------------------------------------------
 
 LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
-    for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &identity_})
+    for (auto* c : std::initializer_list<juce::Component*>{&inPorts_, &outPorts_, &connect_, &autoConnect_, &live_, &identity_})
         bar_.addAndMakeVisible(c);
     inPorts_.setTextWhenNothingSelected("MIDI in");
     outPorts_.setTextWhenNothingSelected("MIDI out");
     inPorts_.setTextWhenNoChoicesAvailable("No MIDI in");
     outPorts_.setTextWhenNoChoicesAvailable("No MIDI out");
     for (auto* c : std::initializer_list<juce::Component*>{&currentName_, &init_, &pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_,
-            &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &sendEdit_, &live_, &fxChannel_})
+            &pushAll_, &selectOnDevice_, &cancel_, &importFile_, &exportFile_, &sendEdit_, &fxChannel_})
         syncPage_.addAndMakeVisible(c);
     for (auto* c : std::initializer_list<juce::Component*>{&list_, &pages_, &status_})
         addAndMakeVisible(c);
@@ -142,7 +142,15 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     pullCurrent_.onClick = [this] { proc_.pullCurrent(); };
     pushCurrent_.onClick = [this] { proc_.pushCurrent(); };
     sendEdit_.onClick = [this] { proc_.sendToFm1EditBuffer(); };
-    live_.onClick = [this] { proc_.setLive(live_.getToggleState()); };
+    // Live, in the top bar: what it carries depends on the firmware (refreshLive)
+    live_.setClickingTogglesState(true);
+    live_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2e9d55));
+    live_.onClick = [this] {
+       #if FM1_FELUCCA
+        if (proc_.felucca()) { proc_.feluccaLive(live_.getToggleState()); refreshLive(); return; }
+       #endif
+        proc_.setLive(live_.getToggleState());
+    };
     for (int ch = 1; ch <= 16; ++ch) fxChannel_.addItem("FX channel " + juce::String(ch), ch);
     fxChannel_.setSelectedId(proc_.channels.fx, juce::dontSendNotification);
     fxChannel_.onChange = [this] { proc_.channels.fx = fxChannel_.getSelectedId(); };
@@ -218,14 +226,32 @@ void LibraryPanel::refreshPorts() {
 void LibraryPanel::refreshButtons() {
     bool open = proc_.link.isOpen(), busy = proc_.session.busy();
     for (auto* b : {&pullCurrent_, &pushCurrent_, &pullAll_, &pushChanged_, &pushAll_, &selectOnDevice_, &sendEdit_}) b->setEnabled(open && !busy);
-    live_.setEnabled(open);
+    refreshLive();
     cancel_.setEnabled(busy);
     connect_.setEnabled(!busy);
     autoConnect_.setEnabled(!busy);
 }
 
+// the top bar's Live: Felucca's and SLOOP's sync (a session job) or the FM-1's (stock, FM-1+VA)
+void LibraryPanel::refreshLive() {
+    bool on = proc_.isLive(), can = proc_.link.isOpen();
+    juce::String tip = "Live: the sound you edit or pick here plays on the FM-1 as you change it (its edit buffer, not stored; "
+                       "one way: the FM-1's own changes and the sequencer are not carried)";
+   #if FM1_FELUCCA
+    if (proc_.felucca()) {
+        on = proc_.feluccaLiveOn();
+        can = proc_.feluccaSynth() && (on || !proc_.session.busy());
+        tip = "Live: what changes on the FM-1 changes here and the other way round, in every tab (sounds, the device, "
+              "the sequencer). Pull or send first so both start the same.";
+    }
+   #endif
+    live_.setEnabled(can);
+    live_.setToggleState(on, juce::dontSendNotification);
+    if (live_.getTooltip() != tip) live_.setTooltip(tip);
+}
+
 void LibraryPanel::timerCallback() {
-    if (live_.getToggleState() != proc_.isLive()) live_.setToggleState(proc_.isLive(), juce::dontSendNotification);
+    refreshLive();
     auto label = proc_.bank.slotLabel(proc_.bank.currentSlot()) + (proc_.isEdited() ? "  (edited)" : "");
     if (currentName_.getText() != label) currentName_.setText(label, juce::dontSendNotification);
     bool busy = proc_.session.busy();
@@ -271,6 +297,7 @@ void LibraryPanel::layoutBar() {
     const bool narrow = top.getWidth() < 600;   // a phone: a line of its own, without the identity text
     identity_.setVisible(!narrow);
     if (narrow) {
+        live_.setBounds(top.removeFromRight(50)); top.removeFromRight(4);
         autoConnect_.setBounds(top.removeFromRight(76)); top.removeFromRight(4);
         connect_.setBounds(top.removeFromRight(70)); top.removeFromRight(4);
         inPorts_.setBounds(top.removeFromLeft(top.getWidth() / 2 - 2)); top.removeFromLeft(4);
@@ -280,7 +307,8 @@ void LibraryPanel::layoutBar() {
     inPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
     outPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
     connect_.setBounds(top.removeFromLeft(80)); top.removeFromLeft(6);
-    autoConnect_.setBounds(top.removeFromLeft(84)); top.removeFromLeft(8);
+    autoConnect_.setBounds(top.removeFromLeft(84)); top.removeFromLeft(6);
+    live_.setBounds(top.removeFromLeft(56)); top.removeFromLeft(8);
     identity_.setBounds(top);
 }
 
@@ -299,7 +327,7 @@ void LibraryPanel::layoutSync() {
         r.removeFromTop(6);
     };
     row(pullCurrent_, &sendEdit_);
-    row(live_, &fxChannel_);
+    row(fxChannel_);
     row(pushCurrent_, &selectOnDevice_);
     r.removeFromTop(10);
     row(pullAll_, &pushChanged_);
