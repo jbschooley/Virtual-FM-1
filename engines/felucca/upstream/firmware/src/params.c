@@ -7,7 +7,9 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
-static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE"};   /* seq.c kb_map; 1 = SNAP (stored projects: the former ON) */
+/* seq.c kb_map; 1 = SNAP (stored projects: the former ON); 3 = SEQ: SNAP, and the sequencer's notes snap too as
+ * they play (seq.c seq_step; the steps keep what was written). Append-only: older projects hold 0..2 */
+static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "SEQ"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
@@ -134,8 +136,8 @@ static const param_desc_t GP[G_COUNT] = {
     [G_INITSND] = PE("INIT", N_GO, 0),
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 0),
-    /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the SAMPLE engine's
-     * PERC set on any part). On no page; kept so the ids and G_COUNT, which the project format and the
+    /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine
+     * on any part). On no page; kept so the ids and G_COUNT, which the project format and the
      * editor protocol depend on, do not move */
     [G_DRLVL] = PD("-", F_INT, 0, 0, 0),
     [G_DRREV] = PD("-", F_INT, 0, 0, 0),
@@ -159,7 +161,8 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 }
 
 /* a retired F_ENUM value kept as an alias, so stored values stay valid: SAMPLE SET and GRAIN SRC 1, once
- * TRANH, play PIANO (tools/gen_samples.py SMP_SET_ORIG). It shows the original's name; knobs step over it
+ * TRANH, and 4, once PERC (a SAMPLE sound of it loads as DRUM: core.h drum_from_perc), play PIANO
+ * (tools/gen_samples.py SMP_SET_ORIG). It shows the original's name; knobs step over it
  * and the editor's SET lands on the original. -> the value v stands for */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
@@ -173,6 +176,33 @@ static int32_t enum_step(const param_desc_t *d, int32_t from, int32_t v)
     while (v != from && enum_orig(d, v) != v)
         v = v + dir > d->max || v + dir < d->min ? from : v + dir;
     return v;
+}
+
+/* #48: the note divisions in the order of their length, longest first (triplets between their neighbours), on the
+ * knobs and the gauges; the stored values (N_DIV, N_SLDIV indices: projects, presets, the editor protocol) stay.
+ * -> the shown order of d's values (index: position, entry: value), 0 = the values' own order */
+static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32 */
+static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T 1/16 16T 1/32 32T */
+static const uint8_t *enum_order(const param_desc_t *d)
+{
+    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : 0;
+}
+static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
+{
+    const uint8_t *o = enum_order(d);
+    int32_t r;
+    for (r = 0; o && r < d->max - d->min; r++)
+        if (o[r] == v - d->min)
+            break;
+    return o ? r + d->min : v;
+}
+/* a knob turned `steps` (signed) from v: clamped, over the shown order, past aliases (enum_step) */
+static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
+{
+    const uint8_t *o = enum_order(d);
+    if (o)
+        return o[clamp(enum_rank(d, v) - d->min + steps, 0, d->max - d->min)] + d->min;
+    return enum_step(d, v, clamp(v + steps, d->min, d->max));
 }
 
 static uint8_t fmt_named;        /* the last param_format was a name (F_ENUM, even "4"): ui_draw.c's digits do not roll it */

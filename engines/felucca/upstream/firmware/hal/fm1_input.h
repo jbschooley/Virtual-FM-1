@@ -36,6 +36,20 @@
  * fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
  * while that column is selected. fm1_led_key/btn helpers address them by id.
+ * A dim glow (fm1_input_tick only): fm1_led_dim[col] are lit for a short pulse at the end of their column's
+ * tick, on every frame (~910 Hz, no flicker): ~1/30 of a lit LED (~95 us) at FM1_LED_DIM_NS 3.2 us (the eye
+ * is logarithmic: 1/4 and 1/6 read as nearly lit, #35). No wait: the pulse rides on the 595 shift of the next
+ * column. Its 16 bits go out while the 595 still drives column p (its outputs change only at the latch), so
+ * the lines go lit | dim of p before the shift and dark after its first fm1__dim_k bits, then the rest
+ * shifts and latches with the lines dark as before (the read-modify-write edges, 04d7180): nothing reaches
+ * another column, and the key read (before it, the lines dark) is unchanged. The shift is the same code on
+ * every column, so the pulse is the same width on each; TIMER4 measures it on every pulse and fm1__dim_k
+ * follows FM1_LED_DIM_NS (one bit up or down a tick: the widths straddle the target by a bit's time). Only
+ * if the whole shift were shorter than the pulse would the rest be waited (console `inp`: dim_pulse_ns,
+ * dim_bits). An LED in both is fully lit. FM1_LED_DIM_DIV > 1 also skips frames (keep >= 200 Hz).
+ * Two glows (MENU > LEDS): fm1_led_dim_level(0) FM1_LED_DIM_NS (DIM HI, the default), (1) FM1_LED_DIM_LO_NS
+ * (DIM LO, ~1/60). The tick reads the target from fm1__dim_t (TIMER4 ticks, set here only, never divided):
+ * both are shorter than the shift (~3-5 us measured, dim_pulse_ns 3125 at 14 of 16 bits), so neither waits.
  */
 #pragma once
 #include <stdint.h>
@@ -55,6 +69,21 @@
 #define FM1_DEB_RELEASE 8u        /* frames open in a row: a release (~9 ms) */
 #define FM1_INPUT_LAT 1           /* the press latency stats below (seq.c, console `inp`) */
 #define FM1_SETTLE_US 10u
+#ifndef FM1_LED_DIM_NS
+#define FM1_LED_DIM_NS 3200u      /* a dim LED's pulse per frame (ns; a lit one ~95 us): ~1/30 the brightness */
+#endif
+#ifndef FM1_LED_DIM_LO_NS
+#define FM1_LED_DIM_LO_NS 1600u   /* the darker glow (MENU > LEDS DIM LO): ~1/60 */
+#endif
+#ifndef FM1_LED_DIM_DIV
+#define FM1_LED_DIM_DIV 1u        /* a dim LED: the pulse on 1 frame in DIV (1: every frame, ~910 Hz) */
+#endif
+#ifndef FM1_LED_TRACE
+#define FM1_LED_TRACE(rowmask) ((void)0)   /* input_test.c: every write of the LED lines */
+#endif
+#ifndef FM1_SR_LATCH_TRACE
+#define FM1_SR_LATCH_TRACE() ((void)0)     /* input_test.c: the 595 latch */
+#endif
 #define FM1_REST_FRAMES 900u      /* ~1 s still off the detent state: that is the detent (power-on) */
 #define FM1_NCOL 11u
 #define FM1_NKEY 41u              /* ids: 0..13 buttons, 14..40 note keys */
@@ -93,6 +122,7 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led_dim[FM1_NCOL];
 
 /* scan diagnostics (console `inp`, read and cleared by the main loop): the gap between ticks
  * = the on-time of the column lit in it, in TIMER4 ticks (24 MHz) */
@@ -106,22 +136,25 @@ static volatile struct {
     /* seq.c keyboard_block, from the same first closed scan: to the note-on in the render, and to
      * the note's first sample leaving the I2S DMA (the half it renders starts one half later) */
     uint32_t kb_n, kb_sum, kb_max, dac_sum, dac_max;
+    uint32_t dim_n, dim_sum;     /* the dim pulses and their widths (TIMER4 ticks) */
 } fm1_in_stat;
 
 static void fm1__led_lines(uint32_t rowmask)       /* row bit 1 PA9, 2 PA10, 3 PH6, 4 PH9 */
 {
+    FM1_LED_TRACE(rowmask);
     uint32_t a = FM1_PR(FM1_PA, FM1_OUT) & ~((1u << 9) | (1u << 10));
     uint32_t h = FM1_PR(FM1_PH, FM1_OUT) & ~((1u << 6) | (1u << 9));
     FM1_PR(FM1_PA, FM1_OUT) = a | (rowmask & 2u) << 8 | (rowmask & 4u) << 8;
     FM1_PR(FM1_PH, FM1_OUT) = h | (rowmask & 8u) << 3 | (rowmask & 16u) << 5;
 }
 
-static void fm1__sr_word(uint32_t w)
+/* bits i0 .. i1-1 of w (msb first) into the 595; the outputs stay as they are until fm1__sr_latch */
+static void fm1__sr_bits(uint32_t w, uint32_t i0, uint32_t i1)
 {
     uint32_t i;
     /* read-modify-write per edge on purpose: write-only edges were too short for the
      * 595 on the board and latched the neighbouring column (LEDs and keys copied one column over) */
-    for (i = 0; i < 16u; i++) {
+    for (i = i0; i < i1; i++) {
         if (w & (0x8000u >> i))
             FM1_PR(FM1_PA, FM1_OUT) |= 1u << 4;
         else
@@ -129,8 +162,17 @@ static void fm1__sr_word(uint32_t w)
         FM1_PR(FM1_PA, FM1_OUT) |= 1u << 3;
         FM1_PR(FM1_PA, FM1_OUT) &= ~(1u << 3);
     }
+}
+static void fm1__sr_latch(void)
+{
+    FM1_SR_LATCH_TRACE();
     FM1_PR(FM1_PA, FM1_OUT) |= 1u << 1;
     FM1_PR(FM1_PA, FM1_OUT) &= ~(1u << 1);
+}
+static void fm1__sr_word(uint32_t w)
+{
+    fm1__sr_bits(w, 0, 16u);
+    fm1__sr_latch();
 }
 
 static uint32_t fm1__rows(void)
@@ -293,11 +335,22 @@ static void fm1__frame(void)
 }
 
 /* one column per call, from a timer ISR (see top) */
-static uint8_t fm1__tick_col;
+#define FM1__DIM_T(ns) (((ns) * FM1_TICKS_PER_US + 500u) / 1000u)   /* a pulse in TIMER4 ticks */
+static uint8_t fm1__tick_col, fm1__dim_k = 16u;   /* the bits of the shift the dim pulse spans (0..16) */
+static uint16_t fm1__dim_t = FM1__DIM_T(FM1_LED_DIM_NS);   /* the pulse the tick aims at (fm1_led_dim_level) */
+/* the glow (main loop, any time; fm1__dim_k follows it in a few frames): 0 FM1_LED_DIM_NS, 1 FM1_LED_DIM_LO_NS */
+static void fm1_led_dim_level(uint32_t lo)
+{
+    fm1__dim_t = (uint16_t)(lo ? FM1__DIM_T(FM1_LED_DIM_LO_NS) : FM1__DIM_T(FM1_LED_DIM_NS));
+}
+#if FM1_LED_DIM_DIV > 1
+static uint8_t fm1__dim_ph;
+#endif
 static void fm1_input_tick(void)
 {
     uint32_t p = fm1__tick_col, n = p + 1u == FM1_NCOL ? 0u : p + 1u;
     uint32_t t0 = fm1_ticks(), g = t0 - fm1_in_stat.last, b = 0;
+    uint32_t w = 0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u), lit = fm1_led[p], dim = 0, k = fm1__dim_k;
     fm1__led_lines(0);
     fm1_in_stat.last = t0;
     while (b < FM1_GAP_BINS - 1u && g >= (150u * FM1_TICKS_PER_US << b))
@@ -308,8 +361,30 @@ static void fm1_input_tick(void)
     fm1_in_stat.on[p] += g;
     if (g > fm1_in_stat.on_max[p])
         fm1_in_stat.on_max[p] = g;
-    fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
-    fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
+    fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick (the lines dark) */
+#if FM1_LED_DIM_DIV > 1
+    if (p == 0u)                                   /* a new frame: the dim LEDs' turn on 1 in FM1_LED_DIM_DIV */
+        fm1__dim_ph = (uint8_t)(fm1__dim_ph + 1u >= FM1_LED_DIM_DIV ? 0u : fm1__dim_ph + 1u);
+    if (!fm1__dim_ph)
+#endif
+        dim = fm1_led_dim[p] & ~lit;
+    if (dim) {                                     /* the dim pulse of column p: over the first k bits */
+        uint32_t t1, d, T = fm1__dim_t;
+        t1 = fm1_ticks();                          /* (before the write: d spans one write and the bits) */
+        fm1__led_lines(lit | dim);
+        fm1__sr_bits(w, 0, k);                     /* (the 595 still drives column p) */
+        d = fm1_ticks() - t1;
+        while (k == 16u && d < T)                 /* only a shift shorter than the pulse waits */
+            d = fm1_ticks() - t1;
+        fm1__led_lines(0);
+        fm1__dim_k = (uint8_t)(d > T ? (k ? k - 1u : 0u) : d < T && k < 16u ? k + 1u : k);
+        fm1_in_stat.dim_n++;
+        fm1_in_stat.dim_sum += d;
+    } else {
+        k = 0;
+    }
+    fm1__sr_bits(w, k, 16u);
+    fm1__sr_latch();                               /* column n, the lines dark */
     fm1__led_lines(fm1_led[n]);
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */

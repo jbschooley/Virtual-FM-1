@@ -22,7 +22,7 @@ engine FM6 E5	MEG -64..63 def 0 fmt 2
 engine FM6 E6	VMOD -7..7 def 0 fmt 0
 engine FM6 E7	DTUN 0..127 def 0 fmt 1
 engine FM6 E8	PTCH 0..34 def 0 fmt 0
-engine GRAIN E1	SRC 0..7 def 0 fmt 8 PIANO PIANO FLUTE SAX PERC USR1 USR2 USR3
+engine GRAIN E1	SRC 0..7 def 0 fmt 8 PIANO PIANO FLUTE SAX PIANO USR1 USR2 USR3
 engine GRAIN E2	POS 0..127 def 32 fmt 1
 engine GRAIN E3	SIZE 0..127 def 80 fmt 1
 engine GRAIN E4	DENS 0..127 def 80 fmt 1
@@ -62,7 +62,7 @@ engine PHYS E5	POS 0..127 def 20 fmt 1
 engine PHYS E6	ACC 0..127 def 90 fmt 1
 engine PHYS E7	BOW 0..127 def 0 fmt 1
 engine PHYS E8	EXC 0..127 def 0 fmt 1
-engine SAMPLE E1	SET 0..7 def 0 fmt 8 PIANO PIANO FLUTE SAX PERC USR1 USR2 USR3
+engine SAMPLE E1	SET 0..7 def 0 fmt 8 PIANO PIANO FLUTE SAX PIANO USR1 USR2 USR3
 engine SAMPLE E2	TUNE -24..24 def 0 fmt 7
 engine SAMPLE E3	BITS 0..127 def 0 fmt 0
 engine SAMPLE E4	LOOP 0..1 def 1 fmt 8 OFF ON
@@ -180,7 +180,7 @@ param PIT#1	-64..63 def 0 fmt 2
 param PIT#2	-64..63 def 0 fmt 2
 param PRIO#1	0..2 def 0 fmt 8 LAST LOW HIGH
 param PROB#1	0..127 def 127 fmt 1
-param QNT#1	0..2 def 0 fmt 8 OFF SNAP WHITE
+param QNT#1	0..3 def 0 fmt 8 OFF SNAP WHITE SEQ
 param RATE#1	0..127 def 60 fmt 4
 param RATE#2	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
 param RATE#3	0..5 def 1 fmt 8 1/8 1/16 1/32 8T 16T 32T

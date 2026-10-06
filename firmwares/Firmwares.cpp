@@ -49,7 +49,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
     static const std::vector<KnownVersion> felucca = {
         {904, "0.4 beta", Support::Deprecated, "the plugin supports Felucca from 1.0: update it with Felucca's installer"},
-        {910, "1.0", Support::Current, ""},
+        {910, "1.0.2", Support::Current, ""},   // (1.0 and 1.0.1 answer as FM-1_910 too: told by INFO, below)
     };
     if (firmwareId == "fm1_stock") return stock;
     if (firmwareId == "felucca") return felucca;
@@ -94,6 +94,13 @@ VersionCheck checkVersion(const Identity& id) {
             c.support = c.known->support;
             c.text = who + ": Felucca " + release + ", newer than the plugin's " + c.known->label + "; synced as "
                    + c.known->label + " (not tried yet)";
+            return c;
+        }
+        if (parts(release) < parts(c.known->label)) {   // an earlier bug-fix release of the same X.Y
+            c.support = release == "1.0" ? Support::Tested : Support::Older;
+            c.text = who + ": Felucca " + release + ", older than the plugin's " + c.known->label + "; synced as "
+                   + c.known->label + (release == "1.0" ? "" : " (not tried)")
+                   + ". Update it with Felucca's installer for the same sounds on both";
             return c;
         }
     }

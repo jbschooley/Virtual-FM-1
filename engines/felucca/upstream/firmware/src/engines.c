@@ -87,7 +87,7 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 
 /* factory sequence patterns: SEQ > PATTERNS loads one into the selected track (ui.c pat_load); a preset
  * only suggests one with PAT(n), loading a sound never touches the steps. Absolute notes, loaded as they
- * are (DRUM and SAMPLE PERC play them as GM drums, SLICE as slices; SCL TRANS and OCT transpose): 0 = rest;
+ * are (DRUM plays them as GM drums, SLICE as slices; SCL TRANS and OCT transpose): 0 = rest;
  * flags 1 = accent, 2 = slide, 4 = tie (holds the previous note). Names: at most 8 characters */
 #define T_ 4
 static const struct {
@@ -117,7 +117,7 @@ static const struct {
      {1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}},
     {"SLICES", {60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75},   /* 11 in order */
      {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-    /* DRUM, SAMPLE PERC (General MIDI: 36 kick, 38 snare, 42 closed / 46 open hi-hat) */
+    /* DRUM (General MIDI: 36 kick, 38 snare, 42 closed / 46 open hi-hat) */
     {"BEAT", {36, 42, 42, 42, 38, 42, 36, 42, 36, 42, 42, 36, 38, 42, 46, 42},     /* 12 */
      {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
     /* 16ths up a C minor arpeggio, twice: the line the ARP presets (RAVE, ARP 8BIT, ARP LEAD) suggest

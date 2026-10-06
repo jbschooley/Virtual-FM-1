@@ -54,7 +54,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define __attribute__(x)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
 #define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
-#define FELUCCA_VERSION "v1.0"
+#define FELUCCA_VERSION "v1.0.2"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
  * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
  * 240 KB of each one's state */
@@ -111,7 +111,8 @@ static void ota_idle(void)
 /* ---- the hardware, as Felucca's host tests replace it (tests/ui_test.c) ----------------------- */
 #define FM1_NCOL 11u
 static const int8_t FM1_KEYMAP[6][FM1_NCOL];
-static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL];   /* (1.0.2: the idle glow, unused here: no LEDs) */
+static void fm1_led_dim_level(uint32_t lo) { (void)lo; }
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
 static int32_t host_enc[7];

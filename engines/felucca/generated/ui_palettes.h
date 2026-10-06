@@ -4,7 +4,7 @@
 
 /* ui_pal_t {name, bg, surf, text, theme, accent} (src/gfx.c) */
 static const ui_pal_t UI_PALETTES[] = {
-    {"MONO", 0x0841, 0x2104, 0xce59, 0xef5d, 0xffdf},
+    {"GREY", 0x0841, 0x2104, 0xce59, 0xef5d, 0xffdf},
     {"GREEN", 0x0081, 0x1143, 0xe7bc, 0x56af, 0xfeab},
     {"AMBER", 0x1061, 0x2902, 0xf77b, 0xfd45, 0x66bc},
     {"ICE", 0x0883, 0x1126, 0xe79f, 0x55dd, 0xfc6c},
@@ -12,9 +12,13 @@ static const ui_pal_t UI_PALETTES[] = {
     {"ROSE", 0x1842, 0x30a5, 0xff5e, 0xf396, 0xfead},
     {"PAPER", 0xf77c, 0xe6d9, 0x20e3, 0x0aa8, 0xa9c1},
     {"HI-CON", 0x0000, 0x2945, 0xffdf, 0xff40, 0x073f},
+    {"NIGHT", 0x0000, 0x00c1, 0x9735, 0x3eec, 0xffdf},
+    {"MONO", 0x0000, 0x0000, 0xffff, 0xffff, 0xffff},
 };
-#define UI_NPALETTES 8u
-#define UI_MONO_INDEX 0u
+#define UI_NPALETTES 10u
+#define UI_GREY_INDEX 0u
+#define UI_BW_INDEX 9u          /* MONO: black and white (src/gfx.c palette_set) */
+#define UI_BW_GREY 0x528au          /* MONO's one grey: DIM LINE RAISE LANE */
 #define UI_PAL_TAG 64u          /* stored id = UI_PAL_TAG + index; below 20: an old id */
 #define UI_MID_PCT 70
 #define UI_DIM_PCT 42

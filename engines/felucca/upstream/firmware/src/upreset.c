@@ -21,6 +21,9 @@
  * drum_from_phys); flash keeps the old record until its bank is written again,
  * which stores the new one. No version bump: today's PHYS has no MODEL 4, so
  * such a record cannot be anything else, and older firmware keeps reading the bank.
+ * A record of SAMPLE SET 4 (PERC, the GM kit, retired after 1.0.2) is migrated the same way to the DRUM engine
+ * with its default kit (core.h drum_from_perc: its E values the kit's, the rest of the sound and its pattern as
+ * stored; the GM notes play the same drums).
  * Version 3 (UP_VER_GRID, since the DRUM grid) is the same record with a drum grid as its pattern: note[i] is
  * step i's lane hits (bit l = lane l), flags[i] their accents. A DRUM track whose first 16 steps strike a
  * lane is stored so (its notes on their lanes); every other sound as version 2, which older firmware reads.
@@ -77,7 +80,7 @@ static void up_migrate(up_rec_t *r)
     int16_t e[8]; uint32_t k;
     if (!up_valid(r)) return;
     for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
-    if (drum_from_phys(r->engine, e)) {
+    if (drum_from_phys(r->engine, e) || drum_from_perc(r->engine, e)) {   /* (SAMPLE PERC: see the top) */
         r->engine = ENGI_DRUM;
         for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
     }

@@ -3,7 +3,11 @@
  * the other feature's saved preferences when either is built independently.
  * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites.
  * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
- * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c). */
+ * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c).
+ * zoom: no longer used (the large readout); kept as it was saved, unless it holds the LEDS setting (panel.c).
+ * favorites.factory[15][29..31]: STYLE, MENU's flags, the layers seen (bytes no engine uses; 0 in older settings).
+ * MENU's flags (ui.c PREF_*) are append-only bits whose 0 is the default: BPM LOCK (16) is clear in every older setting
+ * = unlocked, read as saved (nothing to migrate, so importing twice changes nothing). */
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
     panel_t panel;
@@ -28,6 +32,8 @@ static int settings_import(persist_t *p, int n)
     }
     if (old1 || old2) p->bold = 0;
     if (!current) memset(&p->favorites, 0, sizeof p->favorites);
+    if (p->favorites.factory[15][29] > 1u)        /* STYLE (ui.c ui_style): 2, the retired PIXEL = LINE; unknown = FLAT */
+        p->favorites.factory[15][29] = p->favorites.factory[15][29] == 2u ? 1u : 0u;
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(palette_from_stored(p->palette));
     settings.magic = SETTINGS_MAGIC;
@@ -35,6 +41,7 @@ static int settings_import(persist_t *p, int n)
     settings.lowcut = p->lowcut;
     settings.zoom = p->zoom;
     settings_hold = (uint8_t)hold_from_stored(p->bold);
+    settings_leds = (uint8_t)leds_from_stored(p->zoom);
 #ifdef FELUCCA_FAVORITES
     memcpy(&favorites, &p->favorites, sizeof favorites);
     favorites.filter = favorites.filter == 1u;
@@ -45,6 +52,12 @@ static int settings_import(persist_t *p, int n)
             if ((favorites.factory[ENGI_DIGITAL][0] >> k) & 1u)
                 favorites.factory[ENGI_FM6][FM4_TO_FM6[k] / 8u] |= (uint8_t)(1u << (FM4_TO_FM6[k] % 8u));
         memset(favorites.factory[ENGI_DIGITAL], 0, sizeof favorites.factory[ENGI_DIGITAL]);
+    }
+#endif
+#ifdef SMP_SET_PERC
+    if ((favorites.factory[ENGI_SAMPLE][0] >> SMP_SET_PERC) & 1u) {   /* SAMPLE's PERC (preset 4, retired): DRUM's */
+        favorites.factory[ENGI_DRUM][0] |= 1u;                         /* kit (core.h drum_from_perc) */
+        favorites.factory[ENGI_SAMPLE][0] &= (uint8_t)~(1u << SMP_SET_PERC);
     }
 #endif
 #endif
@@ -59,7 +72,7 @@ static void settings_export(persist_t *p)
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(settings.palette);
     p->lowcut = settings.lowcut;
-    p->zoom = settings.zoom;
+    p->zoom = settings.zoom = leds_to_stored(settings.zoom, settings_leds);
     p->panel = panel;
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef FELUCCA_FAVORITES

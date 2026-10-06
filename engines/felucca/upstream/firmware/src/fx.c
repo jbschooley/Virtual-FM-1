@@ -72,6 +72,18 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
  * get quieter instead of crushed. */
 #define LIM_T 18000
 static int32_t lim_env = LIM_T;
+/* MENU > USB LEVEL FIXED (for #42: record over USB with the speaker turned down): the mix goes to master_out at the
+ * full MASTER level, USB audio takes that (audio.c uac_tap), and only then does MASTER scale what the DAC gets
+ * (usb_fixed_dac). MASTER (0, the default): MASTER before master_out, as always (USB follows the knob) */
+static volatile uint8_t fx_usb_fixed;
+#define MASTER_FULL 4096                /* main.c: the MASTER knob's top, Q12 */
+static __attribute__((noinline)) void usb_fixed_dac(int32_t *out, uint32_t n)   /* audio ISR, after uac_tap */
+{
+    uint32_t i;
+    int32_t m = (int32_t)song.master_q12;
+    for (i = 0; i < 2u * n; i++)
+        out[i] = (out[i] * m) >> 12;                /* (|out| <= 32767 after the soft clip: fits) */
+}
 static volatile uint8_t fx_lowcut;     /* settings: 1 LOWCUT 12 dB/oct ~110 Hz, 2 BASS+ (the small speaker):
                                         * 12 dB/oct ~220 Hz plus the harmonics of the bass (spk_bass) */
 static int32_t lc_l1, lc_l2, lc_r1, lc_r2, dc_l, dc_r, dce_l, dce_r;
@@ -99,19 +111,23 @@ static inline int32_t lowcut1(int32_t x, int32_t *lc, int32_t *err, uint32_t sh)
 }
 
 /* BASS+: what the speaker cannot play, heard through its harmonics. The bass below ~150 Hz is clipped at its
- * own envelope (a level-following trapezoid: odd harmonics), then band-passed ~220 Hz..1 kHz and added. */
-static int32_t sb_lp1, sb_lp2, sb_env, sb_h1, sb_h2, sb_hl;
+ * own envelope (a level-following trapezoid: odd harmonics), then band-passed ~220 Hz..1 kHz and added.
+ * The low-pass has 4 poles (#42: with 2, the trapezoid rebuilt the 300 .. 600 Hz of the mix itself, late,
+ * and cancelled up to 6 dB of it; now under 0.5 dB) */
+static int32_t sb_lp1, sb_lp2, sb_lp3, sb_lp4, sb_env, sb_h1, sb_h2, sb_hl;
 static inline int32_t spk_bass(int32_t m)
 {
     int32_t a, t, u;
     sb_lp1 += ((m - sb_lp1) * 692) >> 15;
     sb_lp2 += ((sb_lp1 - sb_lp2) * 692) >> 15;
-    a = sb_lp2 < 0 ? -sb_lp2 : sb_lp2;
+    sb_lp3 += ((sb_lp2 - sb_lp3) * 692) >> 15;
+    sb_lp4 += ((sb_lp3 - sb_lp4) * 692) >> 15;
+    a = sb_lp4 < 0 ? -sb_lp4 : sb_lp4;
     if (a > sb_env)
         sb_env += (a - sb_env) >> 2;
     else if (sb_env > 0)
         sb_env -= (sb_env >> 11) + 1;
-    t = clamp(sb_lp2 * 8, -sb_env, sb_env);
+    t = clamp(sb_lp4 * 8, -sb_env, sb_env);
     sb_h1 += (t - sb_h1) >> 5;
     u = t - sb_h1;
     sb_h2 += (u - sb_h2) >> 5;
@@ -367,9 +383,10 @@ static void mix_part(track_t *t, uint32_t n)
 static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 {
     uint32_t i;
+    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++) {
-        mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * (int32_t)song.master_q12) >> 10;
-        mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * (int32_t)song.master_q12) >> 10;
+        mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
+        mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
     }
     perf_block(mix_l, mix_r, n);
     for (i = 0; i < n; i++) {
@@ -384,6 +401,7 @@ static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
     int perf;
+    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
@@ -398,8 +416,8 @@ static void mix_block(int32_t *out, uint32_t n)
         return;
     }
     for (i = 0; i < n; i++) {
-        int32_t l = (((mix_l[i] + wet[i]) >> 2) * (int32_t)song.master_q12) >> 10;
-        int32_t r = (((mix_r[i] + wet[i]) >> 2) * (int32_t)song.master_q12) >> 10;
+        int32_t l = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
+        int32_t r = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
         master_out(&l, &r);
         out[2u * i] = l;
         out[2u * i + 1u] = r;

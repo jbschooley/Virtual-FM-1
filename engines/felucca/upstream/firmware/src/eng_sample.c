@@ -4,7 +4,8 @@
 static const char *const N_ONOFF_E[] = {"OFF", "ON"};
 /* IMA ADPCM sample sets (tools/gen_samples.py), native rates, zones across
  * the keyboard, loops with the ADPCM state stored at the loop start.
- * SET is P_E0 (EDIT 1, KNOB 1). */
+ * SET is P_E0 (EDIT 1, KNOB 1). SET 4 was PERC, the GM drum kit: retired, an alias of PIANO; its sounds
+ * load as the DRUM engine (core.h drum_from_perc). */
 typedef struct {
     uint32_t off, n, ls, le;     /* byte offset, samples, loop start / end (sample index) */
     uint32_t rate;               /* source rate / 44100, Q16 */
@@ -17,6 +18,9 @@ typedef struct {
     uint16_t z0, nz;
 } smp_set_t;
 #include "felucca_samples.h"
+#if defined(SMP_PERC_SLOT) && SMP_PERC_SLOT != SMP_SET_PERC
+#error "tools/gen_samples.py PERC_SLOT != core.h SMP_SET_PERC"
+#endif
 
 static const int16_t IMA_STEP[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
@@ -126,18 +130,15 @@ static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 static void sample_note_on(track_t *t, voice_t *v)
 {
     uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu, width = 128u;
-    if (si < SMP_NSETS) {
+    if (si < SMP_NSETS) {                           /* a built-in set: its zones split the keyboard */
         const smp_set_t *set = &SMP_SETS[si];
-        for (i = 0; i < set->nz; i++) {
-            const smp_zone_t *z = &SMP_ZONES[set->z0 + i];
-            /* A single-note hat/cymbal takes precedence over a broad tom zone. */
-            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
+        for (i = 0; i < set->nz; i++)
+            if (v->note >= SMP_ZONES[set->z0 + i].lo && v->note <= SMP_ZONES[set->z0 + i].hi) {
                 zi = set->z0 + i;
-                width = z->hi - z->lo;
+                break;
             }
-        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? set->z0 : zi);
-    } else {                                        /* user slot: silent if empty */
+    } else {                                        /* user slot: silent if empty; the narrowest zone plays */
         uint32_t k = si - SMP_NSETS;
         for (i = 0; i < usr_nz[k]; i++) {
             const smp_zone_t *z = &usr_zone[k][i];
@@ -202,28 +203,6 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     v->ph[1] = frac;
 }
 
-/* SMP_SETS index of "PERC", the GM-mapped kit (tools/gen_samples.py GM_KIT), -1 = none */
-static int32_t smp_perc_set(void)
-{
-    static int16_t set = -2;
-    uint32_t i;
-    if (set == -2) {
-        set = -1;
-        for (i = 0; i < SMP_NSETS; i++)
-            if (str_eq(SMP_SETS[i].name, "PERC"))
-                set = (int16_t)i;
-    }
-    return set;
-}
-
-/* the GM kit (PERC): the first C (key 7) is the kick (C2), no scale */
-static int32_t sample_keys(const track_t *t, uint32_t k)
-{
-    if (smp_perc_set() < 0 || (uint32_t)t->p[P_E0] % SMP_NALL != (uint32_t)smp_perc_set())
-        return -1;
-    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
-}
-
 static const engine_t ENG_SAMPLE = {
     .name = "SAMPLE",
     .page_title = {"SET", "TONE"},
@@ -243,5 +222,4 @@ static const engine_t ENG_SAMPLE = {
     .render = sample_render,
     .knob = {P_E0, P_E4, P_ATK, P_REL},
     .sampled = 1,
-    .keys = sample_keys,
 };

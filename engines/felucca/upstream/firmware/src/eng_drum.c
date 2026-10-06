@@ -7,7 +7,8 @@
  * Keys and notes: the keys play the General MIDI drum map with the kick on the first C (C KICK, C# RIM,
  * D SNARE, D# CLAP, F# HAT CL, A# HAT OP, F G A B C D TOMS, C# CYM, G# BELL; OCT -/+ move it), and a note
  * plays its GM drum (35..81: kicks, snares, toms, hats, cymbals, bells, congas, claves; other notes as
- * their octave of 36..47), so GM patterns and MIDI parts play as on SAMPLE PERC.
+ * their octave of 36..47), so GM patterns and MIDI parts play as they did on SAMPLE PERC (retired: its sounds
+ * load as this engine, core.h drum_from_perc).
  *
  * Parameters: KIT what the lanes 6..8 play (STD: TOM RIM BELL, HAND: CONGA CLAVE BELL, CYM: TOM RIM CYM,
  * H+CYM: CONGA CLAVE CYM), KICK the kick (PUNCH, ROUND). TUNE (64: as designed, +-12 semitones), TONE,
@@ -81,7 +82,7 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
 
 /* ----------------------------------------------------- the grid's lanes --- */
 /* A step's lane hits (step_t.hit / acc, the DRUM grid: SEQ > STEP on a DRUM track) play these GM notes, on any
- * engine: DRUM strikes its lanes, SAMPLE PERC its GM kit, a synth the pitches. Each is the designed pitch of
+ * engine: DRUM strikes its lanes, a synth plays the pitches. Each is the designed pitch of
  * its lane (st 0 in DRUM_GM) */
 static const uint8_t DRUM_LANE_NOTE[NLANE] = {36, 38, 39, 42, 46, 45, 37, 56};
 
@@ -274,7 +275,7 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
 
 /* {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK, DRV}; every kit suggests the BEAT pattern (GM notes) */
 static const preset_t DRUM_PRESETS[] = {
-    {"DRUM KIT", {DK_STD, 64, 70, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"DRUM KIT", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (core.h: SAMPLE PERC's too) */
 };
 
 static const engine_t ENG_DRUM = {

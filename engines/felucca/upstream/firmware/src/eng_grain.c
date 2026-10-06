@@ -8,11 +8,11 @@
  *
  * Decoding: no RAM copy of the source. Grains decode the ADPCM on demand from a seek index: the
  * decoder state (predictor, step index) every GR_SEG = 256 source samples of every zone of the
- * part's SRC, 3 bytes an entry (GR_NIDX entries a part: PERC, the biggest built-in set, needs
- * ~1020; a full user slot ~650; zones past the capacity stay silent). A zone always starts at the
+ * part's SRC, 3 bytes an entry (GR_NIDX entries a part: the retired PERC set needed 1001, the biggest
+ * built-in set now ~330; a full user slot ~650; zones past the capacity stay silent). A zone always starts at the
  * state (0, 0), so zones index independently. The index is built in the block hook, one entry
  * (256 decodes) per part and block, the zones of the sounding voices first: a 1 s zone is ready
- * in ~60 ms, PERC (24 zones) in ~0.7 s. A grain starts at its exact sample: the state of the
+ * in ~60 ms, a set of 24 zones in ~0.7 s. A grain starts at its exact sample: the state of the
  * entry below, then up to 255 decodes skipped. A forward grain then decodes as it plays (one
  * decode per source sample); a reverse grain reads a 128-sample window that it refills from the
  * index as it moves down (about two decodes per source sample). A SRC change or a new upload into
@@ -32,7 +32,7 @@
  * for a reverse grain); a grain only starts while the part's grains decode at most GR_LOAD_MAX
  * (8) source samples per output sample in all (a reverse grain counts twice); at most one grain
  * start per voice and block (<= 255 skipped decodes), one index entry per block. Host count, one
- * part, worst settings: ~1050 instructions / sample (~1170 while the PERC index builds), against
+ * part, worst settings: ~1050 instructions / sample (~1170 while a 24-zone index builds), against
  * PHASE WIRE 1510, TRIO CHIP CHOIR 1455, WHEEL FULL ORGAN 1413 (8 keys, no sends). State: per part the grain pool, the reverse windows and the index
  * (gr_p, in the pool section); per voice s[0] the zone, s[1] the countdown to the next grain,
  * s[2] the low-pass, voice_t's phases are unused. */
@@ -40,8 +40,8 @@
 #define GR_NG 12                 /* grains per part */
 #define GR_SEG_LOG2 8
 #define GR_SEG (1u << GR_SEG_LOG2)   /* seek index interval, source samples */
-#define GR_NIDX 1024             /* seek index entries per part (PERC: 1001) */
-#define GR_MAXZ 32               /* zones per set (PERC has 24, a user slot <= 16) */
+#define GR_NIDX 1024             /* seek index entries per part (sized for the retired PERC: 1001; it keeps user slots room) */
+#define GR_MAXZ 32               /* zones per set (a user slot <= 16; the retired PERC had 24) */
 #define GR_RB 128                /* reverse window, source samples */
 #define GR_STEP_MAX (2u << 16)   /* grain rate cap: 2 source samples per output sample */
 #define GR_LOAD_MAX (8u << 16)   /* decodes per output sample of all a part's grains (a reverse grain counts twice) */

@@ -29,14 +29,43 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
+#define GFX_HOOKS 0                     /* (the firmware: what only the hooks read is not even computed) */
 #define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text, 32 in a scrolled view */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
 #endif
+#ifndef GFX_HOOKS
+#define GFX_HOOKS 1
+#endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
 #endif
+#ifndef GFX_HOOK_INK
+#define GFX_HOOK_INK(ink, bg) ((void)0)            /* a text, icon or keycap label's ink and what it is drawn on */
+#endif
+#ifndef GFX_HOOK_RULE
+#define GFX_HOOK_RULE(x, y, w, h) ((void)0)        /* a divider drawn on the screen (ui_draw.c lcd_rule): no box may touch it */
+#endif
+/* the alignment check (tests/ui_render.c): GFX_HOOK_ALIGN declares that the next item(s) drawn (a text, an icon, a
+ * keycap, a cushion) are meant to sit centred in the box x0..x1, y0..y1 (canvas drawing coordinates, x1 y1 past it)
+ * along AL_H and / or AL_V; AL_N(n): the next n items together. A text's ink is measured across (its glyphs' boxes)
+ * and its capitals' band up and down (GFX_HOOK_PEN: its line top and face); an icon's ink from its cell
+ * (GFX_HOOK_ITEM). The tag names the place in the report. */
+#ifndef GFX_HOOK_ALIGN
+#define GFX_HOOK_ALIGN(x0, y0, x1, y1, mode, tag) ((void)0)
+#define GFX_HOOK_PEN(y, f) ((void)0)
+#define GFX_HOOK_ITEM(x0, y0, x1, y1) ((void)0)
+#define GFX_HOOK_ICON(x, y, size, id) ((void)0)        /* (an icon drawn: GFX_HOOK_ITEM with its ink, icons.c icon_ink) */
+#endif
+#define AL_H 1u                                    /* centred across */
+#define AL_V 2u                                    /* centred up and down (a row's items: on the same centre line) */
+#define AL_HV 3u
+#define AL_B 4u                                    /* on the baseline y1 (a text: its capitals' bottom) */
+#define AL_R 8u                                    /* the ink ending at x1 */
+#define AL_PASS 16u                                /* (its item counts for the place declared before it too) */
+#define AL_CELLS 32u                               /* the next cells (cv_rrect), not ink: a row of keys, a fill */
+#define AL_N(n) ((uint32_t)(n) << 8)
 
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
 static uint16_t cv_px[CV_MAX] __attribute__((section(".pool")));
@@ -54,8 +83,15 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
+    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
+/* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
+ * areas instead (ui_draw.c draw_frame). (1.0.2: PIXEL, LINE un-antialiased, retired; a saved PIXEL reads as LINE.)
+ * Selections, accents, keys and gauges keep their fills in every style */
+#define ST_FLAT 0u
+#define ST_LINE 1u
+#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
 #define T_TEXT ux.text           /* primary text */
@@ -67,7 +103,7 @@ static struct {
 #define T_SEL ux.sel             /* selection and gauge fill */
 #define T_TINT ux.tint           /* a faint theme area */
 #define T_INK ux.ink             /* text on T_SEL / T_THEME */
-#define T_REC ux.rec             /* REC: fixed red (MONO: the accent) */
+#define T_REC ux.rec             /* REC: fixed red (GREY, MONO: the accent) */
 #define T_RAISE ux.raise         /* a raised area on a surface: stubs, guides, slots, chips, button wells */
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
@@ -75,7 +111,7 @@ static struct {
 #define NPALETTES UI_NPALETTES
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
-/* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */
+/* a + (b - a) * pct / 100 per channel, rounded; GREY on the red channel, so it stays gray */
 static uint16_t ux_mix(uint16_t a, uint16_t b, int32_t pct)
 {
     static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
@@ -98,8 +134,9 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
 static void palette_set(uint32_t i)
 {
     const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
-    ux.mono = i % NPALETTES == UI_MONO_INDEX;
-    ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    i %= NPALETTES;
+    ux.mono = i == UI_GREY_INDEX;
+    ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
@@ -108,10 +145,15 @@ static void palette_set(uint32_t i)
     ux.ink = p->bg;
     ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
-    ux.lane = ux_mix(p->surf, p->theme, 10);
-    ux.grid = ux_mix(p->surf, p->text, 6);
+    ux.lane = ux_mix(ux.surf, p->theme, 10);
+    ux.grid = ux_mix(ux.surf, p->text, 6);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
+    if (i == UI_BW_INDEX) {                      /* MONO: black and white, set, not blended (tools/gen_ui_palettes.py) */
+        ux.mid = ux.sel = ux.key = ux.rec = p->text;   /* a selection, a keycap, REC: white, its INK black */
+        ux.dim = ux.line = ux.raise = ux.lane = UI_BW_GREY;   /* the one grey: inactive, tracks, wells */
+        ux.tint = ux.grid = p->bg;
+    }
     ux.gen++;                                    /* the text ramps change with the coverage curve */
 }
 
@@ -119,7 +161,7 @@ static void palette_set(uint32_t i)
 static uint32_t palette_from_stored(uint32_t v)
 {
     if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
-    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_MONO_INDEX;
+    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_GREY_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
 static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }
@@ -184,6 +226,13 @@ static void cv_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
             cv_px[(uint32_t)y * cv_w + (uint32_t)i] = sc;
 }
 
+/* a divider (LINE): a 1 px T_RULE line on the canvas, a cell edge for the host lint */
+static void cv_rule(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    GFX_HOOK_CELL(x, y + cv_oy, x + w, y + h + cv_oy);
+    cv_rect(x, y, w, h, T_RULE);
+}
+
 /* a 1 px outline */
 static void cv_frame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
@@ -239,6 +288,8 @@ static void cv_rrect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint
 {
     int32_t i, j;
     GFX_HOOK_CELL(x, y + cv_oy, x + w, y + h + cv_oy);   /* (the lint: what is drawn on it stays inside it) */
+    if (r < 0) r = -r;                           /* (-r: rounded in every style: a keycap-like cushion) */
+    else if (ux.style == ST_LINE) r = 0;         /* LINE: square cursors, selections and fills (FLAT: rounded) */
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
     if (r < 1) {
@@ -276,6 +327,9 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
     uint32_t i, a, k;
     uint16_t *v;
+    if (fg == bg)                                /* MONO: DIM on a RAISE well (one grey): black, recessed */
+        fg = ux.bg;
+    GFX_HOOK_INK(fg, bg);
     if (rc.gen != ux.gen) {
         rc.gen = ux.gen;
         rc.n = rc.next = 0;
@@ -292,13 +346,14 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     v = rc.v[i];
     for (a = 0; a < 16u; a++) {
         uint32_t out = 0;
+        int32_t w = cv[a];
         if (ux.mono) {
             int32_t x = bg >> 11;
-            out = ux_gray((uint32_t)(x + ((((fg >> 11) - x) * (int32_t)cv[a] + 128) >> 8)));
+            out = ux_gray((uint32_t)(x + ((((fg >> 11) - x) * w + 128) >> 8)));
         } else {
             for (k = 0; k < 3u; k++) {
                 int32_t x = (bg >> SH[k]) & MK[k], y = (fg >> SH[k]) & MK[k];
-                out |= (uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)) << SH[k];
+                out |= (uint32_t)(x + (((y - x) * w + 128) >> 8)) << SH[k];
             }
         }
         v[a] = swap16(out);
@@ -465,18 +520,8 @@ static int32_t text_w(const aafont_t *f, const char *s)
     return (pen + 8) >> 4;
 }
 
-/* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end.
- * fg on bg: bg is what lies under the text (the canvas, a card, a selection).
- * Placement: the pen (1/16 px) lies between two phase positions a step (16 >> psh) apart; the glyph takes the
- * one whose offset from the pen is nearer the previous glyph's offset, so the space between neighbours stays
- * truest and no glyph is a whole step from its true place (tools/aa_raster.py, text_spacing_test.py).
- * A glyph with one phase (its phases share one bitmap: figures and .) sits at the rounded pen, as when it
- * is drawn alone at text_w of what precedes it (ui_draw.c roll_text). */
-static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg,
-                             uint32_t flags)
+static int32_t text_run(int32_t x, int32_t y, const aafont_t *f, const char *s, const uint16_t *rv, int32_t *bb)
 {
-    const uint16_t *rv = ramp(fg, bg);
-    const char *s0 = s;
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
@@ -500,29 +545,52 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         err = pos - pen;
         if (g->bw) {
             int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
-            if (f->hc)
+            if (!rv)
+                ;                                    /* (text_ink: measured only) */
+            else if (f->hc)
                 cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, rv);
             else
                 cv_alpha(gx, gy, g->bw, g->bh, f->data + g->off, rv);
             if (gx < x0) x0 = gx;
-            if (gy < y0) y0 = gy;
             if (gx + g->bw > x1) x1 = gx + g->bw;
-            if (gy + g->bh > y1) y1 = gy + g->bh;
+            if (GFX_HOOKS && gy < y0) y0 = gy;       /* (the rows: for the host's lint only) */
+            if (GFX_HOOKS && gy + g->bh > y1) y1 = gy + g->bh;
         }
         pen += g->adv;
         prev = c;
     }
-    if (x1 > x0) {
-        if (x0 < 0 || x1 > (int32_t)cv_w || y0 + cv_oy < cv_cy0 || y1 + cv_oy > cv_cy1)
+    bb[0] = x0;
+    bb[2] = x1;
+    if (GFX_HOOKS) {
+        bb[1] = y0;
+        bb[3] = y1;
+    }
+    return pen;
+}
+/* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end.
+ * fg on bg: bg is what lies under the text (the canvas, a card, a selection).
+ * Placement (text_run): the pen (1/16 px) lies between two phase positions a step (16 >> psh) apart; the glyph takes
+ * the one whose offset from the pen is nearer the previous glyph's offset, so the space between neighbours stays
+ * truest and no glyph is a whole step from its true place (tools/aa_raster.py, text_spacing_test.py).
+ * A glyph with one phase (its phases share one bitmap: figures and .) sits at the rounded pen, as when it
+ * is drawn alone at text_w of what precedes it (ui_draw.c roll_text). */
+static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg,
+                             uint32_t flags)
+{
+    int32_t b[4], pen = text_run(x, y, f, s, ramp(fg, bg), b);
+    if (GFX_HOOKS && b[2] > b[0]) {
+        int32_t y0 = b[1], y1 = b[3];
+        if (b[0] < 0 || b[2] > (int32_t)cv_w || y0 + cv_oy < cv_cy0 || y1 + cv_oy > cv_cy1)
             flags |= 2u;                             /* cut by the canvas */
         if (cv_scroll) {                             /* a scrolled view: what lands on the screen is its visible part */
             flags |= 32u;
             if (y0 + cv_oy < cv_cy0) y0 = cv_cy0 - cv_oy;
             if (y1 + cv_oy > cv_cy1) y1 = cv_cy1 - cv_oy;
         }
-        GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
+        GFX_HOOK_PEN(y, f);
+        GFX_HOOK_TEXT(b[0], y0 + cv_oy, b[2], y1 + cv_oy, s, flags);
     }
-    (void)s0;
+    (void)flags;
     return x + ((pen + 8) >> 4);
 }
 static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
@@ -541,10 +609,27 @@ static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s
     cv_text_on(xr - w, y, f, s, fg, bg);
     return xr - w;
 }
-static int32_t cv_text_c(int32_t xc, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
+/* (centred: cv_text_in, by the ink; by the advance a text sat up to 1.5 px off) */
+
+/* centring by ink: the ink of s in f drawn at (0, 0) across (b[0] .. b[2], past it; b[2] <= b[0]: none); up and down
+ * a text is centred by its face's capitals' band (AF_S_CAP_Y ..: the ink of H; figures and round letters reach at most
+ * a faint row past it), so the words of a row keep one baseline */
+static void text_ink(const aafont_t *f, const char *s, int32_t *b) { text_run(0, 0, f, s, 0, b); }
+#define HALF_UP(v) ((v) >> 1)                       /* half, a pixel left over going left / up (also below 0) */
+/* the line top that centres face F's (S M) capitals' band in h rows (a row, a cell, a button): constant */
+#define CAP_IN(F, h) (HALF_UP((h) - AF_##F##_CAP_H) - AF_##F##_CAP_Y)
+/* the pen x that centres s's ink in w px */
+static int32_t ink_in(const aafont_t *f, const char *s, int32_t w)
 {
-    int32_t w = text_w(f, s);
-    return cv_text_on(xc - w / 2, y, f, s, fg, bg);
+    int32_t b[4];
+    text_ink(f, s, b);
+    return HALF_UP(w - (b[2] - b[0])) - b[0];
+}
+/* s with its ink centred across x0 .. x0 + w (y: its line top, CAP_IN to centre it up and down too); a pixel left
+ * over goes left / up, as everywhere (the cushions too) */
+static int32_t cv_text_in(int32_t x0, int32_t y, int32_t w, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
+{
+    return cv_text_on(x0 + ink_in(f, s, w), y, f, s, fg, bg);
 }
 
 /* s into d (n bytes), at most maxw px wide: never a smaller font, the end ellipsised. 1 = cut */
@@ -600,6 +685,9 @@ static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
 {
     uint32_t i, a;
     uint16_t *v;
+    if (ink == fill)                             /* (as ramp) */
+        ink = ux.bg;
+    GFX_HOOK_INK(ink, fill);
     if (kr.gen != ux.gen) {
         kr.gen = ux.gen;
         kr.n = kr.next = 0;
@@ -616,10 +704,10 @@ static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
     kr.key[i][2] = ink;
     v = kr.v[i];
     v[0] = swap16(under);
-    for (a = 1; a < 5u; a++)
-        v[a] = swap16(ux_mix(under, fill, (int32_t)a * 20));
-    for (a = 5; a < 16u; a++)
-        v[a] = swap16(ux_mix(fill, ink, (int32_t)(a - 5u) * 10));
+    for (a = 1; a < 16u; a++) {
+        int32_t p = a < 5u ? (int32_t)a * 20 : (int32_t)(a - 5u) * 10;
+        v[a] = swap16(a < 5u ? ux_mix(under, fill, p) : ux_mix(fill, ink, p));
+    }
     return v;
 }
 static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? KC[id].w : 0; }
@@ -641,11 +729,22 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
  * the keycap's centre line (S caps 9 rows, the keycap's 7). act may be 0 (the keycap alone); returns the end x */
 #define KH_GAP 4                                  /* keycap -> its word */
 static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(&AF_S, act) : 0); }
+/* .. its ink: the keycap to the word's last inked column (centring a hint by what is seen) */
+static int32_t kh_ink(uint32_t id, const char *act)
+{
+    int32_t b[4];
+    if (!act || !act[0])
+        return kc_w(id);
+    text_ink(&AF_S, act, b);
+    return kc_w(id) + KH_GAP + b[2];
+}
 static int32_t cv_key_hint(int32_t x, int32_t y, uint32_t id, const char *act, int on, uint16_t under)
 {
     x = cv_keycap(x, y, id, on ? T_KEY : T_DIM, T_INK, under);
-    if (act && act[0])
+    if (act && act[0]) {
+        GFX_HOOK_ALIGN(0, y, 0, y + KC_H, AL_V | AL_PASS, "key hint word on its keycap's line");
         x = cv_text_on(x + KH_GAP, y - 1, &AF_S, act, on ? T_TEXT : T_DIM, under);
+    }
     return x;
 }
 /* a row of key hints from x0 to x1: the first at x0, the last ending at x1, the space shared between them. When
@@ -708,6 +807,7 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
         uint32_t j;
         for (j = 0; j < i; j++)
             w[j] = s[j];
+        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
         x = cv_text_on(x, y, &AF_S, w, fg, bg) + KH_GAP;
         s += i + 1u;
     }
@@ -718,6 +818,7 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
             s++;
         if (!*s)
             return x - KH_GAP;
+        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
     }
     return cv_free_text(x, y, &AF_S, s, fg, bg, maxw - (x - x0));
 }
@@ -728,8 +829,10 @@ static void draw_text_line(uint32_t x, uint32_t y, uint32_t w, const aafont_t *f
 {
     int32_t tw = text_w(f, s), tx = 0;
     cv_begin(w, f->h, bg);
-    if (align == 1)
-        tx = ((int32_t)w - tw) / 2;
+    if (align == 1) {
+        tx = ink_in(f, s, (int32_t)w);
+        GFX_HOOK_ALIGN(0, 0, (int32_t)w, 0, AL_H, "one-shot line centred");
+    }
     else if (align == 2)
         tx = (int32_t)w - tw;
     cv_text(tx, 0, f, s, c);

@@ -44,6 +44,7 @@ static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCA
 #define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
 typedef char ly_init_fits[LY_INIT < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
+static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_OCTDN, "ALL OFF"}};
 
 static struct {
     uint8_t l, trk, loaded, oct;       /* SET: the layer and the track of the snapshot; EDIT: a sound loaded since
@@ -52,7 +53,10 @@ static struct {
     uint32_t solo;                     /* GLO: the keys held that solo */
     uint32_t tap[4];                   /* GLO TAP: the last taps (fm1_ms) */
     uint8_t ntap;
+    uint8_t quiet;                     /* #39: a layer closed after it opened: KNOB 1..4 do nothing until quiet_t + */
+    uint32_t quiet_t;                  /* LY_QUIET_MS (fm1_ms) */
 } lys;
+#define LY_QUIET_MS 250u
 
 static int layer_allowed(void) { return !ui.menu && !ui.confirm && !ui.uboot && !name_on(); }
 static uint32_t ly_bit(uint32_t l) { return 1u << panel.btn[LAYERS[l].btn]; }
@@ -65,9 +69,12 @@ static uint32_t layer_bits(void)
     return m;
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
-static const char *layer_head(void) { return LAYERS[ui.layer % LAYER_N].head; }
+static const char *layer_head(void) { return ui.layer == LAYER_FX && perf_latch_on ? "[FX] LATCH" : LAYERS[ui.layer % LAYER_N].head; }
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
-static int layer_set_open(void) { return LAYERS[layer_open()].kind == LK_SET && layer_open(); }
+static int layer_set_open(void)                 /* (FX LATCH: FX is one too, OCT- turns all off) */
+{
+    return layer_open() && (LAYERS[layer_open()].kind == LK_SET || (layer_open() == LAYER_FX && perf_latch_on));
+}
 static uint32_t layer_held(void) { return ui.ly && ly_down(ui.ly) && layer_allowed(); }
 
 /* each pass, before the keys: what the ISR (seq.c keyboard_block) gives to a layer. Armed: its button; none
@@ -134,12 +141,26 @@ static uint32_t layer_gesture(uint32_t now, uint32_t combo)
         }
         return 0;
     }
-    if (l == LAYER_FX)
-        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;   /* the knob macros snap back */
-    l = *t0 & (LY_OPEN | LY_DEAD) ? 0u : l;
+    if (l == LAYER_FX && !perf_latch_on)
+        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;   /* the knob macros snap back (FX LATCH: they stay) */
+    if (*t0 & LY_OPEN || combo) {                       /* (#39: the knob still turning is not the page's) */
+        lys.quiet = 1;
+        lys.quiet_t = fm1_ms;
+    }
+    l = *t0 & (LY_OPEN | LY_DEAD) || combo ? 0u : l;   /* (a knob turned as it was let go: a combo, no tap) */
     *t0 = 0;
     ui.ly = 0;
     return l;
+}
+
+/* #39: KNOB 1..4 belong to no page while a layer lets go: the frame its button is let go (the turns read then
+ * were made with it held), while its map still shows (its keys held after it), and LY_QUIET_MS after it closed.
+ * Their turns are dropped there (ui_input); before, they edited the page under the layer (an ARP page: ARP on) */
+static int layer_knobs_quiet(void)
+{
+    if (lys.quiet && fm1_ms - lys.quiet_t >= LY_QUIET_MS)
+        lys.quiet = 0;
+    return layer_allowed() && (ui.ly || ui.layer || lys.quiet);
 }
 
 /* the map shows while the button is held open, and after it while its keys are still held */
@@ -254,6 +275,8 @@ static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
     if (l == LAYER_FX) {                                /* perform.c perf_k, not recorded */
+        if (k == 3u && !perf_harm_on())
+            s = -s;                                     /* DEPTH (100 - perf_k[3]) rises to the right (#40: it fell) */
         perf_k[k] = (int8_t)clamp(perf_k[k] + s, k ? 0 : -100, 100);
     } else if (l == LAYER_GLO) {                        /* T1..T4 LEVEL, recorded as on MIXER */
         int16_t *vp = &trk[k].p[P_LEVEL];
@@ -299,7 +322,11 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
     mine = oct & lys.oct;
     if (mine & 1u) {                                    /* OCT-: back to when it opened */
-        if (lys.l == LAYER_EDIT) {
+        if (lys.l == LAYER_FX) {                        /* (FX LATCH) every effect and macro off */
+            perf_latched = 0;
+            perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+            ui_message("FX ALL OFF");
+        } else if (lys.l == LAYER_EDIT) {
             if (lys.loaded)
                 undo_swap();                            /* (the copy from its first load) */
             lys.loaded = 0;
@@ -327,7 +354,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo || ((perf_solo >> t) & 1u)); }
 static uint32_t layer_leds(void)
 {
-    uint32_t k, m = 0, blink = ((fm1_ms / 250u) & 1u) == 0u, l = ui.layer, held = perf_held, ok = perf_avail();
+    uint32_t k, m = 0, blink = ((fm1_ms / 250u) & 1u) == 0u, l = ui.layer, held = perf_held | perf_latched, ok = perf_avail();
     uint32_t mask = scale_mask(TSEL), root = (uint32_t)TSEL->p[P_ROOT] % 12u;
     for (k = 0; k < 27u; k++) {
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, e;
@@ -363,7 +390,7 @@ static const char B_NOTE[NTRK] = {'F', 'G', 'A', 'C'};  /* black keys 1..4: F# G
 #define LC_X(c) (6 + 58 * (int32_t)(c))                 /* cell column c: 54 px wide, 4 px apart */
 #define LC_W 54
 #define LC_H 42                                          /* the big cells: rows at y 4 and 50 */
-#define LF_X(c) (6 + 46 * (int32_t)(c))                 /* FX: the 10 effects, 5 a row (F3 .. C4, D4 .. A4), 42 px */
+#define LF_X(c) (7 + 46 * (int32_t)(c))                 /* FX: the 10 effects, 5 a row (F3 .. C4, D4 .. A4), 42 px: x 7 .. 233 */
 #define LF_W 42
 #define LM_Y 96                                          /* the black keys' row (22 px) */
 #define LM_H 22
@@ -390,33 +417,62 @@ static uint16_t lc_fill(uint32_t st, uint16_t *ink)
 /* a cell at x, y, h px high: big (h > 30) the icon over the name (FX's effects, LF_W wide: the icon alone, 24 px,
  * under the note; a name: in the top right corner); a name: compact, the icon at the right (none: no icon); else a
  * black key's: two icons at the right. tri: a HOLD cell in a SET layer */
+/* a cell's box: its fill on the panel. LINE: a RAISE (idle) cell is not filled, and 1 px rules divide the
+ * cells: one in the gap left of a cell (not the first column) and one in the gap above it (not the first row), each
+ * across the gap's corner, so they meet in a grid. Cells are 4 px apart from x 6, y 4. Returns the fill */
+static uint16_t lc_box(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t fill)
+{
+    if (ux.style) {
+        if (fill == T_RAISE)
+            fill = T_SURF;
+        if (x > 7)                                       /* (not the first column: x 6, FX's 7) */
+            cv_rule(x - 2, y > 4 ? y - 4 : y, 1, h + (y > 4 ? 4 : 0));
+        if (y > 4)
+            cv_rule(x > 7 ? x - 4 : x, y - 2, w + (x > 7 ? 4 : 0), 1);
+    }
+    cv_rrect(x, y, w, h, 4, fill, T_SURF);
+    return fill;
+}
 static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t icon, uint32_t icon2, const char *name,
                   uint32_t st, int tri)
 {
-    uint16_t ink, fill = lc_fill(st, &ink);
-    cv_rrect(x, y, lc_w, h, 4, fill, T_SURF);
+    uint16_t ink, fill = lc_fill(st, &ink), idle = fill == T_RAISE;
+    fill = lc_box(x, y, lc_w, h, fill);
     if (note)
-        cv_text_on(x + 5, y + 3, &AF_S, note, fill == T_RAISE ? T_MID : ink, fill);
+        cv_text_on(x + 5, y + 3, &AF_S, note, idle ? T_MID : ink, fill);
     if (h > 30 && lc_w == LF_W) {
+        GFX_HOOK_ALIGN(x, 0, x + lc_w, 0, AL_H, "FX cell icon centred across");
         cv_icon_on(x + (lc_w - 24) / 2, y + h - 25, 24, icon, ink, fill);   /* (its ink: rows 3 .. 20 of 24) */
         if (name)
             cv_text_r(x + lc_w - 5, y + 3, &AF_S, name, ink, fill);
-    } else if (h > 30) {
-        cv_icon_on(x + (lc_w - 16) / 2, y + 4, 16, icon, ink, fill);
-        cv_text_c(x + lc_w / 2, y + 23, &AF_S, name, ink, fill);
-    } else if (name && h > 24) {
-        cv_icon_on(note ? x + lc_w - 17 : x + 5, y + 4, 12, icon, ink, fill);
-        cv_text_c(x + lc_w / 2, y + 15, &AF_S, name, ink, fill);
-    } else if (name) {
+    } else if (h > 30) {                                   /* the icon's cell over the name, 6 px between, centred */
+        int32_t t = y + HALF_UP(h - (16 + 6 + AF_S_CAP_H));
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V | AL_N(2), "layer cell icon + name centred up/down");
+        GFX_HOOK_ALIGN(x, 0, x + lc_w, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
+        cv_icon_in(x, t, lc_w, 0, 16, icon, ink, fill);
+        GFX_HOOK_ALIGN(x, 0, x + lc_w, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
+        cv_text_in(x, t + 22 - AF_S_CAP_Y, lc_w, &AF_S, name, ink, fill);
+    } else if (name && h > 24) {                           /* the same, 12 px, 2 px between (the icon at a side) */
+        int32_t t = y + HALF_UP(h - (12 + 2 + AF_S_CAP_H));
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V | AL_N(2), "layer cell icon + name centred up/down");
+        cv_icon_on(note ? x + lc_w - 17 : x + 5, t, 12, icon, ink, fill);
+        GFX_HOOK_ALIGN(x, 0, x + lc_w, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
+        cv_text_in(x, t + 14 - AF_S_CAP_Y, lc_w, &AF_S, name, ink, fill);
+    } else if (name) {                                     /* a key's row: the icon and the name on its middle */
         if (!note && icon < ICON_COUNT) {                  /* (the EDIT layer: the engine's icon instead of the key) */
-            cv_icon_on(x + 3, y + (h - 12) / 2, 12, icon, ink, fill);
-            cv_text_r(x + lc_w - 3, y + 5, &AF_S, name, ink, fill);
+            GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+            cv_icon_in(x + 3, y, 0, h, 12, icon, ink, fill);
+            GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+            cv_text_r(x + lc_w - 3, y + CAP_IN(S, h), &AF_S, name, ink, fill);
         } else {
-            cv_text_r(x + lc_w - 5, y + 5, &AF_S, name, ink, fill);
+            GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+            cv_text_r(x + lc_w - 5, y + CAP_IN(S, h), &AF_S, name, ink, fill);
         }
     } else {
-        cv_icon_on(x + lc_w - 31, y + 5, 12, icon, ink, fill);
-        cv_icon_on(x + lc_w - 17, y + 5, 12, icon2, ink, fill);
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+        cv_icon_in(x + lc_w - 31, y, 0, h, 12, icon, ink, fill);
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+        cv_icon_in(x + lc_w - 17, y, 0, h, 12, icon2, ink, fill);
     }
     if (tri) {
         int32_t j;
@@ -428,10 +484,12 @@ static void bnote(char *n, uint32_t t) { n[0] = B_NOTE[t]; n[1] = '#'; n[2] = 0;
 
 static void layer_fx(void)
 {
-    uint32_t held = perf_kill ? 0u : perf_held, act = perf_act, ok = perf_avail(), e;
+    uint32_t held = perf_kill ? 0u : perf_held | perf_latched, act = perf_act, ok = perf_avail(), e;
     char n[3] = {0, 0, 0};
     lc_w = LF_W;
     for (e = 0; e < PF_M1; e++) {                       /* the effects of the white keys F3 .. A4, 5 a row */
+        if (e % 5u == 0u && !ux.style)                  /* (LINE: its rules are cells too) */
+            GFX_HOOK_ALIGN(0, 0, 240, 0, AL_H | AL_CELLS | AL_N(5), "FX cells' row centred");
         uint32_t st = !((ok >> e) & 1u) ? LS_DIM : !((held >> e) & 1u) ? LS_OFF : (act >> e) & 1u ? LS_HELD : LS_WAIT;
         n[0] = W_NOTE[e];
         lcell(LF_X(e % 5u), e < 5u ? 4 : 50, LC_H, n, PF_ICON[e], 0, e < 3u ? PF_DIV[e] : 0, st, 0);
@@ -465,8 +523,9 @@ static void layer_scl(void)                             /* KNOB 2's scales, 4 x 
     for (i = 0; i < 16u && i <= (uint32_t)TP[P_SCALE].max; i++) {
         int32_t x = LC_X(i % 4u), y = 4 + 29 * (int32_t)(i / 4u);
         uint16_t ink, fill = lc_fill(i == sc ? LS_SEL : LS_OFF, &ink);
-        cv_rrect(x, y, LC_W, 25, 4, fill, T_SURF);
-        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[i], ink, fill);
+        fill = lc_box(x, y, LC_W, 25, fill);
+        GFX_HOOK_ALIGN(x, y, x + LC_W, y + 25, AL_HV, "scale cell name centred");
+        cv_text_in(x, y + CAP_IN(S, 25), LC_W, &AF_S, TP[P_SCALE].names[i], ink, fill);
     }
 }
 static void layer_edit(void)                            /* the engines from F3, INIT next (LY_INIT), the sound under them */
@@ -533,7 +592,7 @@ static void draw_layer(void)
     uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u;
     layer_cards(l);
     if (l == LAYER_FX)
-        sig += (perf_kill ? 0u : perf_held) * 31u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u;
+        sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u;
     else if (l == LAYER_GLO)
         sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u +
                (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
@@ -558,7 +617,8 @@ static void draw_layer(void)
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
         cv_begin(240, H_FOOT, T_BG);
-        cv_key_row(8, 232, 9, LAYERS[l].foot, LAYERS[l].foot[2].act ? 3u : 2u, 7u, T_BG);
+        const khint_t *ft = l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT : LAYERS[l].foot;
+        cv_key_row(8, 232, 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
         cv_blit(0, Y_FOOT);
         ui.foot_sig = 0;
     }

@@ -249,7 +249,8 @@ static void con_dbg(void)
 }
 
 /* input scan (hal/fm1_input.h fm1_in_stat) since the last `inp`, then cleared: tick gaps (= LED
- * on-time of a column), per-column LED share in 1/1000, the tick cost, encoder transitions */
+ * on-time of a column), per-column LED share in 1/1000, the tick cost, the dim pulse (its average width and the
+ * bits of the 595 shift it spans), encoder transitions */
 static void con_inp(void)
 {
     static uint32_t t_last;
@@ -268,6 +269,8 @@ static void con_inp(void)
     con_kv("tick_cost_avg_ns", (int32_t)(fm1_in_stat.ticks ? fm1_in_stat.cost_sum / fm1_in_stat.ticks * 1000u / FM1_TICKS_PER_US : 0u));
     con_kv("tick_cost_max_us", (int32_t)(fm1_in_stat.cost_max / FM1_TICKS_PER_US));
     con_kv("tick_cpu_permille", (int32_t)(win >= 1000u ? fm1_in_stat.cost_sum / (win / 1000u) : 0u));
+    con_kv("dim_pulse_ns", (int32_t)(fm1_in_stat.dim_n ? fm1_in_stat.dim_sum / fm1_in_stat.dim_n * 1000u / FM1_TICKS_PER_US : 0u));
+    con_kv("dim_bits", (int32_t)fm1__dim_k);
     con_puts("led_on_permille:");
     for (i = 0; i < FM1_NCOL; i++) {
         con_putc(' ');

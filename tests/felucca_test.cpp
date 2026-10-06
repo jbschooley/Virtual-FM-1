@@ -337,8 +337,8 @@ int main() {
         auto info = request({1});   // INFO: version string first
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;   // then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA v1.0" && info[at] == 14 && info[at + 1] == 91
-              && info[at + 4] == 83, "INFO answers, as Felucca 1.0 (14 engines, 91 parameters, P_E0 83)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA v1.0.2" && info[at] == 14 && info[at + 1] == 91
+              && info[at + 4] == 83, "INFO answers, as Felucca 1.0.2 (14 engines, 91 parameters, P_E0 83)");
         auto dump = request({4});   // DUMP: engine, preset, P_COUNT + G_COUNT values (2 bytes each)
         CHECK(dump.size() == size_t(4 + 1 + 2 + 2 * (91 + 27) + 1) && dump[5] == 0, "DUMP gives the whole sound, longer than usb.c's queue");
         // SET part 1's level (scope 0, id 0) to 50 through the protocol; the engine sees it

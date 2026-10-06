@@ -33,6 +33,8 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 #if FELUCCA_UAC
     uac_tap(out, n);                                    /* the USB audio input: the same master output */
 #endif
+    if (fx_usb_fixed)                                   /* USB LEVEL FIXED: USB took the full level, the DAC */
+        usb_fixed_dac(out, n);                          /* (speaker, headphones) gets MASTER's (fx.c) */
     for (i = 0; i < n; i++) {
         if (i & 1u)
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];

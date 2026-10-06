@@ -52,6 +52,21 @@ static uint32_t motion_count(const track_t *t)
     for (i = 0; i < motion.count; i++) n += (motion.event[i].place >> 6) == k;
     return n;
 }
+/* the parameters track k's MOTION will change (PLAY ON, at least one event): a bit per P_* id in m[].
+ * Main loop only (the ISR never writes the events); at most MOTION_MAX records, once per card redraw. */
+static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
+{
+    uint32_t i, any = 0;
+    memset(m, 0, ((P_COUNT + 31u) / 32u) * sizeof m[0]);
+    if (k >= NTRK || !((motion.on >> k) & 1u)) return 0;
+    for (i = 0; i < motion.count; i++) {
+        const motion_event_t *e = &motion.event[i];
+        if ((e->place >> 6) != k || e->param >= P_COUNT) continue;
+        m[e->param / 32u] |= 1u << (e->param % 32u);
+        any = 1;
+    }
+    return any;
+}
 static int16_t motion_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);

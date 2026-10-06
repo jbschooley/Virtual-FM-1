@@ -13,6 +13,7 @@ UI adds (transport, tracks 1-4, USB, favourites, ...) by EXTRA (ICON_X_<NAME>).
 
 Output: per size S in --sizes
   AI<S>_DATA    cells of S x S px, 4-bit alpha, 2 px per byte, rows back to back
+  AI<S>_INK     each cell's ink box (the UI centres an icon by its ink: src/icons.c icon_ink)
   AI<S>_IDX[ICON_COUNT]  cell number of every icon at that size, 0xFF = not rasterised at that size
   (12 px: all legacy icons + SMALL_EXTRA; 16 px: only the --big set; 24 px: HUGE_DEFAULT)
 --list prints every Fukiai glyph name and its codepoint (what is available).
@@ -65,10 +66,7 @@ LEGACY = {
 EXTRA = {
     "x_play": "control_play_f", "x_stop": "control_stop_f", "x_pause": "control_pause_f", "x_rec": "control_rec_f",
     "x_rec_o": "control_rec_o", "x_play_o": "control_play_o",
-    "x_trk1": "numbers_circle_1_roman_f", "x_trk2": "numbers_circle_2_roman_f",
-    "x_trk3": "numbers_circle_3_roman_f", "x_trk4": "numbers_circle_4_roman_f",
-    "x_trk1_o": "numbers_circle_1_roman_o", "x_trk2_o": "numbers_circle_2_roman_o",
-    "x_trk3_o": "numbers_circle_3_roman_o", "x_trk4_o": "numbers_circle_4_roman_o",
+    # (1.0.2: the tracks' circled numerals are no longer baked: icons.c trk_icon draws a digit on a cushion)
     "x_usb": "port_usb_c", "x_star": "symbol_star", "x_star_o": "symbol_star_o", "x_check": "symbol_check",
     "x_cog": "symbol_cog", "x_lock": "symbol_lock_close_f", "x_power": "control_power",
     "x_folder": "symbol_folder", "x_doc": "symbol_document", "x_plus": "symbol_plus", "x_minus": "symbol_minus",
@@ -102,8 +100,7 @@ EXTRA = {
 FIT_TO = {"system_battery_0": "system_battery_4"}
 
 # new icons that are also needed at 12 px (list rows, menu values)
-SMALL_EXTRA = ["x_trk1", "x_trk2", "x_trk3", "x_trk4", "x_trk1_o", "x_trk2_o", "x_trk3_o", "x_trk4_o",
-               "x_star", "x_star_o", "x_check", "x_lock", "x_cog", "x_usb", "x_plus", "x_minus", "x_undo", "x_redo",
+SMALL_EXTRA = ["x_star", "x_star_o", "x_check", "x_lock", "x_cog", "x_usb", "x_plus", "x_minus", "x_undo", "x_redo",
                "x_warn", "x_folder", "x_doc", "x_back", "x_down", "x_up", "x_left", "x_right",
                "x_mixer", "x_pattern", "x_song", "x_motion", "x_motion_rec", "x_motion_del",
                "x_fx", "x_hpf", "x_repeat", "x_reverse", "x_tstop", "x_freeze"]
@@ -114,12 +111,11 @@ HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb",   
                 "x_repeat", "x_reverse", "cutoff", "x_hpf", "x_tstop", "x_freeze", "x_oct_up", "x_oct_dn"]
 
 # the 16 px set: header, footer, dialogs and menu rows (everything else only exists at 12 px)
-BIG_DEFAULT = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_trk1", "x_trk2", "x_trk3", "x_trk4",
-               "x_trk1_o", "x_trk2_o", "x_trk3_o", "x_trk4_o", "x_usb", "x_star", "x_star_o", "x_check",
+BIG_DEFAULT = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_usb", "x_star", "x_star_o", "x_check",
                "x_cog", "x_power", "x_warn", "x_palette", "x_speaker", "x_info", "x_hugelton", "x_doc",
                "wave", "algorithm", "phase", "bits", "sample", "mouth", "trio", "drawbar", "slice", "grain",
                "phys", "drum", "noise", "mod", "tempo", "tape",
-               "x_song", "x_motion_del", "x_doctor", "x_fx", "x_timer", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
+               "x_song", "x_motion", "x_motion_del", "x_doctor", "x_fx", "x_timer", "rate", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
 
 
 def glyph_table(font_path):
@@ -198,6 +194,16 @@ def fitted_font(font_path, out_dir, names):
     return str(p), fixed
 
 
+def ink_box(b, s):
+    """(x0, y0, x1, y1) of the nonzero nibbles of an s x s cell (2 px a byte, high nibble first), x1 y1 past them"""
+    xs, ys = [], []
+    for i in range(s * s):
+        if (b[i >> 1] >> (0 if i & 1 else 4)) & 15:
+            xs.append(i % s)
+            ys.append(i // s)
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out", nargs="?")
@@ -243,19 +249,30 @@ def main():
     for s in sizes:
         subset = ([n for n in names if n in legacy or n in SMALL_EXTRA] if s == min(sizes) else
                   [n for n in names if n in HUGE_DEFAULT] if s == 24 else [n for n in names if n in big])
-        data, idx = [], [0xFF] * len(names)
+        data, idx, inks = [], [0xFF] * len(names), []
         for n in subset:
             b, ink = ar.raster_icon(font if glyph_of[n] in mended else a.font, s, cps[glyph_of[n]], a.gamma)
             assert ink, f"{n} is empty at {s}px"
             idx[names.index(n)] = len(data)
             data.append(b)
+            inks.append(ink_box(b, s))
         bpi = (s * s + 1) // 2
         flat = [v for b in data for v in b]
         out.append(f"#define AI{s}_N {len(data)}")
         out.append(ar.c_array(f"AI{s}_DATA", "uint8_t", flat, 24, "0x{:02x}"))
         out.append(ar.c_array(f"AI{s}_IDX", "uint8_t", idx, 24))
+        if s <= 16:   # each cell's ink box (icons.c icon_ink: centring by ink): x0 y0 x1-1 y1-1, a nibble each
+            out.append(f"/* the cells' ink boxes: x0 | y0 << 4 | (x1 - 1) << 8 | (y1 - 1) << 12 */")
+            out.append(ar.c_array(f"AI{s}_INK", "uint16_t",
+                                  [x0 | y0 << 4 | (x1 - 1) << 8 | (y1 - 1) << 12 for x0, y0, x1, y1 in inks], 12))
+            ib = 2 * len(inks)
+        else:
+            out.append(f"/* the cells' ink boxes: x0 | y0 << 8 | x1 << 16 | y1 << 24 */")
+            out.append(ar.c_array(f"AI{s}_INK", "uint32_t",
+                                  [x0 | y0 << 8 | x1 << 16 | y1 << 24 for x0, y0, x1, y1 in inks], 8))
+            ib = 4 * len(inks)
         out.append("")
-        cost[s] = (len(data), len(flat) + len(idx))
+        cost[s] = (len(data), len(flat) + len(idx) + ib)
     Path(a.out).write_text("\n".join(out))
     tot = sum(c[1] for c in cost.values())
     for s, (n, b) in cost.items():

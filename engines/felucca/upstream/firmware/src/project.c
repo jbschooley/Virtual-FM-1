@@ -25,9 +25,10 @@
  * Track 4 was the GM drum part until 1.0 (no engine: its byte 0; its level and reverb send in the
  * globals G_DRLVL / G_DRREV, which are inert now). A project says which it has in `parts`: NPART
  * when written since, 0 before (a reserved byte, always written 0: the format and its size did not
- * change). proj_drums_to_part turns such a track 4 into the legacy SAMPLE PERC part
- * (the GM kit, so its drum steps still play drums), keeping its steps, its pattern and mix parameters
- * (LEN DIV SWING GATE, PAN MUTE), its SLICER, and the drum level and reverb send as LEVEL and REV.
+ * change). proj_drums_to_part turns such a track 4 into a DRUM part with its default kit (the GM map, so
+ * its drum steps still play drums; until 1.0.2 it was the SAMPLE engine's PERC set), keeping its steps, its
+ * pattern and mix parameters (LEN DIV SWING GATE, PAN MUTE), its SLICER, and the drum level and reverb send
+ * as LEVEL and REV.
  *
  * The byte `phys` (reserved, always 0, before 1.0) says what a PHYS track's MODEL means: 0 MODEL 2 was
  * DUST (dropped: it loads as MODAL bowed, eng_phys.c phys_legacy); 1 MODEL 4 was DRUM (the kit is the DRUM
@@ -42,6 +43,11 @@
  * DIGITAL (engine 1) was retired in 1.0 (fm4_convert.c): a track of it, in any format, loads as FM6 with the
  * patch converted from its values as the track's own (proj_fm4, on every import; the stored record keeps what it
  * holds until saved again). Its motion events on the EDIT or OP ENV values are dropped.
+ *
+ * SAMPLE's SET 4, PERC (the GM drum kit), was retired after 1.0.2: a SAMPLE track that selects it, in any
+ * format, loads as the DRUM engine with its default kit (core.h drum_from_perc: the same GM key map, its steps
+ * as they are, the rest of its sound kept; proj_perc, on every import as proj_fm4). Its motion events on the
+ * EDIT values are dropped (SAMPLE's meanings, not DRUM's).
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -131,7 +137,7 @@ typedef struct {                               /* format 3 (0.9 .. 1.0), read on
     uint32_t sum;
 } project_v3_t;
 #define PROJ_DEF_SOUND 0xFFu                   /* preset byte: the track's power-on sound, no steps (format 1) */
-#define PROJ_DEF_KEEP 0xFEu                    /* .. the legacy SAMPLE PERC sound, steps and the rest kept (old drums) */
+#define PROJ_DEF_KEEP 0xFEu                    /* .. DRUM's kit (once SAMPLE PERC), steps and the rest kept (old drums) */
 typedef struct {                               /* a track of formats 1 and 2, read only */
     int16_t p[PROJ_NP_V2];
     uint8_t engine, preset;
@@ -218,13 +224,13 @@ static void proj_trk_from_v2(proj_trk_t *d, const proj_trk_v2_t *s)
 }
 
 /* a project written with the GM drum part as track 4 (parts 0) -> track 4 a part (see the top);
- * project_load gives it the legacy SAMPLE PERC sound (PROJ_DEF_KEEP). Idempotent */
+ * project_load gives it DRUM's kit (PROJ_DEF_KEEP; the SAMPLE PERC sound until 1.0.2). Idempotent */
 static void proj_drums_to_part(project_t *q)
 {
     proj_trk_t *d = &q->t[NTRK - 1u];
     if (q->parts == NPART)
         return;
-    d->engine = 4;                              /* SAMPLE: independent of today's power-on drum sound */
+    d->engine = ENGI_DRUM;                      /* DRUM's first kit: independent of today's power-on drum sound */
     d->preset = PROJ_DEF_KEEP;
     d->p[P_LEVEL] = (int16_t)clamp(q->g[G_DRLVL], 0, 127);   /* the drum part's level and reverb send */
     d->p[P_REV] = (int16_t)clamp(q->g[G_DRREV], 0, 127);
@@ -292,6 +298,35 @@ static void proj_fm4(project_t *q)
 #else
     (void)q;
 #endif
+}
+
+/* SAMPLE tracks of the retired PERC set (SET 4) -> DRUM with its default kit (see the top; core.h drum_from_perc,
+ * whatever format the project is: on every load, the stored record keeps what it holds until it is saved again).
+ * Their motion events on the EDIT values go. Idempotent */
+static void proj_perc(project_t *q)
+{
+    uint32_t k, i, n, hit = 0;
+    for (k = 0; k < NTRK; k++) {
+        proj_trk_t *d = &q->t[k];
+        if (!drum_from_perc(d->engine, &d->p[P_E0]))
+            continue;
+        d->engine = ENGI_DRUM;
+        if (d->preset < PROJ_DEF_KEEP)
+            d->preset = 0;
+        hit |= 1u << k;
+    }
+    if (!hit)
+        return;
+    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (((hit >> (e->place >> 6)) & 1u) && e->param >= P_E0)
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
 }
 
 /* a format 4 project (n bytes in *v4) -> slot q as format 6 */
@@ -394,12 +429,14 @@ static void proj_fm6_init(project_t *q)
 }
 static int proj_import_old(project_t *q, const void *b, int n);
 static int proj_import_any(project_t *q, const void *b, int n);
-/* n bytes of a stored project (any format) -> q as today's, DIGITAL tracks converted; 0 = not a project */
+/* n bytes of a stored project (any format) -> q as today's, DIGITAL and SAMPLE PERC tracks converted; 0 = not a
+ * project */
 static int proj_import(project_t *q, const void *b, int n)
 {
     if (!proj_import_any(q, b, n))
         return 0;
     proj_fm4(q);
+    proj_perc(q);
     return 1;
 }
 static int proj_import_any(project_t *q, const void *b, int n)
@@ -567,14 +604,15 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 }
 
 #ifndef PROJ_HOST
-/* Old GM projects used this kit before DRUM existed. Its saved initializer is private now;
- * restore the same sound without passing its index through factory preset browsing. */
-static void proj_legacy_perc(track_t *t)
+/* the GM drum part of a project of before 1.0 (proj_drums_to_part): DRUM's first kit, as a preset load sets it
+ * (until 1.0.2 the SAMPLE engine's PERC set, retired since) */
+static void proj_legacy_drums(track_t *t)
 {
     static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
-    const preset_t *pr = &SMP_PRESET_TABLE[SMP_PERC_PRESET];
+    const preset_t *pr = &ENGINES[ENGI_DRUM]->presets[0];
     uint32_t i;
-    t->preset = 0;                              /* display metadata; SET remains the legacy kit */
+    t->eng_req = ENGI_DRUM;
+    t->preset = 0;
     for (i = 0; i < P_E0; i++)
         if (!param_kept(i))
             t->p[i] = TP[i].def;
@@ -766,6 +804,7 @@ static int project_restore_runtime(const project_t *input)
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
     proj_fm4(p);                                        /* .. that had DIGITAL tracks */
+    proj_perc(p);                                       /* .. or SAMPLE PERC tracks */
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
@@ -814,7 +853,7 @@ static int project_restore_runtime(const project_t *input)
         } else if (p->t[k].preset == PROJ_DEF_KEEP) {   /* the steps, LEVEL PAN MUTE, LEN DIV SWING GATE kept */
             memcpy(keep, t->p, sizeof keep);
             fm1_irq_off();                           /* publish the legacy sound as one bounded parameter batch */
-            proj_legacy_perc(t);                      /* (keeps the SLICER: param_kept) */
+            proj_legacy_drums(t);                     /* (keeps the SLICER: param_kept) */
             t->p[P_REV] = keep[P_REV];                  /* and the drums' reverb send */
             for (i = P_AMODE; i <= P_TRANS; i++)        /* the drum part had no arp or scale */
                 t->p[i] = TP[i].def;

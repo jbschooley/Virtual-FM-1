@@ -165,6 +165,29 @@ static void ed_shadow(void)                              /* the editor is in syn
     ed_w.sel = song.sel;
     sync_reload = 0;
 }
+/* the editor's own sound load on the selected track (PRESET, SET of G_ENGSEL): the editor re-reads DUMP after
+ * the reply, so the shadow takes the load (engine, preset, the parameters it changed) and no RELOAD echoes back
+ * (INFO 53 01 bit 1). A RELOAD already due before it (a load or selection on the device) still goes out. */
+typedef struct { int16_t p[P_COUNT]; uint8_t eng, preset, due; } ed_load_t;
+static void ed_load_before(ed_load_t *b)
+{
+    memcpy(b->p, TSEL->p, sizeof b->p);
+    b->eng = (uint8_t)ed_eng(TSEL);
+    b->preset = TSEL->preset;
+    b->due = sync_reload || b->eng != ed_w.eng || b->preset != ed_w.preset || song.sel != ed_w.sel;
+}
+static void ed_load_after(const ed_load_t *b)
+{
+    uint32_t i;
+    if (!ed_w.on || b->due)
+        return;
+    sync_reload = 0;
+    ed_w.eng = (uint8_t)ed_eng(TSEL);
+    ed_w.preset = TSEL->preset;
+    for (i = 0; i < P_COUNT; i++)                        /* the load's values; a pending push of another stays */
+        if (TSEL->p[i] != b->p[i])
+            ed_w.v[i] = TSEL->p[i];
+}
 static int ed_room(void) { return so_w - so_r + 8u <= SXQ / 2u; }
 static void ed_known(uint32_t k, uint32_t id)            /* the editor's own change of trk[k].p[id]: no push */
 {
@@ -403,6 +426,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x4d); ed_b(1); ed_b(MOTION_MAX); ed_b(1); /* motion + chance v1 */
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFACTORY); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
+        ed_b(0x53); ed_b(1); ed_b(3);   /* live sync: bit 0 WATCH while on keeps the shadow, bit 1 no RELOAD echo */
         break;
     case ED_GET:
     case ED_SET:
@@ -411,7 +435,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (cmd == ED_SET && na >= 4u && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
             if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path (1 without FELUCCA_FM4:
                                                            * DIGITAL's first preset, as FM6) */
+                ed_load_t b;
+                ed_load_before(&b);
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
+                ed_load_after(&b);
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 0) {
@@ -465,9 +492,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_step_reply(&seq_steps(TSEL)[a[0]]);
         break;
     }
-    case ED_PRESET:                                        /* engine, preset */
+    case ED_PRESET: {                                      /* engine, preset */
+        ed_load_t b;
         if (na < 2u || a[0] >= NENGINES)
             return;
+        ed_load_before(&b);
 #if !FELUCCA_FM4
         if (a[0] == ENGI_DIGITAL)                          /* a DIGITAL preset (retired): its sound, as FM6 */
             fm4_load_preset(TSEL, a[1]);
@@ -478,10 +507,12 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 set_engine(a[0]);
             apply_preset(a[1]);
         }
+        ed_load_after(&b);
         ui.force = 1;
         ed_b(ed_eng(TSEL));
         ed_b(TSEL->preset);
         break;
+    }
     case ED_PROJECT:                                       /* 0 = load, 1 = save, 2 = query; slot 0..3 */
         if (na < 2u || a[0] > 2u || a[1] >= 4u)
             return;
@@ -662,16 +693,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(a[0] >= UP_SLOTS ? 1u : ed_flash_stop() || up_put(a[0], 0) ? 2u : 0u);
         break;
-    case ED_WATCH:                                         /* on -> on */
+    case ED_WATCH: {                                       /* on -> on */
+        uint32_t keep, v4was = ed_w.v4;
         if (na < 1u)
             return;
-        ed_w.on = a[0] & 1u;
+        keep = ed_w.on && ed_w.resets == usb.resets && (a[0] & 1u);   /* already watching: the changes not yet */
+        ed_w.on = a[0] & 1u;                                          /* pushed stay pending (INFO 53 01 bit 0) */
         ed_w.v4 = (uint8_t)(ed_w.on && (a[0] & 2u));     /* v4: also TRACK_CHANGED; the reply says it is known */
         ed_w.resets = usb.resets;
-        if (ed_w.on)
+        if (ed_w.on && !keep)
             ed_shadow();
+        else if (keep && ed_w.v4 && !v4was)
+            for (i = 0; i < ED_NT; i++)                    /* TRACK_CHANGED newly asked for: from the mix as it is */
+                ed_w.tv[i] = trk[i / 3u].p[ED_TIDS[i % 3u]];
         ed_b(ed_w.on | ed_w.v4 << 1);
         break;
+    }
     case ED_PING:
         ed_b(0);
         break;

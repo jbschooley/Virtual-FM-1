@@ -329,7 +329,8 @@ static void nm_draw_field(void)
         } else if (c[0] == ' ') {
             cv_rect(x + 8, 28, 2, 2, bg == T_THEME ? T_INK : T_DIM);   /* a space */
         } else {
-            cv_text_on(x + 9 - text_w(&AF_M, c) / 2, 20, &AF_M, c, fg, bg);
+            GFX_HOOK_ALIGN(x, 18, x + 18, 40, AL_HV, "name field letter in its cell");
+            cv_text_in(x, 18 + CAP_IN(M, 22), 18, &AF_M, c, fg, bg);   /* its ink across, the capitals' band up and down */
         }
     }
     if (nm.cur >= NM_LEN)                              /* full, the cursor past the end: a bar */
@@ -352,29 +353,37 @@ static void nm_draw_panel(void)
             int typed = i == nm.tap, next = i == (nm.tap + 1u) % n;
             uint16_t f = typed ? T_THEME : T_RAISE;
             cv_rrect(x, 4, 22, 22, 4, f, T_SURF);
-            cv_text_on(x + 11 - text_w(&AF_M, c) / 2, 5, &AF_M, c, typed ? T_INK : next ? T_ACCENT : T_TEXT, f);
+            GFX_HOOK_ALIGN(x, 4, x + 22, 26, AL_HV, "name cycling letter in its cell");
+            cv_text_in(x, 4 + CAP_IN(M, 22), 22, &AF_M, c, typed ? T_INK : next ? T_ACCENT : T_TEXT, f);
         }
         cv_text_on(14 + 26 * (int32_t)n, 8, &AF_S, "TAP AGAIN: NEXT", T_MID, T_SURF);
     } else {
         cv_text_on(10, 8, &AF_S, nm.num ? "ONE TAP, ONE CHARACTER" : "TAP AGAIN: NEXT LETTER", T_MID, T_SURF);
     }
     cv_text_r(230, 8, &AF_S, nm.num ? "123" : "ABC", T_THEME, T_SURF);
+    GFX_HOOK_ALIGN(3, 0, 237, 0, AL_H | AL_CELLS | AL_N(8), "name keys' row in the panel");
     for (i = 0; i < 16u; i++) {                        /* the white keys: the left octave, then the right one */
-        int32_t x = 8 + 28 * (int32_t)(i % 8u), y = i < 8u ? 31 : 54;
+        int32_t x = 9 + 28 * (int32_t)(i % 8u), y = i < 8u ? 31 : 54;   /* (x 9 .. 231: centred) */
         int act = nm.key == i + 1u;
         uint16_t f = act ? T_THEME : T_RAISE;
         const char *g = nm_group(i);
         cv_rrect(x, y, 26, 20, 4, f, T_SURF);
-        cv_text_on(x + 13 - text_w(&AF_S, g) / 2, y + 3, &AF_S, g, act ? T_INK : T_TEXT, f);
+        GFX_HOOK_ALIGN(x, y, x + 26, y + 20, AL_HV, "name white key letters centred");
+        cv_text_in(x, y + CAP_IN(S, 20), 26, &AF_S, g, act ? T_INK : T_TEXT, f);
     }
     for (i = 0; i < 5u; i++) {                         /* the black keys, by name */
-        int32_t x = 8 + 45 * (int32_t)i, y = 80;
+        int32_t x = 9 + 45 * (int32_t)i, y = 80;
+        if (!i)
+            GFX_HOOK_ALIGN(3, 0, 237, 0, AL_H | AL_CELLS | AL_N(5), "name keys' row in the panel");
         cv_rrect(x, y, 42, 36, 4, T_KEY, T_SURF);
-        cv_text_c(x + 21, y + 2, &AF_S, FN[i], T_INK, T_KEY);
+        GFX_HOOK_ALIGN(0, y, 0, y + 36, AL_V | AL_N(2), "name black key name + use centred up/down");
+        GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
+        cv_text_in(x, y + 2, 42, &AF_S, FN[i], T_INK, T_KEY);
+        GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
         if (i == NB_LEFT || i == NB_RIGHT)
-            cv_icon_on(x + 15, y + 20, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
+            cv_icon_in(x, y + 20, 42, 0, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
         else
-            cv_text_c(x + 21, y + 18, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
+            cv_text_in(x, y + 18, 42, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
                       T_INK, T_KEY);
     }
     cv_blit(0, Y_GRAPH);

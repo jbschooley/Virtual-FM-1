@@ -983,6 +983,8 @@ static const int8_t AF_S_KD[919] = {
 };
 static const uint8_t AF_S_EX[10] = {169, 176, 183, 196, 214, 220, 228, 246, 252, 133};
 static const aafont_t AF_S = {15, 12, 32, 126, 10, 919, AF_S_G, AF_S_DATA, AF_S_KERN, AF_S_KD, AF_S_EX, 2, 0};
+#define AF_S_CAP_Y 3   /* the ink of H: rows 3 .. 11 of the line */
+#define AF_S_CAP_H 9
 
 /* M: InterTight[wght].ttf@500 15px, h 19, baseline 15, 105 glyphs x 4 phases, 13028 B data (Huffman; 16365 B as nibbles) */
 static const uint8_t AF_M_DATA[13028] = {
@@ -2088,6 +2090,8 @@ static const int8_t AF_M_KD[992] = {
 };
 static const uint8_t AF_M_EX[10] = {169, 176, 183, 196, 214, 220, 228, 246, 252, 133};
 static const aafont_t AF_M = {19, 15, 32, 126, 10, 992, AF_M_G, AF_M_DATA, AF_M_KERN, AF_M_KD, AF_M_EX, 2, AF_M_HC};
+#define AF_M_CAP_Y 4   /* the ink of H: rows 4 .. 14 of the line */
+#define AF_M_CAP_H 11
 
 /* L: InterTight[wght].ttf@600 28px, h 35, baseline 28, 36 glyphs x 2 phases, 4873 B data (Huffman; 10176 B as nibbles) */
 static const uint8_t AF_L_DATA[4873] = {
@@ -2393,3 +2397,5 @@ static const int8_t AF_L_KD[91] = {
 };
 static const uint8_t AF_L_EX[35] = {43, 45, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70, 71, 72, 73, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 88, 89};
 static const aafont_t AF_L = {35, 28, 32, 32, 35, 91, AF_L_G, AF_L_DATA, AF_L_KERN, AF_L_KD, AF_L_EX, 1, AF_L_HC};
+#define AF_L_CAP_Y 7   /* the ink of H: rows 7 .. 27 of the line */
+#define AF_L_CAP_H 21

@@ -69,7 +69,7 @@ preset/FM6/06_ORGAN 799809fad7f68698
 preset/FM6/07_PLUCK 91e9132dd7237f14
 preset/SLICE/00_CHOP 6d1e706b5119b570
 preset/SLICE/01_STUTTER 94226b45e8a75cf0
-drums/sample_perc_kit f8cc0ebbac193234
+drums/drum_gm_kit a88dcac7803e88d4
 mode/ANALOG/POLY 37fb068bc75b2f5c
 mode/ANALOG/MONO 4904e99e3020a8b0
 mode/ANALOG/LEGATO 8fff1c8dc8b7ded8
@@ -84,6 +84,6 @@ sends/ANALOG/delay a402a2254e8a0a84
 sends/ANALOG/reverb 217d0dceb6ded8e8
 sends/ANALOG/all 98b9543c25342780
 sends/ANALOG/dist 1ff75ac225e918e0
-song/4track_mix f18549bdfb703204
+song/4track_mix 6667b6c911a3b548
 slicer/gate/ANALOG_ACID 07581a19222c2474
-slicer/song_gate_stut f0478744ebe9f1ec
+slicer/song_gate_stut 7e91d788f9dedecc

@@ -8,8 +8,8 @@ tools/build.py generate()).
 
 Keycaps: a fixed set of labels (the hardware controls the hints name, the state badges), each a pill
 KC_H px tall with corners of radius KC_R (about a third of the height), the label in Inter Tight
-KC_PX px / KC_WGHT centred in it. One 4-bit map per pill, two levels in one nibble, tinted at draw time
-with theme tokens (src/gfx.c cv_keycap; MONO stays gray, the dim state is just a tint):
+KC_PX px / KC_WGHT centred in it by its ink. One 4-bit map per pill, two levels in one nibble, tinted at draw time
+with theme tokens (src/gfx.c cv_keycap; GREY stays gray, the dim state is just a tint):
   0        outside the pill (left as it is)
   1 .. 4   the pill's anti-aliased edge: fill coverage 20 .. 80 % over what lies under it
   5        the fill
@@ -34,7 +34,7 @@ import aa_raster as ar  # noqa: E402
 
 FONT = str(Path(__file__).resolve().parents[1] / "assets" / "fonts" / "InterTight[wght].ttf")
 KC_PX, KC_WGHT = 9, 600          # the label: Inter Tight 9 px / 600 (caps 7 rows)
-KC_H, KC_R, KC_PAD = 13, 4, 3    # the pill: 13 px tall, radius 4, 3 px each side of the label
+KC_H, KC_R, KC_PAD = 13, 4, 3    # the pill: 13 px tall, radius 4, 3 px each side of the label's ink
 KC_BASE = 10                     # baseline row: the caps on rows 3 .. 9
 
 # (C name, label): the controls the hints name (panel.c B_NAME / E_NAME, short), then the state badges
@@ -63,19 +63,28 @@ def pill_cov(w, h, r):
     return cov
 
 
+INK_MIN = 13                     # coverage that makes a label nibble (6 ..): what is seen of the label
+
+
 def keycap(font, label):
+    """the pill KC_PAD px each side of the label's ink (not its advance: the ink sits centred, as the UI centres by
+    ink; the label drawn as before, moved by whole pixels only)"""
     tw = int(math.ceil(font.getlength(label)))
-    w = tw + 2 * KC_PAD
-    img = Image.new("L", (w, KC_H), 0)
-    ImageDraw.Draw(img).text((KC_PAD + (tw - font.getlength(label)) / 2, KC_BASE), label, font=font, fill=255, anchor="ls")
-    ink = img.tobytes()
+    sw = tw + 4 * KC_PAD
+    img = Image.new("L", (sw, KC_H), 0)
+    ImageDraw.Draw(img).text((2 * KC_PAD + (tw - font.getlength(label)) / 2, KC_BASE), label, font=font, fill=255,
+                             anchor="ls")
+    src = img.tobytes()
+    cols = [x for x in range(sw) if any(src[y * sw + x] >= INK_MIN for y in range(KC_H))]
+    w = cols[-1] + 1 - cols[0] + 2 * KC_PAD
+    dx = cols[0] - KC_PAD                         # source column of the pill's column 0
     cov = pill_cov(w, KC_H, KC_R)
     nib = []
     for y in range(KC_H):
         for x in range(w):
-            c, a = cov[y][x], ink[y * w + x]
+            c, a = cov[y][x], src[y * sw + x + dx] if 0 <= x + dx < sw else 0
             if c < 16:
-                assert a == 0, f"{label}: ink on the pill's edge"
+                assert a < INK_MIN, f"{label}: ink on the pill's edge"
                 nib.append(min(4, int(round(c * 5 / 16))))
             elif a:
                 nib.append(5 + max(0, min(10, int(round(a * 10 / 255)))))

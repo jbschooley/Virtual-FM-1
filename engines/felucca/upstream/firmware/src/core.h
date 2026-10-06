@@ -3,7 +3,7 @@
 /* FELUCCA core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
- * engine or the SAMPLE engine's PERC set (General MIDI map) on any part.
+ * engine (General MIDI map) on any part; the SAMPLE engine's PERC set is retired (drum_from_perc).
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
@@ -112,6 +112,26 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
     e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
     e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
     e[7] = 0;
+    return 1;
+}
+
+/* SAMPLE SET 4 was PERC, the GM-mapped drum kit (tools/gen_samples.py); retired after 1.0.2: its index stays
+ * (SET / GRAIN SRC 4 is an alias of PIANO, USR1..3 keep 5..7). A sound that selected it is the DRUM engine with
+ * its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns still play as drums): its E
+ * values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays. 1 = it was one (its engine is
+ * ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c up_migrate), factory preset 4 and
+ * favourites (ui.c, settings_persist.c). Idempotent */
+#define ENGI_SAMPLE 4u
+#define SMP_SET_PERC 4u
+#define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
+static int drum_from_perc(uint32_t engine, int16_t *e)
+{
+    static const int16_t KIT[8] = DRUM_KIT_E;
+    uint32_t i;
+    if (engine != ENGI_SAMPLE || e[0] != (int16_t)SMP_SET_PERC)
+        return 0;
+    for (i = 0; i < 8u; i++)
+        e[i] = KIT[i];
     return 1;
 }
 

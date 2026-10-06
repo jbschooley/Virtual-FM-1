@@ -26,6 +26,15 @@ static void led_put(uint8_t *nl, uint32_t id, int on)
         nl[q >> 3] |= (uint8_t)(1u << (q & 7u));
 }
 
+/* PLAY's second, green LED: not in the key matrix (no key there), found on the hardware at column 8, row PA9 (bit 1) */
+#define LED_PLAY_GREEN ((8u << 3) | 1u)
+static void led_clear(uint8_t *nl, uint32_t id)
+{
+    uint8_t q = led_pos[id];
+    if (q != 0xFF)
+        nl[q >> 3] &= (uint8_t)~(1u << (q & 7u));
+}
+
 static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_EDIT, B_GLO, B_SAVE,
                                            B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
 
@@ -68,6 +77,18 @@ static uint32_t grid_leds(void)
     return m;
 }
 
+/* the DRUM grid's keys that do something, bit k = key k (they glow with the idle LEDs, ui_leds): the page's steps
+ * within LEN, the lane keys, ACC, the page keys while there is more than one page */
+static uint32_t grid_glow(void)
+{
+    uint32_t k, m = 0, len = (uint32_t)TSEL->p[P_SLEN];
+    for (k = 0; k < 27u; k++) {
+        uint32_t p = key_place(k);
+        m |= (uint32_t)(!key_black(k) ? ui.bank * 16u + p < len : p < NLANE || p == GK_ACC || len > 16u) << k;
+    }
+    return m;
+}
+
 /* an ARP playing on any part flashes the ARP button on the beat, the bar's first beat longer: 1 lit, 0 dark,
  * 2 no ARP playing */
 static uint32_t arp_led(void)
@@ -78,11 +99,70 @@ static uint32_t arp_led(void)
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
 }
 
+/* the keys of the notes the selected track's sequencer and ARP sound now (#38), bit k = key k: where the keys
+ * play that note (kb_map: the octave, TRN, QNT, an engine's own map), the lowest key that gives it (QNT SNAP
+ * rounds the keys above down onto it); a note no key plays is not shown. A snapshot of the ISR's seq_notes /
+ * arp_note: no state of its own, nothing to do while nothing sounds */
+static uint32_t play_leds(void)
+{
+    const track_t *t = TSEL;
+    uint8_t s[4 + NLANE + 1];
+    uint32_t n = t->seq_n < 4u + NLANE ? t->seq_n : 4u + NLANE, i, k, note, used = 0, m = 0, hit;
+    for (i = 0; i < n; i++)
+        s[i] = t->seq_notes[i];
+    if (t->arp_note)
+        s[n++] = t->arp_note;
+    for (k = 0; n && k < 27u; k++) {
+        note = kb_map(t, k);
+        for (i = 0, hit = 0; i < n; i++)
+            if (s[i] == note && !((used >> i) & 1u)) {
+                used |= 1u << i;
+                hit = 1;
+            }
+        m |= hit << k;
+    }
+    return m;
+}
+
+/* 1: the keys show a map of their own (NAME, a layer's map: SCL's scale, FX; the DRUM grid, SLICES), lit or
+ * dark; 0: the keys held and the notes playing, over the idle glow */
+static int keys_own(void)
+{
+    return (name_on() && !ui.menu) || ui.layer || grid_on()
+#if FELUCCA_SLICE
+           || (!ui.menu && !name_on() && slice_page_on())
+#endif
+        ;
+}
+
+/* the key LEDs, bit k = key k: NAME's keys, the layer's map, the DRUM grid, else the keys held and the notes
+ * the selected track's sequencer and ARP play (and on SLICES the keys of the selected slice) */
+static uint32_t key_leds(void)
+{
+    uint32_t c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
+                 (fm1_in.notes & ~kb_layer) | play_leds();
+#if FELUCCA_SLICE
+    if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
+        c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
+#endif
+    return c;
+}
+
+/* The LEDs: lit = active (the page's family, PLAY / REC running, the keys held or playing, a map's keys), the
+ * blinking ones blink (the layer's button, the ARP beat, OCT+), every other button and key glows dim (#35: the
+ * buttons of the black FM-1 can be found in the dark; hal/fm1_input.h fm1_led_dim, a short pulse each frame).
+ * MENU > LEDS: DIM HI (default) that glow, DIM LO a darker one (fm1_led_dim_level), OFF no glow (as 1.0); INV
+ * turns it around, as the stock firmware: the idle ones fully lit, the active ones dark, no glow (a blink: lit /
+ * dark). The keys' own maps (keys_own) stay lit or dark in every mode: their dark keys read as dark; only the
+ * DRUM grid's keys that do something (grid_glow) glow under it, so STEP on a DRUM track is never a dark
+ * keyboard (the steps of an empty pattern). Each picture is built off-line and copied one byte per column, the
+ * glow first: an LED going from lit to dim never has a dark frame */
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0};
-    uint32_t k, c;
-    uint32_t fam = cur_fam();
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, own[FM1_NCOL] = {0}, og[FM1_NCOL] = {0};
+    uint32_t k, c, g;
+    uint32_t fam = cur_fam(), mode = settings_leds;
+    int keys_map = keys_own();
     static uint8_t ready;
     if (!ready) {
         led_pos_init();
@@ -92,32 +172,65 @@ static void ui_leds(void)
         led_put(nl, panel.btn[FAM_BTN[fam]], 1);
     if ((k = arp_led()) != 2u && (!ui.layer || layer_btn() != B_ARP))
         led_put(nl, panel.btn[B_ARP], FAM_BTN[fam] == B_ARP ? !k : (int)k);   /* (on ARP's page: dark flashes) */
+    if (!ui.layer && (perf_latched || perf_k[0] || perf_k[1] || perf_k[2] || perf_k[3]))
+        led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button blinks while its map is up */
         led_put(nl, panel.btn[layer_btn()], ((fm1_ms / 250u) & 1u) == 0u);
-    led_put(nl, panel.btn[B_PLAY], song.playing != 0u); /* steady transport state, independent of audio block rate */
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
-    c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
-        fm1_in.notes & ~kb_layer;                       /* NAME's keys, the map, the grid, the keys held */
-#if FELUCCA_SLICE
-    if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
-        c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
-#endif
-    for (k = 0; k < 27u; k++)
-        led_put(nl, 14u + k, (int)((c >> k) & 1u));
+    c = key_leds();
+    g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
+    for (k = 0; k < 27u; k++) {
+        led_put(keys_map ? own : nl, 14u + k, (int)((c >> k) & 1u));
+        led_put(keys_map ? og : nd, 14u + k, !keys_map || ((g >> k) & 1u));
+    }
+    for (k = 0; k < NB; k++)
+        led_put(nd, panel.btn[k], 1);
+    if (song.playing)                                   /* playing: PLAY's green, its own LED dark in every mode */
+        led_clear(nd, panel.btn[B_PLAY]);
+    for (c = 0; c < FM1_NCOL; c++) {
+        if (mode == LEDS_INV)                           /* INV: the active ones dark, the rest lit */
+            nl[c] = (uint8_t)(nd[c] & ~nl[c]);
+        nd[c] = mode == LEDS_DIM || mode == LEDS_DIM_LO ? (uint8_t)(nd[c] | og[c]) : 0u;   /* OFF, INV: no glow */
+        nl[c] |= own[c];
+    }
+    if (song.playing)
+        nl[LED_PLAY_GREEN >> 3] |= (uint8_t)(1u << (LED_PLAY_GREEN & 7u));
+    fm1_led_dim_level(mode == LEDS_DIM_LO);
+    for (c = 0; c < FM1_NCOL; c++)
+        fm1_led_dim[c] = nd[c];
     for (c = 0; c < FM1_NCOL; c++)
         fm1_led[c] = nl[c];
 }
 
 /* ---------------------------------------------------------- input --- */
+/* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
+ * detent count. MENU > KNOB ACCEL ON (#52, OFF by default) multiplies a fast turn of a wide value (range > 32, not a
+ * list of names) by 2..4. The main loop reads the knobs many times a frame (main.c), so a read holds one detent
+ * as a rule: the speed is the time per detent, ACC_RATE / ms -> about 2 detents per 3 UI frames (25 ms each) x2,
+ * 16 ms x3, 12 ms or less x4. Only the longer of this read's and the previous read's time counts, and only while the
+ * turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick
+ * detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
+ * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
+#define ACC_GAP 40u
+#define ACC_RATE 50u
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
-    /* Predictable hardware response: each decoded detent is one value step.
-     * Fast turns retain their full signed detent count without time acceleration. */
-    (void)role; (void)range;
-    return s;
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, pi = st >> 25, a, i, m = 1;
+    if (!(ui_prefs & PREF_ACCEL) || range <= 32 || !s)
+        return s;
+    a = (uint32_t)(s < 0 ? -s : s);
+    i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
+    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP)
+        i = 127u;                                       /* a new turn, or reversed */
+    else if (pi < ACC_GAP) {
+        m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
+        m = m < 1u ? 1u : m > 4u ? 4u : m;
+    }
+    ui.enc_t[role] = now | up << 24 | (i ? i : 1u) << 25;
+    return s * (int32_t)m;
 }
 
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
@@ -363,7 +476,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
-    v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
+    v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
 }
@@ -537,6 +650,7 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 static void layer_masks(void);
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
+static int layer_knobs_quiet(void);
 static uint32_t layer_gesture(uint32_t now, uint32_t combo);
 static void layer_show(void);
 static void layer_tap(uint32_t l);
@@ -599,20 +713,27 @@ static void ui_input(void)
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open());
-    uint32_t lay, combo = 0, lytap, lkeys;
-    int32_t s, ks[4] = {0, 0, 0, 0};
+    uint32_t lay, combo = 0, lytap, lkeys, glo;
+    int32_t s, sel = 0, ks[4] = {0, 0, 0, 0};
+    static uint32_t lock_ms;                            /* BPM LOCK: the last locked SELECT turn (fm1_ms | 1; 0 none) */
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !FELUCCA_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
             fm4_track(&trk[k]);
 #endif
+    perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
+    fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_arm(pressed, now);
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */
     lay = layer_held();
-    if (!layer_allowed())
+    glo = lay && ui.ly == LAYER_GLO;                    /* GLO held: SELECT is the tempo, BPM LOCK or not (#58) */
+    if (!layer_allowed()) {
         perf_kill = 1;                                  /* (effects off until their keys are let go) */
+        perf_latched = 0;                               /* (FX LATCH: the latched ones and the macros off) */
+        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+    }
     else if (!kb_layer)
         perf_kill = 0;
     {   /* a key pressed with the button: a combo (its edge, or the ISR already took it); then not the grid's or a step's */
@@ -638,6 +759,12 @@ static void ui_input(void)
                 combo = 1;
         panel_enc(EN_PRESET);                           /* (a stray turn would load another sound) */
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
+        if (glo && (sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the tempo, a combo (OCT- puts it back) */
+            combo = 1;
+    } else if (layer_knobs_quiet()) {                   /* a layer letting go: KNOB 1..4 are nobody's (#39) */
+        for (k = 0; k < 4u; k++)
+            if (panel_enc(EN_K1 + k) != 0)
+                combo = 1;                              /* (with the button let go this frame: no tap) */
     }
     lytap = layer_gesture(now, combo);
     layer_show();
@@ -833,9 +960,16 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT knob = global tempo */
-        song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-        ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
+    if ((s = sel ? sel : panel_enc(EN_SELECT)) != 0) {   /* SELECT knob = global tempo; */
+        if (glo || !(ui_prefs & PREF_BPM_LOCK)) {
+            song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
+            ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
+        } else {                                        /* MENU > BPM LOCK ON (#58): only with GLO held (and on GLO >
+                                                         * GLOBAL, GLO's F4 TAP); a turn burst says so once */
+            if (!lock_ms || fm1_ms - lock_ms > 1000u)
+                ui_message("BPM LOCKED");
+            lock_ms = fm1_ms | 1u;
+        }
     }
     for (k = 0; k < 4u; k++) {
         const page_t *pg = cur_page();
@@ -851,7 +985,7 @@ static void ui_input(void)
         if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);
-            *vp = (int16_t)enum_step(d, *vp, clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max));
+            *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
             motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
         } else {
             edit_param(k, s);
@@ -870,8 +1004,11 @@ static void setup_title(void)
         const char *t = "HARDWARE CALIBRATION";
         int32_t x = (240 - (16 + 6 + text_w(&AF_M, t))) / 2;
         cv_begin(240, 24, T_BG);
-        cv_icon_on(x, 4, 16, ICON_X_DOCTOR, T_THEME, T_BG);
-        cv_text(x + 22, 3, &AF_M, t, T_TEXT);
+        GFX_HOOK_ALIGN(0, 0, 240, 0, AL_H | AL_N(2), "calibration title centred");
+        GFX_HOOK_ALIGN(0, HEAD_MY + AF_M_CAP_Y, 0, HEAD_MY + AF_M_CAP_Y + AF_M_CAP_H, AL_V | AL_PASS,
+                       "header icon on its title's line");
+        cv_icon_mid(x, 12, 16, ICON_X_DOCTOR, T_THEME, T_BG);
+        cv_text(x + 22, HEAD_MY, &AF_M, t, T_TEXT);
         cv_blit(0, 5);
     }
     draw_text_box(0, 32, 240, &AF_S, "TEACH EACH BUTTON AND KNOB", T_MID, 1);

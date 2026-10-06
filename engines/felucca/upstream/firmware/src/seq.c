@@ -63,22 +63,28 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
+/* note n moved down onto the track's scale (ROOT, SCALE): QNT SNAP's keys and QNT SEQ's sequenced notes */
+static int32_t scale_snap(const track_t *t, int32_t n)
+{
+    uint32_t mask = scale_mask(t), guard = 12;
+    while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
+        n--;
+    return n;
+}
+
+enum { QN_OFF, QN_SNAP, QN_WHITE, QN_SEQ };      /* P_QUANT */
+
 static uint32_t kb_map(const track_t *t, uint32_t k)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];   /* (the engine it switches to) */
     int32_t n;
-    if (e->keys && (n = e->keys(t, k)) >= 0)           /* the engine's own key map (GM kit, slices) */
+    if (e->keys && (n = e->keys(t, k)) >= 0)           /* the engine's own key map (DRUM's GM map, slices) */
         return (uint32_t)n;
     n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == 1) {                    /* SNAP: every key, rounded down to the scale */
-        uint32_t mask = scale_mask(t), guard = 12;
-        n += 12 * song.octave + t->p[P_TRANS];
-        while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
-            n--;
-        return (uint32_t)clamp(n, 0, 127);
-    }
-    if (t->p[P_QUANT] == 2) {                    /* WHITE: white keys walk the scale, black keys are silent */
+    if (t->p[P_QUANT] == QN_SNAP || t->p[P_QUANT] == QN_SEQ)   /* SNAP (and SEQ): every key, rounded down */
+        return (uint32_t)clamp(scale_snap(t, n + 12 * song.octave + t->p[P_TRANS]), 0, 127);
+    if (t->p[P_QUANT] == QN_WHITE) {                    /* WHITE: white keys walk the scale, black keys are silent */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], oct;
         if (degree < 0)
@@ -540,6 +546,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint32_t next_tie = seq_steps(t)[(t->seq_idx + 1u) % len].time == ST_TIE;
     uint8_t nn[4 + NLANE], vv[4 + NLANE];           /* the notes it plays: its notes, then its hits */
     uint32_t m = 0, sk = 0;
+    /* QNT SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
+     * or another engine that maps the keys itself. seq_notes keeps the notes that sound: their note-offs match */
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    uint32_t qseq = t->p[P_QUANT] == QN_SEQ && !(e->keys && e->keys(t, 0) >= 0);
     if (step_chance(s) < 100u && rng() % 100u >= step_chance(s)) {
         seq_release(t);
         return;
@@ -555,10 +565,19 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         seq_release(t);
         return;
     }
-    for (i = 0; i < s->n && i < 4u; i++, m++) {
-        nn[m] = s->note[i];
+    for (i = 0; i < s->n && i < 4u; i++) {
+        uint32_t x = s->note[i];
+        if (qseq) {                                 /* QNT SEQ: onto the scale now; two notes snapping */
+            x = (uint32_t)clamp(scale_snap(t, (int32_t)x), 0, 127);   /* together play once */
+            for (j = 0; j < m && nn[j] != x; j++)
+                ;
+            if (j < m)
+                continue;
+        }
+        nn[m] = (uint8_t)x;
         vv[m] = (uint8_t)vel;
         sk |= ((skip >> i) & 1u) << m;
+        m++;
     }
     for (i = 0; i < NLANE; i++)
         if ((s->hit >> i) & 1u) {

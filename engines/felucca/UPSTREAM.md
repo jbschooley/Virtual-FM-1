@@ -2,7 +2,7 @@
 
 `upstream/` is part of [Felucca](https://github.com/hugelton/Felucca), Leo
 Kuroshita's firmware for the M-VAVE FM-1 (Hügelton Instruments), at
-**v1.0** (commit `727f272015da26eb2d0291bd652eba28ff57cb37`, 2026-10-05).
+**v1.0.2** (commit `db70550344f36cb10657d1652f567b5932ac4b2b`, 2026-10-06).
 It is GPL-3.0-only; see `upstream/LICENSE` and `upstream/LICENSING.md`. The
 author has agreed to its use in Virtual FM-1 under the GPL
 ([issue #1](https://github.com/hugelton/Felucca/issues/1)).
@@ -12,7 +12,9 @@ Copied unchanged:
 - `firmware/src/` and `firmware/hal/`: the DSP, sequencer and the rest of the
   firmware (the plugin builds only what Felucca's own host build builds)
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: Felucca's
-  regression (87 golden renders), run by ctest as `felucca_regress`
+  regression (87 golden renders), run by ctest as `felucca_regress`. From 1.0 to 1.0.2
+  three changed, all where SAMPLE's PERC set played (retired in 1.0.2: such a sound is
+  the DRUM engine's kit now)
 - `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`,
   `gen_fm6_patches.py`, `gen_aa_font.py`, `gen_aa_icons.py`,
   `gen_aa_keycaps.py`, `gen_ui_palettes.py`, `aa_raster.py`: the generators
@@ -65,6 +67,8 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
   "PANEL: ON THE FM-1": the plugin's buttons go by label.
 - The editor protocol answers SysEx from the host, but its replies and
   pushes are not sent back to the host (they go to the plugin's own sync).
+- The LEDs are not shown: `fm1_led` and, since 1.0.2, `fm1_led_dim` and
+  `fm1_led_dim_level` (the idle glow) are stubs, as in Felucca's `tests/ui_test.c`.
 - Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and MIDI clock in (`G_CLOCK`
   USB or TRS: the plugin gives the host's tempo instead).
 
