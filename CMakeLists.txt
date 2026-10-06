@@ -207,6 +207,13 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(felucca_regress PRIVATE -w -O2)
         target_link_libraries(felucca_regress PRIVATE m)
         add_test(NAME felucca_regress COMMAND felucca_regress ${CMAKE_SOURCE_DIR}/engines/felucca/upstream/tests/golden.txt no-cpu-budget)
+        # Sloop's (engines/sloop: Sloop 2.3, a fork of Felucca): 97 golden renders. Its CPU
+        # budget is measured per host, so it is given no baseline (a missing file: notes only)
+        add_executable(sloop_regress engines/sloop/upstream/tests/regress.c)
+        target_include_directories(sloop_regress PRIVATE engines/sloop/generated engines/sloop/upstream/firmware/src)
+        target_compile_options(sloop_regress PRIVATE -w -O2)
+        target_link_libraries(sloop_regress PRIVATE m)
+        add_test(NAME sloop_regress COMMAND sloop_regress ${CMAKE_SOURCE_DIR}/engines/sloop/upstream/tests/golden.txt no-cpu-budget)
     endif()
     # the copies: independent, and playing
     add_executable(felucca_test tests/felucca_test.cpp)

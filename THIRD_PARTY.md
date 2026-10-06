@@ -20,6 +20,12 @@
   generated tables are rasterised from the Inter Tight font (SIL OFL 1.1, The
   Inter Project Authors) and the Fukiai icon font (MIT, Hügelton
   Instruments). See `engines/felucca/UPSTREAM.md`.
+- **SLOOP** (`engines/sloop/upstream`, generated tables, samples, drum kits,
+  font and logo in `engines/sloop/generated`): isod89's FM-1 firmware, v2.3, a
+  fork of Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic),
+  Hügelton Instruments, and its contributors. Its samples are CC0 (Versilian
+  Studios VSCO-2 CE and VCSL, Sonic Pi), its font Terminus (SIL OFL 1.1); see
+  `engines/sloop/UPSTREAM.md`, which also says how its icon atlas is taken.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.
