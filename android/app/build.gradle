@@ -1,0 +1,63 @@
+// The Android app: the plugin's standalone, built by the repository's own CMakeLists (its Android
+// branch) as libjuce_jni.so, with JUCE's Java side (its Application and Activity classes).
+plugins {
+    id 'com.android.application'
+}
+
+def juce = '../../third_party/JUCE/modules'
+def fm1Version = file('../../CMakeLists.txt').text.find(/project\(VirtualFM1 VERSION ([0-9.]+)/) { it[1] }
+
+android {
+    namespace = 'com.bockage.virtualfm1'
+    compileSdk = 35
+    ndkVersion = '28.1.13356709'
+
+    defaultConfig {
+        applicationId = 'com.bockage.virtualfm1'
+        minSdk = 24
+        targetSdk = 35
+        versionName = fm1Version
+        // a release's number: 0.4.1 -> 401 (CI may raise it with -PversionCode)
+        versionCode = (project.findProperty('versionCode') ?: fm1Version.tokenize('.').inject(0) { a, b -> a * 100 + b.toInteger() }) as int
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake {
+                targets 'VirtualFM1_Standalone'
+                arguments '-DANDROID_STL=c++_static',
+                          '-DANDROID_CPP_FEATURES=exceptions rtti',
+                          '-DANDROID_WEAK_API_DEFS=ON',
+                          '-DFM1_BUILD_FELUCCA=' + (project.findProperty('felucca') ?: 'OFF'),
+                          '-DFM1_BUILD_TOOLS=OFF',
+                          '-DFM1_COPY_PLUGIN=OFF'
+                cFlags '-fsigned-char'
+                cppFlags '-fsigned-char'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file('../../CMakeLists.txt')
+            version = '3.31.0'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.java.srcDirs += [
+            "$juce/juce_core/native/javacore/init",
+            "$juce/juce_core/native/javacore/app",
+            "$juce/juce_gui_basics/native/javaopt/app",
+        ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+    }
+}

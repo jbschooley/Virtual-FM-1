@@ -253,6 +253,8 @@ if(FM1_BUILD_PLUGIN)
     set(FM1_FORMATS VST3 Standalone)
     if(IOS)
         set(FM1_FORMATS Standalone AUv3)
+    elseif(ANDROID)   # the app only (built by android/'s Gradle project)
+        set(FM1_FORMATS Standalone)
     elseif(FM1_BUILD_AU AND APPLE)
         list(APPEND FM1_FORMATS AU)
     endif()
@@ -330,6 +332,9 @@ if(FM1_BUILD_PLUGIN)
     if(IOS)
         target_sources(VirtualFM1 PRIVATE plugin/SafeArea_ios.mm)
     endif()
+    if(ANDROID)   # JUCE's Java side loads the app as libjuce_jni.so
+        set_target_properties(VirtualFM1_Standalone PROPERTIES OUTPUT_NAME juce_jni)
+    endif()
 
     target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui engines/fm1_fx ${FM1_DEVICE_INCLUDES})
 
@@ -357,7 +362,7 @@ if(FM1_BUILD_PLUGIN)
         target_link_libraries(VirtualFM1 PRIVATE juce::juce_recommended_lto_flags)
     endif()
 
-    if(NOT IOS)
+    if(NOT IOS AND NOT ANDROID)
     # The JUCE modules the test programs use, compiled once into one library they
     # all link, rather than once per program. The tests share these JUCE settings.
     add_library(fm1_test_juce STATIC)
