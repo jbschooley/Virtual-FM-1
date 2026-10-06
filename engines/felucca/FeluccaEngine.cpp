@@ -447,6 +447,20 @@ unsigned FeluccaEngine::armed() const {
     return core_->armed();
 }
 
+unsigned FeluccaEngine::scaleMask(int track) const {
+    if (!core_ || track < 0) return 0xFFFu;
+    auto g = bind();
+    return core_->scale_mask(uint32_t(track));
+}
+
+std::vector<std::string> FeluccaEngine::laneNames(int track) const {
+    std::vector<std::string> out;
+    if (!core_ || track < 0) return out;
+    auto g = bind();   // (Felucca's names follow the track's KIT)
+    for (uint32_t i = 0; i < core_->nlanes(uint32_t(track)); ++i) out.push_back(core_->lane_name(uint32_t(track), i));
+    return out;
+}
+
 int FeluccaEngine::selected() const {
     if (!core_) return 0;
     auto g = bind();

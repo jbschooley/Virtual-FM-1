@@ -563,6 +563,11 @@ int32_t FEL(step_of)(uint32_t track)
     return (int32_t)(trk[track].seq_abs % trk_len(&trk[track]));
 }
 uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit per track */
+/* the track's scale as 12 bits from its ROOT (seq.c); the drum track's 16 sounds (drums.c), none
+ * on a synth part */
+uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
+uint32_t FEL(nlanes)(uint32_t track) { return track == TRK_DRUM ? DRUM_LANES : 0u; }
+const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_DRUM && lane < DRUM_LANES ? LANE_NAME[lane] : ""; }
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor.c v6): 0 the
  * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks. The user

@@ -607,6 +607,14 @@ int32_t FEL(step_of)(uint32_t track)
     return (int32_t)(trk[track].seq_idx % len);
 }
 uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit per track */
+/* the track's scale as 12 bits from its ROOT (seq.c), its drum lanes (8 on any track; their names
+ * as its KIT plays them when its engine is DRUM, else the DRUM KIT's) */
+uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
+uint32_t FEL(nlanes)(uint32_t track) { (void)track; return NLANE; }
+const char *FEL(lane_name)(uint32_t track, uint32_t lane)
+{
+    return track < NTRK && lane < NLANE ? drum_lane_name(&trk[track], lane) : "";
+}
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor_backup.c):
  * 0 the music now (a FUN8 project), 1 the settings, 2..5 the project slots, 6 and 7 the user

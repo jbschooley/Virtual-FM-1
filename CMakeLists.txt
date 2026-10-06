@@ -315,6 +315,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/BankModel.cpp
         plugin/LibraryStore.cpp
         plugin/FeluccaPanel.cpp
+        plugin/FeluccaSeqPanel.cpp
         plugin/FeluccaParams.cpp
         plugin/FeluccaDevice.cpp
         plugin/dexed_ui/DXLookNFeel.cpp

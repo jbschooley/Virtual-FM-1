@@ -57,6 +57,7 @@
 #if FM1_FELUCCA
  #include "FeluccaDevice.h"
  #include "FeluccaPanel.h"
+ #include "FeluccaSeqPanel.h"
 #endif
 
 static int g_fail = 0, g_pass = 0;
@@ -637,6 +638,57 @@ static int checks() {
                     }
                     m.stop();
                 }
+            }
+        }
+        // the Sequencer tab: its edits are the device's (both firmwares)
+        for (auto id : {"felucca", "sloop"}) {
+            const juce::String who = juce::String(id) + " tab: ";
+            FM1Processor tp;
+            tp.setFirmware(id);
+            auto f = tp.felucca();
+            CHECK(f != nullptr, who + "an engine");
+            if (!f) continue;
+            FeluccaSeqPage page(tp);
+            page.setSize(1100, 600);
+            felucca::VirtualEndpoint e(f);
+            page.selectTrack(1);
+            CHECK(f->selected() == 1, who + "a track chosen is the device's selected part");
+            page.toggleNote(4, 62);
+            page.toggleNote(4, 65);
+            auto s4 = felucca::readStep(e, 1, 4);
+            CHECK(s4 && s4->time == felucca::kNote && s4->n == 2 && s4->note[0] == 62 && s4->note[1] == 65, who + "two notes put on step 5");
+            page.toggleNote(4, 62);
+            s4 = felucca::readStep(e, 1, 4);
+            CHECK(s4 && s4->n == 1 && s4->note[0] == 65, who + "and one taken off");
+            page.selectStep(4);
+            page.setStepTime(felucca::kTie);
+            page.setStepFlag(felucca::kSlide, true);
+            page.setStepVelocity(90);
+            s4 = felucca::readStep(e, 1, 4);
+            CHECK(s4 && s4->time == felucca::kTie && (s4->flags & felucca::kSlide) && s4->vel == 90, who + "tie, slide and velocity");
+            page.setPatternParam(felucca::kLen, 32);
+            page.setPatternParam(felucca::kSwing, 25);
+            CHECK(f->param(1, felucca::kLen) == 32 && f->param(1, felucca::kSwing) == 25, who + "LEN and swing");
+            if (juce::String(id) == "felucca") {
+                page.selectStep(6);
+                page.setStepChance(30);
+                CHECK(felucca::readStep(e, 1, 6)->chance == 30, who + "chance");
+                page.toggleLane(8, 2, false);
+                page.toggleLane(8, 2, true);
+                auto s8 = felucca::readStep(e, 1, 8);
+                CHECK(s8 && (s8->hit & 4) && (s8->acc & 4), who + "a drum lane hit, then accented");
+            } else {
+                page.toggleNote(10, 60);
+                page.selectStep(10);
+                page.setNoteLevel(0, 2);
+                page.setNoteRatchet(0, 3);
+                auto s10 = felucca::readStep(e, 1, 10);
+                CHECK(s10 && (s10->lvl & 3) == 2 && (s10->rat & 3) == 3, who + "a note's level and ratchet");
+                page.selectTrack(3);
+                CHECK(page.drumsView(), who + "the drum track shows lanes");
+                page.toggleLane(5, 12, false);
+                auto d5 = felucca::readDrumStep(e, 5);
+                CHECK(d5 && d5->has(12), who + "a drum hit on lane 13 (RIDE)");
             }
         }
         // the device file: SLOOP's own backup format, in the library's SLOOP folder
@@ -1376,7 +1428,8 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 }
             };
             findTabs(ed.get());
-            CHECK(fel != nullptr && fel->getNumTabs() == 2 && fel->getTabNames()[1] == "Device", "the Felucca editor has its Library and Device tabs");
+            CHECK(fel != nullptr && fel->getNumTabs() == 3 && fel->getTabNames()[1] == "Device" && fel->getTabNames()[2] == "Sequencer",
+                  "the Felucca editor has its Library, Device and Sequencer tabs");
             CHECK(felPages != nullptr, "Felucca's library has its Sound and Sync pages");
             std::function<void(juce::Component*)> draw = [&](juce::Component* c) {
                 for (auto* ch : c->getChildren()) {
@@ -1391,6 +1444,44 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 fel->setCurrentTabIndex(1);
                 draw(ed.get());
                 save("felucca-device");
+                {   // the Sequencer tab: a few notes, a chord, a tie, an accent; then the drum lanes
+                    FeluccaSeqPage* seqPage = nullptr;
+                    std::function<void(juce::Component*)> findSeq = [&](juce::Component* c) {
+                        for (auto* ch : c->getChildren()) { if (auto* s = dynamic_cast<FeluccaSeqPage*>(ch)) seqPage = s; findSeq(ch); }
+                    };
+                    fel->setCurrentTabIndex(2);
+                    findSeq(ed.get());
+                    CHECK(seqPage != nullptr, "the Sequencer tab");
+                    if (seqPage) {
+                        for (int i : {0, 4, 8, 12}) seqPage->toggleNote(i, 60 + (i % 8));
+                        seqPage->toggleNote(2, 67); seqPage->toggleNote(2, 71); seqPage->toggleNote(2, 74);
+                        seqPage->selectStep(13); seqPage->setStepTime(felucca::kTie);
+                        seqPage->selectStep(8); seqPage->setStepFlag(felucca::kAccent, true);
+                        seqPage->selectStep(4); seqPage->setStepChance(40);
+                        seqPage->selectStep(2);
+                        save("felucca-sequencer");
+                        if (auto fe = p.felucca()) {   // a song chain and a motion event, then their views
+                            std::vector<uint8_t> music;
+                            fe->object(0, music);
+                            fe->putObject(2, music);
+                            fe->putObject(3, music);
+                            p.feluccaEdit(felucca::chainWrite({{0, 2}, {1, 1}, {0, 4}}));
+                            p.feluccaEdit(felucca::motionSet(0, 3, 9, 80));
+                            p.feluccaEdit(felucca::motionSet(0, 7, 1, 20));
+                            p.feluccaEdit(felucca::motionOn(0, true));
+                        }
+                        seqPage->showView(1);
+                        save("felucca-sequencer-song");
+                        seqPage->showView(2);
+                        save("felucca-sequencer-motion");
+                        seqPage->showView(0);
+                        const int was = ed->getWidth(), hgt = ed->getHeight();
+                        ed->setSize(402, 780);
+                        save("phone-felucca-sequencer");
+                        ed->setSize(was, hgt);
+                    }
+                    fel->setCurrentTabIndex(1);
+                }
                 {   // on a phone
                     const auto desk = ed->getBounds();
                     ed->setSize(402, 780);
@@ -1447,6 +1538,31 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 };
                 draw(ed.get());
                 save("sloop-device");
+                {   // its Sequencer tab: part 1's notes with levels and ratchets, then the drum track
+                    FeluccaSeqPage* seqPage = nullptr;
+                    std::function<void(juce::Component*)> findSeq = [&](juce::Component* c) {
+                        for (auto* ch : c->getChildren()) { if (auto* s = dynamic_cast<FeluccaSeqPage*>(ch)) seqPage = s; findSeq(ch); }
+                    };
+                    slp->setCurrentTabIndex(2);
+                    findSeq(ed.get());
+                    CHECK(seqPage != nullptr, "SLOOP's Sequencer tab");
+                    if (seqPage) {
+                        seqPage->selectTrack(0);
+                        for (int i : {0, 3, 6, 8, 10, 14}) seqPage->toggleNote(i, 60 + (i % 7));
+                        seqPage->selectStep(3); seqPage->setNoteLevel(0, 1);
+                        seqPage->selectStep(8); seqPage->setNoteLevel(0, 3); seqPage->setNoteRatchet(0, 2);
+                        save("sloop-sequencer");
+                        seqPage->selectTrack(3);
+                        for (int i = 0; i < 16; i += 4) seqPage->toggleLane(i, 0, false);
+                        for (int i = 2; i < 16; i += 4) seqPage->toggleLane(i, 2, false);
+                        for (int i = 0; i < 16; i += 2) seqPage->toggleLane(i, 4, false);
+                        save("sloop-sequencer-drums");
+                        const int was = ed->getWidth(), hgt = ed->getHeight();
+                        ed->setSize(402, 780);
+                        save("phone-sloop-sequencer");
+                        ed->setSize(was, hgt);
+                    }
+                }
                 slp->setCurrentTabIndex(0);
             }
         }

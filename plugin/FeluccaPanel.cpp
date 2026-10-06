@@ -886,7 +886,7 @@ void FeluccaLibraryList::resized() {
 
 // ---- the editor: Library and Device tabs ---------------------------------------------------------
 
-FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), sound_(p), sync_(p), list_(p), device_(p) {
+FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), sound_(p), sync_(p), list_(p), device_(p), seq_(p) {
     const auto bg = kBg;
     pages_.addTab("Sound", bg, &sound_, false);
     pages_.addTab("Sync", bg, &sync_, false);
@@ -905,6 +905,7 @@ FeluccaPanel::FeluccaPanel(FM1Processor& p) : proc_(p), sound_(p), sync_(p), lis
     sound_.onPartChanged = [this] { list_.updateButtons(); };
     tabs_.addTab("Library", bg, &library_, false);
     tabs_.addTab("Device", bg, &device_, false);
+    tabs_.addTab("Sequencer", bg, &seq_, false);
     tabs_.setComponentID("felucca tabs");
     addAndMakeVisible(tabs_);
 }

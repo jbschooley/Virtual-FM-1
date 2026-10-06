@@ -10,6 +10,8 @@
 
 #include "PluginProcessor.h"
 
+#include "FeluccaSeqPanel.h"
+
 #if FM1_FELUCCA
 
 // Felucca's own front panel: its screen, buttons, knobs and keys, played as on the device.
@@ -157,7 +159,7 @@ public:
     static constexpr int kNarrow = 760;   // narrower (a phone): the list or the pages, one at a time
     explicit FeluccaPanel(FM1Processor&);
     void resized() override;
-    void refresh() { sound_.refresh(); list_.reload(); }   // after a project loads, say
+    void refresh() { sound_.refresh(); list_.reload(); seq_.refresh(); }   // after a project loads, say
     void setStatus(const juce::String& s) { sync_.setStatus(s); sound_.setStatus(s); }
 
 private:
@@ -173,6 +175,7 @@ private:
     juce::TextButton showList_{"Presets"}, showPages_{"Sound"};
     bool showingPages_ = false;
     FeluccaDeviceView device_;
+    FeluccaSeqPage seq_;
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
     void layoutLibrary();
 };

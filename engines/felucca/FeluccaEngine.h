@@ -83,6 +83,8 @@ public:
     bool playing() const;
     int stepOf(int track) const;               // the step it plays now (0-based), -1 while stopped
     unsigned armed() const;                    // live recording armed: a bit per track
+    unsigned scaleMask(int track) const;       // its scale, 12 bits from its ROOT (bit 0: the root)
+    std::vector<std::string> laneNames(int track) const;   // its drum lanes (Felucca: 8 on any track; SLOOP: the drum track's 16)
     // The device's stored objects, as Felucca's full backup carries them: 0 the music now
     // (a FUN8 project), 1 settings, 2..5 the project slots, 6 and 7 the user presets, 8 the
     // FM6 bank. get: false if there is no such object (an empty one gives no bytes); put:
