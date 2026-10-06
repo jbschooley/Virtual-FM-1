@@ -36,7 +36,8 @@ On an iPhone (the iOS app builds from source):
 - **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
-  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96; 0.93 and 0.94 too) or
+  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
+  an FM-1 yet; 0.93 and 0.94 too) or
   **[Felucca](https://github.com/hugelton/Felucca)** 1.0.2 (1.0 too). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
