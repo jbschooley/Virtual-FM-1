@@ -96,11 +96,12 @@ void FM1Editor::showFirmware() {
     for (size_t i = 0; i < choices.size(); ++i)
         if (&choices[i] == &f) firmware_.setSelectedItemIndex(int(i), juce::dontSendNotification);
     library_.setFirmware(f);
-    const bool isFelucca = juce::String(f.id) == "felucca";
+    const bool isFelucca = fm1::isFeluccaFamily(f.id);   // Felucca or SLOOP: the same panels
     const bool plays = proc_.emulates();
    #if FM1_FELUCCA
     if (isFelucca && plays) {
-        if (!felucca_) { felucca_ = std::make_unique<FeluccaPanel>(proc_); addAndMakeVisible(*felucca_); resized(); }
+        if (felucca_ && feluccaFor_ != f.id) felucca_.reset();   // (built for the other one)
+        if (!felucca_) { felucca_ = std::make_unique<FeluccaPanel>(proc_); feluccaFor_ = f.id; addAndMakeVisible(*felucca_); resized(); }
         else felucca_->refresh();
     } else felucca_.reset();
    #endif
@@ -109,10 +110,10 @@ void FM1Editor::showFirmware() {
     juce::String why;
     if (isFelucca) {
        #if FM1_FELUCCA
-        why = "Felucca could not start in this instance, so it is silent.\n"
-              "Choose another firmware and then Felucca again.";
+        why = juce::String(f.name) + " could not start in this instance, so it is silent.\n"
+              "Choose another firmware and then " + juce::String(f.name) + " again.";
        #else
-        why = "This build of the plugin does not include Felucca's engines (they need Clang).";
+        why = "This build of the plugin does not include Felucca's and SLOOP's engines (they need Clang).";
        #endif
     } else {
         why = juce::String(f.name) + " is not in the plugin yet. This instance is silent; choose another firmware above to play.";

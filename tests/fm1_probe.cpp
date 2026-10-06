@@ -154,6 +154,7 @@ int main(int argc, char** argv) {
    #if FM1_FELUCCA
     if (cmd == "felucca-send" && argc > 2) {   // writes the synth's flash: as the plugin's Send does
         struct Mine : felucca::Endpoint {
+            const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
             std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
             std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f->ask(q); }
             std::vector<fm1::Bytes> pushes() override { f->takeSysex(); return {}; }
@@ -205,6 +206,7 @@ int main(int argc, char** argv) {
     }
     if (cmd == "felucca-live" && argc > 2) {   // the synth's values, steps and selection change; no flash written
         struct Mine : felucca::Endpoint {
+            const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
             std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
             std::vector<fm1::Bytes> got;
             std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override {

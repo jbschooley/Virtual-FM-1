@@ -80,7 +80,7 @@ FM1Processor::FM1Processor()
     felText_->text = [this](int entry, float v) -> juce::String {
         auto f = felucca();
         const auto& e = felparams::entries()[size_t(entry)];
-        if (!f) return juce::String(v, 3);
+        if (!f || f->flavor() != FeluccaEngine::Flavor::Felucca) return juce::String(v, 3);   // (Felucca's parameters)
         auto d = e.track < 0 ? f->globalDesc(e.index) : f->paramDesc(e.track, e.index);
         if (d.max <= d.min) return {};
         const int value = d.min + int(std::lround(v * float(d.max - d.min)));
@@ -181,7 +181,7 @@ void FM1Processor::backgroundTick() {
         juce::String msg;
         {
             std::lock_guard<std::mutex> g(felDeviceLock_);
-            msg = felDevice_.tick(*f);
+            msg = deviceFor(*f).tick(*f);
         }
         if (msg.isNotEmpty()) status(msg);
     }
@@ -577,7 +577,8 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     // the release it was made for: a later plugin playing a newer one can say so
     v.setProperty("firmwareVersion", juce::String(fm1::currentVersion(firmwareId().toStdString()).label), nullptr);
    #if FM1_FELUCCA
-    if (auto fs = feluccaState(); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
+    for (auto flavor : {FeluccaEngine::Flavor::Felucca, FeluccaEngine::Flavor::Sloop})
+        if (auto fs = feluccaState(flavor); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
    #endif
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
@@ -730,10 +731,11 @@ void FM1Processor::setStateInformation(const void* data, int size) {
         const juce::String now = fm1::currentVersion(choice.id).label;
         if (made.isNotEmpty() && made != now)
             status("This project was made for " + juce::String(choice.name) + " " + made + "; the plugin plays " + now
-                   + (juce::String(choice.id) == "felucca" ? ", which reads its projects as the device does." : "."));
+                   + (fm1::isFeluccaFamily(choice.id) ? ", which reads its projects as the device does." : "."));
     }
    #if FM1_FELUCCA
-    setFeluccaState(v.getChildWithName("Felucca"));
+    setFeluccaState(v.getChildWithName("Felucca"), FeluccaEngine::Flavor::Felucca);
+    setFeluccaState(v.getChildWithName("Sloop"), FeluccaEngine::Flavor::Sloop);
     feluccaChanged();
    #endif
     // the ports it was connected to: the app connects to them again; a plugin only when asked
@@ -934,7 +936,7 @@ juce::String FM1Processor::firmwareId() const { return fm1::firmwareChoices()[si
 
 bool FM1Processor::emulates() const {
    #if FM1_FELUCCA
-    if (juce::String(fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id) == "felucca") return felucca_ != nullptr;
+    if (fm1::isFeluccaFamily(fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id)) return felucca_ != nullptr;
    #endif
     return fm1::firmwareChoices()[size_t(firmwareIndex_.load())].supported;
 }
@@ -1004,17 +1006,23 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 // Felucca's part of a project: the music now playing as Felucca saves it, a FUN8 project
 // (every part's sound, steps, FM6 patch, the song chain, the motion and the globals).
 // Felucca reads its own older formats, so a later version converts it as the device does.
-juce::ValueTree FM1Processor::feluccaState() const {
+static const char* stateName(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : "Felucca"; }
+static int flavorIndex(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : 0; }
+
+juce::ValueTree FM1Processor::feluccaState(FeluccaEngine::Flavor flavor) const {
     auto engine = felucca();
     std::lock_guard<std::mutex> g(felStateLock_);
-    if (!engine) return feluccaSaved_.isValid() ? feluccaSaved_.createCopy() : juce::ValueTree("Felucca");
-    juce::ValueTree t("Felucca");
+    if (!engine || engine->flavor() != flavor) {
+        const auto& saved = feluccaSaved_[flavorIndex(flavor)];
+        return saved.isValid() ? saved.createCopy() : juce::ValueTree(stateName(flavor));
+    }
+    juce::ValueTree t(stateName(flavor));
     std::vector<uint8_t> music;
     if (!engine->object(0, music) || music.empty()) return t;
     // music this Felucca could not read: the project's part as it came while nothing changed,
     // else beside the new music
     if (felOriginal_.isValid() && music == felBase_) return felOriginal_.createCopy();
-    t.setProperty("version", juce::String(engine->version()), nullptr);   // the Felucca it was saved with ("v1.0")
+    t.setProperty("version", juce::String(engine->version()), nullptr);   // the release it was saved with ("v1.0", "SLOOP 2.3")
     t.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
     const auto& unread = felOriginal_.isValid() ? felOriginal_ : felUnread_;
     if (unread.isValid()) {
@@ -1025,15 +1033,16 @@ juce::ValueTree FM1Processor::feluccaState() const {
     return t;
 }
 
-void FM1Processor::setFeluccaState(const juce::ValueTree& t) {
-    if (!t.isValid()) return;
+void FM1Processor::setFeluccaState(const juce::ValueTree& t, FeluccaEngine::Flavor flavor) {
     auto engine = felucca();
     {
         std::lock_guard<std::mutex> g(felStateLock_);
-        if (!engine) { feluccaSaved_ = t.createCopy(); return; }   // no copy free: kept for later, and saved
-        feluccaSaved_ = {};
+        auto& saved = feluccaSaved_[flavorIndex(flavor)];
+        // (a project without one: nothing kept from before for it either)
+        if (!engine || engine->flavor() != flavor) { saved = t.isValid() ? t.createCopy() : juce::ValueTree(); return; }   // kept for later, and saved
+        saved = {};
     }
-    applyFeluccaState(*engine, t);
+    if (t.isValid()) applyFeluccaState(*engine, t);
 }
 
 bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t, bool announce) {
@@ -1056,8 +1065,9 @@ bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t,
     }
     if (announce) {
         const juce::String from = t.getProperty("version").toString();
-        status("This project's Felucca music" + (from.isNotEmpty() ? " (saved with Felucca " + from + ")" : juce::String())
-               + " could not be read by the Felucca built in (" + juce::String(f.version()) + "): newer, or damaged. Felucca plays "
+        const juce::String name = felucca::dialectOf(f).name;
+        status("This project's " + name + " music" + (from.isNotEmpty() ? " (saved with " + from + ")" : juce::String())
+               + " could not be read by the " + name + " built in (" + juce::String(f.version()) + "): newer, or damaged. " + name + " plays "
                "its power-on music; the project keeps its own in the file, as it was.");
     }
     return false;
@@ -1065,71 +1075,78 @@ bool FM1Processor::applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t,
 
 // ---- syncing with an FM-1 running Felucca ----
 
+// (a synth running the firmware this instance is set to, Felucca or SLOOP)
 bool FM1Processor::feluccaSynth() const {
     auto id = session.lastIdentity();
-    return link.isOpen() && id && juce::String(fm1::firmwareIdFor(*id)) == "felucca" && feluccaSynthProblem().isEmpty();
+    return link.isOpen() && id && fm1::isFeluccaFamily(fm1::firmwareIdFor(*id)) && juce::String(fm1::firmwareIdFor(*id)) == firmwareId()
+           && feluccaSynthProblem().isEmpty();
 }
 
 juce::String FM1Processor::feluccaSynthProblem() const {
     auto id = session.lastIdentity();
-    if (!link.isOpen() || !id || juce::String(fm1::firmwareIdFor(*id)) != "felucca") return {};
+    if (!link.isOpen() || !id || !fm1::isFeluccaFamily(fm1::firmwareIdFor(*id)) || juce::String(fm1::firmwareIdFor(*id)) != firmwareId()) return {};
     const auto check = fm1::checkVersion(*id);   // a release too old to sync: why, and what to do
     return check.support == fm1::Support::Deprecated ? juce::String(check.text) : juce::String();
 }
 
 // The synth's own objects, kept in the library before anything is written to it.
-static juce::String saveSynthBackup(const felucca::Objects& o) {
-    auto f = LibraryStore::root().getChildFile("Felucca").getChildFile("Backups")
+static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Dialect& d) {
+    auto f = LibraryStore::root().getChildFile(d.name).getChildFile("Backups")
                  .getChildFile("FM-1 " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") + ".json");
     f.getParentDirectory().createDirectory();
-    return f.replaceWithText(felucca::backupJson(o, "FELUCCA (FM-1)"), false, false, "\n") ? f.getFullPathName() : juce::String();
+    return f.replaceWithText(felucca::backupJson(o, juce::String(d.name).toUpperCase() + " (FM-1)", d), false, false, "\n") ? f.getFullPathName() : juce::String();
 }
+
+// what a full Pull or Send moves, said in the firmware's terms
+static juce::String everything(const felucca::Dialect& d) { return d.fm6 ? "music, projects, user presets and FM6 bank" : "working project, projects A-D and user presets"; }
 
 bool FM1Processor::feluccaPull() {
     auto f = felucca();
     if (!f || !feluccaSynth()) return false;
-    return session.job("Reading everything from the FM-1 running Felucca...", [this, f](fm1::Port& p) {
-        felucca::LinkEndpoint synth(p.link);
+    const auto& d = felucca::dialectOf(*f);
+    return session.job("Reading everything from the FM-1 running " + juce::String(d.name) + "...", [this, f, &d](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link, d);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto objects = felucca::backup(synth, progress, err);
         if (!objects) return Fm1Session::JobResult{false, "Could not read the FM-1: " + err + "."};
-        const auto kept = saveSynthBackup(*objects);
+        const auto kept = saveSynthBackup(*objects, d);
         // the plugin's settings stay its own, as Send leaves the synth's (a newer Felucca's settings,
         // its LED mode from 1.0.1, would not be taken by the Felucca built in)
         objects->erase(1);
-        if (!felucca::putObjects(*f, *objects, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's Felucca refused it: " + err + "."};
+        if (!felucca::putObjects(*f, *objects, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's " + juce::String(d.name) + " refused it: " + err + "."};
         felResync_ = true;
         juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock()) feluccaChanged(); });
-        return Fm1Session::JobResult{true, "Pulled the FM-1's music, projects, user presets and FM6 bank." + (kept.isEmpty() ? juce::String() : " Its backup: " + kept)};
+        return Fm1Session::JobResult{true, "Pulled the FM-1's " + everything(d) + "." + (kept.isEmpty() ? juce::String() : " Its backup: " + kept)};
     });
 }
 
 bool FM1Processor::feluccaSend() {
     auto f = felucca();
     if (!f || !feluccaSynth()) return false;
-    return session.job("Backing up the FM-1, then sending everything to it...", [f](fm1::Port& p) {
-        felucca::LinkEndpoint synth(p.link);
+    const auto& d = felucca::dialectOf(*f);
+    return session.job("Backing up the FM-1, then sending everything to it...", [f, &d](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link, d);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto theirs = felucca::backup(synth, progress, err);   // first: what the synth has, kept
         if (!theirs) return Fm1Session::JobResult{false, "Nothing sent: could not back up the FM-1 first (" + err + ")."};
-        const auto kept = saveSynthBackup(*theirs);
+        const auto kept = saveSynthBackup(*theirs, d);
         if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
-        if (ours->size() < 9) return Fm1Session::JobResult{false, "Nothing sent: the plugin's Felucca gave no backup."};
+        if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
-        return Fm1Session::JobResult{true, "Sent the music, projects, user presets and FM6 bank to the FM-1. Its backup from before: " + kept};
+        return Fm1Session::JobResult{true, "Sent the " + everything(d) + " to the FM-1. Its backup from before: " + kept};
     });
 }
 
 bool FM1Processor::feluccaPullSound(int track) {
     auto f = felucca();
-    if (!f || !feluccaSynth() || track < 0 || track > 3) return false;
+    if (!f || !feluccaSynth() || track < 0 || track >= f->tracks()) return false;
     return session.job("Reading part " + juce::String(track + 1) + "'s sound from the FM-1...", [this, f, track](fm1::Port& p) {
-        felucca::LinkEndpoint synth(p.link);
+        felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
         juce::String err;
         if (!felucca::copySound(synth, mine, track, err))
@@ -1141,9 +1158,9 @@ bool FM1Processor::feluccaPullSound(int track) {
 
 bool FM1Processor::feluccaSendSound(int track) {
     auto f = felucca();
-    if (!f || !feluccaSynth() || track < 0 || track > 3) return false;
+    if (!f || !feluccaSynth() || track < 0 || track >= f->tracks()) return false;
     return session.job("Sending part " + juce::String(track + 1) + "'s sound to the FM-1...", [f, track](fm1::Port& p) {
-        felucca::LinkEndpoint synth(p.link);
+        felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
         juce::String err;
         if (!felucca::copySound(mine, synth, track, err))
@@ -1157,8 +1174,8 @@ bool FM1Processor::feluccaLive(bool on) {
     auto f = felucca();
     if (!f || !feluccaSynth() || felLive_) return false;
     felLive_ = true;
-    const bool started = session.job("Live with the FM-1 running Felucca...", [this, f](fm1::Port& p) {
-        felucca::LinkEndpoint synth(p.link);
+    const bool started = session.job("Live with the FM-1 running " + juce::String(felucca::dialectOf(*f).name) + "...", [this, f](fm1::Port& p) {
+        felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
         felucca::Mirror mirror(synth, mine);
         juce::String err;
@@ -1183,6 +1200,7 @@ bool FM1Processor::feluccaLive(bool on) {
 // Host automation into Felucca: each value the host changed since the last block, spread
 // over the parameter's range in Felucca now.
 void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
+    if (f.flavor() != FeluccaEngine::Flavor::Felucca) return;   // (the host parameters are Felucca's; SLOOP has none yet)
     const auto& all = felparams::entries();
     // just after a project loaded or an engine arrived, Felucca's own sound is the truth
     // (feluccaChanged gives it to the host): what the host holds now counts as given
@@ -1205,7 +1223,7 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
 
 void FM1Processor::feluccaChanged(int track) {
     auto f = felucca();
-    if (!f) return;
+    if (!f || f->flavor() != FeluccaEngine::Flavor::Felucca) return;   // (the host parameters are Felucca's)
     const auto& all = felparams::entries();
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
@@ -1248,40 +1266,43 @@ void FM1Processor::setFirmware(const juce::String& id) {
     pendingMismatch_.reset();
    #if FM1_FELUCCA
     {
-        // Felucca plays from an engine taken now and given back when switching away (it plays in
-        // one of the compiled copies, alone or sharing it: FeluccaEngine); its sound is kept
-        // meanwhile (and saved), and comes back with the next engine
-        const bool want = juce::String(choices[size_t(index)].id) == "felucca";
+        // Felucca (or SLOOP) plays from an engine taken now and given back when switching away (it
+        // plays in one of the compiled copies, alone or sharing it: FeluccaEngine); its sound is
+        // kept meanwhile (and saved), and comes back with the next engine of that firmware
+        const juce::String id = choices[size_t(index)].id;
+        const bool want = fm1::isFeluccaFamily(id.toStdString());
+        const auto flavor = id == "sloop" ? FeluccaEngine::Flavor::Sloop : FeluccaEngine::Flavor::Felucca;
+        const bool away = felucca_ && (!want || felucca_->flavor() != flavor);
         std::shared_ptr<FeluccaEngine> next;
-        if (want && !felucca_) {
-            next = std::make_shared<FeluccaEngine>();
+        if (away) {
+            auto kept = feluccaState(felucca_->flavor());
+            std::lock_guard<std::mutex> g(felStateLock_);
+            feluccaSaved_[flavorIndex(felucca_->flavor())] = kept;
+        }
+        if (want && (!felucca_ || away)) {
+            next = std::make_shared<FeluccaEngine>(flavor);
             if (!next->valid()) {
                 next.reset();
-                status("Felucca could not start in this instance; it is silent.");   // (not expected: there is no limit)
+                status(juce::String(choices[size_t(index)].name) + " could not start in this instance; it is silent.");   // (not expected: there is no limit)
             } else {
-                {   // the device's projects, user presets, FM6 bank and settings, from the library
+                {   // the device's projects, user presets (FM6 bank) and settings, from the library
                     juce::String msg;
                     {
                         std::lock_guard<std::mutex> g(felDeviceLock_);
-                        msg = felDevice_.load(*next);
+                        msg = deviceFor(*next).load(*next);
                     }
                     if (msg.isNotEmpty()) status(msg);
                 }
                 juce::ValueTree saved;
                 {
                     std::lock_guard<std::mutex> g(felStateLock_);
-                    saved = feluccaSaved_;
-                    feluccaSaved_ = {};
+                    saved = feluccaSaved_[flavorIndex(flavor)];
+                    feluccaSaved_[flavorIndex(flavor)] = {};
                 }
                 if (saved.isValid()) applyFeluccaState(*next, saved, false);   // before the audio thread sees it
             }
         }
-        if (!want && felucca_) {
-            auto kept = feluccaState();
-            std::lock_guard<std::mutex> g(felStateLock_);
-            feluccaSaved_ = kept;
-        }
-        if ((want && next) || (!want && felucca_)) {
+        if (next || away) {
             suspendProcessing(true);
             std::atomic_store(&felucca_, next);
             if (felucca_) prepareFelucca(); else if (prepared_) prepareEngine();

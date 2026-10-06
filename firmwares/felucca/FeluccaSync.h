@@ -1,5 +1,6 @@
-// FeluccaSync -- syncing with a synth running Felucca, through its editor protocol
-// (F0 7D 46 4C, Felucca's web/EDITOR_PROTOCOL.md). Both ends speak it: a real FM-1 over
+// FeluccaSync -- syncing with a synth running Felucca, or SLOOP (a fork of it), through its
+// editor protocol (F0 7D 46 4C, Felucca's web/EDITOR_PROTOCOL.md; SLOOP's is the same up to
+// command 32, then its own: a Dialect). Both ends speak it: a real FM-1 over
 // MIDI (LinkEndpoint) and the plugin's own Felucca (plugin/FeluccaDevice VirtualEndpoint),
 // so the same code copies either way and can be tested with two virtual ones.
 //
@@ -37,6 +38,22 @@ enum Cmd : int {
     kBackupList = 65, kBackupGet = 66, kBackupPut = 67, kFm6Get = 68, kFm6Put = 69
 };
 
+// What differs between Felucca and SLOOP: the backup commands and their objects, the backup file,
+// the FM6 bank (Felucca only) and which globals a mirror carries.
+struct Dialect {
+    const char* name;                          // "Felucca", "SLOOP"
+    int backupList, backupGet, backupPut;      // the full backup's commands
+    bool listVersion;                          // LIST's reply starts with a version byte (Felucca)
+    std::vector<int> ids;                      // a full backup's objects, in its file's order (32..34: user samples)
+    std::vector<int> restoreOrder;             // the objects (not the samples), in the order its editor restores them
+    int lastObject;                            // the highest id that is not a user sample slot
+    bool fm6;                                  // FM6_GET / FM6_PUT and object 8
+    const char* fileFormat;                    // its editor's backup file: "felucca-backup", "sloop-backup"
+    std::vector<int> mirroredGlobals;          // the globals a mirror carries (tempo, swing, tuning, effects)
+};
+const Dialect& feluccaDialect();
+const Dialect& sloopDialect();
+
 Bytes frame(int cmd, const std::vector<uint8_t>& args = {});
 int commandOf(const Bytes& frame);             // -1: not an editor-protocol frame
 std::vector<uint8_t> argsOf(const Bytes& frame);
@@ -45,6 +62,7 @@ bool isPush(int cmd);                          // CHANGED, RELOAD, STEP_CHANGED,
 class Endpoint {
 public:
     virtual ~Endpoint() = default;
+    virtual const Dialect& dialect() const = 0;
     // Send a request; its reply (the first frame with its command that is not a push), or none in time.
     virtual std::optional<Bytes> ask(const Bytes& request, int timeoutMs) = 0;
     // The pushes that arrived since the last call.
@@ -54,30 +72,31 @@ public:
 // A real synth over the session's MIDI link. Takes the link's SysEx listener while it lives.
 class LinkEndpoint : public Endpoint {
 public:
-    explicit LinkEndpoint(Fm1Link& link);
+    explicit LinkEndpoint(Fm1Link& link, const Dialect& d = feluccaDialect());
     ~LinkEndpoint() override;
+    const Dialect& dialect() const override { return dialect_; }
     std::optional<Bytes> ask(const Bytes& request, int timeoutMs) override;
     std::vector<Bytes> pushes() override;
 
 private:
     Fm1Link& link_;
+    const Dialect& dialect_;
     std::mutex lock_;
     std::deque<Bytes> pushes_;
 };
 
-// The ids a full backup holds, in order: 0..8, then the user sample slots 32..34.
-const std::vector<int>& backupIds();
-// A backup file ("felucca-backup" version 1, JSON), as Felucca's web editor reads and writes
-// it: every object's size and CRC checked.
-bool readBackup(const juce::File& f, Objects& out, juce::String& error);
-juce::String backupJson(const Objects& objects, const juce::String& firmware);
+// A backup file, as the dialect's web editor reads and writes it (Felucca: "felucca-backup"
+// version 1, objects with id, size, crc, data; SLOOP: "sloop-backup" version 1, with id, len,
+// crc, data): every object's size and CRC checked.
+bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Dialect& d = feluccaDialect());
+juce::String backupJson(const Objects& objects, const juce::String& firmware, const Dialect& d = feluccaDialect());
 
 // done, total, what: false to stop
 using Progress = std::function<bool(int done, int total, const juce::String& text)>;
 
 std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::String& error);
-// Into a synth, in the order Felucca's web editor restores (the music last). Every id given
-// is written; an empty one empties that slot.
+// Into a synth, in the order its web editor restores (Felucca: the music last; SLOOP: the
+// settings last). Every id given is written; an empty one empties that slot.
 bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juce::String& error);
 
 // One track's sound from one side to the other, as Live carries a load: its engine and preset

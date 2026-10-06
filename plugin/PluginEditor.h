@@ -35,7 +35,8 @@ private:
     void showAudioSettings();
     juce::Label unsupported_;
    #if FM1_FELUCCA
-    std::unique_ptr<FeluccaPanel> felucca_;   // while set to Felucca
+    std::unique_ptr<FeluccaPanel> felucca_;   // while set to Felucca or SLOOP
+    juce::String feluccaFor_;                 // which of them it was built for
    #endif
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
     LibraryPanel library_;

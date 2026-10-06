@@ -8,8 +8,9 @@ playing, send an edit to the synth without saving it, or sync the whole
 128-preset library in either direction.
 
 Each instance is set to one of the FM-1's firmwares: M-VAVE's own, baud girl's
-FM-1+VA, or Felucca, Hügelton's multi-engine firmware, which the plugin runs
-from its own source with its screen, front panel, sequencer and projects.
+FM-1+VA, Felucca, Hügelton's multi-engine firmware, or SLOOP, isod89's
+groovebox built on Felucca. The plugin runs Felucca and SLOOP from their own
+source, with their screen, front panel, sequencer and projects.
 
 It works on its own as a synth too; the FM-1 is only needed for syncing.
 
@@ -37,8 +38,9 @@ On an iPhone (the iOS app builds from source):
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
-  an FM-1 yet; 0.93 and 0.94 too) or
-  **[Felucca](https://github.com/hugelton/Felucca)** 1.0.2 (1.0 too). On M-VAVE's own
+  an FM-1 yet; 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
+  1.0.2 (1.0 too) or **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.3 (not
+  tried on an FM-1 yet). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -129,6 +131,11 @@ project saves its own current preset, edits, patterns and arpeggiator.
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
   running Felucca: pull everything, send everything, or keep both in step live.
+- **SLOOP 2.3**, built from its source the same way: its nine engines on three
+  parts and a drum track, in the same editor, Library and Device tabs. Its
+  projects and user presets are kept in the library as the file SLOOP's web
+  editor uses for backups (`SLOOP/SLOOP device.json`). With an FM-1 running
+  SLOOP: pull, send and live, as with Felucca.
 
 ## Not done yet
 
@@ -143,7 +150,11 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **AAX** (Pro Tools) is planned; see [`docs/AAX.md`](docs/AAX.md).
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
-- **Felucca**: its user sample slots are empty.
+- **Felucca** and **SLOOP**: their user sample slots are empty.
+- **SLOOP**: its parameters are not host parameters yet (no automation), and
+  Live does not carry edits to the drum track's lanes (SLOOP does not push
+  them). Syncing with an FM-1 running SLOOP has been tried between two of the
+  plugin's own SLOOPs only, not with an FM-1 yet.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
@@ -180,12 +191,13 @@ Source layout:
 - `firmwares/` the firmware list and each firmware's releases
   (`Firmwares.cpp`), and one folder per firmware: `fm1_common/` the FM-1
   protocols stock and FM-1+VA share (no JUCE), `fm1_stock/`, `baudgirl_fm1va/`,
-  and `felucca/` (its profile and its sync over its editor protocol)
+  and `felucca/` (its profile and its sync over its editor protocol, Felucca's and
+  SLOOP's)
 - `engines/` the sound, without JUCE: `dx7/` msfa (Apache-2.0, from Dexed;
   changes in `engines/dx7/msfa/NOTICE.md`) and the voice, envelope and filter
   code around it; `fm1_fx/` the FM-1's effects, the Hardware character stage
-  and the rate converter; `felucca/` Felucca's firmware (GPL-3.0, vendored, see
-  its `UPSTREAM.md`) built as a library
+  and the rate converter; `felucca/` and `sloop/` Felucca's and SLOOP's firmware
+  (GPL-3.0, vendored, see their `UPSTREAM.md`) built as libraries
 - `plugin/` the processor, editor, parameters, library, sequencer and
   arpeggiator, and Felucca's editor, host parameters and device file;
   `plugin/dexed_ui/` Dexed's look-and-feel and panels
@@ -203,6 +215,8 @@ Source layout:
 - **Leo Kuroshita** (Hügelton Instruments) for
   [Felucca](https://github.com/hugelton/Felucca), which the plugin builds from
   its source with its author's agreement, its sample pack included.
+- **isod89** for [SLOOP](https://github.com/isod89/sloop-fm1), which the plugin
+  also builds from its source.
 - **Google's music-synthesizer-for-android** (msfa) and **Dexed** by Pascal
   Gauthier and contributors, for the FM engine and the editor's look.
 - Reverse-engineering work on the FM-1 by
@@ -216,5 +230,5 @@ Source layout:
 
 GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
 in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
-are GPL-3.0-or-later, Felucca is GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
+are GPL-3.0-or-later, Felucca and SLOOP are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
 the MIT licence.

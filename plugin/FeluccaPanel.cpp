@@ -26,10 +26,31 @@ const GroupDef kTrackGroups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
+// SLOOP 2.3's (core.h P_*): Felucca 1.0's numbering up to the slicer (48), then CHORD (49) and
+// the engine's eight; no modulation matrix
+const GroupDef kSloopGroups[] = {
+    {"Engine", -1, -1},
+    {"Envelope", 1, 4},
+    {"Envelope to", 5, 7},
+    {"LFO", 9, 12},
+    {"LFO to", 13, 16},
+    {"Voice", 37, 44},
+    {"Chord", 49, 49},
+    {"Arpeggiator", 17, 24},
+    {"Scale", 25, 28},
+    {"Sequencer", 29, 32},
+    {"Sends", 33, 36},
+    {"Slicer", 45, 48},
+    {"Mix", 0, 0},
+};
 // the global settings worth editing here (the rest are the device's own pages and actions)
-const int kGlobals[] = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
+const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
+// SLOOP's: the same up to the chorus, then its drum level and reverb and master bus (DUST, DUCK, FILT)
+const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
+const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10; GLO) the drums, any other the selected part.";
+bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
@@ -268,7 +289,7 @@ FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     };
     info_.setColour(juce::Label::textColourId, kDim);
     info_.setFont(juce::FontOptions(12.0f));
-    info_.setText(kInfoText, juce::dontSendNotification);
+    info_.setText(infoText(), juce::dontSendNotification);
     view_.setViewedComponent(&content_, false);
     view_.setScrollBarsShown(true, false);
     trackButtons_[0].setToggleState(true, juce::dontSendNotification);
@@ -276,8 +297,10 @@ FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     startTimerHz(10);   // automation shows as it plays
 }
 
+juce::String FeluccaSoundPage::infoText() const { return isSloop(engine().get()) ? kSloopInfoText : kInfoText; }
+
 void FeluccaSoundPage::setStatus(const juce::String& s) {
-    info_.setText(s.isNotEmpty() ? s : juce::String(kInfoText), juce::dontSendNotification);
+    info_.setText(s.isNotEmpty() ? s : infoText(), juce::dontSendNotification);
     statusUntil_ = juce::Time::getMillisecondCounter() + 8000;
 }
 
@@ -288,14 +311,14 @@ void FeluccaSoundPage::visibilityChanged() {
 void FeluccaSoundPage::timerCallback() {
     if (statusUntil_ != 0 && juce::Time::getMillisecondCounter() > statusUntil_) {   // the hint again
         statusUntil_ = 0;
-        info_.setText(kInfoText, juce::dontSendNotification);
+        info_.setText(infoText(), juce::dontSendNotification);
     }
     {   // the sound's sync: with an FM-1 running Felucca, not while another job (Live) runs
         const bool can = proc_.feluccaSynth() && !proc_.session.busy();
         pullSound_.setEnabled(can);
         sendSound_.setEnabled(can);
     }
-    if (auto e = engine(); e && e->selected() != track_ && e->selected() < 4) {   // chosen on the device (its panel, a synced FM-1)
+    if (auto e = engine(); e && e->selected() != track_ && e->selected() < e->tracks()) {   // chosen on the device (its panel, a synced FM-1)
         track_ = e->selected();
         trackButtons_[track_].setToggleState(true, juce::dontSendNotification);
         if (onPartChanged) onPartChanged();
@@ -338,15 +361,26 @@ void FeluccaSoundPage::build() {
     engineBox_.clear(juce::dontSendNotification);
     presetBox_.clear(juce::dontSendNotification);
     if (f == nullptr) { loading_ = false; return; }
-    if (track_ >= f->parts()) track_ = 0;
+    if (track_ >= f->tracks()) track_ = 0;
+    const bool sloop = isSloop(f);
+    // SLOOP's fourth track is its drum track: no engine or preset to choose, its kit (E1) only
+    const bool drums = track_ >= f->parts();
+    for (int i = 0; i < 4; ++i) {
+        trackButtons_[i].setButtonText(sloop && i >= f->parts() ? juce::String("DRUMS") : "PART " + juce::String(i + 1));
+        trackButtons_[i].setVisible(i < f->tracks());
+    }
     builtTrack_ = track_;
     builtEngine_ = f->engineOf(track_);
-    for (int e : f->enginesShown()) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
-    engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
-    auto presets = f->presetNames(f->engineOf(track_));
-    for (size_t i = 0; i < presets.size(); ++i)
-        if (!presets[i].empty()) presetBox_.addItem(presets[i], int(i) + 1);   // (an alias: not offered)
-    presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
+    engineBox_.setEnabled(!drums);
+    presetBox_.setEnabled(!drums);
+    if (!drums) {
+        for (int e : f->enginesShown()) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
+        engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
+        auto presets = f->presetNames(f->engineOf(track_));
+        for (size_t i = 0; i < presets.size(); ++i)
+            if (!presets[i].empty()) presetBox_.addItem(presets[i], int(i) + 1);   // (an alias: not offered)
+        presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
+    }
     auto addControl = [&](Group& g, int id, const FeluccaEngine::Desc& d) {
         if (d.label.empty() || d.max <= d.min) return;   // fixed or unused
         Control c;
@@ -401,16 +435,18 @@ void FeluccaSoundPage::build() {
         g.header->setColour(juce::Label::textColourId, kAccent);
         content_.addAndMakeVisible(*g.header);
     };
-    for (const auto& def : kTrackGroups) {
+    const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
+                                             : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
+    for (const auto& def : defs) {
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {
             const int e = f->engineOf(track_);
-            g.title = juce::String(f->engineName(e)) + ": " + f->enginePage(e, 0) + " / " + f->enginePage(e, 1);
+            g.title = drums ? juce::String("Drums") : juce::String(f->engineName(e)) + ": " + f->enginePage(e, 0) + " / " + f->enginePage(e, 1);
         }
         addHeader(g);
         const int first = def.first >= 0 ? def.first : f->firstEngineParam();
-        const int last = def.first >= 0 ? def.last : f->firstEngineParam() + 7;
+        const int last = def.first >= 0 ? def.last : f->firstEngineParam() + (drums ? 0 : 7);
         for (int id = first; id <= last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
@@ -419,7 +455,7 @@ void FeluccaSoundPage::build() {
         g.title = "Global";
         g.global = true;
         addHeader(g);
-        for (int id : kGlobals) if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
+        for (int id : sloop ? kSloopGlobals : kGlobals) if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
     loading_ = false;
@@ -525,7 +561,12 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     status_.setColour(juce::Label::textColourId, kText);
     status_.setFont(juce::FontOptions(13.0f));
     status_.setJustificationType(juce::Justification::topLeft);
-    about_.setText("An FM-1 running Felucca, connected with Find FM-1 (or the MIDI menus): pull everything from it, "
+    // in the firmware's own terms: Felucca's music and FM6 bank, SLOOP's working project
+    auto held = proc_.felucca();
+    const juce::String name = held ? juce::String(felucca::dialectOf(*held).name) : juce::String("Felucca");
+    const bool fm6 = !held || felucca::dialectOf(*held).fm6;
+    const juce::String all = fm6 ? "the music, its four projects, user presets and FM6 bank" : "the working project, projects A-D and user presets";
+    about_.setText("An FM-1 running " + name + ", connected with Find FM-1 (or the MIDI menus): pull everything from it, "
                    "send everything to it, or follow it live.", juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);
     about_.setFont(juce::FontOptions(13.0f));
@@ -533,22 +574,22 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     problem_.setColour(juce::Label::textColourId, juce::Colours::orange);
     problem_.setFont(juce::FontOptions(13.0f));
     problem_.setJustificationType(juce::Justification::topLeft);
-    pullButton_.setTooltip("Everything from the connected FM-1 running Felucca into this instance: the music, its four projects, "
-                           "user presets and FM6 bank (its backup is also kept in the library, Felucca/Backups)");
+    pullButton_.setTooltip("Everything from the connected FM-1 running " + name + " into this instance: " + all
+                           + " (its backup is also kept in the library, " + name + "/Backups)");
     pullButton_.onClick = [this] { proc_.feluccaPull(); update(); };
-    sendButton_.setTooltip("This instance's Felucca to the connected FM-1: the music, projects, user presets and FM6 bank, "
+    sendButton_.setTooltip("This instance's " + name + " to the connected FM-1: " + all + ", "
                            "replacing the synth's (not its settings or samples). Its own are backed up to the library first.");
-    sendButton_.onClick = [this] {
+    sendButton_.onClick = [this, name, all] {
         juce::Component::SafePointer<FeluccaSyncPage> self(this);
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
-            "The FM-1's music, four projects, user presets and FM6 bank will be replaced by this instance's. "
-            "They are backed up to the library (Felucca/Backups) first. Its settings and user samples are not touched.",
+            "The FM-1's " + all.fromFirstOccurrenceOf("the ", false, false) + " will be replaced by this instance's. "
+            "They are backed up to the library (" + name + "/Backups) first. Its settings and user samples are not touched.",
             "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
                 if (ok && self) { self->proc_.feluccaSend(); self->update(); }
             }));
     };
     liveButton_.setClickingTogglesState(true);
-    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as Felucca's web editor follows it. "
+    liveButton_.setTooltip("Live: what changes on the FM-1 changes here and the other way round, as " + name + "'s web editor follows it. "
                            "Pull or send first so both start the same.");
     liveButton_.onClick = [this] { proc_.feluccaLive(liveButton_.getToggleState()); update(); };
     proc_.onFeluccaLive = [this] { update(); };

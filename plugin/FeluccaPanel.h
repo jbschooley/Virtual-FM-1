@@ -51,6 +51,7 @@ public:
     void setStatus(const juce::String& s);   // in the info line for a while (the sync's progress and outcome)
 
 private:
+    juce::String infoText() const;            // the hint for Felucca or SLOOP
     struct Control {
         int id = 0;
         bool global = false;

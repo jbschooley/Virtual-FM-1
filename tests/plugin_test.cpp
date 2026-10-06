@@ -211,12 +211,15 @@ static int checks() {
         {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it
             const fm1::Identity sloop{"FM-1", 900, "FELUCCA SLOOP 2.2"}, dev{"FM-1", 900, "FELUCCA v1.1-dev"};
             const auto c = fm1::checkVersion(sloop);
-            CHECK(fm1::firmwareIdFor(sloop) == "sloop" && !fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "Sloop",
-                  "an FM-1 running Sloop is Sloop, which no instance plays");
-            CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"}).text.find("SLOOP 3.0, which") != std::string::npos,
-                  "its name is shown whole when it has no FELUCCA prefix");
-            CHECK(c.support == fm1::Support::Deprecated && c.text.find("SLOOP 2.2, which the plugin does not support yet") != std::string::npos,
-                  "and it says so: " + c.text);
+            CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
+                  && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.3",
+                  "an FM-1 running SLOOP is SLOOP, a choice (2.3) played like Felucca");
+            const auto cur = fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.3"});
+            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text.find("not tried") != std::string::npos, "SLOOP 2.3: current, said to be untried: " + cur.text);
+            const auto v30 = fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"});
+            CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.3") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
+            CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.3") != std::string::npos,
+                  "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
             const auto v103 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.3"});
@@ -322,6 +325,122 @@ static int checks() {
         auto pb = fm1json::patternFromJson(juce::JSON::parse(juce::JSON::toString(fm1json::patternToJson(e))), "q", errors);
         CHECK(pb && pb->pattern.locks == e.pattern.locks, "a pattern's locks through JSON");
     }
+   #if FM1_FELUCCA
+    // an instance set to SLOOP plays SLOOP's engines (its own copies), apart from Felucca's
+    {
+        using Fl = FeluccaEngine::Flavor;
+        const int slpBefore = FeluccaEngine::copiesInUse(Fl::Sloop), felBefore = FeluccaEngine::copiesInUse();
+        juce::MemoryBlock project;
+        {
+            FM1Processor p;
+            p.setPlayConfigDetails(0, 2, 44100.0, 256);
+            p.prepareToPlay(44100.0, 256);
+            p.setFirmware("sloop");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.3",
+                  "set to SLOOP, the instance plays SLOOP 2.3");
+            CHECK(FeluccaEngine::copiesInUse(Fl::Sloop) == slpBefore + 1 && FeluccaEngine::copiesInUse() == felBefore,
+                  "in a SLOOP copy, none of Felucca's");
+            juce::AudioBuffer<float> buf(2, 256);
+            auto peakOf = [&](int ch, int note) {
+                float peak = 0;
+                for (int k = 0; k < 60; ++k) {
+                    juce::MidiBuffer m;
+                    if (k == 0) m.addEvent(juce::MidiMessage::noteOn(ch, note, juce::uint8(110)), 3);
+                    if (k == 30) m.addEvent(juce::MidiMessage::noteOff(ch, note), 3);
+                    buf.clear();
+                    p.processBlock(buf, m);
+                    peak = std::max(peak, buf.getMagnitude(0, 256));
+                }
+                return peak;
+            };
+            CHECK(peakOf(1, 60) > 0.01f && peakOf(10, 36) > 0.01f, "channel 1 plays part 1, channel 10 the drums");
+            p.felucca()->setEngine(0, 6);
+            p.felucca()->setParam(0, 0, 33);
+            p.getStateInformation(project);
+            p.setFirmware("felucca");
+            CHECK(p.felucca() != nullptr && p.felucca()->flavor() == Fl::Felucca && FeluccaEngine::copiesInUse(Fl::Sloop) == slpBefore,
+                  "switched to Felucca: a Felucca engine, the SLOOP copy given back");
+            p.felucca()->setParam(0, 0, 44);
+            p.setFirmware("sloop");
+            CHECK(p.felucca()->flavor() == Fl::Sloop && p.felucca()->engineOf(0) == 6 && p.felucca()->param(0, 0) == 33,
+                  "and back to SLOOP: its sound as it was");
+            p.setFirmware("felucca");
+            CHECK(p.felucca()->param(0, 0) == 44, "and Felucca's as it was");
+            juce::MemoryBlock both;
+            p.getStateInformation(both);
+            auto tree = juce::ValueTree::readFromData(both.getData(), both.getSize());
+            CHECK(tree.getChildWithName("Felucca").isValid() && tree.getChildWithName("Sloop").isValid()
+                  && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.3",
+                  "a project keeps both, apart");
+        }
+        {
+            FM1Processor q;
+            q.setStateInformation(project.getData(), int(project.getSize()));
+            CHECK(q.firmwareId() == "sloop" && q.felucca() != nullptr && q.felucca()->flavor() == Fl::Sloop
+                  && q.felucca()->engineOf(0) == 6 && q.felucca()->param(0, 0) == 33, "a SLOOP project opens set to SLOOP, with its sound");
+        }
+        // two SLOOP devices through its editor protocol (BK_LIST / GET / PUT 34-36), as with an FM-1 running SLOOP
+        {
+            auto a = std::make_shared<FeluccaEngine>(Fl::Sloop), b = std::make_shared<FeluccaEngine>(Fl::Sloop);
+            felucca::VirtualEndpoint ea(a), eb(b);
+            CHECK(&ea.dialect() == &felucca::sloopDialect(), "its endpoint speaks SLOOP's dialect");
+            a->setEngine(1, 6);
+            a->setParam(1, 0, 61);
+            std::vector<uint8_t> music, slot;
+            a->object(0, music);
+            CHECK(a->putObject(3, music) == 0, "a project into slot B");
+            juce::String err;
+            auto all = felucca::backup(ea, {}, err);
+            CHECK(all && all->size() == 8 && (*all)[3] == music && !all->count(8), "a full backup through SLOOP's protocol: objects 0-7 (" + err + ")");
+            CHECK(all && felucca::restore(eb, *all, {}, err) && b->engineOf(1) == 6 && b->param(1, 0) == 61
+                  && b->object(3, slot) && slot == music, "restored into the other: the working project and slot B (" + err + ")");
+            {   // a part's sound, with no FM6 to carry
+                auto x = std::make_shared<FeluccaEngine>(Fl::Sloop), y = std::make_shared<FeluccaEngine>(Fl::Sloop);
+                felucca::VirtualEndpoint ex(x), ey(y);
+                x->setEngine(2, 4);
+                x->setParam(2, 9, 77);
+                juce::String cerr;
+                CHECK(felucca::copySound(ex, ey, 2, cerr) && y->engineOf(2) == 4 && y->param(2, 9) == 77, "a part's sound copied (" + cerr + ")");
+            }
+            std::vector<float> l(256), r(256);
+            auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };
+            felucca::Mirror mirror(ea, eb);
+            CHECK(mirror.start(err), "live: both watched (" + err + ")");
+            auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };
+            a->setParam(0, 9, 99);
+            a->setGlobal(1, 37);
+            a->setGlobal(27, a->global(27) + 5);   // DUST, SLOOP's own
+            settle(10);
+            CHECK(b->param(0, 9) == 99 && b->global(1) == 37 && b->global(27) == a->global(27), "a value and globals (DUST too) reach the other side");
+            a->setEngine(0, 7);
+            settle(20);
+            CHECK(b->engineOf(0) == 7, "an engine change on one side loads it on the other");
+            const int presetA = a->presetOf(0), presetB = b->presetOf(0);
+            settle(20);
+            CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB, "no load bounces back");
+            CHECK(err.isEmpty(), "no side stopped answering: " + err);
+            mirror.stop();
+        }
+        // the device file: SLOOP's own backup format, in the library's SLOOP folder
+        {
+            const auto file = felucca::DeviceStore::defaultFile(felucca::sloopDialect());
+            CHECK(file.getFileName() == "SLOOP device.json" && file.getParentDirectory().getFileName() == "SLOOP", "<library>/SLOOP/SLOOP device.json");
+            auto e = std::make_shared<FeluccaEngine>(Fl::Sloop);
+            felucca::DeviceStore store(file, felucca::sloopDialect());
+            store.load(*e);
+            std::vector<uint8_t> music;
+            e->object(0, music);
+            e->putObject(4, music);   // slot C
+            CHECK(store.tick(*e).isEmpty() && file.existsAsFile(), "a change saves the device");
+            felucca::Objects o;
+            juce::String err;
+            const auto json = juce::JSON::parse(file);
+            CHECK(json.getProperty("format", {}).toString() == "sloop-backup" && felucca::readBackup(file, o, err, felucca::sloopDialect())
+                  && o[4] == music && !o.count(8), "as SLOOP's editor writes a backup (sloop-backup), slot C in it");
+            CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
+        }
+    }
+   #endif
    #if FM1_FELUCCA
     // an instance set to Felucca plays Felucca's engines, and keeps them in its project
     {
@@ -608,6 +727,7 @@ static int checks() {
                 // the music's last piece loses one USB-MIDI packet (3 bytes) once: Felucca takes it
                 // short, and the commit fails validation; the object starts over then too
                 struct Lossy : felucca::Endpoint {
+                    const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
                     felucca::Endpoint& e;
                     int pieces = 0;
                     bool lastCut = false;

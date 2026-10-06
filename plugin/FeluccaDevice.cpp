@@ -7,13 +7,19 @@
 
 namespace felucca {
 
+const Dialect& dialectOf(const FeluccaEngine& f) {
+    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect() : feluccaDialect();
+}
+
+VirtualEndpoint::VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)), dialect_(&dialectOf(*f_)) {}
+
 std::optional<Bytes> VirtualEndpoint::ask(const Bytes& request, int) {
     return f_->ask(request);   // (its pushes come with pushes(): the library's requests leave them too)
 }
 
 Objects objectsOf(FeluccaEngine& f) {
     Objects out;
-    for (int id = 0; id <= 8; ++id) {
+    for (int id = 0; id <= dialectOf(f).lastObject; ++id) {
         std::vector<uint8_t> b;
         if (f.object(id, b)) out[id] = std::move(b);
     }
@@ -21,7 +27,10 @@ Objects objectsOf(FeluccaEngine& f) {
 }
 
 bool putObjects(FeluccaEngine& f, const Objects& objects, juce::String& error) {
-    for (int id : {2, 3, 4, 5, 6, 7, 8, 1, 0}) {   // the music last, as restore() sends it
+    // SLOOP refuses a project while it plays (Felucca stops itself): its transport stops first
+    // (sloop_core.c's object_put does a stop asked for before it)
+    if (f.flavor() == FeluccaEngine::Flavor::Sloop && f.playing()) f.transport(false);
+    for (int id : dialectOf(f).restoreOrder) {   // as restore() sends them
         auto it = objects.find(id);
         if (it == objects.end()) continue;
         if (const int rc = f.putObject(id, it->second); rc != 0) {
@@ -46,24 +55,24 @@ juce::int64 DeviceStore::fileHash() const {
     return file_.existsAsFile() ? file_.loadFileAsString().hashCode64() : 0;
 }
 
-juce::File DeviceStore::defaultFile() {
-    return LibraryStore::root().getChildFile("Felucca").getChildFile("Felucca device.json");
+juce::File DeviceStore::defaultFile(const Dialect& d) {
+    return LibraryStore::root().getChildFile(d.name).getChildFile(juce::String(d.name) + " device.json");
 }
 
 // The stored objects into the engine, as the web editor restores them: the project slots,
-// user presets and FM6 bank, then the settings (not the music: the instance's own).
+// user presets (and FM6 bank), and the settings (not the music: the instance's own).
 juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     Objects o;
     juce::String error;
-    if (!readBackup(file_, o, error)) return file_.getFileName() + ": " + error + "; the device keeps what it has.";
-    for (int id : {2, 3, 4, 5, 6, 7, 8, 1}) {
+    if (!readBackup(file_, o, error, dialect_)) return file_.getFileName() + ": " + error + "; the device keeps what it has.";
+    for (int id : dialect_.restoreOrder) {
         auto it = o.find(id);
-        if (it == o.end()) continue;
-        if (f.putObject(id, it->second) != 0) return file_.getFileName() + ": Felucca refused object " + juce::String(id) + ".";
+        if (id == 0 || it == o.end()) continue;
+        if (f.putObject(id, it->second) != 0) return file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + ".";
     }
     known_.clear();
     std::vector<uint8_t> b;
-    for (int id = 1; id <= 8; ++id) if (f.object(id, b)) known_[id] = b;
+    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) known_[id] = b;
     return {};
 }
 
@@ -81,7 +90,7 @@ juce::String DeviceStore::load(FeluccaEngine& f) {
     }
     known_.clear();   // nothing stored yet: what the device has now counts as known
     std::vector<uint8_t> b;
-    for (int id = 1; id <= 8; ++id) if (f.object(id, b)) known_[id] = b;
+    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) known_[id] = b;
     return {};
 }
 
@@ -98,24 +107,24 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     }
     Objects now;
     std::vector<uint8_t> b;
-    for (int id = 1; id <= 8; ++id) if (f.object(id, b)) now[id] = b;
+    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) now[id] = b;
     // another instance saved: take each object this one has not changed itself
     Objects base = known_;
     if (changedThere) {
         seen_ = hash;
         Objects theirs;
         juce::String error;
-        if (!readBackup(file_, theirs, error)) {
+        if (!readBackup(file_, theirs, error, dialect_)) {
             blocked_ = true;
             return report(file_.getFileName() + ": " + error + "; the device keeps what it has, and nothing is saved to it until it can be read.");
         }
-        for (int id : {2, 3, 4, 5, 6, 7, 8, 1}) {
+        for (int id : dialect_.restoreOrder) {
             auto it = theirs.find(id);   // (an archive from before FM6 has no 8: the bank stays)
-            if (it == theirs.end() || now[id] != known_[id] || it->second == now[id]) continue;
-            if (f.putObject(id, it->second) != 0) return report(file_.getFileName() + ": Felucca refused object " + juce::String(id) + ".");
+            if (id == 0 || it == theirs.end() || now[id] != known_[id] || it->second == now[id]) continue;
+            if (f.putObject(id, it->second) != 0) return report(file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + ".");
             if (f.object(id, b)) now[id] = b;
         }
-        for (int id = 1; id <= 8; ++id) {
+        for (int id = 1; id <= dialect_.lastObject; ++id) {
             if (now[id] == known_[id]) base[id] = now[id];
             else if (auto it = theirs.find(id); it != theirs.end()) base[id] = it->second;
         }
@@ -128,9 +137,9 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     all[0] = b;
     file_.getParentDirectory().createDirectory();
     juce::TemporaryFile tmp(file_);
-    if (!tmp.getFile().replaceWithText(backupJson(all, "FELUCCA v1.0 (Virtual FM-1)"), false, false, "\n")
+    if (!tmp.getFile().replaceWithText(backupJson(all, juce::String(f.version()) + " (Virtual FM-1)", dialect_), false, false, "\n")
         || !tmp.overwriteTargetFileWithTemporary())
-        return report("Could not save the Felucca device to " + file_.getFullPathName() + ".");
+        return report("Could not save the " + juce::String(dialect_.name) + " device to " + file_.getFullPathName() + ".");
     known_ = now;
     seen_ = fileHash();
     lastError_ = {};

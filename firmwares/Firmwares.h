@@ -1,7 +1,8 @@
 // The firmware profiles the plugin knows (core/Firmware.h), one folder each:
 //   fm1_stock/       M-VAVE's own firmware
 //   baudgirl_fm1va/  baud girl's FM-1+VA
-//   felucca/         Felucca (Hügelton)
+//   felucca/         Felucca (Hügelton), and SLOOP (isod89's fork of it), which speaks the same
+//                    editor protocol with its own backup commands
 // firmwareFor() picks one from the synth's identity.
 
 #pragma once
@@ -16,8 +17,8 @@ namespace fm1 {
 
 std::unique_ptr<Firmware> makeStockFirmware();
 std::unique_ptr<Firmware> makeFmVaFirmware();
-std::unique_ptr<Firmware> makeFeluccaFirmware();
-std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name);   // known by name only (Sloop)
+std::unique_ptr<Firmware> makeFeluccaFirmware(const juce::String& name = "Felucca");   // Felucca, or "SLOOP"
+std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name);   // known by name only
 
 // The firmwares an instance can be set to (the dropdown at the top of the
 // editor). The choice decides what the editor shows; it is saved with the project.
@@ -30,8 +31,10 @@ struct FirmwareChoice {
 };
 const std::vector<FirmwareChoice>& firmwareChoices();
 const FirmwareChoice& firmwareChoice(const std::string& id);   // the default (FM-1+VA) for an unknown id
-std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs ("sloop": none)
+std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs
 bool isFirmwareChoice(const std::string& id);                 // a choice an instance can be set to
+// Felucca or SLOOP: played by FeluccaEngine (engines/felucca, engines/sloop), synced through FeluccaSync
+inline bool isFeluccaFamily(const std::string& id) { return id == "felucca" || id == "sloop"; }
 constexpr const char* kDefaultFirmwareId = "baudgirl_fm1va";
 
 // ---- versions -----------------------------------------------------------------------------

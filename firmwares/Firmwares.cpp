@@ -9,6 +9,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"fm1_stock", "M-VAVE (stock)", false, true},
         {"baudgirl_fm1va", "FM-1+VA (baud girl)", true, true},
         {"felucca", "Felucca", false, false},
+        {"sloop", "SLOOP", false, false},
     };
     return choices;
 }
@@ -20,8 +21,8 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
 
 std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
-    // Sloop (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
-    // does, FM-1_900: its editor's INFO says SLOOP
+    // SLOOP (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
+    // does, FM-1_900: its editor's INFO says SLOOP ("FELUCCA SLOOP 2.3")
     if (id.version >= 900 && id.editor.find("SLOOP") != std::string::npos) return "sloop";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
@@ -53,7 +54,12 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {910, "1.0.2", Support::Current, ""},   // (1.0 and 1.0.1 answer as FM-1_910 too: told by INFO, below)
     };
     if (firmwareId == "fm1_stock") return stock;
+    // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
+    static const std::vector<KnownVersion> sloop = {
+        {900, "2.3", Support::Current, "not tried on an FM-1 yet"},
+    };
     if (firmwareId == "felucca") return felucca;
+    if (firmwareId == "sloop") return sloop;
     return fmva;
 }
 
@@ -62,14 +68,40 @@ const KnownVersion& currentVersion(const std::string& firmwareId) {
     return knownVersions(firmwareId).back();
 }
 
+// a dotted release ("2.3", "2.10") newer than another
+static bool sloopNewer(const std::string& a, const std::string& b) {
+    auto parts = [](const std::string& v) {
+        std::vector<int> n;
+        for (size_t i = 0; i < v.size();) {
+            if (!std::isdigit(static_cast<unsigned char>(v[i]))) break;
+            int x = 0;
+            while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) x = x * 10 + (v[i++] - '0');
+            n.push_back(x);
+            if (i < v.size() && v[i] == '.') ++i; else break;
+        }
+        return n;
+    };
+    return parts(a) > parts(b);
+}
+
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
-    if (c.firmwareId == "sloop") {   // known by name only
-        c.support = Support::Deprecated;
-        const std::string prefix = "FELUCCA ";   // (Sloop's INFO: "FELUCCA " FELUCCA_VERSION, "SLOOP 2.2")
-        const std::string named = id.editor.rfind(prefix, 0) == 0 ? id.editor.substr(prefix.size()) : id.editor;
-        c.text = id.name() + ": " + named + ", which the plugin does not support yet";
+    if (c.firmwareId == "sloop") {   // its release from its INFO ("FELUCCA SLOOP 2.3")
+        const auto& current = currentVersion("sloop");
+        c.known = &current;
+        c.support = current.support;
+        const auto at = id.editor.find("SLOOP ");
+        const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 6);
+        if (release.empty() || release == current.label) {
+            c.text = id.name() + ": SLOOP " + std::string(current.label) + ", " + current.note;
+            return c;
+        }
+        c.known = nullptr;
+        c.newer = sloopNewer(release, current.label);
+        c.text = id.name() + ": SLOOP " + release + (c.newer ? ", newer than the plugin's " : ", older than the plugin's ") + current.label
+               + "; synced as " + current.label + " (not tried). Its projects may not read the same on both";
+        if (!c.newer) c.support = Support::Older;
         return c;
     }
     const auto& list = knownVersions(c.firmwareId);
@@ -165,7 +197,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     std::unique_ptr<Firmware> f;
     if (which == "fm1_stock") f = makeStockFirmware();
     else if (which == "felucca") f = makeFeluccaFirmware();
-    else if (which == "sloop") f = makeUnsupportedFirmware("Sloop");
+    else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

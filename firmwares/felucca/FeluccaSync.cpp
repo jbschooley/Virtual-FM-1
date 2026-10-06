@@ -43,11 +43,31 @@ bool unpack7(const std::vector<uint8_t>& a, size_t at, std::vector<uint8_t>& out
     return true;
 }
 
-// the globals a mirror carries: tempo, swing, tuning, the effects (not the clock source, MIDI
-// routing or the PROJECT / TOOLS actions, which are each synth's own)
-bool mirroredGlobal(int id) { return id == 0 || id == 1 || (id >= 3 && id <= 11) || id == 24; }
-
 }  // namespace
+
+// The globals a mirror carries: tempo, swing, tuning, the effects (not the clock source, MIDI
+// routing or the PROJECT / TOOLS actions, which are each synth's own). G_* 0..11 are numbered
+// alike in both; Felucca's 24 is the reverb type, SLOOP's 25..29 its drum level and reverb and
+// master bus (DUST, DUCK, FILT).
+const Dialect& feluccaDialect() {
+    static const Dialect d{"Felucca", kBackupList, kBackupGet, kBackupPut, true,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34}, {2, 3, 4, 5, 6, 7, 8, 1, 0}, 8, true, "felucca-backup",
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24}};
+    return d;
+}
+
+// SLOOP 2.3's editor.c: BK_LIST 34, BK_GET 35, BK_PUT 36 (v6), objects 0..7 (no FM6 bank); its web
+// editor restores 6, 7, 2..5, 0, 1 (editor.html BK.RESTORE)
+const Dialect& sloopDialect() {
+    static const Dialect d{"SLOOP", 34, 35, 36, false,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34}, {6, 7, 2, 3, 4, 5, 0, 1}, 7, false, "sloop-backup",
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29}};
+    return d;
+}
+
+static bool mirroredGlobal(const Dialect& d, int id) {
+    return std::find(d.mirroredGlobals.begin(), d.mirroredGlobals.end(), id) != d.mirroredGlobals.end();
+}
 
 Bytes frame(int cmd, const std::vector<uint8_t>& args) {
     Bytes f = {0xF0, 0x7D, 0x46, 0x4C, uint8_t(cmd & 127)};
@@ -68,26 +88,23 @@ std::vector<uint8_t> argsOf(const Bytes& f) {
 
 bool isPush(int cmd) { return cmd == kChanged || cmd == kReload || cmd == kStepChanged || cmd == kTrackChanged; }
 
-// ---- the full backup as a file (Felucca's web editor: web/fm1backup.js) ----
+// ---- the full backup as a file (Felucca's web editor: web/fm1backup.js; SLOOP's: editor.html) ----
 
-const std::vector<int>& backupIds() {
-    static const std::vector<int> ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34};
-    return ids;
-}
-
-bool readBackup(const juce::File& f, Objects& out, juce::String& error) {
+bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Dialect& d) {
     out.clear();
     auto v = juce::JSON::parse(f.loadFileAsString());
     auto* objs = v.getProperty("objects", {}).getArray();
-    const auto& ids = backupIds();
-    // (an archive of firmware before FM6 has no object 8: 11 objects)
-    if (v.getProperty("format", {}).toString() != "felucca-backup" || int(v.getProperty("version", 0)) != 1 || !objs
-        || (objs->size() != int(ids.size()) && objs->size() != int(ids.size()) - 1)) {
-        error = "not a complete Felucca backup";
+    const auto& ids = d.ids;
+    const bool sloop = !d.fm6;
+    // (a Felucca archive of firmware before FM6 has no object 8: 11 objects; SLOOP's editor
+    // writes the objects it has, and needs 0 and 1)
+    const bool complete = objs && (sloop || objs->size() == int(ids.size()) || objs->size() == int(ids.size()) - 1);
+    if (v.getProperty("format", {}).toString() != d.fileFormat || int(v.getProperty("version", 0)) != 1 || !complete) {
+        error = juce::String("not a complete ") + d.name + " backup";
         return false;
     }
     for (const auto& o : *objs) {
-        const int id = o.getProperty("id", -1), size = o.getProperty("size", -1);
+        const int id = o.getProperty("id", -1), size = o.getProperty(sloop ? "len" : "size", -1);
         const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
         juce::MemoryOutputStream data;
         if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > (id >= 32 ? 81920 : 3840)
@@ -110,31 +127,33 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error) {
     return true;
 }
 
-juce::String backupJson(const Objects& objects, const juce::String& firmware) {
+juce::String backupJson(const Objects& objects, const juce::String& firmware, const Dialect& d) {
+    const bool sloop = !d.fm6;
     juce::Array<juce::var> list;
-    for (int id : backupIds()) {
+    for (int id : d.ids) {
         auto it = objects.find(id);
         const std::vector<uint8_t> none;
         const auto& b = it != objects.end() ? it->second : none;
         auto* o = new juce::DynamicObject();
+        if (sloop && id >= 32 && it == objects.end()) continue;   // (SLOOP: a sample slot not read is left out)
         o->setProperty("id", id);
-        o->setProperty("size", int(b.size()));
+        o->setProperty(sloop ? "len" : "size", int(b.size()));
         o->setProperty("crc", b.empty() ? juce::int64(0) : juce::int64(crc32(b)));
         o->setProperty("data", juce::Base64::toBase64(b.data(), b.size()));
         list.add(juce::var(o));
     }
     auto* root = new juce::DynamicObject();
-    root->setProperty("format", "felucca-backup");
+    root->setProperty("format", juce::String(d.fileFormat));
     root->setProperty("version", 1);
     root->setProperty("firmware", firmware);
-    root->setProperty("created", juce::Time::getCurrentTime().toISO8601(true));
+    root->setProperty(sloop ? "date" : "created", juce::Time::getCurrentTime().toISO8601(true));
     root->setProperty("objects", list);
     return juce::JSON::toString(juce::var(root), false);
 }
 
 // ---- a real synth ----
 
-LinkEndpoint::LinkEndpoint(Fm1Link& link) : link_(link) {
+LinkEndpoint::LinkEndpoint(Fm1Link& link, const Dialect& d) : link_(link), dialect_(d) {
     link_.setSysexListener([this](const Bytes& f) {
         if (!isPush(commandOf(f))) return;
         std::lock_guard<std::mutex> g(lock_);
@@ -163,29 +182,31 @@ std::vector<Bytes> LinkEndpoint::pushes() {
 // ---- backup and restore ----
 
 std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::String& error) {
-    auto list = from.ask(frame(kBackupList), kFlash);   // (it stops the transport first)
+    const auto& d = from.dialect();
+    auto list = from.ask(frame(d.backupList), kFlash);   // (Felucca stops the transport first)
     auto a = list ? argsOf(*list) : std::vector<uint8_t>{};
-    if (a.size() < 3 || a[0] != 1) { error = "the synth did not list its objects (Felucca 1.0 or later has the full backup)"; return std::nullopt; }
-    if (a[1] != 0) { error = a[1] == 3 ? "the synth could not stop playing" : "the synth could not list its objects (rc " + juce::String(a[1]) + ")"; return std::nullopt; }
+    const size_t h = d.listVersion ? 1 : 0;   // Felucca: version 1, rc, count; SLOOP: rc, count
+    if (a.size() < h + 2 || (d.listVersion && a[0] != 1)) { error = "the synth did not list its objects (Felucca 1.0 or later has the full backup)"; return std::nullopt; }
+    if (a[h] != 0) { error = a[h] == 3 ? "the synth could not stop playing" : "the synth could not list its objects (rc " + juce::String(a[h]) + ")"; return std::nullopt; }
     struct Entry { int id; uint32_t size, crc; };
     std::vector<Entry> entries;
-    for (size_t i = 0; i < a[2]; ++i) {
-        const size_t at = 3 + i * 11;
+    for (size_t i = 0; i < a[h + 1]; ++i) {
+        const size_t at = h + 2 + i * 11;
         if (at + 11 > a.size()) { error = "the synth's object list is incomplete"; return std::nullopt; }
         entries.push_back({a[at], r32(a, at + 1), r32(a, at + 6)});
     }
     uint32_t total = 0, done = 0;
-    for (auto& e : entries) if (e.id <= 8) total += e.size;
+    for (auto& e : entries) if (e.id <= d.lastObject) total += e.size;
     Objects out;
     for (auto& e : entries) {
-        if (e.id > 8) continue;   // user sample slots: not ours to copy
+        if (e.id > d.lastObject) continue;   // user sample slots: not ours to copy
         std::vector<uint8_t> bytes;
         while (bytes.size() < e.size) {
             const uint32_t n = std::min<uint32_t>(256, e.size - uint32_t(bytes.size()));
             std::vector<uint8_t> q = {uint8_t(e.id)};
             u32(q, uint32_t(bytes.size()));
             q.push_back(uint8_t(n & 127)); q.push_back(uint8_t(n >> 7));
-            auto r = from.ask(frame(kBackupGet, q), kAsk);
+            auto r = from.ask(frame(d.backupGet, q), kAsk);
             auto g = r ? argsOf(*r) : std::vector<uint8_t>{};
             if (g.size() < 9 || g[0] != e.id || g[1] != 0 || r32(g, 2) != bytes.size()) {
                 error = "the synth stopped sending object " + juce::String(e.id) + (g.size() > 1 && g[1] == 5 ? " (it changed meanwhile: try again)" : "");
@@ -194,7 +215,7 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
             const size_t before = bytes.size();
             if (!unpack7(g, 9, bytes) || bytes.size() - before != n) { error = "object " + juce::String(e.id) + " arrived damaged"; return std::nullopt; }
             done += n;
-            if (progress && !progress(int(done), int(total), "Reading Felucca's objects...")) { error = "cancelled"; return std::nullopt; }
+            if (progress && !progress(int(done), int(total), juce::String("Reading ") + d.name + "'s objects...")) { error = "cancelled"; return std::nullopt; }
         }
         if (crc32(bytes) != e.crc && e.size) { error = "object " + juce::String(e.id) + " changed while it was read: try again"; return std::nullopt; }
         out[e.id] = std::move(bytes);
@@ -211,25 +232,26 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
 static constexpr size_t kPutPiece = 128;
 
 bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juce::String& error) {
+    const auto& dl = to.dialect();
     uint32_t total = 0, done = 0;
     for (auto& [id, b] : objects) total += uint32_t(b.size());
     auto put = [&](const std::vector<uint8_t>& q, int timeout) -> int {
-        auto r = to.ask(frame(kBackupPut, q), timeout);
+        auto r = to.ask(frame(dl.backupPut, q), timeout);
         auto g = r ? argsOf(*r) : std::vector<uint8_t>{};
         // the reply names what it answers (step, object): another one's (late) is not this one's
         return g.size() >= 3 && g[0] == q[0] && g[1] == q[1] ? int(g[2]) : -1;
     };
-    auto say = [](int rc) {
+    auto say = [&dl](int rc) {
         switch (rc) {
             case -1: return juce::String("no answer");
             case 2: return juce::String("it failed validation");
-            case 3: return juce::String("the synth could not stop playing");
+            case 3: return juce::String(dl.listVersion ? "the synth could not stop playing" : "the synth is playing: stop it first");
             case 4: return juce::String("its flash write failed");
             case 5: return juce::String("the synth started over");
             default: return "rc " + juce::String(rc);
         }
     };
-    for (int id : {2, 3, 4, 5, 6, 7, 8, 1, 0}) {
+    for (int id : dl.restoreOrder) {
         auto it = objects.find(id);
         if (it == objects.end()) continue;
         const auto& b = it->second;
@@ -257,7 +279,7 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
                 pack7(d, b.data() + off, n);
                 if ((pieceRc = put(d, kAsk)) != 0) { failedAt = off; break; }
                 done += uint32_t(n);
-                if (progress && !progress(int(done), int(total), "Writing Felucca's objects...")) {
+                if (progress && !progress(int(done), int(total), juce::String("Writing ") + dl.name + "'s objects...")) {
                     put({3, uint8_t(id)}, kAsk);   // abort: nothing of it is written
                     error = "cancelled";
                     return false;
@@ -331,7 +353,7 @@ bool Mirror::start(juce::String& error) {
     auto la = layout(a_.ep, &a_.caps), lb = layout(b_.ep, &b_.caps);
     if (!la || !lb) { error = "a synth did not say what it is"; return false; }
     if ((*la)[1] != (*lb)[1] || (*la)[2] != (*lb)[2] || (*la)[4] != (*lb)[4]) {
-        error = "the FM-1 runs another version of Felucca than the plugin (" + juce::String((*la)[1]) + " parameters, "
+        error = "the FM-1 runs another version of " + juce::String(a_.ep.dialect().name) + " than the plugin (" + juce::String((*la)[1]) + " parameters, "
                 "the plugin's " + juce::String((*lb)[1]) + "); pull or send still work";
         return false;
     }
@@ -370,7 +392,7 @@ bool Mirror::tick(juce::String& error) {
             } else {
                 ok = s->ep.ask(frame(kPing), kAsk).has_value();
             }
-            if (!ok) { error = s == &a_ ? "the synth stopped answering" : "the plugin's Felucca stopped answering"; return false; }
+            if (!ok) { error = s == &a_ ? juce::String("the synth stopped answering") : "the plugin's " + juce::String(s->ep.dialect().name) + " stopped answering"; return false; }
             s->pinged = now;
         }
         auto& echoes = s->echoes;
@@ -394,7 +416,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
     };
     if (cmd == kChanged && a.size() >= 4) {   // scope, id, value: of the selected track, or a global
         if (a[0] == 1) {
-            if (!mirroredGlobal(a[1])) return true;
+            if (!mirroredGlobal(to.ep.dialect(), a[1])) return true;
             std::vector<uint8_t> q = {1, a[1]};
             v14(q, r14(a, 2));
             return must(to.ep.ask(frame(kSet, q), kAsk), "SET");
@@ -457,6 +479,7 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
         std::vector<uint8_t> q = {uint8_t(track), uint8_t((i - 3) / 2), src[i], src[i + 1]};
         if (!to.ask(frame(kTrackParam, q), kAsk)) { error = "no answer to TRACK_PARAM"; return false; }
     }
+    if (!from.dialect().fm6 || !to.dialect().fm6) return true;   // (SLOOP has no FM6 engine)
     auto p = from.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
     auto pa = p ? argsOf(*p) : std::vector<uint8_t>{};
     if (pa.size() == 3 + 128 && pa[2] == 0) {

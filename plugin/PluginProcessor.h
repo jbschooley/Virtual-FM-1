@@ -190,11 +190,13 @@ private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
-    juce::ValueTree feluccaSaved_;                    // Felucca's state while it has no engine: kept, saved
+    juce::ValueTree feluccaSaved_[2];                 // Felucca's and SLOOP's state while they have no engine: kept, saved
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
-    felucca::DeviceStore felDevice_;                  // the device's stored objects, in the library
+    felucca::DeviceStore felDevice_{felucca::feluccaDialect()};   // the device's stored objects, in the library
+    felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
+    felucca::DeviceStore& deviceFor(const FeluccaEngine& f) { return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : felDevice_; }
     std::atomic<bool> felLive_{false};                // a live mirror job is running
     std::mutex felDeviceLock_;
     RateConverter felL_, felR_;                       // its 44.1 kHz to the host's rate
@@ -202,8 +204,10 @@ private:
     bool felConvert_ = false;
     void prepareFelucca();
     void renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos);
-    juce::ValueTree feluccaState() const;
-    void setFeluccaState(const juce::ValueTree& t);
+    // A project's part for Felucca ("Felucca") or SLOOP ("Sloop"): the engine's if it plays that
+    // one now, else what was kept
+    juce::ValueTree feluccaState(FeluccaEngine::Flavor flavor) const;
+    void setFeluccaState(const juce::ValueTree& t, FeluccaEngine::Flavor flavor);
     // false: Felucca could not read it; announce: say so (not again when switching back)
     bool applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t, bool announce = true);
     // A project's Felucca music this Felucca could not read (from a newer one, or damaged) is
