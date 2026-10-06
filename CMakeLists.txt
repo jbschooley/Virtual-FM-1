@@ -208,7 +208,7 @@ endif()
 
 # ---- tests (desktop only) -------------------------------------------------------
 enable_testing()
-if(NOT IOS)
+if(NOT IOS AND NOT ANDROID)
 add_executable(codec_test tests/codec_test.cpp)
 target_link_libraries(codec_test PRIVATE fm1_sync)
 add_test(NAME codec_test COMMAND codec_test ${CMAKE_SOURCE_DIR}/tests/golden.json)

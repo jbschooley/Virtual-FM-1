@@ -5,6 +5,7 @@ namespace fm1ui {
 #if JUCE_ANDROID
 static juce::File cacheFile(const juce::String& name) {
     auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("chosen");
+    dir.deleteRecursively();   // (the last one's copy: read by now)
     dir.createDirectory();
     return dir.getChildFile(juce::File::createLegalFileName(name.isNotEmpty() ? name : juce::String("file")));
 }
@@ -16,6 +17,7 @@ juce::File openedFile(const juce::FileChooser& chooser) {
     if (url.isEmpty()) return {};
     if (url.isLocalFile()) return url.getLocalFile();
     const auto doc = juce::AndroidDocument::fromDocument(url);
+    if (!doc.hasValue()) return {};
     auto in = doc.createInputStream();
     if (in == nullptr) return {};
     auto copy = cacheFile(doc.getInfo().getName());
@@ -40,6 +42,7 @@ bool saveChosen(const juce::FileChooser& chooser, const juce::String& extension,
         return write(url.getLocalFile());
     }
     const auto doc = juce::AndroidDocument::fromDocument(url);
+    if (!doc.hasValue()) return false;
     name = doc.getInfo().getName();
     auto temp = cacheFile(name.isNotEmpty() ? name : "saved" + extension);
     temp.deleteFile();
