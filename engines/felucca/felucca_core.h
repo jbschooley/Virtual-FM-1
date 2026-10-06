@@ -77,6 +77,7 @@ typedef struct {
     X(int32_t, step_of, (uint32_t track))                                        \
     X(uint32_t, armed, (void))                                                   \
     X(uint32_t, scale_mask, (uint32_t track))                                    \
+    X(uint32_t, leds, (uint8_t *out, uint32_t max))                              \
     X(uint32_t, nlanes, (uint32_t track))                                        \
     X(const char *, lane_name, (uint32_t track, uint32_t lane))                  \
     X(int32_t, arr_do, (uint32_t op, uint32_t arg))                              \

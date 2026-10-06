@@ -67,8 +67,16 @@ extern const uint8_t slp_no_samples[3][0x14000];
 /* ---- the hardware, as Sloop's host tests replace it (tests/ui_pages_test.c) ------------------- */
 static struct { volatile uint32_t notes, buttons; } fm1_in;
 #define FM1_NCOL 16u
-static const int8_t FM1_KEYMAP[5][16];
-static uint8_t fm1_led[16], fm1_led_dim[16], fm1_led_bg[16];   /* (no LEDs here) */
+/* key id at (physical column, packed row bit), -1 = none: hal/fm1_input.h's, for the LEDs
+ * (ui_input.c led_pos_init finds each key's LED by it) */
+static const int8_t FM1_KEYMAP[5][16] = {
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+    { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1, -1, -1, -1, -1, -1},
+    {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12, -1, -1, -1, -1, -1},
+    {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, -1, -1, -1, -1, -1},
+    { 0,  1, 15, 14, 17, 16, 19, 18, 20, 21, 22, -1, -1, -1, -1, -1},
+};
+static uint8_t fm1_led[16], fm1_led_dim[16], fm1_led_bg[16];   /* lit, the guide, the background: read by FEL(leds) */
 static volatile uint16_t fm1_led_bg_ns;
 static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
 static int32_t fm1_adc_read(int c) { (void)c; return -1; }
@@ -530,7 +538,7 @@ void FEL(knob)(uint32_t role, int32_t steps)
 
 void FEL(draw)(uint16_t *screen)
 {
-    ui_leds();                           /* (the keys' lights: none here, but it keeps the UI's state as on the device) */
+    ui_leds();                           /* (as on the device: the LEDs, which FEL(leds) reads, then the screen) */
     ui_draw();
     if (screen)
         memcpy(screen, host_screen, sizeof host_screen);
@@ -566,6 +574,23 @@ uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit 
 /* the track's scale as 12 bits from its ROOT (seq.c); the drum track's 16 sounds (drums.c), none
  * on a synth part */
 uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
+
+/* the LEDs as ui_leds last set them: 14 buttons by label, the 27 keys, then 0 (no second LED);
+ * each 0 dark, 1 the background glow (menu LIGHTS), 2 dim (the guide), 3 lit */
+uint32_t FEL(leds)(uint8_t *out, uint32_t max)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NB + 27u + 1u && n < max; i++) {
+        uint32_t id = i < NB ? panel.btn[i] : 14u + (i - NB), p, r, v = 0;
+        if (i < NB + 27u)
+            for (p = 0; p < FM1_NCOL; p++)
+                for (r = 1; r < 5u; r++)
+                    if (FM1_KEYMAP[r][p] == (int8_t)id)
+                        v = (fm1_led[p] >> r) & 1u ? 3u : (fm1_led_dim[p] >> r) & 1u ? 2u : (fm1_led_bg[p] >> r) & 1u ? 1u : 0u;
+        out[n++] = (uint8_t)v;
+    }
+    return n;
+}
 uint32_t FEL(nlanes)(uint32_t track) { return track == TRK_DRUM ? DRUM_LANES : 0u; }
 
 /* ---- its live sections A-D, the song (the arrangement) and solo, as its panel's SONG and GLO

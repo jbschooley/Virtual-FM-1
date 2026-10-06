@@ -84,6 +84,9 @@ public:
     int stepOf(int track) const;               // the step it plays now (0-based), -1 while stopped
     unsigned armed() const;                    // live recording armed: a bit per track
     unsigned scaleMask(int track) const;       // its scale, 12 bits from its ROOT (bit 0: the root)
+    // the panel's LEDs: the 14 buttons by label, the 27 keys, PLAY's green LED (Felucca); each
+    // 0 dark, 1 the background glow, 2 dim (SLOOP's guide), 3 lit
+    std::vector<uint8_t> leds() const;
     std::vector<std::string> laneNames(int track) const;   // its drum lanes (Felucca: 8 on any track; SLOOP: the drum track's 16)
     // SLOOP's live sections, song and solo (sloop_core.c FEL(arr_do) / arr_state / arr_chain);
     // Felucca: -1, nothing

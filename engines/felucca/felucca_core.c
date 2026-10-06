@@ -110,8 +110,17 @@ static void ota_idle(void)
 
 /* ---- the hardware, as Felucca's host tests replace it (tests/ui_test.c) ----------------------- */
 #define FM1_NCOL 11u
-static const int8_t FM1_KEYMAP[6][FM1_NCOL];
-static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL];   /* (1.0.2: the idle glow, unused here: no LEDs) */
+/* key id at (physical column, packed row bit), -1 = none: hal/fm1_input.h's, for the LEDs
+ * (ui_input.c led_pos_init finds each key's LED by it) */
+static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+    { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1},
+    {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12},
+    {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
+    { 0,  1, 15, 14, 17, 16, 19, 18, 20, 21, 22},
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+};
+static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL];   /* lit, and the idle glow: read by FEL(leds) */
 static void fm1_led_dim_level(uint32_t lo) { (void)lo; }
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
@@ -572,6 +581,7 @@ void FEL(knob)(uint32_t role, int32_t steps)   /* by role (EN_*), clockwise +, a
 /* the screen, after drawing what changed: 240 x 240 RGB565, big endian as the LCD takes it */
 void FEL(draw)(uint16_t *screen)
 {
+    ui_leds();                           /* (as main.c's frame: the LEDs, then the screen) */
     ui_draw();
     if (screen)
         memcpy(screen, host_screen, sizeof host_screen);
@@ -611,6 +621,25 @@ uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit 
 /* the track's scale as 12 bits from its ROOT (seq.c), its drum lanes (8 on any track; their names
  * as its KIT plays them when its engine is DRUM, else the DRUM KIT's) */
 uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
+
+/* the LEDs as ui_leds last set them: 14 buttons by label, the 27 keys, then PLAY's green LED;
+ * each 0 dark, 1 glowing (the idle glow), 3 lit */
+uint32_t FEL(leds)(uint8_t *out, uint32_t max)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NB + 27u + 1u && n < max; i++) {
+        uint32_t id = i < NB ? panel.btn[i] : 14u + (i - NB), p, r, v = 0;
+        if (i == NB + 27u)
+            v = (fm1_led[8] >> 1) & 1u ? 3u : 0u;   /* (ui_input.c LED_PLAY_GREEN: column 8, bit 1) */
+        else
+            for (p = 0; p < FM1_NCOL; p++)
+                for (r = 1; r < 5u; r++)
+                    if (FM1_KEYMAP[r][p] == (int8_t)id)
+                        v = (fm1_led[p] >> r) & 1u ? 3u : (fm1_led_dim[p] >> r) & 1u ? 1u : 0u;
+        out[n++] = (uint8_t)v;
+    }
+    return n;
+}
 uint32_t FEL(nlanes)(uint32_t track) { (void)track; return NLANE; }
 /* SLOOP's live sections and song (sloop_core.c): Felucca has none (its song chain is the editor's
  * SONG command) */

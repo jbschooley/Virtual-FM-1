@@ -453,6 +453,14 @@ unsigned FeluccaEngine::scaleMask(int track) const {
     return core_->scale_mask(uint32_t(track));
 }
 
+std::vector<uint8_t> FeluccaEngine::leds() const {
+    std::vector<uint8_t> out(14 + 27 + 1);
+    if (!core_) return {};
+    auto g = bind();
+    out.resize(core_->leds(out.data(), uint32_t(out.size())));
+    return out;
+}
+
 std::vector<std::string> FeluccaEngine::laneNames(int track) const {
     std::vector<std::string> out;
     if (!core_ || track < 0) return out;
