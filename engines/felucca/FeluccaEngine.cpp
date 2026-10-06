@@ -461,6 +461,44 @@ std::vector<std::string> FeluccaEngine::laneNames(int track) const {
     return out;
 }
 
+std::optional<FeluccaEngine::Arrangement> FeluccaEngine::arrangement() const {
+    if (!core_) return std::nullopt;
+    uint8_t b[64];
+    uint32_t n;
+    {
+        auto g = bind();
+        n = core_->arr_state(b, sizeof b);
+    }
+    if (n < 11) return std::nullopt;
+    Arrangement a;
+    a.playing = int(b[0]) - 1;
+    a.queued = int(b[1]) - 1;
+    a.stored = b[2];
+    a.songMode = b[3] != 0;
+    a.songRec = b[4];
+    a.songPlays = b[5] != 0;
+    a.entry = b[6];
+    a.bar = b[7];
+    a.solo = b[8];
+    a.loop = b[9] != 0;
+    for (uint32_t i = 0; i < b[10] && 11 + 2 * i + 1 < n; ++i) a.chain.push_back({b[11 + 2 * i], b[12 + 2 * i]});
+    return a;
+}
+
+int FeluccaEngine::arrangementDo(int op, int arg) {
+    if (!core_) return -1;
+    auto g = bind();
+    return int(core_->arr_do(uint32_t(op), uint32_t(arg)));
+}
+
+int FeluccaEngine::setChain(const std::vector<std::pair<int, int>>& chain, bool loop) {
+    if (!core_) return -1;
+    std::vector<uint8_t> e;
+    for (auto [s, bars] : chain) { e.push_back(uint8_t(s)); e.push_back(uint8_t(bars)); }
+    auto g = bind();
+    return int(core_->arr_chain(e.data(), uint32_t(chain.size()), loop ? 1 : 0));
+}
+
 int FeluccaEngine::selected() const {
     if (!core_) return 0;
     auto g = bind();

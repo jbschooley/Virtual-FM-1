@@ -85,6 +85,19 @@ public:
     unsigned armed() const;                    // live recording armed: a bit per track
     unsigned scaleMask(int track) const;       // its scale, 12 bits from its ROOT (bit 0: the root)
     std::vector<std::string> laneNames(int track) const;   // its drum lanes (Felucca: 8 on any track; SLOOP: the drum track's 16)
+    // SLOOP's live sections, song and solo (sloop_core.c FEL(arr_do) / arr_state / arr_chain);
+    // Felucca: -1, nothing
+    struct Arrangement {
+        int playing = -1, queued = -1;     // the section playing, the one asked for (-1 none)
+        unsigned stored = 0;               // sections A-D stored, a bit each
+        bool songMode = false, songPlays = false, loop = false;
+        int songRec = 0, entry = 0, bar = 0;   // SONG REC 0 off, 1 armed, 2 recording; the song's place
+        unsigned solo = 0;
+        std::vector<std::pair<int, int>> chain;   // (section, bars)
+    };
+    std::optional<Arrangement> arrangement() const;
+    int arrangementDo(int op, int arg);    // FEL(arr_do)
+    int setChain(const std::vector<std::pair<int, int>>& chain, bool loop);
     // The device's stored objects, as Felucca's full backup carries them: 0 the music now
     // (a FUN8 project), 1 settings, 2..5 the project slots, 6 and 7 the user presets, 8 the
     // FM6 bank. get: false if there is no such object (an empty one gives no bytes); put:

@@ -567,6 +567,87 @@ uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit 
  * on a synth part */
 uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
 uint32_t FEL(nlanes)(uint32_t track) { return track == TRK_DRUM ? DRUM_LANES : 0u; }
+
+/* ---- its live sections A-D, the song (the arrangement) and solo, as its panel's SONG and GLO
+ * layers do them (ui_layers.c): no editor command reaches these. op:
+ *   0 PLAY a section (arg 0..3): playing, on the next bar; stopped, it becomes the loop
+ *   1 STORE the loop as a section (arg 0..3)
+ *   2 song mode (arg 0 off, 1 on)       3 SONG REC (arg 1 arm, 0 stop: what was played is the song)
+ *   4 solo (arg: a bit per track)
+ * 0 done, else why not: 1 empty section, 2 the song plays, 3 SONG REC is on, -1 not this one */
+int32_t FEL(arr_do)(uint32_t op, uint32_t arg)
+{
+    if (op == 0u) {
+        const uint32_t w = arg & 3u;
+        if (arrangement_clock.running) return 2;
+        if (!((arrangement_ready() >> w) & 1u)) return 1;
+        if (song.playing) live_req = (int8_t)w;
+        else section_load(w);
+        return 0;
+    }
+    if (op == 1u) { section_store(arg & 3u); return 0; }
+    if (op == 2u) {
+        if (srec) return 3;
+        arrangement_enabled = arg ? 1u : 0u;
+        return 0;
+    }
+    if (op == 3u) {
+        if (!arg) { if (srec) srec_stop(); return 0; }
+        if (srec) return 3;
+        if (arrangement_clock.running) return 2;
+        arrangement_enabled = 0;
+        srec = 1;
+        return 0;
+    }
+    if (op == 4u) { song.solo = (uint8_t)(arg & ((1u << NTRK) - 1u)); return 0; }
+    return -1;
+}
+
+/* the state, as bytes: playing section + 1 (0 none), asked-for section + 1, sections stored (a bit
+ * each), song mode, SONG REC (0, 1 armed, 2 recording), the song playing, its entry playing, its
+ * bar, solo, loop, count, then per entry its section and bars */
+uint32_t FEL(arr_state)(uint8_t *o, uint32_t max)
+{
+    uint32_t n = 0, i;
+    uint8_t b[11 + 2 * ARR_STEPS];
+    b[n++] = (uint8_t)(live_sec + 1);
+    b[n++] = (uint8_t)(live_req + 1);
+    b[n++] = (uint8_t)arrangement_ready();
+    b[n++] = arrangement_enabled;
+    b[n++] = srec;
+    b[n++] = arrangement_clock.running;
+    b[n++] = arrangement_clock.index;
+    b[n++] = arrangement_clock.bar;
+    b[n++] = song.solo;
+    b[n++] = arrangement.loop;
+    b[n++] = arrangement.count;
+    for (i = 0; i < arrangement.count && i < ARR_STEPS; i++) {
+        b[n++] = arrangement.entry[i].scene;
+        b[n++] = arrangement.entry[i].bars;
+    }
+    if (n > max) n = max;
+    FEL(memcpy)(o, b, n);
+    return n;
+}
+
+/* the song: count entries of (section 0..3, bars 1..64), loop 0/1; as its SONG screen edits it
+ * (any section, stored or not: song mode checks when it starts). 0 done, 1 invalid, 2 it plays */
+int32_t FEL(arr_chain)(const uint8_t *e, uint32_t n, int loop)
+{
+    uint32_t i;
+    if (!n || n > ARR_STEPS) return 1;
+    for (i = 0; i < n; i++)
+        if (e[2 * i] > 3u || !e[2 * i + 1] || e[2 * i + 1] > 64u) return 1;
+    if (arrangement_clock.running) return 2;
+    arrangement.count = (uint8_t)n;
+    arrangement.loop = loop ? 1u : 0u;
+    for (i = 0; i < n; i++) {
+        arrangement.entry[i].scene = e[2 * i];
+        arrangement.entry[i].bars = e[2 * i + 1];
+    }
+    song_dirty = 1;                       /* (kept with the settings, as the device does when quiet) */
+    return 0;
+}
 const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_DRUM && lane < DRUM_LANES ? LANE_NAME[lane] : ""; }
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor.c v6): 0 the

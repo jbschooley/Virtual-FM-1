@@ -49,6 +49,7 @@ private:
     class Grid;
     class SongView;
     class MotionView;
+    class SloopSongView;
     void timerCallback() override;
     std::shared_ptr<FeluccaEngine> engine() const;
     const felucca::Dialect& dialect() const;
@@ -82,6 +83,7 @@ private:
     std::unique_ptr<Grid> grid_;
     std::unique_ptr<SongView> song_;
     std::unique_ptr<MotionView> motion_;
+    std::unique_ptr<SloopSongView> sloopSong_;
 };
 
 #endif

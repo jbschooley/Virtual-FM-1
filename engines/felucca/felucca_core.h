@@ -79,6 +79,9 @@ typedef struct {
     X(uint32_t, scale_mask, (uint32_t track))                                    \
     X(uint32_t, nlanes, (uint32_t track))                                        \
     X(const char *, lane_name, (uint32_t track, uint32_t lane))                  \
+    X(int32_t, arr_do, (uint32_t op, uint32_t arg))                              \
+    X(uint32_t, arr_state, (uint8_t *out, uint32_t max))                         \
+    X(int32_t, arr_chain, (const uint8_t *entries, uint32_t count, int loop))    \
     X(uint32_t, object_max, (void))                                              \
     X(int32_t, object_get, (uint32_t id, uint8_t *out, uint32_t max))            \
     X(uint32_t, object_put, (uint32_t id, const uint8_t *data, uint32_t len))

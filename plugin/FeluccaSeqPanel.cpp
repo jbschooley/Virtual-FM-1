@@ -340,12 +340,185 @@ private:
     std::vector<felucca::Motion::Event> events_;
 };
 
+// ---- SLOOP's live sections A-D, its song and its mixer -----------------------------------------------
+// As its SONG and GLO layers do them. They have no editor command, so they act on this instance's
+// SLOOP only (the FM-1's are its own); a track's mute is a parameter, and reaches the FM-1 while Live.
+
+class FeluccaSeqPage::SloopSongView : public juce::Component, private juce::Timer {
+public:
+    explicit SloopSongView(FeluccaSeqPage& p) : page_(p) {
+        static const char* const names[4] = {"A", "B", "C", "D"};
+        for (int s = 0; s < 4; ++s) {
+            play_[s].setButtonText(juce::String("Play ") + names[s]);
+            store_[s].setButtonText(juce::String("Store ") + names[s]);
+            play_[s].onClick = [this, s] { act(0, s); };
+            store_[s].onClick = [this, s] { act(1, s); };
+            play_[s].setTooltip("Playing: this section from the next bar; stopped: it becomes the loop (SAVE + key on the device)");
+            store_[s].setTooltip("The loop as it is now, as this section");
+            addAndMakeVisible(play_[s]);
+            addAndMakeVisible(store_[s]);
+        }
+        for (int t = 0; t < 4; ++t) {
+            mute_[t].setButtonText(t < 3 ? "Mute " + juce::String(t + 1) : juce::String("Mute drums"));
+            solo_[t].setButtonText(t < 3 ? "Solo " + juce::String(t + 1) : juce::String("Solo drums"));
+            mute_[t].setClickingTogglesState(true);
+            solo_[t].setClickingTogglesState(true);
+            mute_[t].setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffb04040));
+            solo_[t].setColour(juce::TextButton::buttonOnColourId, kSloop[t].darker(0.2f));
+            mute_[t].onClick = [this, t] { page_.proc_.feluccaEdit(felucca::paramWrite(t, 40, mute_[t].getToggleState() ? 1 : 0)); };   // P_MUTE
+            solo_[t].onClick = [this] {
+                unsigned m = 0;
+                for (int k = 0; k < 4; ++k) m |= solo_[k].getToggleState() ? 1u << k : 0u;
+                if (auto f = page_.engine()) f->arrangementDo(4, int(m));
+            };
+            addAndMakeVisible(mute_[t]);
+            addAndMakeVisible(solo_[t]);
+        }
+        for (auto* b : {&songMode_, &songRec_, &loop_}) b->setClickingTogglesState(true), addAndMakeVisible(b);
+        songMode_.onClick = [this] { act(2, songMode_.getToggleState() ? 1 : 0); };
+        songRec_.onClick = [this] { act(3, songRec_.getToggleState() ? 1 : 0); };
+        loop_.onClick = [this] { writeChain(); };
+        songMode_.setTooltip("Song mode: PLAY plays the song below, section by section; off, the loop");
+        songRec_.setTooltip("SONG REC: from the next bar, the sections you play (Play A-D) and how long become the song; off again to finish");
+        loop_.setTooltip("At the end of the song, from its start again");
+        addAndMakeVisible(add_);
+        add_.onClick = [this] { if (chain_.size() < 16) { chain_.push_back({0, 4}); writeChain(); } };
+        for (auto* l : {&status_, &sectionsLabel_, &songLabel_, &mixLabel_}) {
+            l->setColour(juce::Label::textColourId, kDim);
+            addAndMakeVisible(l);
+        }
+        sectionsLabel_.setText("Sections", juce::dontSendNotification);
+        songLabel_.setText("Song", juce::dontSendNotification);
+        mixLabel_.setText("Mix (on this instance; mute also reaches the FM-1 while Live)", juce::dontSendNotification);
+        startTimerHz(5);
+    }
+    void read() {
+        auto f = page_.engine();
+        if (!f) return;
+        auto a = f->arrangement();
+        if (!a) return;
+        static const char* const names[4] = {"A", "B", "C", "D"};
+        for (int s = 0; s < 4; ++s) {
+            const bool stored = (a->stored >> s) & 1u;
+            play_[s].setEnabled(stored);
+            const auto c = kSloop[s];
+            play_[s].setColour(juce::TextButton::buttonColourId, a->playing == s ? c : a->queued == s ? c.withAlpha(0.45f) : kBox);
+            store_[s].setColour(juce::TextButton::buttonColourId, stored ? c.darker(0.6f) : kBox);
+        }
+        songMode_.setToggleState(a->songMode, juce::dontSendNotification);
+        songRec_.setToggleState(a->songRec != 0, juce::dontSendNotification);
+        loop_.setToggleState(a->loop, juce::dontSendNotification);
+        for (int t = 0; t < 4; ++t) {
+            solo_[t].setToggleState((a->solo >> t) & 1u, juce::dontSendNotification);
+            mute_[t].setToggleState(f->param(t, 40) != 0, juce::dontSendNotification);
+        }
+        juce::String st = a->songPlays ? "The song plays: part " + juce::String(a->entry + 1) + ", bar " + juce::String(a->bar + 1)
+                        : a->playing >= 0 ? juce::String("Playing section ") + names[a->playing] : juce::String("No section yet: store the loop as one");
+        if (a->queued >= 0) st << " (next: " << names[a->queued] << ")";
+        if (a->songRec == 1) st << ". SONG REC: from the next bar";
+        if (a->songRec == 2) st << ". SONG REC: recording";
+        status_.setText(st, juce::dontSendNotification);
+        if (a->chain != chain_ || rows_.empty()) { chain_ = a->chain; build(); }
+    }
+    void resized() override {
+        auto r = getLocalBounds().reduced(8);
+        sectionsLabel_.setBounds(r.removeFromTop(20));
+        auto row = r.removeFromTop(30);
+        const int w = std::min(120, (row.getWidth() - 12) / 4);
+        for (int s = 0; s < 4; ++s) { play_[s].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
+        row = r.removeFromTop(30);
+        for (int s = 0; s < 4; ++s) { store_[s].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
+        r.removeFromTop(4);
+        status_.setBounds(r.removeFromTop(22));
+        r.removeFromTop(6);
+        mixLabel_.setBounds(r.removeFromTop(20));
+        row = r.removeFromTop(28);
+        for (int t = 0; t < 4; ++t) { mute_[t].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
+        row = r.removeFromTop(28);
+        for (int t = 0; t < 4; ++t) { solo_[t].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
+        r.removeFromTop(8);
+        songLabel_.setBounds(r.removeFromTop(20));
+        row = r.removeFromTop(28);
+        songMode_.setBounds(row.removeFromLeft(110)); row.removeFromLeft(4);
+        songRec_.setBounds(row.removeFromLeft(100)); row.removeFromLeft(4);
+        loop_.setBounds(row.removeFromLeft(70)); row.removeFromLeft(4);
+        add_.setBounds(row.removeFromLeft(90));
+        r.removeFromTop(6);
+        for (auto& rw : rows_) {
+            auto line = r.removeFromTop(26);
+            rw->index.setBounds(line.removeFromLeft(26));
+            rw->section.setBounds(line.removeFromLeft(90));
+            line.removeFromLeft(6);
+            rw->bars.setBounds(line.removeFromLeft(std::min(240, line.getWidth() - 80)));
+            line.removeFromLeft(6);
+            rw->remove.setBounds(line.removeFromLeft(70));
+            r.removeFromTop(3);
+        }
+    }
+
+private:
+    struct Row {
+        juce::Label index;
+        juce::ComboBox section;
+        juce::Slider bars{juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft};
+        juce::TextButton remove{"Remove"};
+    };
+    void timerCallback() override { if (isShowing() && !isMouseButtonDownAnywhere()) read(); }
+    void act(int op, int arg) {
+        auto f = page_.engine();
+        if (!f) return;
+        static const char* const why[4] = {"", "That section is empty: store the loop as it first", "The song plays: stop it first", "SONG REC is on"};
+        const int rc = f->arrangementDo(op, arg);
+        if (rc > 0 && rc < 4) page_.info_.setText(why[rc], juce::dontSendNotification);
+        read();
+    }
+    void build() {
+        rows_.clear();
+        for (size_t i = 0; i < chain_.size(); ++i) {
+            auto rw = std::make_unique<Row>();
+            rw->index.setText(juce::String(int(i) + 1), juce::dontSendNotification);
+            rw->index.setColour(juce::Label::textColourId, kDim);
+            for (int s = 0; s < 4; ++s) rw->section.addItem("Section " + juce::String::charToString(juce::juce_wchar('A' + s)), s + 1);
+            rw->section.setSelectedId(chain_[i].first + 1, juce::dontSendNotification);
+            rw->bars.setRange(1, 64, 1);
+            rw->bars.setValue(chain_[i].second, juce::dontSendNotification);
+            rw->bars.setTextValueSuffix(" bars");
+            rw->section.onChange = [this, i] { chain_[i].first = rows_[i]->section.getSelectedId() - 1; writeLater(); };
+            rw->bars.onValueChange = [this, i] { chain_[i].second = int(rows_[i]->bars.getValue()); if (!rows_[i]->bars.isMouseButtonDown()) writeLater(); };
+            rw->bars.onDragEnd = [this] { writeLater(); };
+            rw->remove.onClick = [this, i] { if (chain_.size() > 1) { chain_.erase(chain_.begin() + long(i)); writeLater(); } };
+            for (auto* c : std::initializer_list<juce::Component*>{&rw->index, &rw->section, &rw->bars, &rw->remove}) addAndMakeVisible(c);
+            rows_.push_back(std::move(rw));
+        }
+        resized();
+    }
+    void writeChain() {
+        if (auto f = page_.engine()) {
+            const int rc = f->setChain(chain_, loop_.getToggleState());
+            if (rc == 2) page_.info_.setText("The song plays: stop it first", juce::dontSendNotification);
+        }
+        rows_.clear();
+        read();
+    }
+    void writeLater() {
+        juce::Component::SafePointer<SloopSongView> self(this);
+        juce::MessageManager::callAsync([self] { if (self) self->writeChain(); });
+    }
+    FeluccaSeqPage& page_;
+    juce::TextButton play_[4], store_[4], mute_[4], solo_[4], songMode_{"Song mode"}, songRec_{"SONG REC"}, loop_{"Loop"}, add_{"Add a part"};
+    juce::Label status_, sectionsLabel_, songLabel_, mixLabel_;
+    std::vector<std::pair<int, int>> chain_;
+    std::vector<std::unique_ptr<Row>> rows_;
+};
+
 // ---- the page ---------------------------------------------------------------------------------------
 
 FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     grid_ = std::make_unique<Grid>(*this);
     song_ = std::make_unique<SongView>(*this);
+    sloopSong_ = std::make_unique<SloopSongView>(*this);
     motion_ = std::make_unique<MotionView>(*this);
+    addChildComponent(*sloopSong_);
     addAndMakeVisible(*grid_);
     addChildComponent(*song_);
     addChildComponent(*motion_);
@@ -483,7 +656,7 @@ void FeluccaSeqPage::refresh() {
         trackButtons_[i].setButtonText(sloop() && f && i >= f->parts() ? juce::String("DRUMS") : "PART " + juce::String(i + 1));
         if (sloop()) trackButtons_[i].setColour(juce::TextButton::buttonOnColourId, kSloop[i].darker(0.3f));
     }
-    songTab_.setVisible(!sloop());     // (SLOOP's sections and song: on its own view)
+    songTab_.setVisible(true);         // (SLOOP's: its sections, song and mix)
     motionTab_.setVisible(!sloop());
     notesView_.setVisible(!sloop());
     drumsView_.setVisible(!sloop());
@@ -495,7 +668,7 @@ void FeluccaSeqPage::refresh() {
     readContext();
     readPattern();
     loadControls();
-    if (view_ == 1) song_->read();
+    if (view_ == 1) { if (sloop()) sloopSong_->read(); else song_->read(); }
     if (view_ == 2) motion_->read();
     resized();
     repaint();
@@ -542,7 +715,7 @@ void FeluccaSeqPage::timerCallback() {
         readContext();
         readPattern();
         if (!(before == pat_)) { loadControls(); grid_->repaint(); }
-        if (view_ == 1 && tick_ % 10 == 0) song_->read();
+        if (view_ == 1 && tick_ % 10 == 0 && !sloop()) song_->read();
         if (view_ == 2 && tick_ % 10 == 0) motion_->read();
     }
     if (f->selected() != track_ && f->selected() < f->tracks() && !isMouseButtonDownAnywhere()) {   // chosen on the device
@@ -738,9 +911,10 @@ void FeluccaSeqPage::showView(int v) {
     view_ = v;
     (v == 1 ? songTab_ : v == 2 ? motionTab_ : patternTab_).setToggleState(true, juce::dontSendNotification);
     grid_->setVisible(v == 0);
-    song_->setVisible(v == 1);
+    song_->setVisible(v == 1 && !sloop());
+    sloopSong_->setVisible(v == 1 && sloop());
     motion_->setVisible(v == 2);
-    if (v == 1) song_->read();
+    if (v == 1) { if (sloop()) sloopSong_->read(); else song_->read(); }
     if (v == 2) motion_->read();
     resized();
 }
@@ -783,7 +957,7 @@ void FeluccaSeqPage::resized() {
             c->setBounds(0, 0, 0, 0);
         for (auto& b : pageButtons_) b.setBounds(0, 0, 0, 0);
         layoutControls({});
-        (view_ == 1 ? static_cast<juce::Component&>(*song_) : *motion_).setBounds(r);
+        (view_ == 1 ? (sloop() ? static_cast<juce::Component&>(*sloopSong_) : *song_) : static_cast<juce::Component&>(*motion_)).setBounds(r);
         return;
     }
     // the pattern's settings, the pages, the view and the octave

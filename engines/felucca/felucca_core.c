@@ -611,6 +611,11 @@ uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit 
  * as its KIT plays them when its engine is DRUM, else the DRUM KIT's) */
 uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
 uint32_t FEL(nlanes)(uint32_t track) { (void)track; return NLANE; }
+/* SLOOP's live sections and song (sloop_core.c): Felucca has none (its song chain is the editor's
+ * SONG command) */
+int32_t FEL(arr_do)(uint32_t op, uint32_t arg) { (void)op; (void)arg; return -1; }
+uint32_t FEL(arr_state)(uint8_t *out, uint32_t max) { (void)out; (void)max; return 0; }
+int32_t FEL(arr_chain)(const uint8_t *e, uint32_t n, int loop) { (void)e; (void)n; (void)loop; return -1; }
 const char *FEL(lane_name)(uint32_t track, uint32_t lane)
 {
     static const track_t plain;          /* (KIT 0: the DRUM KIT's names) */

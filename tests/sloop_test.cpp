@@ -307,6 +307,45 @@ int main() {
         CHECK(screen.size() == 240u * 240u && lit > 1000, "the screen draws");
     }
 
+    // ---- live sections, the song and solo (its SONG and GLO layers) ----
+    {
+        Sloop f{kSloop};
+        std::vector<float> l(256), r(256);
+        auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) f.render(l.data(), r.data(), 256); };
+        auto a = f.arrangement();
+        CHECK(a && a->playing == -1 && a->stored == 0 && !a->songMode && !a->chain.empty(), "no section stored at power-on; a default song");
+        CHECK(f.arrangementDo(0, 1) == 1, "an empty section does not play");
+        f.setParam(0, 0, 50);
+        CHECK(f.arrangementDo(1, 0) == 0 && (f.arrangement()->stored & 1u), "the loop stored as section A");
+        f.setParam(0, 0, 90);
+        CHECK(f.arrangementDo(1, 1) == 0 && f.arrangement()->stored == 3u, "and as B");
+        CHECK(f.arrangementDo(0, 0) == 0 && f.arrangement()->playing == 0 && f.param(0, 0) == 50, "stopped, A played becomes the loop");
+        f.transport(true);
+        run(4);
+        CHECK(f.arrangementDo(0, 1) == 0 && f.arrangement()->queued == 1 && f.arrangement()->playing == 0, "playing, B asked for waits for the bar");
+        run(500);   // (two seconds and more: a bar at 90 BPM)
+        a = f.arrangement();
+        CHECK(a && a->playing == 1 && a->queued == -1 && f.param(0, 0) == 90, "and plays from the next bar");
+        f.transport(false);
+        run(4);
+        CHECK(f.setChain({{1, 2}, {0, 1}}, true) == 0, "a song set");
+        a = f.arrangement();
+        const std::vector<std::pair<int, int>> want = {{1, 2}, {0, 1}};
+        CHECK(a && a->chain == want && a->loop, "and read back, looping");
+        CHECK(f.setChain({{5, 1}}, false) == 1 && f.setChain({}, false) == 1, "a section past D, or no part: refused");
+        CHECK(f.arrangementDo(2, 1) == 0 && f.arrangement()->songMode, "song mode on");
+        f.transport(true);
+        run(8);
+        a = f.arrangement();
+        CHECK(a && a->songPlays && a->entry == 0 && f.arrangementDo(0, 0) == 2, "PLAY plays the song; a section is not played meanwhile");
+        f.transport(false);
+        run(4);
+        CHECK(f.arrangementDo(2, 0) == 0 && f.arrangementDo(3, 1) == 0 && f.arrangement()->songRec == 1, "SONG REC armed");
+        CHECK(f.arrangementDo(2, 1) == 3, "song mode waits while SONG REC is on");
+        CHECK(f.arrangementDo(3, 0) == 0 && f.arrangement()->songRec == 0, "and off");
+        CHECK(f.arrangementDo(4, 0b0101) == 0 && f.arrangement()->solo == 0b0101u, "solo: parts 1 and 3");
+    }
+
     // ---- a copy given back is as good as new ----
     {
         {
