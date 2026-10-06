@@ -83,6 +83,12 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 // One track's sound from one side to the other, as Live carries a load: its engine and preset
 // (that track selected on `to` for it), every value that differs, its FM6 patch. *loaded says
 // whether it loaded a preset on `to`.
+// INFO's live-sync capabilities (its tagged block 53 01 caps, Felucca 1.0.2 on; 0 before):
+// bit 0 WATCH while watching keeps what is not pushed yet, bit 1 no RELOAD after the editor's own
+// PRESET or SET of G_ENGSEL. The reply's arguments.
+constexpr uint8_t kCapWatchKeeps = 1, kCapNoEcho = 2;
+uint8_t liveCaps(const std::vector<uint8_t>& infoArgs);
+
 struct Loaded { bool did = false; uint8_t engine = 0, preset = 0; };
 bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded = nullptr);
 
@@ -100,6 +106,7 @@ private:
         Endpoint& ep;
         int sel = 0;
         juce::uint32 pinged = 0;
+        uint8_t caps = 0;                      // its INFO 53 01 (no RELOAD echo of our loads: kCapNoEcho)
         std::vector<std::pair<Bytes, juce::uint32>> echoes;   // RELOADs our own loads will push, and when
     };
     bool carry(Side& from, Side& to, const Bytes& push, juce::String& error);

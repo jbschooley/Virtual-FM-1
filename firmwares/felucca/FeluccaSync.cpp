@@ -287,20 +287,48 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 
 // ---- live ----
 
-// INFO: version string, then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
-static std::optional<std::vector<uint8_t>> layout(Endpoint& ep) {
+// INFO: version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, NENGINES engine names, NTRK,
+// CHAIN_ROWS, then tagged blocks (tag, 01, a payload of a length the tag gives); older firmware ends
+// earlier. 53 01 caps: the live-sync capabilities.
+uint8_t liveCaps(const std::vector<uint8_t>& a) {
+    size_t k = 0;
+    auto string = [&] { while (k < a.size() && a[k] != 0) ++k; ++k; };
+    string();                                  // the version
+    if (k + 5 > a.size()) return 0;
+    const int engines = a[k];
+    k += 5;
+    for (int e = 0; e < engines && k < a.size(); ++e) string();
+    k += 2;                                    // NTRK, CHAIN_ROWS
+    while (k + 2 <= a.size()) {
+        const uint8_t tag = a[k];
+        size_t len = 0;
+        switch (tag) {
+            case 0x55: case 0x42: case 0x53: len = 1; break;   // UI caps, backup caps, live sync caps
+            case 0x4D: case 0x46: len = 2; break;              // motion, FM6 bank
+            default: return 0;                                 // a block this does not know: stop
+        }
+        if (a[k + 1] != 1 || k + 2 + len > a.size()) return 0;
+        if (tag == 0x53) return a[k + 2];
+        k += 2 + len;
+    }
+    return 0;
+}
+
+// INFO: version string, then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0 (and its live-sync caps)
+static std::optional<std::vector<uint8_t>> layout(Endpoint& ep, uint8_t* caps = nullptr) {
     auto r = ep.ask(frame(kInfo), kAsk);
     if (!r) return std::nullopt;
     auto a = argsOf(*r);
     size_t at = 0;
     while (at < a.size() && a[at] != 0) ++at;
     if (at + 6 > a.size()) return std::nullopt;
+    if (caps) *caps = liveCaps(a);
     return std::vector<uint8_t>(a.begin() + long(at) + 1, a.begin() + long(at) + 6);
 }
 
 bool Mirror::start(juce::String& error) {
     // values go by parameter number: both must number them alike (the same Felucca version)
-    auto la = layout(a_.ep), lb = layout(b_.ep);
+    auto la = layout(a_.ep, &a_.caps), lb = layout(b_.ep, &b_.caps);
     if (!la || !lb) { error = "a synth did not say what it is"; return false; }
     if ((*la)[1] != (*lb)[1] || (*la)[2] != (*lb)[2] || (*la)[4] != (*lb)[4]) {
         error = "the FM-1 runs another version of Felucca than the plugin (" + juce::String((*la)[1]) + " parameters, "
@@ -404,7 +432,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
 bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error) {
     Loaded loaded;
     const bool ok = copySound(from.ep, to.ep, track, error, &loaded);
-    if (loaded.did)   // (a load: the other side's RELOAD is expected, not carried back)
+    if (loaded.did && !(to.caps & kCapNoEcho))   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
         to.echoes.push_back({frame(kReload, {loaded.engine, loaded.preset, uint8_t(track)}), juce::Time::getMillisecondCounter()});
     return ok;
 }

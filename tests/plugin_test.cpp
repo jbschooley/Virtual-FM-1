@@ -570,6 +570,22 @@ static int checks() {
                 CHECK(lossy.lastCut, "and the music's last piece was cut short (" + juce::String((*all)[0].size()) + " bytes)");
             }
 
+            {   // INFO's live-sync capabilities (53 01 caps, Felucca 1.0.2 on): our 1.0 has none
+                auto e = std::make_shared<FeluccaEngine>();
+                auto info = e->ask(felucca::frame(felucca::kInfo));
+                CHECK(info && felucca::liveCaps(felucca::argsOf(*info)) == 0, "Felucca 1.0's INFO has no live-sync capabilities");
+                // as 1.0.2 sends it (EDITOR_PROTOCOL.md): names with an S (0x53) in them, then the blocks
+                std::vector<uint8_t> a;
+                for (char c : std::string("FELUCCA v1.0.2")) a.push_back(uint8_t(c));
+                a.push_back(0);
+                a.insert(a.end(), {2, 91, 27, 64, 83});
+                for (const char* n : {"SAMPLE", "SLICE"}) { for (const char* c = n; *c; ++c) a.push_back(uint8_t(*c)); a.push_back(0); }
+                a.insert(a.end(), {4, 16, 0x55, 1, 0, 0x4D, 1, 64, 1, 0x42, 1, 3, 0x46, 1, 8, 0x1B, 0x53, 1, 3});
+                CHECK(felucca::liveCaps(a) == 3, "1.0.2's INFO: WATCH keeps pending pushes, no RELOAD echo");
+                auto unknown = a;
+                unknown.insert(unknown.end() - 3, {0x7E, 1, 9});   // a block it does not know, before 53
+                CHECK(felucca::liveCaps(unknown) == 0, "a block it does not know ends the reading");
+            }
             {   // one part's sound copied (the Sound page's from/to FM-1 buttons): only that part
                 auto x = std::make_shared<FeluccaEngine>(), y = std::make_shared<FeluccaEngine>();
                 felucca::VirtualEndpoint ex(x), ey(y);
