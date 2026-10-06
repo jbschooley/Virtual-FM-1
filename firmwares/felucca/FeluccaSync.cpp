@@ -57,11 +57,13 @@ const Dialect& feluccaDialect() {
 }
 
 // SLOOP 2.3's editor.c: BK_LIST 34, BK_GET 35, BK_PUT 36 (v6), objects 0..7 (no FM6 bank); its web
-// editor restores 6, 7, 2..5, 0, 1 (editor.html BK.RESTORE)
+// editor restores 6, 7, 2..5, 0, 1 (editor.html BK.RESTORE). Its drum track (3) pushes STEP_CHANGED
+// for a lane edit, but TRACK_STEP there is a four-lane view without levels or ratchets: DRUM_STEP
+// (33: index -> index, lanes 3, levels 5, ratchets 5; the same args write them) carries it whole.
 const Dialect& sloopDialect() {
     static const Dialect d{"SLOOP", 34, 35, 36, false,
                            {0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34}, {6, 7, 2, 3, 4, 5, 0, 1}, 7, false, "sloop-backup",
-                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29}};
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29}, 3, 33};
     return d;
 }
 
@@ -186,7 +188,8 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
     auto list = from.ask(frame(d.backupList), kFlash);   // (Felucca stops the transport first)
     auto a = list ? argsOf(*list) : std::vector<uint8_t>{};
     const size_t h = d.listVersion ? 1 : 0;   // Felucca: version 1, rc, count; SLOOP: rc, count
-    if (a.size() < h + 2 || (d.listVersion && a[0] != 1)) { error = "the synth did not list its objects (Felucca 1.0 or later has the full backup)"; return std::nullopt; }
+    if (a.size() < h + 2 || (d.listVersion && a[0] != 1))
+        { error = d.listVersion ? "the synth did not list its objects (Felucca 1.0 or later has the full backup)" : "the synth did not list its objects"; return std::nullopt; }
     if (a[h] != 0) { error = a[h] == 3 ? "the synth could not stop playing" : "the synth could not list its objects (rc " + juce::String(a[h]) + ")"; return std::nullopt; }
     struct Entry { int id; uint32_t size, crc; };
     std::vector<Entry> entries;
@@ -431,6 +434,14 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
     }
     if (cmd == kStepChanged && a.size() >= 2) {   // index, track
+        const auto& d = from.ep.dialect();
+        if (d.drumStep >= 0 && a[1] == d.drumTrack) {   // SLOOP's drum lanes, whole
+            auto r = from.ep.ask(frame(d.drumStep, {a[0]}), kAsk);
+            if (!must(r, "DRUM_STEP")) return false;
+            auto step = argsOf(*r);
+            if (step.size() < 14) return true;
+            return must(to.ep.ask(frame(d.drumStep, step), kAsk), "DRUM_STEP");
+        }
         auto r = from.ep.ask(frame(kTrackStep, {a[1], a[0]}), kAsk);
         if (!must(r, "TRACK_STEP")) return false;
         auto step = argsOf(*r);

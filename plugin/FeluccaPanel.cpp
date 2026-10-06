@@ -438,6 +438,9 @@ void FeluccaSoundPage::build() {
     const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
                                              : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
     for (const auto& def : defs) {
+        // SLOOP's drum track: its kit, pattern and slicer (its level and reverb are globals, DRLVL
+        // and DRREV; the device shows it no other track page, and its drums read nothing else)
+        if (drums && juce::String(def.title) != "Engine" && juce::String(def.title) != "Sequencer" && juce::String(def.title) != "Slicer") continue;
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {

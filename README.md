@@ -151,9 +151,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca** and **SLOOP**: their user sample slots are empty.
-- **SLOOP**: its parameters are not host parameters yet (no automation), and
-  Live does not carry edits to the drum track's lanes (SLOOP does not push
-  them). Syncing with an FM-1 running SLOOP has been tried between two of the
+- **SLOOP**: its parameters are not host parameters yet (no automation).
+  Syncing with an FM-1 running SLOOP has been tried between two of the
   plugin's own SLOOPs only, not with an FM-1 yet.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to

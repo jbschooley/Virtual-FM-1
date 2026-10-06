@@ -1278,6 +1278,9 @@ void FM1Processor::setFirmware(const juce::String& id) {
             auto kept = feluccaState(felucca_->flavor());
             std::lock_guard<std::mutex> g(felStateLock_);
             feluccaSaved_[flavorIndex(felucca_->flavor())] = kept;
+            felOriginal_ = {};   // (the unread music kept with it is its own, not the next engine's)
+            felUnread_ = {};
+            felBase_.clear();
         }
         if (want && (!felucca_ || away)) {
             next = std::make_shared<FeluccaEngine>(flavor);

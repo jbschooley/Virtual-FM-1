@@ -421,10 +421,46 @@ static int checks() {
             CHECK(err.isEmpty(), "no side stopped answering: " + err);
             mirror.stop();
         }
+        {   // the drum track's lanes, whole. A lane edit on the device pushes STEP_CHANGED for the drum
+            // track; an editor's write does not (it knows it), so the push is put in here, as the
+            // device would send it after its own edit
+            struct Injecting : felucca::Endpoint {
+                felucca::Endpoint& e;
+                std::vector<fm1::Bytes> extra;
+                explicit Injecting(felucca::Endpoint& x) : e(x) {}
+                const felucca::Dialect& dialect() const override { return e.dialect(); }
+                std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { return e.ask(q, t); }
+                std::vector<fm1::Bytes> pushes() override { auto p = e.pushes(); p.insert(p.end(), extra.begin(), extra.end()); extra.clear(); return p; }
+            };
+            auto a = std::make_shared<FeluccaEngine>(Fl::Sloop), b = std::make_shared<FeluccaEngine>(Fl::Sloop);
+            felucca::VirtualEndpoint ea(a), eb(b);
+            Injecting ia(ea);
+            auto drumStep = [](FeluccaEngine& f, std::vector<uint8_t> args) {
+                auto r = f.ask(felucca::frame(33, args));
+                return r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+            };
+            juce::String err;
+            felucca::Mirror mirror(ia, eb);
+            CHECK(mirror.start(err), "live (drums): both watched");
+            // step 3: lane 6 soft with a ratchet, lane 12 hard (2 bits a lane for level and ratchet)
+            const uint32_t on = (1u << 5) | (1u << 11), lv = (1u << 10) | (2u << 22), rt = 2u << 10;
+            std::vector<uint8_t> w = {2, uint8_t(on & 127), uint8_t((on >> 7) & 127), uint8_t((on >> 14) & 3)};
+            for (int i = 0; i < 5; ++i) w.push_back(uint8_t((lv >> (7 * i)) & 127));
+            for (int i = 0; i < 5; ++i) w.push_back(uint8_t((rt >> (7 * i)) & 127));
+            const auto before = drumStep(*b, {2});
+            drumStep(*a, w);
+            const auto wrote = drumStep(*a, {2});
+            ia.extra.push_back(felucca::frame(felucca::kStepChanged, {2, 3}));   // step 3 of the drum track
+            CHECK(mirror.tick(err), "the push carried (" + err + ")");
+            CHECK(wrote.size() == 14 && wrote != before && drumStep(*b, {2}) == wrote,
+                  "Live carries a drum step whole: lanes past the fourth, their levels and ratchets");
+            mirror.stop();
+        }
         // the device file: SLOOP's own backup format, in the library's SLOOP folder
         {
-            const auto file = felucca::DeviceStore::defaultFile(felucca::sloopDialect());
-            CHECK(file.getFileName() == "SLOOP device.json" && file.getParentDirectory().getFileName() == "SLOOP", "<library>/SLOOP/SLOOP device.json");
+            const auto where = felucca::DeviceStore::defaultFile(felucca::sloopDialect());   // (named only: never written here)
+            CHECK(where.getFileName() == "SLOOP device.json" && where.getParentDirectory().getFileName() == "SLOOP", "<library>/SLOOP/SLOOP device.json");
+            const auto file = juce::File::createTempFile(".json");
             auto e = std::make_shared<FeluccaEngine>(Fl::Sloop);
             felucca::DeviceStore store(file, felucca::sloopDialect());
             store.load(*e);
@@ -438,6 +474,7 @@ static int checks() {
             CHECK(json.getProperty("format", {}).toString() == "sloop-backup" && felucca::readBackup(file, o, err, felucca::sloopDialect())
                   && o[4] == music && !o.count(8), "as SLOOP's editor writes a backup (sloop-backup), slot C in it");
             CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
+            file.deleteFile();
         }
     }
    #endif

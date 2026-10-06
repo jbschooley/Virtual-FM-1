@@ -109,7 +109,7 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
         // not this instance's firmware: forget the synth and do nothing more with it
         rejected_ = true;
         rejectedName_ = fm1::firmwareFor(*id)->name();
-        rejectedChoice_ = fm1::isFirmwareChoice(fm1::firmwareIdFor(*id));   // (else no instance plays it: Sloop)
+        rejectedChoice_ = fm1::isFirmwareChoice(fm1::firmwareIdFor(*id));   // (else no instance plays it)
         { std::lock_guard<std::mutex> l(identityLock_); identity_.reset(); }
         {
             std::lock_guard<std::mutex> lock(firmwareLock_);
