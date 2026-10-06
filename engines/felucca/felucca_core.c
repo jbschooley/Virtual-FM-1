@@ -613,7 +613,11 @@ uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk
 uint32_t FEL(nlanes)(uint32_t track) { (void)track; return NLANE; }
 const char *FEL(lane_name)(uint32_t track, uint32_t lane)
 {
-    return track < NTRK && lane < NLANE ? drum_lane_name(&trk[track], lane) : "";
+    static const track_t plain;          /* (KIT 0: the DRUM KIT's names) */
+    if (track >= NTRK || lane >= NLANE)
+        return "";
+    /* its KIT only on a DRUM track: on another engine E1 is that engine's parameter */
+    return drum_lane_name(trk[track].eng_req == ENGI_DRUM ? &trk[track] : &plain, lane);
 }
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor_backup.c):

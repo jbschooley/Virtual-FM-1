@@ -672,7 +672,19 @@ static int checks() {
             if (juce::String(id) == "felucca") {
                 page.selectStep(6);
                 page.setStepChance(30);
-                CHECK(felucca::readStep(e, 1, 6)->chance == 30, who + "chance");
+                auto s6 = felucca::readStep(e, 1, 6);
+                CHECK(s6 && s6->chance == 30, who + "chance");
+                {   // lane names: its KIT's on a DRUM track only (on another engine E1 is that engine's)
+                    f->setEngine(2, 0);                                       // ANALOG
+                    f->setParam(2, f->firstEngineParam(), 1);
+                    const auto plain = f->laneNames(2);
+                    int drum = -1;
+                    for (int en = 0; en < f->engines(); ++en) if (f->engineName(en) == "DRUM") drum = en;
+                    f->setEngine(2, drum);
+                    f->setParam(2, f->firstEngineParam(), 1);                 // the HAND kit
+                    const auto hand = f->laneNames(2);
+                    CHECK(plain.size() == 8 && plain[5] == "TOM" && hand.size() == 8 && hand[5] == "CONGA", who + "lane names: the DRUM KIT's, or its own KIT's on a DRUM track");
+                }
                 page.toggleLane(8, 2, false);
                 page.toggleLane(8, 2, true);
                 auto s8 = felucca::readStep(e, 1, 8);

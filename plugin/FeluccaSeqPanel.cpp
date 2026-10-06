@@ -120,8 +120,15 @@ public:
             const bool tieNext = size_t(step + 1) < page_.pat_.steps.size() && page_.pat_.steps[size_t(step + 1)].time == felucca::kTie;
             // a TIE step holds the notes of the step before: they draw through it
             const felucca::Step* sounding = &s;
-            for (int back = step; back >= 0 && page_.pat_.steps[size_t(back)].time == felucca::kTie; --back)
-                sounding = back > 0 ? &page_.pat_.steps[size_t(back - 1)] : nullptr;
+            {   // (across the loop: a TIE on step 1 holds the last step's notes, as the device plays and draws it)
+                const int len = std::clamp(page_.pat_.len, 1, int(page_.pat_.steps.size()));
+                int back = step;
+                for (int guard = 0; guard < len && sounding != nullptr && sounding->time == felucca::kTie; ++guard) {
+                    back = (back + len - 1) % len;
+                    sounding = &page_.pat_.steps[size_t(back)];
+                }
+                if (sounding != nullptr && sounding->time == felucca::kTie) sounding = nullptr;   // all ties: nothing
+            }
             if (sounding == nullptr || sounding->time == felucca::kRest) continue;
             for (int k = 0; k < sounding->n; ++k) {
                 const int r = page_.lowNote_ + kRows - 1 - sounding->note[size_t(k)];
@@ -233,10 +240,15 @@ private:
             w->repeat.setRange(1, 16, 1);
             w->repeat.setValue(rows_[i].second, juce::dontSendNotification);
             w->repeat.setTextValueSuffix(" x");
-            w->slot.onChange = [this, i] { rows_[i].first = widgets_[i]->slot.getSelectedId() - 1; write(); };
-            w->repeat.onValueChange = [this, i] { rows_[i].second = int(widgets_[i]->repeat.getValue()); };
-            w->repeat.onDragEnd = [this] { write(); };
-            w->remove.onClick = [this, i] { rows_.erase(rows_.begin() + long(i)); juce::MessageManager::callAsync([this] { write(); }); };
+            // a change (a drag's end, the wheel, the keys, the text box) is written after the event that
+            // made it: writing rebuilds the rows, which must not delete the control while it runs
+            w->repeat.onValueChange = [this, i] {
+                rows_[i].second = int(widgets_[i]->repeat.getValue());
+                if (!widgets_[i]->repeat.isMouseButtonDown()) writeLater();
+            };
+            w->repeat.onDragEnd = [this] { writeLater(); };
+            w->slot.onChange = [this, i] { rows_[i].first = widgets_[i]->slot.getSelectedId() - 1; writeLater(); };
+            w->remove.onClick = [this, i] { rows_.erase(rows_.begin() + long(i)); writeLater(); };
             for (auto* c : std::initializer_list<juce::Component*>{&w->index, &w->slot, &w->repeat, &w->remove}) addAndMakeVisible(c);
             widgets_.push_back(std::move(w));
         }
@@ -246,6 +258,10 @@ private:
         page_.proc_.feluccaEdit(felucca::chainWrite(rows_));
         widgets_.clear();
         read();
+    }
+    void writeLater() {
+        juce::Component::SafePointer<SongView> self(this);
+        juce::MessageManager::callAsync([self] { if (self) self->write(); });
     }
     FeluccaSeqPage& page_;
     std::vector<std::pair<int, int>> rows_;
