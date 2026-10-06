@@ -139,6 +139,8 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
         if (i < 0 || o < 0 || i >= ins.size() || o >= outs.size()) { setStatus("Choose an input and an output port."); return; }
         proc_.connect(ins[i].identifier, outs[o].identifier);
     };
+    connect_.setTooltip("Connect: open the MIDI in and out chosen beside it");
+    autoConnect_.setTooltip("Find FM-1: look for an FM-1 (USB first, then Bluetooth) and connect to it");
     autoConnect_.onClick = [this] { refreshPorts(); if (proc_.autoConnect()) refreshPorts(); };
     pullCurrent_.onClick = [this] { proc_.pullCurrent(); };
     pushCurrent_.onClick = [this] { proc_.pushCurrent(); };
@@ -298,18 +300,18 @@ void LibraryPanel::layoutBar() {
     const bool narrow = top.getWidth() < 600;   // a phone: a line of its own, without the identity text
     identity_.setVisible(!narrow);
     if (narrow) {
-        live_.setBounds(top.removeFromRight(50)); top.removeFromRight(4);
-        autoConnect_.setBounds(top.removeFromRight(76)); top.removeFromRight(4);
-        connect_.setBounds(top.removeFromRight(70)); top.removeFromRight(4);
+        live_.setBounds(top.removeFromRight(40)); top.removeFromRight(4);
+        autoConnect_.setBounds(top.removeFromRight(40)); top.removeFromRight(4);
+        connect_.setBounds(top.removeFromRight(40)); top.removeFromRight(4);
         inPorts_.setBounds(top.removeFromLeft(top.getWidth() / 2 - 2)); top.removeFromLeft(4);
         outPorts_.setBounds(top);
         return;
     }
     inPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
     outPorts_.setBounds(top.removeFromLeft(200)); top.removeFromLeft(6);
-    connect_.setBounds(top.removeFromLeft(80)); top.removeFromLeft(6);
-    autoConnect_.setBounds(top.removeFromLeft(84)); top.removeFromLeft(6);
-    live_.setBounds(top.removeFromLeft(56)); top.removeFromLeft(8);
+    connect_.setBounds(top.removeFromLeft(44)); top.removeFromLeft(4);
+    autoConnect_.setBounds(top.removeFromLeft(44)); top.removeFromLeft(4);
+    live_.setBounds(top.removeFromLeft(44)); top.removeFromLeft(8);
     identity_.setBounds(top);
 }
 
@@ -1037,7 +1039,7 @@ void SeqPanel::resized() {
     auto r = getLocalBounds().reduced(10);
     auto top = r.removeFromTop(28);
     enable_.setBounds(top.removeFromLeft(60)); top.removeFromLeft(6);
-    play_.setBounds(top.removeFromLeft(70)); top.removeFromLeft(6);
+    play_.setBounds(top.removeFromLeft(44)); top.removeFromLeft(6);
     rec_.setBounds(top.removeFromLeft(60)); top.removeFromLeft(12);
     pattern_.setBounds(top.removeFromLeft(120)); top.removeFromLeft(6);
     chainTo_.setBounds(top.removeFromLeft(100)); top.removeFromLeft(12);
@@ -1087,7 +1089,7 @@ void SeqPanel::layoutNarrow() {
     {
         auto t = row();
         enable_.setBounds(t.removeFromLeft(56)); t.removeFromLeft(4);
-        play_.setBounds(t.removeFromLeft(60)); t.removeFromLeft(4);
+        play_.setBounds(t.removeFromLeft(40)); t.removeFromLeft(4);
         rec_.setBounds(t.removeFromLeft(56)); t.removeFromLeft(6);
         pattern_.setBounds(t);
     }

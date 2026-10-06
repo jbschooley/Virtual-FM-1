@@ -11,6 +11,7 @@
 #if FM1_FELUCCA
 
 #include "FeluccaSeq.h"
+#include "IconButton.h"
 
 class FM1Processor;
 class FeluccaEngine;
@@ -78,7 +79,8 @@ private:
     std::vector<std::string> lanes_;
     felucca::TrackPattern pat_;
 
-    juce::TextButton trackButtons_[4], play_{"Play"}, pageButtons_[4], octDown_{"-"}, octUp_{"+"}, notesView_{"Notes"}, drumsView_{"Drums"},
+    IconButton play_{"Play", IconButton::Icon::Play};
+    juce::TextButton trackButtons_[4], pageButtons_[4], octDown_{"-"}, octUp_{"+"}, notesView_{"Notes"}, drumsView_{"Drums"},
         patternTab_{"Pattern"}, songTab_{"Song"}, motionTab_{"Motion"}, pull_{"Pull patterns"}, send_{"Send patterns"},
         importMidi_{"Import MIDI..."}, exportMidi_{"Export MIDI..."};
     std::unique_ptr<juce::FileChooser> chooser_;

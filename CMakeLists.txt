@@ -320,6 +320,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/FeluccaSeqPanel.cpp
         plugin/FeluccaMidi.cpp
         plugin/ChosenFile.cpp
+        plugin/IconButton.cpp
         plugin/FeluccaParams.cpp
         plugin/FeluccaDevice.cpp
         plugin/dexed_ui/DXLookNFeel.cpp

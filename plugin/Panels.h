@@ -5,6 +5,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include "IconButton.h"
 #include "PluginProcessor.h"
 #include "Firmwares.h"
 #include "dexed_ui/DXLookNFeel.h"
@@ -120,7 +121,7 @@ private:
     int pagesSlot_ = -1;
     int pagesEngine_ = -1;     // the tabs shown are for this fm1::Engine, or not built (-1)
     juce::ComboBox inPorts_, outPorts_;
-    juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
+    IconButton connect_{"Connect", IconButton::Icon::Connect}, autoConnect_{"Find FM-1", IconButton::Icon::Find};
     void refreshLive();
     juce::Label identity_;
     juce::ListBox list_{"presets", this};
@@ -131,7 +132,7 @@ private:
     juce::Label currentName_;
     juce::TextButton init_{"Init..."};
     juce::TextButton sendEdit_{"Send to FM-1 (not saved)"};
-    juce::TextButton live_{"Live"};   // (in the top bar)
+    IconButton live_{"Live", IconButton::Icon::Live};   // (in the top bar)
     juce::ComboBox fxChannel_;
     juce::TextButton pullCurrent_{"Pull what the FM-1 is playing"}, pushCurrent_{"Store to FM-1 (saves the preset)"},
                      pullAll_{"Pull all 128"}, pushChanged_{"Push changed"}, pushAll_{"Push all 128"},
@@ -213,7 +214,8 @@ private:
     juce::Label fileStatus_;
     std::unique_ptr<juce::FileChooser> chooser_;
     void showExportMenu();
-    juce::TextButton enable_{"SEQ"}, play_{"Play"}, rec_{"Rec"}, clearStep_{"Clear step"}, clearPattern_{"Clear pattern"},
+    IconButton play_{"Play", IconButton::Icon::Play};
+    juce::TextButton enable_{"SEQ"}, rec_{"Rec"}, clearStep_{"Clear step"}, clearPattern_{"Clear pattern"},
                      copyStep_{"Copy step"}, pasteStep_{"Paste step"}, pull_{"Pull patterns from FM-1"}, push_{"Push patterns to FM-1"};
     juce::ToggleButton sync_{"Sync to host"}, overdub_{"Overdub"};
     juce::ComboBox pattern_, rate_, chainTo_, stepRate_, ratchet_;

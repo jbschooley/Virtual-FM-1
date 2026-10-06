@@ -4,6 +4,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include "IconButton.h"
 #include "Panels.h"
 #include "FeluccaPanel.h"
 #include "PluginProcessor.h"
@@ -31,7 +32,7 @@ private:
     juce::TooltipWindow tooltips_{this, 600};
     bool askingSwitch_ = false;
     juce::ComboBox firmware_;
-    juce::TextButton audioSettings_{"Audio/MIDI"};   // the app only (in a host, the host chooses): for every firmware
+    IconButton audioSettings_{"Audio/MIDI", IconButton::Icon::Settings};   // the app only (in a host, the host chooses): for every firmware
     void showAudioSettings();
     juce::Label unsupported_;
    #if FM1_FELUCCA

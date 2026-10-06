@@ -595,6 +595,7 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     songTab_.onClick = [this] { showView(1); };
     motionTab_.onClick = [this] { showView(2); };
     play_.setClickingTogglesState(true);
+    play_.setColour(juce::TextButton::buttonOnColourId, juce::Colours::seagreen);
     play_.onClick = [this] {
         auto f = engine();
         if (!f) return;
@@ -613,7 +614,7 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     for (auto* b : {&octDown_, &octUp_}) addAndMakeVisible(b);
     octDown_.onClick = [this] { lowNote_ = std::max(0, lowNote_ - 12); grid_->repaint(); };
     octUp_.onClick = [this] { lowNote_ = std::min(127 - Grid::kRows + 1, lowNote_ + 12); grid_->repaint(); };
-    for (auto* b : {&play_, &pull_, &send_}) addAndMakeVisible(b);
+    for (auto* b : std::initializer_list<juce::Component*>{&play_, &pull_, &send_}) addAndMakeVisible(b);
     pull_.setTooltip("Every track's pattern from the connected FM-1 (Felucca: and its song chain and motion)");
     send_.setTooltip("Every track's pattern to the connected FM-1 (Felucca: and its song chain and motion); its RAM, not saved there");
     pull_.onClick = [this] { proc_.feluccaPullPatterns(); };
@@ -1070,9 +1071,9 @@ void FeluccaSeqPage::resized() {
     auto bar = [&](int h) { auto b = r.removeFromTop(h); r.removeFromTop(4); return b; };
     {   // tracks, play, views
         auto b = bar(28);
-        const int tw = narrow ? (b.getWidth() - 70) / 4 : 74;
+        const int tw = narrow ? (b.getWidth() - 44) / 4 : 74;
         for (int i = 0; i < 4; ++i) if (trackButtons_[i].isVisible()) trackButtons_[i].setBounds(b.removeFromLeft(tw - 4)), b.removeFromLeft(4);
-        play_.setBounds(b.removeFromLeft(64));
+        play_.setBounds(b.removeFromLeft(40));
         if (!narrow) {
             b.removeFromLeft(12);
             for (auto* t : {&patternTab_, &songTab_, &motionTab_}) if (t->isVisible()) t->setBounds(b.removeFromLeft(80)), b.removeFromLeft(4);

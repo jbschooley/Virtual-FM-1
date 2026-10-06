@@ -26,7 +26,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
    #if JUCE_IOS || JUCE_ANDROID
     if (juce::StandalonePluginHolder::getInstance() != nullptr) {
         addAndMakeVisible(audioSettings_);
-        audioSettings_.setTooltip("The audio output, sample rate, buffer size and the MIDI inputs that play the synth");
+        audioSettings_.setTooltip("Audio/MIDI settings: the audio output, sample rate, buffer size and the MIDI inputs that play the synth");
         audioSettings_.onClick = [this] { showAudioSettings(); };
     }
    #endif
@@ -243,7 +243,7 @@ void FM1Editor::resized() {
     r = r.reduced(8);
     auto top = r.removeFromTop(28);
     const bool narrow = getWidth() < 1040;   // a phone or an iPad upright: the FM-1 connection on a line of its own
-    if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(narrow ? 90 : 100)); top.removeFromRight(narrow ? 4 : 8); }
+    if (audioSettings_.isVisible()) { audioSettings_.setBounds(top.removeFromRight(narrow ? 40 : 44)); top.removeFromRight(narrow ? 4 : 8); }
     if (narrow) {
         firmware_.setBounds(top);
         r.removeFromTop(6);
