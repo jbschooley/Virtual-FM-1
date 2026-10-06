@@ -318,6 +318,17 @@ int main(int argc, char** argv) {
             pump(40);
         }
         mirror.stop();
+        if (dl.drumStep >= 0) {   // SLOOP: its drum track's steps, whole (every lane, level, ratchet), on both sides
+            int same = 0, differ = 0, hits = 0;
+            for (int i = 0; i < 64; ++i) {
+                auto theirs = synth.ask(felucca::frame(dl.drumStep, {uint8_t(i)}), 400);
+                auto ours = mine.ask(felucca::frame(dl.drumStep, {uint8_t(i)}), 400);
+                const auto a = theirs ? felucca::argsOf(*theirs) : fm1::Bytes{}, b = ours ? felucca::argsOf(*ours) : fm1::Bytes{};
+                if (a.size() >= 4 && (a[1] | a[2] | a[3])) ++hits;
+                if (!a.empty() && a == b) ++same; else { ++differ; std::printf("  drum step %d differs\n", i + 1); }
+            }
+            std::printf("drum steps: %d the same on both sides (%d with hits), %d different\n", same, hits, differ);
+        }
         std::printf("done\n");
         return 0;
     }
