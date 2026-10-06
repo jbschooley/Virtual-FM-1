@@ -1194,6 +1194,42 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 fel->setCurrentTabIndex(0);
             }
         }
+        {   // SLOOP: the same editor for its firmware (its Sound page, its drum track, its Device tab)
+            p.setFirmware("sloop");
+            save("firmware-sloop");
+            juce::TabbedComponent* slp = nullptr;
+            std::function<void(juce::Component*)> findTabs = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) {
+                    if (auto* t = dynamic_cast<juce::TabbedComponent*>(ch); t && t->getComponentID() == "felucca tabs") slp = t;
+                    findTabs(ch);
+                }
+            };
+            findTabs(ed.get());
+            CHECK(slp != nullptr, "the SLOOP editor has its tabs");
+            std::function<void(juce::Component*)> press = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) {
+                    if (auto* b = dynamic_cast<juce::Button*>(ch); b && b->getButtonText() == "DRUMS" && b->isVisible()) {
+                        b->setToggleState(true, juce::dontSendNotification);
+                        if (b->onClick) b->onClick();
+                    }
+                    press(ch);
+                }
+            };
+            press(ed.get());
+            save("sloop-drums");
+            if (slp != nullptr) {
+                slp->setCurrentTabIndex(1);
+                std::function<void(juce::Component*)> draw = [&](juce::Component* c) {
+                    for (auto* ch : c->getChildren()) {
+                        if (auto* v = dynamic_cast<FeluccaDeviceView*>(ch)) v->refreshScreen();
+                        draw(ch);
+                    }
+                };
+                draw(ed.get());
+                save("sloop-device");
+                slp->setCurrentTabIndex(0);
+            }
+        }
        #endif
         p.setFirmware("fm1_stock");
         tabs->setCurrentTabIndex(0);
