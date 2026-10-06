@@ -173,8 +173,17 @@ std::optional<Bytes> LinkEndpoint::ask(const Bytes& request, int timeoutMs) {
     const int cmd = commandOf(request);
     if (cmd < 0) { jassertfalse; return std::nullopt; }   // never anything but the editor protocol
     // once: a write sent twice is not the same as once (a backup piece at the wrong offset)
-    return link_.ask<Bytes>(request, [cmd](const Bytes& f) -> std::optional<Bytes> {
-        return commandOf(f) == cmd && !isPush(cmd) ? std::optional<Bytes>(f) : std::nullopt;
+    // the reply repeats what names the request (SET / TRACK_PARAM: scope or track and id; TRACK_STEP:
+    // track and index; SLOOP's DRUM_STEP: index; TRACK: the track selected): a late reply to an
+    // earlier request of the same command (asked again after no answer) is not taken for this one's
+    const auto q = argsOf(request);
+    size_t echo = cmd == kSet || cmd == kTrackParam || cmd == kTrackStep ? 2 : cmd == kTrack || cmd == dialect_.drumStep ? 1 : 0;
+    echo = std::min(echo, q.size());
+    return link_.ask<Bytes>(request, [cmd, q, echo](const Bytes& f) -> std::optional<Bytes> {
+        if (commandOf(f) != cmd || isPush(cmd)) return std::nullopt;
+        const auto r = argsOf(f);
+        if (r.size() < echo || !std::equal(q.begin(), q.begin() + long(echo), r.begin())) return std::nullopt;
+        return f;
     }, timeoutMs, 1);
 }
 
@@ -380,9 +389,11 @@ bool Mirror::start(juce::String& error) {
     return true;
 }
 
-// A request the mirror asks again once if no answer comes: another program talking to the FM-1 at
-// the same moment (its web editor, a second instance) can make it drop one. Only what may be sent
-// twice: reads, PING / WATCH, and writes of a whole value (SET, TRACK_PARAM, TRACK_STEP, DRUM_STEP).
+// A request asked again once if no answer comes: another program talking to the FM-1 at the same
+// moment (its web editor, a second instance) can make it drop one. Only what may be sent twice and
+// whose reply names what it answers (LinkEndpoint::ask), so a late reply to the first try is never
+// taken for another request's: PING / WATCH, TRACK, and the step and value reads and writes (SET,
+// TRACK_PARAM, TRACK_STEP, DRUM_STEP).
 static std::optional<Bytes> askAgain(Endpoint& ep, const Bytes& request) {
     if (auto r = ep.ask(request, kAsk)) return r;
     return ep.ask(request, kAsk);
@@ -416,7 +427,7 @@ bool Mirror::chainPlays(Side& s) {
 }
 
 void Mirror::stop() {
-    for (Side* s : {&a_, &b_}) askAgain(s->ep, frame(kWatch, {0}));
+    for (Side* s : {&a_, &b_}) s->ep.ask(frame(kWatch, {0}), kAsk);
 }
 
 bool Mirror::tick(juce::String& error) {
@@ -535,7 +546,7 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     if (dst.size() < 3) { error = "no answer to TRACK_DUMP"; return false; }
     if (dst[1] != src[1] || dst[2] != src[2]) {
         // PRESET loads into the selected part: that track is selected first
-        if (!to.ask(frame(kTrack, {uint8_t(track)}), kAsk)) { error = "no answer to TRACK"; return false; }
+        if (!askAgain(to, frame(kTrack, {uint8_t(track)}))) { error = "no answer to TRACK"; return false; }
         if (!to.ask(frame(kPreset, {src[1], src[2]}), kFlash)) { error = "no answer to PRESET"; return false; }
         if (loaded) *loaded = {true, src[1], src[2]};
         dst = dump(to);
@@ -543,7 +554,7 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     for (size_t i = 3; i + 1 < src.size(); i += 2) {
         if (i + 1 < dst.size() && src[i] == dst[i] && src[i + 1] == dst[i + 1]) continue;
         std::vector<uint8_t> q = {uint8_t(track), uint8_t((i - 3) / 2), src[i], src[i + 1]};
-        if (!to.ask(frame(kTrackParam, q), kAsk)) { error = "no answer to TRACK_PARAM"; return false; }
+        if (!askAgain(to, frame(kTrackParam, q))) { error = "no answer to TRACK_PARAM"; return false; }
     }
     if (!from.dialect().fm6 || !to.dialect().fm6) return true;   // (SLOOP has no FM6 engine)
     auto p = from.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
