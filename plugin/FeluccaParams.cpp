@@ -57,7 +57,7 @@ const int kGlobalRange[27][3] = {
 
 // SLOOP 2.3's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the
 // slicer (48), then CHORD (49) and the engine's eight from 50. Not P_ED_FX (8): SLOOP's level
-// trim, which its presets set. Its drum track (4) has its kit (E1), pattern and slicer only, as
+// trim, which its presets set. Its drum track (4) has its kit (P_E0), pattern and slicer only, as
 // the device shows it; its level and reverb are globals (DRLVL, DRREV).
 constexpr int kSloopEngineFirst = 50;
 const int kSloopTrackRange[50][3] = {

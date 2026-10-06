@@ -56,7 +56,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
     static const std::vector<KnownVersion> sloop = {
-        {900, "2.3", Support::Current, ""},   // tried on an FM-1 (2026-10-06): backup, Send, Live from the plugin
+        {900, "2.3", Support::Current, ""},   // tried on an FM-1 (2026-10-06, fm1_probe): backup, Send, Live from the plugin's side
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;

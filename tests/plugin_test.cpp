@@ -402,6 +402,10 @@ static int checks() {
                 felLevel->setValueNotifyingHost(felBefore > 0.5f ? 0.1f : 0.9f);   // Felucca's: not SLOOP's level
                 au.processBlock(b, m);
                 CHECK(f->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches SLOOP");
+                const int held = f->param(0, 0);
+                felLevel->setValueNotifyingHost(felLevel->getValue() > 0.5f ? 0.2f : 0.8f);   // Felucca's alone
+                au.processBlock(b, m);
+                CHECK(f->param(0, 0) == held, "Felucca's host parameter does not reach SLOOP");
                 const auto kd = f->paramDesc(3, f->firstEngineParam());
                 kit->setValueNotifyingHost(float(2) / float(kd.max - kd.min));
                 au.processBlock(b, m);

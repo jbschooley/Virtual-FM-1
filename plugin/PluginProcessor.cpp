@@ -1213,7 +1213,7 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
         if (v == felApplied_[i]) continue;
         felApplied_[i] = v;
         const auto& e = all[i];
-        if (e.sloop != sloop) continue;   // (the other firmware's: given when it plays)
+        if (e.sloop != sloop) continue;   // (the other firmware's: not applied; when it plays, its own state is the truth)
         if (e.track < 0 && e.index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
         int min = 0, max = 0;
         if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
