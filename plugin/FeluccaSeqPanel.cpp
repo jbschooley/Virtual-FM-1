@@ -875,6 +875,7 @@ void FeluccaSeqPage::toggleLane(int step, int lane, bool accent) {
         if (size_t(step) >= pat_.steps.size() || lane < 0 || lane >= 8) return;
         auto& s = pat_.steps[size_t(step)];
         const int bit = 1 << lane;
+        if (!(s.hit & bit) && s.time != felucca::kNote) { s = felucca::Step{}; s.time = felucca::kNote; }   // a hit plays on a NOTE step (ui.c grid_hit)
         if (accent) { s.acc ^= bit; s.hit |= bit; }
         else if (s.hit & bit) { s.hit &= ~bit; s.acc &= ~bit; }
         else s.hit |= bit;
@@ -976,7 +977,10 @@ juce::String FeluccaSeqPage::importMidi(const juce::MidiFile& file) {
     const auto names = f->paramDesc(track_, felucca::kDiv).names;
     const double q = felmidi::divQuarters(size_t(pat_.div) < names.size() ? names[size_t(pat_.div)] : "1/16");
     const bool drums = drumsView();
-    auto r = felmidi::fromMidi(file, pat_, sloop(), drums, q);
+    auto r = felmidi::fromMidi(file, pat_, sloop(), drums, q, track_);
+    const auto where = trackButtons_[track_].getButtonText();
+    if (r.smpte) return "The file is timed in SMPTE frames, not beats: nothing imported";
+    if (r.notes == 0) return juce::String("No ") + (drums ? "drum notes" : "notes") + " in the file for " + where + ": nothing changed";
     // written as edits: to this instance's device, and to the FM-1 while Live
     struct EditEndpoint : felucca::Endpoint {
         FM1Processor& p;
@@ -990,13 +994,13 @@ juce::String FeluccaSeqPage::importMidi(const juce::MidiFile& file) {
     const auto known = pat_;
     if (!felucca::writePattern(edit, track_, r.pattern, err, &known)) return "The import stopped: " + err;
     readPattern();
+    if (!drums) fitNotes();
     loadControls();
     grid_->repaint();
-    juce::String said = juce::String(r.notes) + (drums ? " drum hits" : " notes") + " on " + trackButtons_[track_].getButtonText()
-                      + ", LEN " + juce::String(r.pattern.len);
+    juce::String said = juce::String(r.notes) + (drums ? " drum hits" : " notes") + " on " + where + ", LEN " + juce::String(r.pattern.len);
+    if (r.from.isNotEmpty()) said << " (from " << r.from << ")";
     if (r.crowded) said << "; " << r.crowded << " left out (4 notes a step at most)";
     if (r.pastEnd) said << "; " << r.pastEnd << " past step 64 left out";
-    if (r.unmapped) said << "; " << r.unmapped << " not near any drum lane left out";
     return said;
 }
 

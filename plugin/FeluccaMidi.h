@@ -12,10 +12,16 @@
 //
 // Import puts a file's notes on one track's step grid at its DIV (straight; each note on the
 // nearest step): up to 4 notes a step (more are left out), a note held over the next steps
-// writes TIE steps when nothing new starts there. Onto drum lanes (SLOOP's drum track, or
-// Felucca's lanes view): each note on the lane whose GM note is nearest; SLOOP's level from the
-// velocity as its own recording does (below 56 ghost, 88 soft, 116 normal, else hard), Felucca's
-// accent from 116. LEN becomes the steps used, rounded up to a beat (4).
+// writes TIE steps when nothing new starts there. It takes the file's track of that part ("Part n"
+// or "Drums", as export names them) if it has notes for it, else every track; drum lanes from channel 10
+// and notes from the other channels where the file has both. Onto drum lanes (SLOOP's drum track,
+// or Felucca's lanes view): each note on the lane the firmware plays it on from MIDI in (Felucca
+// eng_drum.c drum_lane, SLOOP drums.c lane_of_note); SLOOP's level from the velocity as its own
+// recording does (below 56 ghost, 88 soft, 116 normal, else hard), Felucca's accent above 110.
+// On Felucca a step holds both notes and lane hits: importing notes keeps the hits and the other
+// way round (a lane hit makes its step a NOTE step, as its grid does). LEN becomes the steps
+// used, rounded up to a beat. Not carried either way: Felucca's chance, slides, SLOOP's synth-step
+// ratchets and levels (import keeps the velocity), the file's tempo and time signature.
 #pragma once
 
 #include <vector>
@@ -47,11 +53,14 @@ juce::MidiFile toMidi(const Song& song);
 
 struct ImportResult {
     felucca::TrackPattern pattern;
-    int notes = 0, pastEnd = 0, crowded = 0, unmapped = 0;
+    int notes = 0, pastEnd = 0, crowded = 0;
+    bool smpte = false;               // SMPTE-timed: not placed (the pattern as it was)
+    juce::String from;                // which of the file's notes, if not simply all of one track
 };
 // `base` gives the settings to keep; its steps (or drums) are replaced.
+// No notes to place (r.notes 0): the pattern is `base` unchanged.
 ImportResult fromMidi(const juce::MidiFile& file, const felucca::TrackPattern& base, bool sloop, bool drums,
-                      double stepQuarters);
+                      double stepQuarters, int part);
 
 // the GM note of a drum lane: Felucca's 8, SLOOP's 16
 const std::vector<int>& laneNotes(bool sloop);
