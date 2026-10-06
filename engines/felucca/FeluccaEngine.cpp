@@ -39,11 +39,12 @@ struct Slot {
     const FeluccaEngine* resident = nullptr;   // whose state is in the copy now
     int instances = 0;                     // how many have it as theirs (poolLock)
 };
-// One firmware's copies and their slots
+// One firmware's copies and their slots (never freed: an engine let go during static
+// destruction still finds its slot)
 struct Pool {
     const FeluccaCopy* copies;
     int count;
-    std::unique_ptr<Slot[]> slots;
+    Slot* slots;
     Pool(const FeluccaCopy* c, int n) : copies{c}, count{n}, slots{new Slot[size_t(n)]} {}
 };
 Pool& pool(FeluccaEngine::Flavor f) {

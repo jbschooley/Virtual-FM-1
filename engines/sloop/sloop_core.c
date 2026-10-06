@@ -51,7 +51,6 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define FELUCCA_UART 0                   /* no TRS MIDI input */
 #define FELUCCA_ARRANGER 1
 #define FELUCCA_ICONS 1
-#define SLOOP_VERSION "SLOOP 2.3"
 /* the user sample slots: empty, and never written (the plugin takes no samples yet), so one array
  * of zeros for every copy (sloop_shared.c, written by CMakeLists.txt) */
 extern const uint8_t slp_no_samples[3][0x14000];
@@ -387,7 +386,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;
 }
 
-const char *FEL(version)(void) { return SLOOP_VERSION; }
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.3" */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }

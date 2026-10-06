@@ -52,8 +52,9 @@ Pi), the font is Terminus (SIL OFL 1.1).
   plugin's, the flash is RAM, the clock follows the audio rendered and the main
   loop runs every 16 ms of it. Not built: `lcd.c`, `audio.c`, the update and
   boot loader (`ota.c`, `recovery.c`), the serial console, the TRS MIDI input
-  and the USB audio input. The LEDs are stubs; the MASTER knob is fixed at the
-  device's power-on level.
+  and the USB audio input. The LEDs are stubs; the MASTER knob is not read: the
+  level stays at the 2048 `felucca_init` starts with (the plugin has its own
+  volume).
 - The sample sets (`SMP_DATA`) are compiled once for all copies
   (`sloop_shared.c`, written by CMakeLists.txt), with the empty user sample
   slots.
