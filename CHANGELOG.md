@@ -10,16 +10,19 @@ for the code. New work goes under the next version at the top.
 
 - **Felucca 1.0.2** is built in (it was 1.0). A sound that used SAMPLE's
   PERC set plays as the DRUM engine's kit now: Felucca 1.0.2 converts it
-  whenever a project loads, so projects saved with 0.4.0 change too. QNT gains SEQ (the
-  sequencer's notes follow the scale too). An automation lane for QNT
-  recorded with 0.4.0 may play a different setting, since its range grew.
-  An FM-1 running Felucca 1.0 still syncs; the plugin says it is older.
+  whenever a project loads, so projects saved with 0.4.0 change too. QNT
+  gains SEQ (the sequencer's notes follow the scale too). An automation
+  lane for QNT recorded with 0.4.0 may play a different setting, since its
+  range grew.
+  An FM-1 still on Felucca 1.0 is recognised and synced as 1.0.2; the
+  line beside Find FM-1 says it is older and to update it.
 
 - **Felucca 1.0.1 and 1.0.2 on the FM-1**: the plugin tells them from 1.0
-  (they answer as 1.0 does, FM-1_910) by what their editor says, and the
-  line beside Find FM-1 says the FM-1 runs a newer Felucca than the one
-  built in. Live with an FM-1 on 1.0.2 no longer waits for a reload that
-  1.0.2 does not send back, which could hide a real one for two seconds.
+  (they answer as 1.0 does, FM-1_910) by what their editor says. The line
+  beside Find FM-1 says when the FM-1 runs an older Felucca than the
+  plugin's 1.0.2 (1.0, 1.0.1) or a newer one. Live with an FM-1 on 1.0.2
+  no longer waits for a reload that 1.0.2 does not send back, which could
+  hide a real one for two seconds.
 - **Pull from FM-1** keeps the plugin's own Felucca settings (palette, panel
   calibration, favourites, LED mode), as Send keeps the FM-1's. A newer
   Felucca's settings could make the whole Pull fail.
