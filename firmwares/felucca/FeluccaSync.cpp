@@ -380,6 +380,14 @@ bool Mirror::start(juce::String& error) {
     return true;
 }
 
+// A request the mirror asks again once if no answer comes: another program talking to the FM-1 at
+// the same moment (its web editor, a second instance) can make it drop one. Only what may be sent
+// twice: reads, PING / WATCH, and writes of a whole value (SET, TRACK_PARAM, TRACK_STEP, DRUM_STEP).
+static std::optional<Bytes> askAgain(Endpoint& ep, const Bytes& request) {
+    if (auto r = ep.ask(request, kAsk)) return r;
+    return ep.ask(request, kAsk);
+}
+
 bool Mirror::forward(const Bytes& request, juce::String& error) {
     if (a_.ep.ask(request, kFlash)) return true;
     error = "the synth did not take an edit";
@@ -408,7 +416,7 @@ bool Mirror::chainPlays(Side& s) {
 }
 
 void Mirror::stop() {
-    for (Side* s : {&a_, &b_}) s->ep.ask(frame(kWatch, {0}), kAsk);
+    for (Side* s : {&a_, &b_}) askAgain(s->ep, frame(kWatch, {0}));
 }
 
 bool Mirror::tick(juce::String& error) {
@@ -422,11 +430,11 @@ bool Mirror::tick(juce::String& error) {
         if (now - s->pinged >= 250) {
             bool ok;
             if (lapsed) {
-                auto w = s->ep.ask(frame(kWatch, {3}), kAsk);
+                auto w = askAgain(s->ep, frame(kWatch, {3}));
                 auto g = w ? argsOf(*w) : std::vector<uint8_t>{};
                 ok = !g.empty() && (g[0] & 1);
             } else {
-                ok = s->ep.ask(frame(kPing), kAsk).has_value();
+                ok = askAgain(s->ep, frame(kPing)).has_value();
             }
             if (!ok) { error = s == &a_ ? juce::String("the synth stopped answering") : "the plugin's " + juce::String(s->ep.dialect().name) + " stopped answering"; return false; }
             s->pinged = now;
@@ -456,7 +464,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
             if (!mirroredGlobal(to.ep.dialect(), a[1])) return true;
             std::vector<uint8_t> q = {1, a[1]};
             v14(q, r14(a, 2));
-            return must(to.ep.ask(frame(kSet, q), kAsk), "SET");
+            return must(askAgain(to.ep, frame(kSet, q)), "SET");
         }
         // Felucca's motion playing on that track sets the parameters it has events for: those are
         // not carried (a knob turn on them is not either: the firmware cannot tell the two apart);
@@ -465,28 +473,28 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         if (a[1] >= kLen && a[1] <= kGate && chainPlays(from)) return true;
         std::vector<uint8_t> q = {uint8_t(from.sel), a[1]};
         v14(q, r14(a, 2));
-        return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
+        return must(askAgain(to.ep, frame(kTrackParam, q)), "TRACK_PARAM");
     }
     if (cmd == kTrackChanged && a.size() >= 4) {   // track, id, value: another track's mix
         std::vector<uint8_t> q = {a[0], a[1]};
         v14(q, r14(a, 2));
-        return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
+        return must(askAgain(to.ep, frame(kTrackParam, q)), "TRACK_PARAM");
     }
     if (cmd == kStepChanged && a.size() >= 2) {   // index, track
         if (chainPlays(from)) return true;   // Felucca: a chain's steps, not the pattern's
         const auto& d = from.ep.dialect();
         if (d.drumStep >= 0 && a[1] == d.drumTrack) {   // SLOOP's drum lanes, whole
-            auto r = from.ep.ask(frame(d.drumStep, {a[0]}), kAsk);
+            auto r = askAgain(from.ep, frame(d.drumStep, {a[0]}));
             if (!must(r, "DRUM_STEP")) return false;
             auto step = argsOf(*r);
             if (step.size() < 14) return true;
-            return must(to.ep.ask(frame(d.drumStep, step), kAsk), "DRUM_STEP");
+            return must(askAgain(to.ep, frame(d.drumStep, step)), "DRUM_STEP");
         }
-        auto r = from.ep.ask(frame(kTrackStep, {a[1], a[0]}), kAsk);
+        auto r = askAgain(from.ep, frame(kTrackStep, {a[1], a[0]}));
         if (!must(r, "TRACK_STEP")) return false;
         auto step = argsOf(*r);
         if (step.size() < 10) return true;
-        return must(to.ep.ask(frame(kTrackStep, step), kAsk), "TRACK_STEP");
+        return must(askAgain(to.ep, frame(kTrackStep, step)), "TRACK_STEP");
     }
     if (cmd == kReload && a.size() >= 3) {   // engine, preset, the selected track: a load or a new selection
         auto& echoes = from.echoes;
@@ -496,7 +504,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         from.lastReload = push;
         from.sel = a[2];
         if (to.sel != a[2]) {
-            if (!must(to.ep.ask(frame(kTrack, {a[2]}), kAsk), "TRACK")) return false;
+            if (!must(askAgain(to.ep, frame(kTrack, {a[2]})), "TRACK")) return false;
             to.sel = a[2];
         }
         if (!copyTrackSound(from, to, a[2], error)) return false;
