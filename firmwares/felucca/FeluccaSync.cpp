@@ -203,10 +203,11 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
     return out;
 }
 
-// What a BACKUP_PUT piece carries. Felucca takes up to 256 bytes, but a real FM-1 queues 64
-// USB-MIDI packets of what arrives: a 256-byte piece (about 100 packets, sent at once by CoreMIDI
-// through JUCE) often came in with some missing and was refused (seen on an FM-1 with Felucca
-// 1.0). 128 bytes is about 54 packets.
+// What a BACKUP_PUT piece carries. Felucca takes up to 256 bytes, but on macOS JUCE sends a SysEx
+// message as UMPs in event lists of one packet (64 words: 192 bytes of SysEx at most), so a longer
+// one goes out in several MIDISendEventList calls, and an FM-1 running Felucca 1.0 refused such
+// split pieces (19 of 20 rounds; sent in one call, 0 of 80). A 128-byte piece (about 160 bytes as
+// sent) fits in one call.
 static constexpr size_t kPutPiece = 128;
 
 bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juce::String& error) {
