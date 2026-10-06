@@ -309,6 +309,14 @@ static int checks() {
         j.getDynamicObject()->setProperty("algorithm", 3);
         errors.clear();
         CHECK(!fm1json::presetFromJson(j, "p", errors) && errors.joinIntoString(" ").contains("8-Bit"), "an FM field on an 8-Bit preset is refused");
+        // JSON: a pattern's locks
+        fm1json::PatternEntry e{4, {}};
+        e.pattern.locks.assign(512, 0xFF);
+        e.pattern.locks[8 * 5] = 33; e.pattern.locks[8 * 5 + 1] = 12;   // (a step's locks are listed in order, as her editor reads them)
+        e.pattern.locks[8 * 5 + 2] = 57; e.pattern.locks[8 * 5 + 3] = 4;
+        errors.clear();
+        auto pb = fm1json::patternFromJson(juce::JSON::parse(juce::JSON::toString(fm1json::patternToJson(e))), "q", errors);
+        CHECK(pb && pb->pattern.locks == e.pattern.locks, "a pattern's locks through JSON");
     }
    #if FM1_FELUCCA
     // an instance set to Felucca plays Felucca's engines, and keeps them in its project
@@ -797,6 +805,7 @@ static juce::StringArray describe(FM1Processor& p) {
                      << (step.accent ? "a" : "") << (step.slide ? "s" : "");
                 for (const auto& n : step.notes) line << "," << n.note << "." << n.vel << (n.tie ? "t" : "");
             }
+            if (fm1::seq::hasLocks(pt)) line << " locks " << juce::String::toHexString(pt.locks.data(), int(pt.locks.size()), 0);
             d.add(line);
         }
     }
@@ -835,6 +844,8 @@ static int stateWrite(const juce::File& golden, const juce::File& dir) {
             pt.steps[5].notes = {{72, 64, false}};
             p.sequencer.chain[2] = 4;
             p.sequencer.patterns[9].steps[40].notes = {{50, 33, false}};   // beyond the pattern's length
+            pt.locks.assign(512, 0xFF);                                         // FM-1_096's parameter locks
+            pt.locks[8 * 3] = 40; pt.locks[8 * 3 + 1] = 77; pt.locks[8 * 63 + 6] = 58; pt.locks[8 * 63 + 7] = 100;
         }
         p.sequencer.enabled = true; p.sequencer.syncToHost = false; p.sequencer.selected = 2; p.sequencer.overdub = true;
         p.arp.enabled = true; p.arp.mode = 2; p.arp.octaves = 3; p.arp.rate = 4; p.arp.tempo = 133; p.arp.gate = 71;

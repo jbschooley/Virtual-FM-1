@@ -32,7 +32,7 @@ public:
     std::array<fm1::Sound, 128> store;
     int identityVersion = 89;
     int dropNextReplies = 0;      // simulate lost frames to exercise the retry
-    int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0;
+    int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0, lockWrites = 0;
     std::atomic<int> received{0};   // every message, SysEx or not
     std::map<uint32_t, uint8_t> ram;   // sparse RAM for the memory-read command
     fm1::Bytes gset = fm1::Bytes(fm1::seq::kGsetLen, 0);
@@ -131,7 +131,21 @@ private:
                     for (int j = 0; j < st[1] && j < 9; ++j) dst.notes.push_back({st[2 + j], st[11 + j]});
                 }
                 putPattern(pat, p);
-                reply(0x52, 0, uint32_t(pat), {});
+                if (identityVersion >= 96)   // FM-1_096: a pattern message clears the locks of the steps it writes
+                    for (uint32_t k = 0; k < 64; ++k) ram[fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(part) * 64 + k] = 0xFF;
+                reply(0x52, 0, uint32_t(pat) | uint32_t(part) << 8, {});
+                return;
+            }
+            if (body[0] == 0x21) {           // FM-1_096 lock write: eight steps' locks, 0x7F = none
+                int pat = body[1], eighth = body[2];
+                if (identityVersion < 96) { reply(0x52, 1, uint32_t(pat), {}); return; }
+                ++lockWrites;
+                for (uint32_t k = 0; k < 64; k += 2) {
+                    const bool none = body[4 + k] == 0x7F;
+                    ram[fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(eighth) * 64 + k] = none ? 0xFF : body[4 + k];
+                    ram[fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(eighth) * 64 + k + 1] = none ? 0xFF : body[5 + k];
+                }
+                reply(0x52, 0, uint32_t(pat) | uint32_t(eighth) << 8 | 0x8000, {});
                 return;
             }
             if (body[0] == 0x10) {
@@ -365,6 +379,39 @@ int main(int argc, char** argv) {
         waitIdle(session, 20000);
         CHECK(got.size() == 1 && got[0].second.tempo == 99 && got[0].second.length == 33 && got[0].second.steps[32].notes.size() == 1
               && got[0].second.steps[32].notes[0].note == 70 && got[0].second.steps[0].notes.empty(), "pushed pattern reads back");
+        CHECK(fake.lockWrites == 0 && got[0].second.locks.empty(), "FM-1_089: no locks read, no lock messages");
+
+        // FM-1_096: parameter locks are read with the pattern and given back after a pattern write
+        fake.identityVersion = 96; identity.reset();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && identity->version == 96, "identified as FM-1_096");
+        const char* mark = "FMLK";
+        for (uint32_t k = 0; k < 4; ++k) fake.ram[fm1::seq::kLockRam + k] = uint8_t(mark[k]);
+        auto lockAt = [&](int pat, int step, int j) { return fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(8 * step + 2 * j); };
+        for (uint32_t k = 0; k < 512; ++k) fake.ram[fm1::seq::kLockTabRam + 2 * 512 + k] = 0xFF;
+        fake.ram[lockAt(2, 3, 0)] = 40; fake.ram[lockAt(2, 3, 0) + 1] = 77;     // step 4: Distortion Gain 77
+        fake.ram[lockAt(2, 32, 1)] = 1; fake.ram[lockAt(2, 32, 1) + 1] = 5;     // step 33: FM Feedback 5
+        got.clear();
+        session.pullPatterns({2});
+        waitIdle(session, 20000);
+        const bool locksRead = got.size() == 1 && got[0].second.locks.size() == 512 && got[0].second.locks[8 * 3] == 40 && got[0].second.locks[8 * 3 + 1] == 77
+                               && got[0].second.locks[8 * 32 + 2] == 1 && got[0].second.locks[8 * 32 + 3] == 5 && got[0].second.locks[0] == 0xFF;
+        CHECK(locksRead, "FM-1_096: the pattern's locks are read");
+        fm1::seq::Pattern r = got.empty() ? q : got[0].second;
+        r.steps[3].notes = {{41, 80}};
+        const int pw = fake.patternWrites;
+        session.pushPatterns({{2, r}}, true);
+        waitIdle(session, 20000);
+        CHECK(fake.patternWrites - pw == 5 && fake.lockWrites == 2, "5 pattern messages, then a lock message for each eighth holding a lock (steps 1-8, 33-40)");
+        bool kept = fake.ram[lockAt(2, 3, 0)] == 40 && fake.ram[lockAt(2, 3, 0) + 1] == 77 && fake.ram[lockAt(2, 32, 1)] == 1 && fake.ram[lockAt(2, 32, 1) + 1] == 5;
+        for (int s = 0; s < 64 && kept; ++s) for (int j = 0; j < 4; ++j) if (!((s == 3 && j == 0) || (s == 32 && j == 1))) kept &= fake.ram[lockAt(2, s, j)] == 0xFF;
+        CHECK(kept, "the FM-1 holds the same locks after the Send");
+        r.locks.clear();
+        const int lw = fake.lockWrites;
+        session.pushPatterns({{2, r}}, true);
+        waitIdle(session, 20000);
+        CHECK(fake.lockWrites == lw && fake.ram[lockAt(2, 3, 0)] == 0xFF, "a pattern with no locks is sent as before, which clears them");
+        fake.identityVersion = 89;
     }
 
     link.close();

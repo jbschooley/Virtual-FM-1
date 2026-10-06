@@ -38,6 +38,13 @@ constexpr uint32_t kStepsRam = 0x01C14CD0;      // steps 1-16, 512 B a pattern
 constexpr uint32_t kExtRam   = 0x01C79D30;      // steps 17-64, 1536 B a pattern (FM-1_082 on)
 constexpr uint32_t kGsetRam  = 0x01C0E840 + 5816;
 constexpr int kGsetLen = 137;
+// FM-1_096's parameter locks (her fm1seq.js, firmware/src/seq_lock.h): "FMLK" at kLockRam once
+// set up, then 512 B a pattern from kLockTabRam, 8 B a step: four locks of (what, value),
+// what 0xFF = none. Earlier firmware has something else at that address.
+constexpr uint32_t kLockRam    = 0x01C76CA0;
+constexpr uint32_t kLockTabRam = kLockRam + 0x60;
+constexpr int kLockBytes = 512;            // one pattern's
+constexpr int kLocksPerStep = 4;
 
 struct Note {
     int note = 60, vel = 100;
@@ -66,7 +73,11 @@ struct Pattern {
     int chain = -1;               // FM-1_093: what plays after this pattern, -1 Repeat, else 0..15
     int transpose = 0;            // plugin-side
     std::array<Step, kSteps> steps{};
+    // FM-1_096: the pattern's parameter locks as the synth's table holds them (kLockBytes), or
+    // empty when none were read. Not played here: kept so a Send gives them back.
+    std::vector<uint8_t> locks;
 };
+bool hasLocks(const Pattern& p);          // any step holds a lock
 
 Pattern normalise(const Pattern& p);   // every value in range, notes unique, at most 9, vel 1..127
 
@@ -74,11 +85,20 @@ Pattern normalise(const Pattern& p);   // every value in range, notes unique, at
 Bytes encodeWritePart(const Pattern& p, int pat, int part, bool save);
 // The messages for a pattern: steps 1-16 always, then one for every eight
 // steps its length reaches past 16; the last one saves if `save`.
-std::vector<Bytes> encodeWrite(const Pattern& p, int pat, bool save);
+// `locks` (FM-1_096 on): a pattern message clears the locks of the steps it writes, so for
+// each eighth sent that holds a lock a lock message (0x21) follows, after all the pattern's
+// own; the last message of all saves. Firmware before FM-1_096 refuses the lock message.
+std::vector<Bytes> encodeWrite(const Pattern& p, int pat, bool save, bool locks = false);
+// Steps 8*eighth+1 .. 8*eighth+8's locks, from the table's 64 bytes there. 74 bytes.
+Bytes encodeLocksPart(const std::vector<uint8_t>& table, int pat, int eighth, bool save);
 
 struct MemRequest { uint32_t addr; int n; };
 // steps 1-16 (two), the settings block, then steps 17-64 (six)
 std::vector<MemRequest> readRequests(int pat);
+// FM-1_096: the locks' mark, then the pattern's 512 bytes of the table (two)
+std::vector<MemRequest> lockRequests(int pat);
+// Those answers -> the pattern's table, or empty when the mark is not there (before FM-1_096).
+std::vector<uint8_t> decodeLocks(const Bytes& mark, const Bytes& a, const Bytes& b);
 
 // Steps (32 B each from step 1: 512 B for 1-16 or 2048 B for all 64) + the
 // settings block -> a pattern; steps not given are empty.

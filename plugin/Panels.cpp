@@ -749,7 +749,7 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
         });
     };
     exportPatterns_.onClick = [this] { showExportMenu(); };
-    clearPattern_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); int r = pattern().rate; for (auto& s : pattern().steps) { s = fm1::seq::Step{}; s.rate = r; } } loadStepControls(); repaint(); };
+    clearPattern_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); int r = pattern().rate; for (auto& s : pattern().steps) { s = fm1::seq::Step{}; s.rate = r; } pattern().locks.clear(); } loadStepControls(); repaint(); };
     copyStep_.onClick = [this] { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); clipboard_ = pattern().steps[size_t(selectedStep_)]; };
     pasteStep_.onClick = [this] { if (!clipboard_) return; { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = *clipboard_; } loadStepControls(); repaint(); };
     pull_.onClick = [this] { proc_.pullPatterns(); };

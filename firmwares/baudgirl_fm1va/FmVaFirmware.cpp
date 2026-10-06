@@ -10,7 +10,7 @@ namespace fm1 {
 namespace {
 
 // ---- baud girl's FM-1+VA --------------------------------------------------------------
-// Sound read 0x10 and exact write 0x04, memory read 0x11 and pattern write 0x20
+// Sound read 0x10 and exact write 0x04, memory read 0x11, pattern write 0x20 and (FM-1_096) lock write 0x21
 // (sync/Fm1Codec.h, sync/Fm1Seq.h); the edit buffer and GLOBE settings are read
 // from RAM at addresses found per build.
 
@@ -63,12 +63,26 @@ public:
             }
             if (i == 2) gset = *data; else steps.insert(steps.end(), data->begin(), data->end());
         }
-        try { return seq::decodePattern(steps, gset, pat); }
+        try {
+            auto p = seq::decodePattern(steps, gset, pat);
+            if (version >= 96) {   // its parameter locks, so that a Send gives them back
+                Bytes got[3];
+                const auto lr = seq::lockRequests(pat);
+                for (size_t i = 0; i < lr.size(); ++i) {
+                    auto data = readMem(port, lr[i].addr, lr[i].n, error);
+                    if (!data) return std::nullopt;
+                    got[i] = *data;
+                }
+                p.locks = seq::decodeLocks(got[0], got[1], got[2]);
+            }
+            return p;
+        }
         catch (const CodecError& e) { error = e.what(); return std::nullopt; }
     }
 
     bool writePattern(Port& port, const seq::Pattern& p, int pat, bool save, juce::String& error) override {
-        for (const auto& m : seq::encodeWrite(p, pat, save)) {
+        // FM-1_096: the pattern message clears the steps' locks; the lock messages after it put them back
+        for (const auto& m : seq::encodeWrite(p, pat, save, version >= 96)) {
             error.clear();
             auto reply = port.link.ask<Reply>(m,
                 [](const Bytes& f) -> std::optional<Reply> {

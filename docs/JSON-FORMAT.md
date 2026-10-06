@@ -106,7 +106,7 @@ keeps the value.
 | `swing` | 50 to 75 (50). |
 | `transpose` | -24 to 24 semitones (0). |
 | `chain` | `"repeat"` or the pattern to play next, 1 to 16 (`"repeat"`). |
-| `steps` | The steps that are not empty, each with `step` (1 to 64) and any of: `notes` (up to nine, each `note` 0 to 127, `velocity` 1 to 127, `tie`), `noteValue`, `ratchet` (1 to 4), `gate` (0 for the pattern's, or 5 to 100), `chance` (5 to 100), `transpose`, `accent`, `tieSlide`. |
+| `steps` | The steps that are not empty, each with `step` (1 to 64) and any of: `notes` (up to nine, each `note` 0 to 127, `velocity` 1 to 127, `tie`), `noteValue`, `ratchet` (1 to 4), `gate` (0 for the pattern's, or 5 to 100), `chance` (5 to 100), `transpose`, `accent`, `tieSlide`, `locks` (FM-1_096's parameter locks, up to four `{what, value}` in the firmware's own codes; kept and sent back, not played). |
 
 A pattern in a file replaces the whole pattern: settings left out take the
 defaults in brackets and steps left out are empty. Note 60 is C3 on the

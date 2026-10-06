@@ -195,6 +195,31 @@ int main(int argc, char** argv) {
         fm1::seq::Pattern ch = fm1::seq::decodePattern(fromHex(sq["decode"]["steps"].s), fromHex(sq["decode"]["gset"].s), 5);
         CHECK(ch.sound == int(sq["decode"]["chained"]["sound"].n) && ch.sound == -1 && ch.chain == 9, "FM-1_093 Chain byte: no preset, chains to pattern 10");
         for (int v = 0; v < 10; ++v) CHECK(fm1::seq::kValueTicks[v] == int(sq["valueTicks"][size_t(v)].n), "VALUE_TICKS");
+        {   // FM-1_096's parameter locks: bytes from her fm1seq.js (FM-1_096's site, 2026-10-06),
+            // encodeWrite(p, 3, true) of length 20, tempo 133, step 1 C2, step 4 locked (40, 77)
+            // and (33, 12), step 18 locked (1, 5)
+            const char* hers[] = {"f043007d20030000140605013232000601240000000000000000640000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000075f7","f043007d2003010014060501323200060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000007df7","f043007d2003020014060501323200060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000000600000000000000000000000000000000000000060000000000000000000000000000000000000006000000000000000000000000000000000000007cf7","f043007d210300007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f284d210c7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f32f7","f043007d210302017f7f7f7f7f7f7f7f01057f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f4df7"};
+            fm1::seq::Pattern lp;
+            lp.length = 20; lp.tempo = 133;
+            for (auto& st : lp.steps) st.rate = 6;
+            lp.steps[0].notes = {{36, 100}};
+            lp.locks.assign(512, 0xFF);
+            lp.locks[24] = 40; lp.locks[25] = 77; lp.locks[26] = 33; lp.locks[27] = 12;
+            lp.locks[8 * 17] = 1; lp.locks[8 * 17 + 1] = 5;
+            auto w = fm1::seq::encodeWrite(lp, 3, true, true);
+            bool all = w.size() == 5;
+            for (size_t i = 0; i < w.size() && all; ++i) all = toHex(w[i]) == hers[i];
+            CHECK(all, "encodeWrite with locks: her 096 bytes (3 pattern messages, then the locks of eighths 1 and 3; the last saves)");
+            CHECK(fm1::seq::encodeWrite(lp, 3, true, false).size() == 3, "without locks (before FM-1_096): the pattern messages only");
+            auto lr = fm1::seq::lockRequests(3);
+            CHECK(lr.size() == 3 && lr[0].addr == 29846688u && lr[0].n == 4 && lr[1].addr == 29848320u && lr[2].addr == 29848576u && lr[2].n == 256,
+                  "lockRequests: her addresses");
+            fm1::Bytes a(256, 0xFF), b(256, 0xFF);
+            a[0] = 9;
+            CHECK(fm1::seq::decodeLocks({'F', 'M', 'L', 'K'}, a, b).size() == 512 && fm1::seq::decodeLocks({'F', 'M', 'L', 'K'}, a, b)[0] == 9
+                  && fm1::seq::decodeLocks({0, 0, 0, 0}, a, b).empty(), "decodeLocks: the table, or nothing without FMLK");
+            CHECK(fm1::seq::normalise(lp).locks == lp.locks, "normalise keeps the locks");
+        }
         CHECK(fm1::seq::kStepsRam == uint32_t(sq["consts"]["steps"].n) && fm1::seq::kExtRam == uint32_t(sq["consts"]["ext"].n) && fm1::seq::kGsetRam == uint32_t(sq["consts"]["gset"].n) && fm1::seq::kGsetLen == int(sq["consts"]["gsetLen"].n), "RAM constants");
     }
 

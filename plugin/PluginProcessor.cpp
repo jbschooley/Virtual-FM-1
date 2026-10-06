@@ -615,6 +615,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
             juce::StringArray steps;
             for (const auto& s : p.steps) steps.add(stepToString(s));
             pt.setProperty("steps", steps.joinIntoString("|"), nullptr);
+            if (fm1::seq::hasLocks(p)) pt.setProperty("locks", juce::String::toHexString(p.locks.data(), int(p.locks.size()), 0), nullptr);
             sq.addChild(pt, -1, nullptr);
         }
     }
@@ -702,6 +703,12 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             p.transpose = pt.getProperty("transpose", 0); sequencer.chain[size_t(i)] = pt.getProperty("chain", -1);
             auto steps = juce::StringArray::fromTokens(pt.getProperty("steps").toString(), "|", "");
             for (int k = 0; k < fm1::seq::kSteps && k < steps.size(); ++k) p.steps[size_t(k)] = stepFromString(steps[k]);
+            p.locks.clear();   // FM-1_096's parameter locks, as its table holds them
+            juce::MemoryBlock lk;
+            if (const auto hex = pt.getProperty("locks").toString(); hex.length() == 2 * fm1::seq::kLockBytes) {
+                lk.loadFromHexString(hex);
+                if (lk.getSize() == size_t(fm1::seq::kLockBytes)) p.locks.assign(static_cast<const uint8_t*>(lk.getData()), static_cast<const uint8_t*>(lk.getData()) + lk.getSize());
+            }
         }
     }
     auto ar = v.getChildWithName("Arp");

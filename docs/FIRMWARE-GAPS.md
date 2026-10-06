@@ -47,6 +47,19 @@ note values, length, tempo, gate and swing (`firmwares/fm1_common/Fm1Seq.cpp`). 
 | Pattern transpose | Plugin-side only | Whether the firmware has one per pattern |
 | Per-pattern preset | Plugin-side only; the synth stopped storing it at FM-1_060 | Nothing; confirm it is gone |
 
+**FM-1_096** (2026-10-06) adds parameter locks: up to four a step, in a table at
+`0x01C76CA0` ("FMLK", then 512 bytes a pattern), written with SysEx `0x21`. A
+pattern write (`0x20`) clears the locks of the steps it writes, so the plugin
+reads each pattern's locks on 096 and sends them back after the pattern, as her
+web app does (`fm1::seq::encodeWrite`, `lockRequests`). It keeps them and does
+not play them.
+
+096 also adds a whole-step write (`0x22`): four steps as their 32 bytes stand,
+with the pattern's five settings, Chain included. Her 096 `fm1seq.js` names the
+step's bytes (`+11` gate, `+12` chance, `+13` transpose, `+29` accent and
+ratchet, and each note's end for ties and slides), which would let the rows
+above be read and written. The plugin does not use it yet.
+
 ## 2a. Global settings (the GLOBE screen)
 
 The GLOBE screen holds the synth-wide settings: the MIDI, Keyboard and Glide

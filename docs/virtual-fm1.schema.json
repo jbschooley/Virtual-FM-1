@@ -284,7 +284,18 @@
         "chance": { "type": "integer", "minimum": 5, "maximum": 100, "default": 100, "description": "Percent chance the step plays (kept in the plugin)." },
         "transpose": { "type": "integer", "minimum": -24, "maximum": 24, "default": 0, "description": "Semitones (kept in the plugin)." },
         "accent": { "type": "boolean", "default": false, "description": "Kept in the plugin." },
-        "tieSlide": { "type": "boolean", "default": false, "description": "Tie & Slide: every note held into the next step (kept in the plugin)." }
+        "tieSlide": { "type": "boolean", "default": false, "description": "Tie & Slide: every note held into the next step (kept in the plugin)." },
+        "locks": {
+          "type": "array", "maxItems": 4,
+          "description": "FM-1_096's parameter locks of this step, as the synth stores them: what is the firmware's own code for the setting (not a MIDI CC). Not played by the plugin; sent back to the FM-1.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["what", "value"],
+            "properties": {
+              "what": { "type": "integer", "minimum": 0, "maximum": 58, "not": { "minimum": 24, "maximum": 31 } },
+              "value": { "type": "integer", "minimum": 0, "maximum": 127 }
+            }
+          }
+        }
       }
     }
   }

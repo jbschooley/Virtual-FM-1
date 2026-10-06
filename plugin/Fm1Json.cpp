@@ -526,8 +526,19 @@ var patternToJson(const PatternEntry& entry) {
     var steps = var(juce::Array<var>());
     for (int i = 0; i < fm1::seq::kSteps; ++i) {
         const auto& st = p.steps[size_t(i)];
+        // FM-1_096's parameter locks of this step: (what, value) as the synth's table holds them
+        var locks = var(juce::Array<var>());
+        if (p.locks.size() == size_t(fm1::seq::kLockBytes))
+            for (int j = 0; j < fm1::seq::kLocksPerStep; ++j) {
+                const size_t at = size_t(8 * i + 2 * j);
+                if (p.locks[at] == 0xFF) continue;
+                var lo = newObject();
+                put(lo, "what", int(p.locks[at]));
+                put(lo, "value", int(p.locks[at + 1]));
+                locks.append(lo);
+            }
         bool plain = st.notes.empty() && st.rate == p.rate && st.ratchet == 1 && st.gate == 0 && st.chance == 100
-                     && st.transpose == 0 && !st.accent && !st.slide;
+                     && st.transpose == 0 && !st.accent && !st.slide && locks.size() == 0;
         if (plain) continue;
         var so = newObject();
         put(so, "step", i + 1);
@@ -547,6 +558,7 @@ var patternToJson(const PatternEntry& entry) {
         if (st.transpose != 0) put(so, "transpose", st.transpose);
         if (st.accent) put(so, "accent", true);
         if (st.slide) put(so, "tieSlide", true);
+        if (locks.size() > 0) put(so, "locks", locks);
         steps.append(so);
     }
     put(o, "steps", steps);
@@ -630,6 +642,28 @@ std::optional<PatternEntry> patternFromJson(const var& v, const String& path, St
                 readInt(so, "transpose", at, -24, 24, st.transpose, errors);
                 readBool(so, "accent", at, st.accent, errors);
                 readBool(so, "tieSlide", at, st.slide, errors);
+                if (has(so, "locks")) {
+                    var locks = get(so, "locks");
+                    if (!locks.isArray() || locks.size() > fm1::seq::kLocksPerStep) {
+                        errors.add(at + ".locks: expected a list of up to 4 locks");
+                    } else {
+                        if (p.locks.size() != size_t(fm1::seq::kLockBytes)) p.locks.assign(size_t(fm1::seq::kLockBytes), 0xFF);
+                        for (int j = 0; j < locks.size(); ++j) {
+                            var lo = locks[j];
+                            String lat = at + ".locks[" + String(j) + "]";
+                            if (!lo.isObject() || !has(lo, "what") || !has(lo, "value")) { errors.add(lat + ": expected an object with what and value"); continue; }
+                            int what = 0, value = 0;
+                            readInt(lo, "what", lat, 0, 58, what, errors);
+                            readInt(lo, "value", lat, 0, 127, value, errors);
+                            // the codes her pattern editor names: 8 knobs of FM, VA and 8-Bit, then 4 of each effect
+                            if (what >= 24 && what < 32) errors.add(lat + ".what: " + String(what) + " is not a setting the FM-1 locks");
+                            for (int k = 0; k < j; ++k)
+                                if (p.locks[size_t(8 * (n - 1) + 2 * k)] == what) errors.add(lat + ".what: " + String(what) + " is locked twice on this step");
+                            p.locks[size_t(8 * (n - 1) + 2 * j)] = uint8_t(what);
+                            p.locks[size_t(8 * (n - 1) + 2 * j + 1)] = uint8_t(value);
+                        }
+                    }
+                }
                 p.steps[size_t(n - 1)] = st;
             }
         }

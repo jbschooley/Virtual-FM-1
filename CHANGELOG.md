@@ -13,12 +13,17 @@ for the code. New work goes under the next version at the top.
   source is not published), so they are silent here, and only their effects
   can be edited; everything else in them is kept exactly and syncs unchanged.
   JSON writes their effects and raw bytes only.
+- **Parameter locks** (FM-1_096): pulling a pattern reads its locks, and
+  sending it puts them back. Without this, a Send to an FM-1 on 096 would
+  clear the locks of every step it writes (as baud girl documents 096).
+  Locks are kept in projects and in JSON (`locks` on a step); the plugin
+  does not play them.
 
 ### Changed
 
 - FM-1+VA 0.96 is the release the plugin syncs with (not tried on an FM-1
   yet, and its line beside Find FM-1 says so); 0.93 and 0.94 are synced as
-  before, without 8-Bit presets.
+  before, without 8-Bit presets or locks.
 
 ## [0.4.1] - 2026-10-05
 

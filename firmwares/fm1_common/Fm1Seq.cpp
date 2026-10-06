@@ -20,6 +20,7 @@ Pattern normalise(const Pattern& p) {
     out.sound = p.sound < 0 ? -1 : clamp(p.sound, 0, 127);
     out.chain = p.chain < 0 ? -1 : clamp(p.chain, 0, kPatterns - 1);
     out.transpose = clamp(p.transpose, -24, 24);
+    if (p.locks.size() == size_t(kLockBytes)) out.locks = p.locks;   // as the synth's table holds them
     for (int i = 0; i < kSteps; ++i) {
         const Step& s = p.steps[size_t(i)];
         Step o;
@@ -63,12 +64,54 @@ Bytes encodeWritePart(const Pattern& pattern, int pat, int part, bool save) {
     return m;
 }
 
-std::vector<Bytes> encodeWrite(const Pattern& pattern, int pat, bool save) {
+bool hasLocks(const Pattern& p) {
+    return std::any_of(p.locks.begin(), p.locks.end(), [](uint8_t b) { return b != 0xFF; });
+}
+
+static bool eighthHasLocks(const std::vector<uint8_t>& t, int eighth) {
+    if (t.size() != size_t(kLockBytes)) return false;
+    for (int i = 0; i < 64; i += 2) if (t[size_t(eighth * 64 + i)] != 0xFF) return true;
+    return false;
+}
+
+std::vector<Bytes> encodeWrite(const Pattern& pattern, int pat, bool save, bool locks) {
     Pattern p = normalise(pattern);
     int parts = std::max(2, (p.length + 7) / 8);
+    std::vector<int> lk;
+    if (locks)
+        for (int k = 0; k < parts; ++k) if (eighthHasLocks(p.locks, k)) lk.push_back(k);
     std::vector<Bytes> out;
-    for (int k = 0; k < parts; ++k) out.push_back(encodeWritePart(p, pat, k, save && k == parts - 1));
+    for (int k = 0; k < parts; ++k) out.push_back(encodeWritePart(p, pat, k, save && lk.empty() && k == parts - 1));
+    for (size_t i = 0; i < lk.size(); ++i) out.push_back(encodeLocksPart(p.locks, pat, lk[i], save && i == lk.size() - 1));
     return out;
+}
+
+Bytes encodeLocksPart(const std::vector<uint8_t>& t, int pat, int eighth, bool save) {
+    Bytes body = {0x21, uint8_t(pat & 0x0F), uint8_t(eighth & 7), uint8_t(save ? 1 : 0)};
+    for (int i = 0; i < 64; i += 2) {
+        const size_t at = size_t((eighth & 7) * 64 + i);
+        const bool none = t.size() != size_t(kLockBytes) || t[at] == 0xFF;
+        body.push_back(none ? 0x7F : uint8_t(t[at] & 0x7F));
+        body.push_back(none ? 0x7F : uint8_t(t[at + 1] & 0x7F));
+    }
+    Bytes m = {0xF0, 0x43, 0x00, kSubId};
+    m.insert(m.end(), body.begin(), body.end());
+    m.push_back(ysum(body));
+    m.push_back(0xF7);
+    return m;
+}
+
+std::vector<MemRequest> lockRequests(int pat) {
+    const uint32_t t = kLockTabRam + uint32_t(pat) * uint32_t(kLockBytes);
+    return {{kLockRam, 4}, {t, 256}, {t + 256, 256}};
+}
+
+std::vector<uint8_t> decodeLocks(const Bytes& mark, const Bytes& a, const Bytes& b) {
+    if (mark.size() < 4 || mark[0] != 'F' || mark[1] != 'M' || mark[2] != 'L' || mark[3] != 'K') return {};
+    if (a.size() < 256 || b.size() < 256) throw CodecError("lock table is short");
+    std::vector<uint8_t> t(a.begin(), a.begin() + 256);
+    t.insert(t.end(), b.begin(), b.begin() + 256);
+    return t;
 }
 
 std::vector<MemRequest> readRequests(int pat) {
