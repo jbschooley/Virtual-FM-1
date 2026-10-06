@@ -194,7 +194,7 @@ static int checks() {
         }
         CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.3"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
-        CHECK(at(96).known && at(96).support == Support::Current && at(96).text.find("not tried") != std::string::npos, "FM-1_096: current, said to be untried");
+        CHECK(at(96).known && at(96).support == Support::Current && at(96).text.find("not tried") == std::string::npos, "FM-1_096: current, tried on an FM-1");
         CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
               && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0.3 known");
