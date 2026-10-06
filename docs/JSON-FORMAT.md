@@ -107,12 +107,13 @@ keeps the value.
 | `swing` | 50 to 75 (50). |
 | `transpose` | -24 to 24 semitones (0). |
 | `chain` | `"repeat"` or the pattern to play next, 1 to 16 (`"repeat"`). |
-| `steps` | The steps that are not empty, each with `step` (1 to 64) and any of: `notes` (up to nine, each `note` 0 to 127, `velocity` 1 to 127, `tie`), `noteValue`, `ratchet` (1 to 4), `gate` (0 for the pattern's, or 5 to 100), `chance` (5 to 100), `transpose`, `accent`, `tieSlide`, `locks` (FM-1_096's parameter locks, up to four `{what, value}` in the firmware's own codes; kept and sent back, not played). |
+| `repeats` | With a chain: how many times the pattern plays first, 1, 2, 3, 4, 6, 8, 12 or 16 (1). |
+| `steps` | The steps that are not empty, each with `step` (1 to 64) and any of: `notes` (up to nine, each `note` 0 to 127, `velocity` 1 to 127, `hold`: the steps it sounds past its own, 0 when left out), `noteValue`, `ratchet` (1 to 4), `gate` (0 for the pattern's, or 5 to 100), `chance` (5 to 95, or 100 for always), `transpose`, `accent`, `locks` (FM-1_096's parameter locks, up to four `{what, value}` in the firmware's own codes; kept and sent back, not played). Files from before `hold` marked a held note with `tie` on each step that repeated it, and a step's `tieSlide`; they still read, joined into `hold`. |
 
 A pattern in a file replaces the whole pattern: settings left out take the
 defaults in brackets and steps left out are empty. Note 60 is C3 on the
 FM-1.
 
-Ratchet, step gate, chance, transpose, accent, ties and Chain are kept in
-the plugin; pushing patterns to the FM-1 sends the notes, velocities, note
-values and pattern settings, as before.
+Pushing patterns to an FM-1 running FM-1_096 sends every step setting, held
+notes, Chain and Repeats and the locks. Earlier releases take only the notes,
+velocities, note values and pattern settings; the rest stays in the plugin.

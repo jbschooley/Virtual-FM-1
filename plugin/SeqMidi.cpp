@@ -87,13 +87,13 @@ ImportResult fromMidi(const juce::MidiFile& source, const Pattern& base) {
         bool dup = std::any_of(first.begin(), first.end(), [&](const Note& x) { return x.note == n.note; });
         if (dup) continue;
         if (int(first.size()) >= kMaxNotes) { ++r.crowded; continue; }
-        first.push_back({n.note, juce::jlimit(1, 127, n.vel), endStep > step});
+        // one note held over those steps (its length), until the same note starts again
+        int len = endStep - step;
         for (int i = step + 1; i <= endStep; ++i) {
-            auto& a = p.steps[size_t(i)].notes;
-            if (std::any_of(a.begin(), a.end(), [&](const Note& x) { return x.note == n.note; })) break;
-            if (int(a.size()) >= kMaxNotes) break;
-            a.push_back({n.note, juce::jlimit(1, 127, n.vel), i < endStep});
+            const auto& a = p.steps[size_t(i)].notes;
+            if (std::any_of(a.begin(), a.end(), [&](const Note& x) { return x.note == n.note; })) { len = i - step - 1; break; }
         }
+        first.push_back({n.note, juce::jlimit(1, 127, n.vel), len});
         lastStep = std::max(lastStep, endStep);
         ++r.notes;
     }

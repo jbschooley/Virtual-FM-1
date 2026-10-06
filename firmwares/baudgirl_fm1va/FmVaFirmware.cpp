@@ -66,7 +66,8 @@ public:
             if (i == 2) gset = *data; else steps.insert(steps.end(), data->begin(), data->end());
         }
         try {
-            auto p = seq::decodePattern(steps, gset, pat);
+            auto p = seq::decodePattern(steps, gset, pat, version >= 92);   // (accents, ratchets, note ends from FM-1_092)
+            p.readFrom = version;
             if (version >= 96) {   // its parameter locks, so that a Send gives them back
                 Bytes got[3];
                 const auto lr = seq::lockRequests(pat);
@@ -83,15 +84,21 @@ public:
     }
 
     bool writePattern(Port& port, const seq::Pattern& p, int pat, bool save, juce::String& error) override {
-        // FM-1_096: the pattern message clears the steps' locks; the lock messages after it put them back
-        for (const auto& m : seq::encodeWrite(p, pat, save, version >= 96)) {
+        // FM-1_096: whole steps (0x22: accents, ratchets, options and note ends too), then every lock
+        // message; before, the pattern message (notes, velocities, note values: the synth clears the
+        // rest of each step it writes)
+        const auto msgs = version >= 96 ? seq::encodeWholeSteps(p, pat, save) : seq::encodeWrite(p, pat, save, false);
+        for (size_t k = 0; k < msgs.size(); ++k) {
+            const auto& m = msgs[k];
+            const uint32_t arg = seq::replyArg(m);
+            const bool last = k + 1 == msgs.size();
             error.clear();
             auto reply = port.link.ask<Reply>(m,
-                [](const Bytes& f) -> std::optional<Reply> {
+                [arg](const Bytes& f) -> std::optional<Reply> {
                     auto r = decodeReply(f);
-                    if (!r || r->kind != Reply::Kind::Pattern) return std::nullopt;
+                    if (!r || r->kind != Reply::Kind::Pattern || r->arg != arg) return std::nullopt;
                     return r;
-                }, 1500, 3);
+                }, last && save ? 4000 : 1500, 3);
             if (!reply) { error = "no answer"; return false; }
             if (reply->status != 0) { error = reply->status < 4 ? kStatusText[reply->status] : "refused"; return false; }
             juce::Thread::sleep(50);

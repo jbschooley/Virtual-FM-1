@@ -869,7 +869,8 @@ void SeqPanel::loadStepControls() {
     ratchet_.setSelectedId(s.ratchet, juce::dontSendNotification);
     stepGate_.setValue(s.gate, juce::dontSendNotification); stepChance_.setValue(s.chance, juce::dontSendNotification);
     stepTranspose_.setValue(s.transpose, juce::dontSendNotification);
-    accent_.setToggleState(s.accent, juce::dontSendNotification); slide_.setToggleState(s.slide, juce::dontSendNotification);
+    accent_.setToggleState(s.accent, juce::dontSendNotification);
+    slide_.setToggleState(!s.notes.empty() && std::all_of(s.notes.begin(), s.notes.end(), [](const fm1::seq::Note& n) { return n.len > 0; }), juce::dontSendNotification);
     stepNotes_.setText("Step " + juce::String(selectedStep_ + 1) + (s.notes.empty() ? ":  (empty)" : ""), juce::dontSendNotification);
     for (int i = 0; i < fm1::seq::kMaxNotes; ++i) {
         auto& r = *noteRows_[size_t(i)];
@@ -878,7 +879,7 @@ void SeqPanel::loadStepControls() {
         if (!used) continue;
         r.name.setText(noteName(s.notes[size_t(i)].note), juce::dontSendNotification);
         r.velocity.setValue(s.notes[size_t(i)].vel, juce::dontSendNotification);
-        r.tie.setToggleState(s.notes[size_t(i)].tie, juce::dontSendNotification);
+        r.tie.setToggleState(s.notes[size_t(i)].len > 0, juce::dontSendNotification);
     }
     bool several = s.notes.size() > 1;
     allVelLabel_.setVisible(several);
@@ -914,7 +915,8 @@ void SeqPanel::applyNoteRow(int i) {
     auto& notes = pattern().steps[size_t(selectedStep_)].notes;
     if (i >= int(notes.size())) return;
     notes[size_t(i)].vel = int(noteRows_[size_t(i)]->velocity.getValue());
-    notes[size_t(i)].tie = noteRows_[size_t(i)]->tie.getToggleState();
+    auto& n = notes[size_t(i)];
+    if (noteRows_[size_t(i)]->tie.getToggleState() != (n.len > 0)) n.len = noteRows_[size_t(i)]->tie.getToggleState() ? 1 : 0;
 }
 
 void SeqPanel::layoutNoteRows(juce::Rectangle<int> area) {
@@ -947,7 +949,9 @@ void SeqPanel::applyStepControls() {
     auto& s = pattern().steps[size_t(selectedStep_)];
     s.rate = stepRate_.getSelectedId() - 1; s.ratchet = ratchet_.getSelectedId();
     s.gate = int(stepGate_.getValue()); s.chance = int(stepChance_.getValue()); s.transpose = int(stepTranspose_.getValue());
-    s.accent = accent_.getToggleState(); s.slide = slide_.getToggleState();
+    s.accent = accent_.getToggleState();
+    const bool slide = slide_.getToggleState();   // Tie & Slide: every note held into the next step
+    for (auto& n : s.notes) if ((n.len > 0) != slide) n.len = slide ? 1 : 0;
 }
 
 juce::Rectangle<int> SeqPanel::gridBounds() const { return {10, gridY_, 8 * 46, 8 * 46}; }

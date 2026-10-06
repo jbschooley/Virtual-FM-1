@@ -445,6 +445,7 @@ if(FM1_BUILD_PLUGIN)
     target_sources(seq_test PRIVATE tests/seq_test.cpp plugin/Sequencer.cpp plugin/SeqMidi.cpp plugin/Arpeggiator.cpp)
     target_include_directories(seq_test PRIVATE plugin)
     target_link_libraries(seq_test PRIVATE fm1_sync fm1_test_juce juce::juce_recommended_warning_flags)
+    target_compile_definitions(seq_test PRIVATE FM1_096_STEPS="${CMAKE_SOURCE_DIR}/tests/fm1-096-steps.txt")
     add_test(NAME seq_test COMMAND seq_test)
 
     # presets and patterns as JSON: exact round trips, single-byte edits, error places

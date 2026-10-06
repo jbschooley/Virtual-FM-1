@@ -28,20 +28,13 @@ void Sequencer::startPattern(int pat, double atTick, bool first) {
 
 }
 
+// A note sounds for its step's gate, or (its length past 0) to the gate of the step it ends on,
+// as the synth keeps a note's end on a later step; ratchets split its own step into hits, the last
+// one holding on.
 void Sequencer::stepEvents(const fm1::seq::Pattern& p, const fm1::seq::Times& times, int stepIx, double atTick, std::vector<Event>& out) {
     const fm1::seq::Step& s = p.steps[size_t(stepIx)];
     const fm1::seq::StepTime& t = times.steps[size_t(stepIx)];
     const int n = p.length;
-    auto tiedFrom = [&](int i, int note) {   // does step i hold `note` into step i+1, which plays it too?
-        if (i + 1 >= n) return false;
-        const auto& a = p.steps[size_t(i)];
-        const auto& b = p.steps[size_t(i + 1)];
-        bool tied = a.slide;
-        for (const auto& x : a.notes) if (x.note == note && x.tie) tied = true;
-        bool has = false;
-        for (const auto& x : b.notes) if (x.note == note) has = true;
-        return tied && has;
-    };
     if (s.notes.empty()) return;
     int hits = s.ratchet;
     double hitDur = double(t.dur) / hits;
@@ -50,24 +43,16 @@ void Sequencer::stepEvents(const fm1::seq::Pattern& p, const fm1::seq::Times& ti
     for (int h = 0; h < hits; ++h) {
         double on = atTick + h * hitDur;
         for (const auto& nt : s.notes) {
-            // a continuation of a tie from the previous step is already sounding
-            if (h == 0 && stepIx > 0 && tiedFrom(stepIx - 1, nt.note)) continue;
             int note = juce::jlimit(0, 127, nt.note + p.transpose + s.transpose);
             int vel = s.accent ? 127 : nt.vel;
             double len = gate;
-            if (h == hits - 1) {
-                // held through every following step it is tied into
-                double extra = 0.0;
-                int i = stepIx;
-                bool any = false;
-                while (tiedFrom(i, nt.note)) { any = true; extra += times.steps[size_t(i)].dur; ++i; }
-                if (any) {
-                    const auto& last = p.steps[size_t(i)];
-                    int lastGate = last.gate > 0 ? last.gate : p.gate;
-                    len = (double(t.dur) - h * hitDur) + (extra - t.dur) + std::max(1.0, times.steps[size_t(i)].dur * lastGate / 100.0);
-                } else if (s.slide && stepIx + 1 < n) {
-                    len = double(t.dur) + 2.0;   // Tie & Slide into a different note: legato overlap
-                }
+            if (h == hits - 1 && nt.len > 0 && stepIx + 1 < n) {
+                const int end = std::min(n - 1, stepIx + nt.len);
+                double through = double(t.dur) - h * hitDur;   // the rest of its own step
+                for (int i = stepIx + 1; i < end; ++i) through += times.steps[size_t(i)].dur;
+                const auto& last = p.steps[size_t(end)];
+                const int lastGate = last.gate > 0 ? last.gate : p.gate;
+                len = through + std::max(1.0, times.steps[size_t(end)].dur * lastGate / 100.0);
             }
             out.push_back({on, note, true, vel});
             out.push_back({on + len, note, false, 0});
@@ -112,7 +97,7 @@ void Sequencer::recordNoteOn(int note, int vel) {
     if (replace) st.notes.clear();
     recTouched_[size_t(step)] = true;
     st.notes.erase(std::remove_if(st.notes.begin(), st.notes.end(), [note](const fm1::seq::Note& n) { return n.note == note; }), st.notes.end());
-    if (int(st.notes.size()) < fm1::seq::kMaxNotes) st.notes.push_back({note, vel, false});
+    if (int(st.notes.size()) < fm1::seq::kMaxNotes) st.notes.push_back({note, vel, 0});
     recHeld_.push_back({note, vel, step});
 }
 
@@ -126,16 +111,11 @@ void Sequencer::recordNoteOff(int note) {
     const juce::SpinLock::ScopedTryLockType l(lock);
     if (!l.isLocked()) return;
     auto& p = patterns[size_t(pat_)];
-    // a note ends on the step nearest to its release; one held past the pattern's end ends on its last step
+    // a note ends on the step nearest to its release (its length: the steps past its own); one
+    // held past the pattern's end ends on its last step
     int last = endStep >= h.step ? endStep : p.length - 1;
-    for (int i = h.step; i < last; ++i) {
-        auto& a = p.steps[size_t(i)];
-        for (auto& n : a.notes) if (n.note == note) n.tie = true;
-        auto& b = p.steps[size_t(i + 1)];
-        bool has = false;
-        for (const auto& n : b.notes) if (n.note == note) has = true;
-        if (!has && int(b.notes.size()) < fm1::seq::kMaxNotes) b.notes.push_back({note, h.vel, false});
-    }
+    for (auto& n : p.steps[size_t(h.step)].notes)
+        if (n.note == note) n.len = std::max(0, last - h.step);
 }
 
 void Sequencer::flush(juce::MidiBuffer& out, int upToSample, double tickAtBlockStart, double tps, int blockStart) {

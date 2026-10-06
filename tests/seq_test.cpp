@@ -78,7 +78,7 @@ int main() {
             p.steps[0].notes = {{60, 100}}; p.steps[0].ratchet = 2;
             p.steps[1].notes = {{62, 50}}; p.steps[1].accent = true;
             p.steps[2].notes = {{64, 100}}; p.steps[2].chance = 5;
-            p.steps[3].notes = {{65, 100}}; p.steps[3].slide = true; p.steps[3].transpose = -12;
+            p.steps[3].notes = {{65, 100, 1}}; p.steps[3].transpose = -12;   // (held into the next step: none after the last)
         }
         s.enabled = true; s.syncToHost = false; s.play();
         auto ev = run(s, sr, 100, 480);
@@ -135,12 +135,9 @@ int main() {
             auto& p = s.patterns[0];
             p.length = 8; p.rate = 6; p.tempo = 120; p.gate = 50; p.swing = 50;
             for (auto& st : p.steps) st.rate = 6;
-            p.steps[0].notes = {{60, 100, true}};
-            p.steps[1].notes = {{60, 100, true}};
-            p.steps[2].notes = {{60, 100, false}};
-            p.steps[4].notes = {{64, 90, false}, {67, 90, false}};
-            p.steps[4].slide = true;
-            p.steps[5].notes = {{64, 90, false}, {69, 90, false}};
+            p.steps[0].notes = {{60, 100, 2}};                 // held two steps past its own
+            p.steps[4].notes = {{64, 90, 1}, {67, 90, 1}};     // Tie & Slide: both held into step 6
+            p.steps[5].notes = {{69, 90, 0}};
         }
         s.enabled = true; s.syncToHost = false; s.play();
         auto ev = run(s, sr, 100, 480);    // 1 s = one pass of 8 x 0.125 s
@@ -152,9 +149,9 @@ int main() {
             if (e.note == 67 && !e.on && end67 < 0) end67 = e.sample;
             if (e.note == 69 && e.on && start69 < 0) start69 = e.sample;
         }
-        CHECK(on60 == 1, "a note tied over three steps is played once");
+        CHECK(on60 == 1, "a note held over three steps is played once");
         CHECK(std::abs((end60 - start60) - (2 * 6000 + 3000)) < 4, "and held for two steps plus the third step's gate");
-        CHECK(on64 == 1, "Tie & Slide: the note both steps share is not retriggered");
+        CHECK(on64 == 1, "Tie & Slide: a held note is not retriggered");
         CHECK(end67 > start69, "Tie & Slide: a note that changes overlaps into the next step (legato)");
 
         // real-time recording: a note played half way through step 2 lands on step 3; held 2 steps it ties
@@ -174,12 +171,13 @@ int main() {
         {
             const juce::SpinLock::ScopedLockType l(r.lock);
             const auto& p = r.patterns[0];
-            bool on3 = false, tie3 = false, on4 = false, tie4 = false, on5 = false;
-            for (const auto& n : p.steps[2].notes) if (n.note == 72) { on3 = n.vel == 99; tie3 = n.tie; }
-            for (const auto& n : p.steps[3].notes) if (n.note == 72) { on4 = true; tie4 = n.tie; }
+            bool on3 = false, on4 = false, on5 = false;
+            int len3 = -1;
+            for (const auto& n : p.steps[2].notes) if (n.note == 72) { on3 = n.vel == 99; len3 = n.len; }
+            for (const auto& n : p.steps[3].notes) if (n.note == 72) on4 = true;
             for (const auto& n : p.steps[4].notes) if (n.note == 72) on5 = true;
-            CHECK(on3 && tie3, "recorded note lands on the nearest step (3) with its velocity, tied");
-            CHECK(on4 && tie4 && on5, "a held note is tied across the steps it spans");
+            CHECK(on3, "recorded note lands on the nearest step (3) with its velocity");
+            CHECK(len3 == 2 && !on4 && !on5, "a held note is one note, its length the steps it spans past its own");
             CHECK(p.steps[1].notes.empty(), "nothing recorded on step 2");
         }
     }
@@ -226,9 +224,7 @@ int main() {
             Pattern p; p.length = 16; p.rate = 6; p.gate = gate; p.tempo = 97;
             for (auto& st : p.steps) st.rate = p.rate;
             p.steps[0].notes = {{60, 90, false}, {64, 114, false}};
-            p.steps[3].notes = {{67, 70, true}};
-            p.steps[4].notes = {{67, 70, true}};
-            p.steps[5].notes = {{67, 70, false}};
+            p.steps[3].notes = {{67, 70, 2}};
             p.steps[9].notes = {{48, 127, false}};
             p.steps[15].notes = {{72, 1, false}};
             auto mf = roundTrip(seqmidi::toMidi({{2, p}}));
@@ -240,8 +236,8 @@ int main() {
                 const auto& a = p.steps[size_t(i)].notes; const auto& b = r.pattern.steps[size_t(i)].notes;
                 if (a.size() != b.size()) { same = false; std::printf("  gate %d step %d: %zu notes, back %zu\n", gate, i + 1, a.size(), b.size()); continue; }
                 for (size_t k = 0; k < a.size(); ++k)
-                    if (a[k].note != b[k].note || a[k].vel != b[k].vel || a[k].tie != b[k].tie) {
-                        same = false; std::printf("  gate %d step %d: %d/%d/%d back %d/%d/%d\n", gate, i + 1, a[k].note, a[k].vel, int(a[k].tie), b[k].note, b[k].vel, int(b[k].tie));
+                    if (a[k].note != b[k].note || a[k].vel != b[k].vel || a[k].len != b[k].len) {
+                        same = false; std::printf("  gate %d step %d: %d/%d/%d back %d/%d/%d\n", gate, i + 1, a[k].note, a[k].vel, a[k].len, b[k].note, b[k].vel, b[k].len);
                     }
             }
             CHECK(same && r.notes == 5 && r.tempoFromFile, gate == 50 ? "MIDI round trip at gate 50: notes, velocities, ties, length, tempo" : "MIDI round trip at gate 30");
@@ -287,8 +283,62 @@ int main() {
             Pattern base; base.rate = 4;   // 1/8
             auto r = seqmidi::fromMidi(roundTrip(mf), base);
             CHECK(r.notes == 64 && r.pastEnd == 6 && r.pattern.length == 64, "MIDI import: an eighth-note line on a 1/8 grid, 64 steps, the rest reported");
-            CHECK(r.pattern.steps[1].notes.size() == 1 && r.pattern.steps[1].notes[0].note == 61 && !r.pattern.steps[1].notes[0].tie, "MIDI import: notes land on their steps");
+            CHECK(r.pattern.steps[1].notes.size() == 1 && r.pattern.steps[1].notes[0].note == 61 && r.pattern.steps[1].notes[0].len == 0, "MIDI import: notes land on their steps");
         }
+    }
+
+    // ---- FM-1_096's step bytes: what baud girl's own code made and reads (tests/fm1-096-steps.txt)
+    {
+        using namespace fm1::seq;
+        juce::StringArray lines;
+        juce::File(FM1_096_STEPS).readLines(lines);
+        juce::String hex;
+        juce::StringArray want;
+        for (const auto& l : lines) {
+            if (l.startsWith("#") || l.trim().isEmpty()) continue;
+            if (l.startsWith("S ")) want.add(l.trim()); else hex = l.trim();
+        }
+        juce::MemoryBlock mb;
+        mb.loadFromHexString(hex);
+        CHECK(mb.getSize() == 2048 && want.size() == 8, "the vector file reads");
+        fm1::Bytes bytes(static_cast<const uint8_t*>(mb.getData()), static_cast<const uint8_t*>(mb.getData()) + mb.getSize());
+        fm1::Bytes gset(size_t(kGsetLen), 0);
+        gset[98] = 32; gset[50] = 6; gset[18] = 50; gset[34] = 50;
+        auto lineOf = [](const Pattern& p) {
+            juce::StringArray out;
+            for (int k = 0; k < kSteps; ++k) {
+                const Step& s = p.steps[size_t(k)];
+                if (s.notes.empty() && !s.accent && s.ratchet == 1 && s.gate == 0 && s.chance == 100 && s.transpose == 0) continue;
+                juce::String l = "S " + juce::String(k) + " acc=" + juce::String(int(s.accent)) + " rat=" + juce::String(s.ratchet) + " gate=" + juce::String(s.gate)
+                               + " chance=" + juce::String(s.chance) + " tr=" + juce::String(s.transpose) + " notes=";
+                for (const auto& n : s.notes) l << n.note << "/" << n.vel << "/" << n.len << " ";
+                out.add(l.trim());
+            }
+            return out;
+        };
+        const auto p = decodePattern(bytes, gset, 0, true);
+        const auto got = lineOf(p);
+        CHECK(got == want, "her bytes read as she reads them: accents, ratchets, options, note lengths");
+        if (got != want) for (const auto& l : got) std::printf("  got %s\n", l.toRawUTF8());
+        CHECK(stepBytes(p) == bytes, "an unchanged pattern goes back as the very bytes read");
+        Pattern edited = p;
+        edited.steps[3].notes = {{50, 99, 0}};
+        const auto rebuilt = stepBytes(edited);
+        CHECK(rebuilt != bytes, "an edited one is laid out again");
+        edited = normalise(edited);
+        auto again = decodePattern(rebuilt, gset, 0, true);
+        CHECK(lineOf(again) == lineOf(edited), "and reads back as edited");
+        const auto msgs = encodeWholeSteps(p, 2, true);
+        CHECK(msgs.size() == 24 && msgs[0].size() == 162 && msgs[0][4] == 0x22 && msgs[23][4] == 0x21 && msgs[23][7] == 1 && msgs[22][7] == 0,
+              "whole steps: 16 messages of 162 bytes, then 8 lock messages, the last one saving");
+        CHECK(replyArg(msgs[5]) == (2u | 5u << 8 | 0x4000u) && replyArg(msgs[17]) == (2u | 1u << 8 | 0x8000u), "each names the reply it expects");
+        Pattern chained = p;
+        chained.chain = 6; chained.repeats = 8;
+        CHECK(settingsBytes(chained)[4] == uint8_t(128 | 5 << 4 | 6), "the Chain byte: 128 + repeats index << 4 + the next pattern");
+        fm1::Bytes g2 = gset;
+        g2[118] = uint8_t(128 | 5 << 4 | 6);
+        const auto cp = decodePattern(bytes, g2, 0, true);
+        CHECK(cp.chain == 6 && cp.repeats == 8, "and read back");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

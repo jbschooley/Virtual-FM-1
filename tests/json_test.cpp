@@ -236,9 +236,10 @@ int main(int argc, char** argv) {
         auto& p = e.pattern;
         p.length = 24; p.rate = 7; p.tempo = 97; p.gate = 63; p.swing = 58; p.transpose = -5; p.chain = 9;
         for (auto& st : p.steps) st.rate = p.rate;
-        p.steps[0].notes = {{60, 90, false}, {64, 114, true}, {67, 1, false}};
+        p.steps[0].notes = {{60, 90, 0}, {64, 114, 3}, {67, 1, 0}};
         p.steps[0].ratchet = 3; p.steps[0].chance = 40; p.steps[0].accent = true;
-        p.steps[5].rate = 2; p.steps[5].gate = 80; p.steps[5].transpose = 12; p.steps[5].slide = true;
+        p.steps[5].rate = 2; p.steps[5].gate = 80; p.steps[5].transpose = 12;
+        p.repeats = 6;
         p.steps[23].notes = {{127, 127, false}};
         fm1json::Document d;
         d.patterns.push_back(e);
@@ -252,9 +253,24 @@ int main(int argc, char** argv) {
             const auto& q = back.patterns[0];
             CHECK(q.index == 4, "pattern number");
             CHECK(fm1json::write({{}, {q}}) == fm1json::write({{}, {e}}), "pattern round-trips");
-            CHECK(q.pattern.steps[0].notes.size() == 3 && q.pattern.steps[0].notes[1].vel == 114 && q.pattern.steps[0].notes[1].tie, "notes, velocity and tie");
-            CHECK(q.pattern.chain == 9 && q.pattern.transpose == -5, "chain and transpose");
-            CHECK(q.pattern.steps[5].rate == 2 && q.pattern.steps[5].slide && q.pattern.steps[5].gate == 80, "step extras");
+            CHECK(q.pattern.steps[0].notes.size() == 3 && q.pattern.steps[0].notes[1].vel == 114 && q.pattern.steps[0].notes[1].len == 3, "notes, velocity and length");
+            CHECK(q.pattern.chain == 9 && q.pattern.repeats == 6 && q.pattern.transpose == -5, "chain, repeats and transpose");
+            CHECK(q.pattern.steps[5].rate == 2 && q.pattern.steps[5].gate == 80, "step extras");
+        }
+        {   // an older file: "tie" repeated the note on the next step; "tieSlide" tied every note of a step
+            const juce::String old = R"({"format": "virtual-fm1", "version": 1, "patterns": [{"pattern": 1, "length": 8, "noteValue": "1/16", "tempo": 120, "gate": 50, "swing": 50,
+                "chain": "repeat", "steps": [{"step": 1, "notes": [{"note": 60, "velocity": 100, "tie": true}]},
+                {"step": 2, "notes": [{"note": 60, "velocity": 100, "tie": true}]}, {"step": 3, "notes": [{"note": 60, "velocity": 100}]},
+                {"step": 5, "notes": [{"note": 64, "velocity": 90}], "tieSlide": true}, {"step": 6, "notes": [{"note": 67, "velocity": 90}]}]}]})";
+            juce::StringArray errs;
+            auto od = fm1json::read(old, errs);
+            CHECK(errs.isEmpty() && od.patterns.size() == 1, "an older pattern file reads: " + errs.joinIntoString("; "));
+            if (od.patterns.size() == 1) {
+                const auto& op = od.patterns[0].pattern;
+                CHECK(op.steps[0].notes.size() == 1 && op.steps[0].notes[0].len == 2 && op.steps[1].notes.empty() && op.steps[2].notes.empty(),
+                      "its tied note becomes one note held two steps past its own");
+                CHECK(op.steps[4].notes.size() == 1 && op.steps[4].notes[0].len == 1, "Tie & Slide into another note: held into the next step");
+            }
         }
         if (back.presets.size() == 1) CHECK(sameBytes(back.presets[0], sounds[0]), "preset inside a document round-trips");
         // a bad step

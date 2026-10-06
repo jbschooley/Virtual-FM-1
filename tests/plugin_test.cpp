@@ -126,8 +126,8 @@ static juce::String renderCase(const fm1::Sound& s, double rate, bool hw, int bl
             const juce::SpinLock::ScopedLockType l(p.sequencer.lock);
             auto& pt = p.sequencer.patterns[0];
             pt.length = 8; pt.tempo = 150; pt.rate = 7;
-            for (int i = 0; i < 8; ++i) pt.steps[size_t(i)].notes = {{48 + 5 * i, 70 + 7 * i, false}};
-            pt.steps[2].ratchet = 3; pt.steps[5].slide = true; pt.steps[6].notes.clear();
+            for (int i = 0; i < 8; ++i) pt.steps[size_t(i)].notes = {{48 + 5 * i, 70 + 7 * i, 0}};
+            pt.steps[2].ratchet = 3; pt.steps[5].notes[0].len = 1; pt.steps[6].notes.clear();   // (held into step 7)
         }
         if (play == Play::Arp) { p.arp.syncToHost = false; p.arp.tempo = 140; p.arp.octaves = 2; p.arp.enabled = true; }
         p.setPlayConfigDetails(0, 2, rate, block);
@@ -1375,8 +1375,8 @@ static juce::StringArray describe(FM1Processor& p) {
             for (int st = 0; st < fm1::seq::kSteps; ++st) {
                 const auto& step = pt.steps[size_t(st)];
                 line << " " << step.rate << "/" << step.ratchet << "/" << step.gate << "/" << step.chance << "/" << step.transpose
-                     << (step.accent ? "a" : "") << (step.slide ? "s" : "");
-                for (const auto& n : step.notes) line << "," << n.note << "." << n.vel << (n.tie ? "t" : "");
+                     << (step.accent ? "a" : "");
+                for (const auto& n : step.notes) line << "," << n.note << "." << n.vel << (n.len > 0 ? "h" + std::to_string(n.len) : "");
             }
             if (fm1::seq::hasLocks(pt)) line << " locks " << juce::String::toHexString(pt.locks.data(), int(pt.locks.size()), 0);
             d.add(line);
@@ -1410,13 +1410,14 @@ static int stateWrite(const juce::File& golden, const juce::File& dir) {
             const juce::SpinLock::ScopedLockType l(p.sequencer.lock);
             auto& pt = p.sequencer.patterns[2];
             pt.length = 12; pt.rate = 5; pt.tempo = 97; pt.gate = 63; pt.swing = 58; pt.transpose = -3;
-            pt.steps[0].notes = {{60, 100, false}, {64, 90, true}};
-            pt.steps[3].notes = {{67, 127, false}};
+            pt.steps[0].notes = {{60, 100, 0}, {64, 90, 2}};
+            pt.steps[3].notes = {{67, 127, 0}};
             pt.steps[3].ratchet = 3; pt.steps[3].chance = 40; pt.steps[3].accent = true;
-            pt.steps[5].slide = true; pt.steps[5].gate = 80; pt.steps[5].transpose = 5;
-            pt.steps[5].notes = {{72, 64, false}};
+            pt.steps[5].gate = 80; pt.steps[5].transpose = 5;
+            pt.steps[5].notes = {{72, 64, 1}};
+            pt.repeats = 4;
             p.sequencer.chain[2] = 4;
-            p.sequencer.patterns[9].steps[40].notes = {{50, 33, false}};   // beyond the pattern's length
+            p.sequencer.patterns[9].steps[40].notes = {{50, 33, 0}};   // beyond the pattern's length
             pt.locks.assign(512, 0xFF);                                         // FM-1_096's parameter locks
             pt.locks[8 * 3] = 40; pt.locks[8 * 3 + 1] = 77; pt.locks[8 * 63 + 6] = 58; pt.locks[8 * 63 + 7] = 100;
         }

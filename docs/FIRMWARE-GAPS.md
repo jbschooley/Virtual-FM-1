@@ -35,30 +35,23 @@ added, `Fm1Edit::fullSound` and `delta` can send the record bytes directly and
 
 ## 2. Sequencer data that cannot be synced
 
-Her pattern read (memory read of the step blocks and the settings block) and
-pattern write (SysEx `0x20`, eight steps per message) cover notes, velocities,
-note values, length, tempo, gate and swing (`firmwares/fm1_common/Fm1Seq.cpp`). Not covered:
+The plugin reads a pattern by memory read (the step blocks, the settings block and, on 096, the
+lock table) and reads each step's 32 bytes whole, as baud girl's `fm1seq.js` describes them
+(`firmwares/fm1_common/Fm1Seq.cpp`): notes and velocities, the step's note value, accent and
+ratchet (FM-1_092 on), its own gate, chance and transpose (FM-1_096), and each note's end, so its
+length in steps. On **FM-1_096** it writes with the whole-step message (`0x22`, four steps' bytes
+with the pattern's five settings, Chain and Repeats included), then every lock message (`0x21`):
+an unchanged pattern goes back as the very bytes read, an edited one is laid out as the synth's own
+step entry would (tried on an FM-1 2026-10-06: settings made on the device survive a Send; the
+synth rewrites one bookkeeping byte, +31 of an extended step). Not covered:
 
 | Data | Today | Look for in her source |
 |---|---|---|
-| Per-pattern Chain (FM-1_093) | Read: the settings byte at `[118 + pattern]` holds `128 + target` (her `fm1seq.js`). Write: the `0x20` message's byte there is ignored by the firmware ("not stored since FM-1_060"), so a pushed Chain stays in the plugin (`plugin/Sequencer.h` `chain`) | A field for Chain in the `0x20` write, or how the firmware stores `[118]` so it can be written |
-| Tie & Slide per step and per note (FM-1_092) | Plugin-side only (`fm1::seq::Note::tie`, `Step::slide`). Not read: her decoder and ours only know notes `+0..+9`, note value `+10`, velocities `+20..+29` of each 32-byte step | Which of the step's other bytes (`+11..+19`, `+30..+31`) or bits hold ties, and how FM-1_092 converted older patterns ("held notes shrink to one step" when going back) |
-| Ratchet, chance, step gate, step transpose, accent | Plugin-side only | Their bytes in the 32-byte step |
-| Pattern transpose | Plugin-side only | Whether the firmware has one per pattern |
+| Before FM-1_096: writing anything but notes, velocities and note values | The pattern message (`0x20`) is all those releases take, and it clears the rest of each step it writes: accents, ratchets and note lengths read from the synth are lost by a Send (her app has the same limit). Chain is not written either ("not stored since FM-1_060") | Nothing: update to 096 |
+| A step's gate, chance and transpose before FM-1_096 | Plugin-side only (those releases have none) | — |
+| Pattern transpose, tempo per pattern | Plugin-side only: the synth's Tempo and Transpose are global (GLOBE) | — |
 | Per-pattern preset | Plugin-side only; the synth stopped storing it at FM-1_060 | Nothing; confirm it is gone |
-
-**FM-1_096** (2026-10-06) adds parameter locks: up to four a step, in a table at
-`0x01C76CA0` ("FMLK", then 512 bytes a pattern), written with SysEx `0x21`. A
-pattern write (`0x20`) clears the locks of the steps it writes, so the plugin
-reads each pattern's locks on 096 and sends them back after the pattern, as her
-web app does (`fm1::seq::encodeWrite`, `lockRequests`). It keeps them and does
-not play them.
-
-096 also adds a whole-step write (`0x22`): four steps as their 32 bytes stand,
-with the pattern's five settings, Chain included. Her 096 `fm1seq.js` names the
-step's bytes (`+11` gate, `+12` chance, `+13` transpose, `+29` accent and
-ratchet, and each note's end for ties and slides), which would let the rows
-above be read and written. The plugin does not use it yet.
+| Parameter locks | Read, kept and sent back (FM-1_096); not played here | What each lock code does to the sound, to play them |
 
 ## 2a. Global settings (the GLOBE screen)
 

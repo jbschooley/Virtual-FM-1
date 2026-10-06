@@ -57,7 +57,8 @@ FM1Processor::FM1Processor()
     };
     session.onPatternRead = [this](int pat, const fm1::seq::Pattern& p) {
         const juce::SpinLock::ScopedLockType l(sequencer.lock);
-        // keep the plugin-only per-step extras the synth does not carry
+        // keep the plugin's own step settings where the synth's release has none: before FM-1_092
+        // accents, ratchets and note lengths; before FM-1_096 each step's gate, chance and transpose
         auto& dst = sequencer.patterns[size_t(pat)];
         fm1::seq::Pattern merged = p;
         merged.transpose = dst.transpose;
@@ -66,8 +67,11 @@ FM1Processor::FM1Processor()
         for (int i = 0; i < fm1::seq::kSteps; ++i) {
             auto& ms = merged.steps[size_t(i)];
             const auto& ds = dst.steps[size_t(i)];
-            ms.ratchet = ds.ratchet; ms.gate = ds.gate; ms.chance = ds.chance; ms.transpose = ds.transpose; ms.accent = ds.accent; ms.slide = ds.slide;
-            for (auto& n : ms.notes) for (const auto& dn : ds.notes) if (dn.note == n.note) n.tie = dn.tie;
+            if (p.readFrom < 96) { ms.gate = ds.gate; ms.chance = ds.chance; ms.transpose = ds.transpose; }
+            if (p.readFrom < 92) {
+                ms.ratchet = ds.ratchet; ms.accent = ds.accent;
+                for (auto& n : ms.notes) for (const auto& dn : ds.notes) if (dn.note == n.note) n.len = dn.len;
+            }
         }
         dst = merged;
         ++patternsVersion;
@@ -540,12 +544,16 @@ void FM1Processor::setCurrentSound(const fm1::Sound& s) {
 
 static juce::String stepToString(const fm1::seq::Step& s) {
     juce::String t = "r" + juce::String(s.rate) + " k" + juce::String(s.ratchet) + " g" + juce::String(s.gate) + " c" + juce::String(s.chance)
-                   + " t" + juce::String(s.transpose) + " a" + juce::String(s.accent ? 1 : 0) + " s" + juce::String(s.slide ? 1 : 0) + " n";
-    for (size_t i = 0; i < s.notes.size(); ++i) t += (i ? "," : "") + juce::String(s.notes[i].note) + ":" + juce::String(s.notes[i].vel) + (s.notes[i].tie ? "~" : "");
+                   + " t" + juce::String(s.transpose) + " a" + juce::String(s.accent ? 1 : 0) + " n";
+    // a note's length after "~" (steps past its own); an older state's bare "~" (and "s1", the step's
+    // Tie & Slide) is the old tie, joined into lengths when the pattern is read (joinTies)
+    for (size_t i = 0; i < s.notes.size(); ++i)
+        t += (i ? "," : "") + juce::String(s.notes[i].note) + ":" + juce::String(s.notes[i].vel) + (s.notes[i].len > 0 ? "~" + juce::String(s.notes[i].len) : "");
     return t;
 }
 static fm1::seq::Step stepFromString(const juce::String& t) {
     fm1::seq::Step s;
+    bool slide = false;
     for (const auto& tok : juce::StringArray::fromTokens(t, " ", "")) {
         if (tok.isEmpty()) continue;
         juce::juce_wchar c = tok[0];
@@ -557,15 +565,20 @@ static fm1::seq::Step stepFromString(const juce::String& t) {
             case 'c': s.chance = v.getIntValue(); break;
             case 't': s.transpose = v.getIntValue(); break;
             case 'a': s.accent = v.getIntValue() != 0; break;
-            case 's': s.slide = v.getIntValue() != 0; break;
+            case 's': slide = v.getIntValue() != 0; break;
             case 'n':
                 for (const auto& nv : juce::StringArray::fromTokens(v, ",", ""))
-                    if (nv.containsChar(':')) s.notes.push_back({nv.upToFirstOccurrenceOf(":", false, false).getIntValue(),
-                                                                  nv.fromFirstOccurrenceOf(":", false, false).getIntValue(), nv.endsWithChar('~')});
+                    if (nv.containsChar(':')) {
+                        const auto hold = nv.fromFirstOccurrenceOf("~", false, false);
+                        s.notes.push_back({nv.upToFirstOccurrenceOf(":", false, false).getIntValue(),
+                                           nv.fromFirstOccurrenceOf(":", false, false).upToFirstOccurrenceOf("~", false, false).getIntValue(),
+                                           !nv.containsChar('~') ? 0 : hold.isEmpty() ? -1 : hold.getIntValue()});
+                    }
                 break;
             default: break;
         }
     }
+    if (slide) for (auto& n : s.notes) if (n.len == 0) n.len = -1;   // (the old Tie & Slide: every note tied)
     return s;
 }
 
@@ -620,6 +633,12 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
             for (const auto& s : p.steps) steps.add(stepToString(s));
             pt.setProperty("steps", steps.joinIntoString("|"), nullptr);
             if (fm1::seq::hasLocks(p)) pt.setProperty("locks", juce::String::toHexString(p.locks.data(), int(p.locks.size()), 0), nullptr);
+            if (p.repeats != 1) pt.setProperty("repeats", p.repeats, nullptr);
+            if (p.chainByte >= 0) pt.setProperty("chainByte", p.chainByte, nullptr);
+            if (p.readFrom > 0) pt.setProperty("readFrom", p.readFrom, nullptr);
+            // the steps' bytes as read from the synth: what goes back when they were not changed here
+            if (p.raw.size() == size_t(fm1::seq::kSteps * fm1::seq::kStepBytes))
+                pt.setProperty("fm1Steps", juce::String::toHexString(p.raw.data(), int(p.raw.size()), 0), nullptr);
             sq.addChild(pt, -1, nullptr);
         }
     }
@@ -707,6 +726,17 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             p.transpose = pt.getProperty("transpose", 0); sequencer.chain[size_t(i)] = pt.getProperty("chain", -1);
             auto steps = juce::StringArray::fromTokens(pt.getProperty("steps").toString(), "|", "");
             for (int k = 0; k < fm1::seq::kSteps && k < steps.size(); ++k) p.steps[size_t(k)] = stepFromString(steps[k]);
+            fm1::seq::joinTies(p);   // (an older state's ties)
+            p.repeats = pt.getProperty("repeats", 1);
+            p.chainByte = pt.getProperty("chainByte", -1);
+            p.readFrom = pt.getProperty("readFrom", 0);
+            p.raw.clear();
+            juce::MemoryBlock rw;
+            if (const auto hex = pt.getProperty("fm1Steps").toString(); hex.length() == 2 * fm1::seq::kSteps * fm1::seq::kStepBytes) {
+                rw.loadFromHexString(hex);
+                if (rw.getSize() == size_t(fm1::seq::kSteps * fm1::seq::kStepBytes))
+                    p.raw.assign(static_cast<const uint8_t*>(rw.getData()), static_cast<const uint8_t*>(rw.getData()) + rw.getSize());
+            }
             p.locks.clear();   // FM-1_096's parameter locks, as its table holds them
             juce::MemoryBlock lk;
             if (const auto hex = pt.getProperty("locks").toString(); hex.length() == 2 * fm1::seq::kLockBytes) {

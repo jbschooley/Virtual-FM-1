@@ -524,6 +524,7 @@ var patternToJson(const PatternEntry& entry) {
     put(o, "swing", p.swing);
     put(o, "transpose", p.transpose);
     put(o, "chain", p.chain < 0 ? var("repeat") : var(p.chain + 1));
+    if (p.chain >= 0 && p.repeats != 1) put(o, "repeats", p.repeats);
     var steps = var(juce::Array<var>());
     for (int i = 0; i < fm1::seq::kSteps; ++i) {
         const auto& st = p.steps[size_t(i)];
@@ -539,7 +540,7 @@ var patternToJson(const PatternEntry& entry) {
                 locks.append(lo);
             }
         bool plain = st.notes.empty() && st.rate == p.rate && st.ratchet == 1 && st.gate == 0 && st.chance == 100
-                     && st.transpose == 0 && !st.accent && !st.slide && locks.size() == 0;
+                     && st.transpose == 0 && !st.accent && locks.size() == 0;
         if (plain) continue;
         var so = newObject();
         put(so, "step", i + 1);
@@ -548,7 +549,7 @@ var patternToJson(const PatternEntry& entry) {
             var no = newObject();
             put(no, "note", n.note);
             put(no, "velocity", n.vel);
-            if (n.tie) put(no, "tie", true);
+            if (n.len > 0) put(no, "hold", n.len);   // the steps it sounds past its own
             notes.append(no);
         }
         put(so, "notes", notes);
@@ -558,7 +559,6 @@ var patternToJson(const PatternEntry& entry) {
         if (st.chance != 100) put(so, "chance", st.chance);
         if (st.transpose != 0) put(so, "transpose", st.transpose);
         if (st.accent) put(so, "accent", true);
-        if (st.slide) put(so, "tieSlide", true);
         if (locks.size() > 0) put(so, "locks", locks);
         steps.append(so);
     }
@@ -589,6 +589,12 @@ std::optional<PatternEntry> patternFromJson(const var& v, const String& path, St
         if (c.isString() && c.toString().equalsIgnoreCase("repeat")) p.chain = -1;
         else if (isWhole(c) && int(c) >= 1 && int(c) <= fm1::seq::kPatterns) p.chain = int(c) - 1;
         else errors.add(path + ".chain: expected \"repeat\" or a pattern number from 1 to 16");
+    }
+    if (has(v, "repeats")) {   // with a chain: plays this many times first
+        var r = get(v, "repeats");
+        if (!isWhole(r) || std::find(std::begin(fm1::seq::kRepeats), std::end(fm1::seq::kRepeats), int(r)) == std::end(fm1::seq::kRepeats))
+            errors.add(path + ".repeats: expected 1, 2, 3, 4, 6, 8, 12 or 16");
+        else p.repeats = int(r);
     }
     for (auto& st : p.steps) st.rate = p.rate;
     if (has(v, "steps")) {
@@ -621,7 +627,12 @@ std::optional<PatternEntry> patternFromJson(const var& v, const String& path, St
                             fm1::seq::Note note;
                             readInt(no, "note", nat, 0, 127, note.note, errors);
                             readInt(no, "velocity", nat, 1, 127, note.vel, errors);
-                            readBool(no, "tie", nat, note.tie, errors);
+                            // "hold": the steps it sounds past its own; an older file's "tie" (the note
+                            // repeated on the next step) is joined into one (joinTies)
+                            bool tie = false;
+                            readBool(no, "tie", nat, tie, errors);
+                            note.len = tie ? -1 : 0;
+                            readInt(no, "hold", nat, 0, fm1::seq::kSteps - 1, note.len, errors);
                             if (!pitches.insert(note.note).second) errors.add(nat + ".note: note " + String(note.note) + " is listed twice");
                             st.notes.push_back(note);
                         }
@@ -642,7 +653,9 @@ std::optional<PatternEntry> patternFromJson(const var& v, const String& path, St
                 readInt(so, "chance", at, 5, 100, st.chance, errors);
                 readInt(so, "transpose", at, -24, 24, st.transpose, errors);
                 readBool(so, "accent", at, st.accent, errors);
-                readBool(so, "tieSlide", at, st.slide, errors);
+                bool slide = false;   // (an older file's Tie & Slide for the whole step: every note tied)
+                readBool(so, "tieSlide", at, slide, errors);
+                if (slide) for (auto& n : st.notes) if (n.len == 0) n.len = -1;
                 if (has(so, "locks")) {
                     var locks = get(so, "locks");
                     if (!locks.isArray() || locks.size() > fm1::seq::kLocksPerStep) {
@@ -669,6 +682,7 @@ std::optional<PatternEntry> patternFromJson(const var& v, const String& path, St
             }
         }
     }
+    fm1::seq::joinTies(p);
     if (errors.size() != before) return std::nullopt;
     return out;
 }

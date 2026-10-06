@@ -32,7 +32,7 @@ public:
     std::array<fm1::Sound, 128> store;
     int identityVersion = 89;
     int dropNextReplies = 0;      // simulate lost frames to exercise the retry
-    int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0, lockWrites = 0;
+    int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0, lockWrites = 0, stepWrites = 0;
     std::atomic<int> received{0};   // every message, SysEx or not
     std::map<uint32_t, uint8_t> ram;   // sparse RAM for the memory-read command
     fm1::Bytes gset = fm1::Bytes(fm1::seq::kGsetLen, 0);
@@ -41,10 +41,16 @@ public:
         for (int i = 0; i < 64; ++i) {
             uint32_t base = i < 16 ? fm1::seq::kStepsRam + uint32_t(pat) * 512 + uint32_t(i) * 32
                                    : fm1::seq::kExtRam + uint32_t(pat) * 1536 + uint32_t(i - 16) * 32;
-            for (uint32_t k = 0; k < 32; ++k) ram[base + k] = 0;
-            for (int j = 0; j < 10; ++j) ram[base + uint32_t(j)] = 0xFF;
+            // (as FM-1_092 on keeps an empty step: every byte 0xFF, no notes, no ends; then the notes,
+            // their count at +30, each ending on its own step)
+            for (uint32_t k = 0; k < 32; ++k) ram[base + k] = 0xFF;
             const auto& st = p.steps[size_t(i)];
-            for (size_t j = 0; j < st.notes.size(); ++j) { ram[base + uint32_t(j)] = uint8_t(st.notes[j].note); ram[base + 20 + uint32_t(j)] = uint8_t(st.notes[j].vel); }
+            for (size_t j = 0; j < st.notes.size(); ++j) {
+                ram[base + uint32_t(j)] = uint8_t(st.notes[j].note); ram[base + 20 + uint32_t(j)] = uint8_t(st.notes[j].vel);
+                ram[base + 11 + uint32_t(j)] = uint8_t(st.notes[j].note);
+            }
+            ram[base + 30] = uint8_t(st.notes.size());
+            ram[base + 31] = uint8_t(st.notes.size());
             ram[base + 10] = uint8_t(st.rate);
         }
         gset[size_t(98 + pat)] = uint8_t(p.length); gset[size_t(50 + pat)] = uint8_t(p.rate);
@@ -122,7 +128,7 @@ private:
                     uint32_t base = i < 16 ? fm1::seq::kStepsRam + uint32_t(pat) * 512 + uint32_t(i) * 32 : fm1::seq::kExtRam + uint32_t(pat) * 1536 + uint32_t(i - 16) * 32;
                     for (uint32_t k = 0; k < 32; ++k) { auto it = ram.find(base + k); steps.push_back(it == ram.end() ? 0xFF : it->second); }
                 }
-                try { p = fm1::seq::decodePattern(steps, gset, pat); } catch (...) {}
+                try { p = fm1::seq::decodePattern(steps, gset, pat, identityVersion >= 92); } catch (...) {}
                 p.length = body[4]; p.rate = body[5]; p.tempo = body[6] | (body[7] << 7); p.gate = body[8]; p.swing = body[9]; p.sound = body[10];
                 for (int i = 0; i < 8; ++i) {
                     const uint8_t* st = body.data() + 11 + i * 20;
@@ -134,6 +140,23 @@ private:
                 if (identityVersion >= 96)   // FM-1_096: a pattern message clears the locks of the steps it writes
                     for (uint32_t k = 0; k < 64; ++k) ram[fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(part) * 64 + k] = 0xFF;
                 reply(0x52, 0, uint32_t(pat) | uint32_t(part) << 8, {});
+                return;
+            }
+            if (body[0] == 0x22) {           // FM-1_096 whole steps: four steps' 32 bytes and the five settings
+                if (identityVersion < 96) return;   // (older firmware hands it to stock, which drops it)
+                ++stepWrites;
+                const int pat = body[1], q = body[2];
+                const auto data = fm1::unpack87(body.data() + 4, body.size() - 4, 5 + 128);
+                for (int i = 0; i < 4; ++i) {
+                    const int st = 4 * q + i;
+                    uint32_t base = st < 16 ? fm1::seq::kStepsRam + uint32_t(pat) * 512 + uint32_t(st) * 32 : fm1::seq::kExtRam + uint32_t(pat) * 1536 + uint32_t(st - 16) * 32;
+                    for (uint32_t k = 0; k < 32; ++k) ram[base + k] = data[size_t(5 + 32 * i) + k];
+                }
+                gset[size_t(18 + pat)] = data[0]; gset[size_t(34 + pat)] = data[1]; gset[size_t(50 + pat)] = data[2];
+                gset[size_t(98 + pat)] = data[3]; gset[size_t(118 + pat)] = data[4];
+                for (int k = 0; k < fm1::seq::kGsetLen; ++k) ram[fm1::seq::kGsetRam + uint32_t(k)] = gset[size_t(k)];
+                for (uint32_t k = 0; k < 32; ++k) ram[fm1::seq::kLockTabRam + uint32_t(pat) * 512 + uint32_t(q) * 32 + k] = 0xFF;   // its four steps' locks
+                reply(0x52, 0, uint32_t(pat) | uint32_t(q) << 8 | 0x4000, {});
                 return;
             }
             if (body[0] == 0x21) {           // FM-1_096 lock write: eight steps' locks, 0x7F = none
@@ -399,10 +422,11 @@ int main(int argc, char** argv) {
         CHECK(locksRead, "FM-1_096: the pattern's locks are read");
         fm1::seq::Pattern r = got.empty() ? q : got[0].second;
         r.steps[3].notes = {{41, 80}};
-        const int pw = fake.patternWrites;
+        const int pw = fake.patternWrites, sw = fake.stepWrites;
         session.pushPatterns({{2, r}}, true);
         waitIdle(session, 20000);
-        CHECK(fake.patternWrites - pw == 5 && fake.lockWrites == 2, "5 pattern messages, then a lock message for each eighth holding a lock (steps 1-8, 33-40)");
+        CHECK(fake.patternWrites == pw && fake.stepWrites - sw == 16 && fake.lockWrites == 8,
+              "FM-1_096: 16 whole-step messages (no pattern messages), then all 8 lock messages");
         bool kept = fake.ram[lockAt(2, 3, 0)] == 40 && fake.ram[lockAt(2, 3, 0) + 1] == 77 && fake.ram[lockAt(2, 32, 1)] == 1 && fake.ram[lockAt(2, 32, 1) + 1] == 5;
         for (int s = 0; s < 64 && kept; ++s) for (int j = 0; j < 4; ++j) if (!((s == 3 && j == 0) || (s == 32 && j == 1))) kept &= fake.ram[lockAt(2, s, j)] == 0xFF;
         CHECK(kept, "the FM-1 holds the same locks after the Send");
@@ -410,7 +434,12 @@ int main(int argc, char** argv) {
         const int lw = fake.lockWrites;
         session.pushPatterns({{2, r}}, true);
         waitIdle(session, 20000);
-        CHECK(fake.lockWrites == lw && fake.ram[lockAt(2, 3, 0)] == 0xFF, "a pattern with no locks is sent as before, which clears them");
+        CHECK(fake.lockWrites == lw + 8 && fake.ram[lockAt(2, 3, 0)] == 0xFF, "a pattern with no locks: its lock messages say none, which clears them");
+        got.clear();
+        session.pullPatterns({2});
+        waitIdle(session, 20000);
+        CHECK(got.size() == 1 && got[0].second.steps[3].notes.size() == 1 && got[0].second.steps[3].notes[0].note == 41
+              && got[0].second.steps[32].notes.size() == 1 && got[0].second.steps[32].notes[0].note == 70, "FM-1_096: the whole steps read back");
         fake.identityVersion = 89;
     }
 

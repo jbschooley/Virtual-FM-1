@@ -38,12 +38,27 @@ for the code. New work goes under the next version at the top.
   clear the locks of every step it writes (as baud girl documents 096).
   Locks are kept in projects and in JSON (`locks` on a step); the plugin
   does not play them.
+- **Every step setting syncs with FM-1_096.** Pulling a pattern reads each
+  step's accent and ratchet, its own gate, chance and transpose, how long
+  each note is held, and the Chain's Repeats; sending puts them all back with
+  096's whole-step message. A pattern not edited in the plugin goes back as
+  the very bytes read. Before this, a Send cleared those settings on the
+  FM-1. Earlier releases are read the same way (accents, ratchets, held
+  notes from 0.92), but a Send to them still carries notes only, as baud
+  girl's own app does.
 
 ### Changed
 
-- FM-1+VA 0.96 is the release the plugin syncs with (not tried on an FM-1
-  yet, and its line beside Find FM-1 says so); 0.93 and 0.94 are synced as
-  before, without 8-Bit presets or locks.
+- FM-1+VA 0.96 is the release the plugin syncs with, tried on an FM-1:
+  presets (FM, VA and 8-Bit) and patterns with locks and step settings come
+  back unchanged. 0.93 and 0.94 are synced as before, without 8-Bit presets
+  or locks.
+- Writing presets to 0.96 waits 120 ms between them, as its own editor
+  does, not 3 s: Push all takes well under a minute.
+- A held note is one note with a length (in steps), as on the FM-1, not a
+  note repeated on the steps after it. Projects and JSON files with the old
+  ties still load, joined into lengths; a tie into a different note plays
+  held into the next step, as Tie & Slide does on the FM-1.
 
 ## [0.4.1] - 2026-10-05
 
