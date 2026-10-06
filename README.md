@@ -37,7 +37,7 @@ On an iPhone (the iOS app builds from source):
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.93 or 0.94) or
-  **[Felucca](https://github.com/hugelton/Felucca)** 1.0. On M-VAVE's own
+  **[Felucca](https://github.com/hugelton/Felucca)** 1.0.2 (1.0 too). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -120,7 +120,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   editors can check against. See [`docs/JSON-FORMAT.md`](docs/JSON-FORMAT.md).
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
-- **Felucca 1.0**, built from its source: its thirteen engines on four parts,
+- **Felucca 1.0.2**, built from its source: its thirteen engines on four parts,
   each part's parameters in an editor and as host parameters. Its Library tab
   lists the 32 user presets and four projects to load, save, rename and erase;
   its Device tab shows its own screen, buttons, knobs and keys, so its

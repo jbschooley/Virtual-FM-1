@@ -8,6 +8,13 @@ for the code. New work goes under the next version at the top.
 
 ### Changed
 
+- **Felucca 1.0.2** is built in (it was 1.0). A sound that used SAMPLE's
+  PERC set plays as the DRUM engine's kit now: Felucca 1.0.2 converts it
+  whenever a project loads, so projects saved with 0.4.0 change too. QNT gains SEQ (the
+  sequencer's notes follow the scale too). An automation lane for QNT
+  recorded with 0.4.0 may play a different setting, since its range grew.
+  An FM-1 running Felucca 1.0 still syncs; the plugin says it is older.
+
 - **Felucca 1.0.1 and 1.0.2 on the FM-1**: the plugin tells them from 1.0
   (they answer as 1.0 does, FM-1_910) by what their editor says, and the
   line beside Find FM-1 says the FM-1 runs a newer Felucca than the one
