@@ -7,7 +7,8 @@
 //   Felucca 1.0.2 (12): n, note0..3, time, flags, vel, hit&127, acc&127, hit>>7 | (acc>>7)<<1, chance
 //   SLOOP 2.3     (11): n, note0..3, time, flags, vel, lvl&127, lvl>>7 | (rat>>7)<<1, rat&127
 // time: 0 NOTE, 1 TIE, 2 REST; flags: 1 ACCENT, 2 SLIDE; vel 0 = 96. Felucca's hit/acc are 8 drum
-// lanes, chance 0 = always, 1..100 percent, 101 never. SLOOP's lvl/rat are 2 bits a note (level
+// lanes, chance the percent of passes the step plays (100 always, 0 never; nothing above 100: the
+// device refuses the request). SLOOP's lvl/rat are 2 bits a note (level
 // keep/ghost/soft/hard, ratchet x1..x4); its drum track's steps go by DRUM_STEP (33): 16 lanes,
 // each 2 bits of level and of ratchet.
 #pragma once
@@ -30,7 +31,7 @@ struct Step {
     int n = 0;
     std::array<uint8_t, 4> note{};
     int time = kRest, flags = 0, vel = 0;
-    int hit = 0, acc = 0, chance = 0;   // Felucca: its drum lanes, accents, chance
+    int hit = 0, acc = 0, chance = 100; // Felucca: its drum lanes, accents, chance (percent)
     int lvl = 0, rat = 0;               // SLOOP: 2 bits a note
     bool operator==(const Step&) const = default;
 };

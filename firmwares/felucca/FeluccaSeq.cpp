@@ -33,7 +33,7 @@ std::vector<uint8_t> stepArgs(const Dialect& d, const Step& s) {
         a.push_back(uint8_t(s.hit & 127));
         a.push_back(uint8_t(s.acc & 127));
         a.push_back(uint8_t(((s.hit >> 7) & 1) | (((s.acc >> 7) & 1) << 1)));
-        a.push_back(uint8_t(s.chance & 127));
+        a.push_back(uint8_t(std::clamp(s.chance, 0, 100)));
     }
     return a;
 }

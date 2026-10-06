@@ -387,8 +387,21 @@ bool Mirror::forward(const Bytes& request, juce::String& error) {
 // (MOTION): neither is pushed. About once a second.
 void Mirror::poll(Side& s) {
     if (isSloop(s.ep.dialect()) || !s.ep.dialect().fm6) return;
+    chainPlays(s);
+    if (auto m = readMotion(s.ep, s.sel)) {
+        s.selMotion.clear();
+        if (m->on)
+            for (auto& e : m->events) s.selMotion.push_back(e.param);
+    }
+}
+
+// A chain starting swaps the steps in at once and pushes them all (and LEN..GATE) before a poll
+// would see it, and stopping pushes the pattern back at once: so a step or pattern push from a
+// Felucca side asks each time (one request)
+bool Mirror::chainPlays(Side& s) {
+    if (isSloop(s.ep.dialect()) || !s.ep.dialect().fm6) return false;
     if (auto c = readChain(s.ep)) s.chainRunning = c->running;
-    if (auto m = readMotion(s.ep, s.sel)) s.selMotion = m->on && !m->events.empty();
+    return s.chainRunning;
 }
 
 void Mirror::stop() {
@@ -442,9 +455,11 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
             v14(q, r14(a, 2));
             return must(to.ep.ask(frame(kSet, q), kAsk), "SET");
         }
-        // Felucca's motion playing on that track sets these values itself: not carried (a knob
-        // turn on them is not either; the firmware cannot tell the two apart: gaps list)
-        if (from.selMotion && motionParam(a[1])) return true;
+        // Felucca's motion playing on that track sets the parameters it has events for: those are
+        // not carried (a knob turn on them is not either: the firmware cannot tell the two apart);
+        // while a chain plays, LEN..GATE are the chain's
+        if (std::find(from.selMotion.begin(), from.selMotion.end(), int(a[1])) != from.selMotion.end()) return true;
+        if (a[1] >= kLen && a[1] <= kGate && chainPlays(from)) return true;
         std::vector<uint8_t> q = {uint8_t(from.sel), a[1]};
         v14(q, r14(a, 2));
         return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
@@ -455,7 +470,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         return must(to.ep.ask(frame(kTrackParam, q), kAsk), "TRACK_PARAM");
     }
     if (cmd == kStepChanged && a.size() >= 2) {   // index, track
-        if (from.chainRunning) return true;   // Felucca: a chain's steps, not the pattern's
+        if (chainPlays(from)) return true;   // Felucca: a chain's steps, not the pattern's
         const auto& d = from.ep.dialect();
         if (d.drumStep >= 0 && a[1] == d.drumTrack) {   // SLOOP's drum lanes, whole
             auto r = from.ep.ask(frame(d.drumStep, {a[0]}), kAsk);
@@ -473,7 +488,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
     if (cmd == kReload && a.size() >= 3) {   // engine, preset, the selected track: a load or a new selection
         auto& echoes = from.echoes;
         for (auto it = echoes.begin(); it != echoes.end(); ++it)
-            if (it->first == push) { echoes.erase(it); return true; }   // our own load, coming back
+            if (it->first == push) { echoes.erase(it); from.lastReload = push; return true; }   // our own load, coming back
         const bool same = push == from.lastReload;   // nothing it names changed: steps did (SLOOP)
         from.lastReload = push;
         from.sel = a[2];

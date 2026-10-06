@@ -1180,6 +1180,10 @@ bool FM1Processor::feluccaLive(bool on) {
         felucca::Mirror mirror(synth, mine);
         juce::String err;
         Fm1Session::JobResult r{true, "Live sync with the FM-1 stopped."};
+        {   // (edits queued after the last session's end are not this one's)
+            std::lock_guard<std::mutex> g(felEditsLock_);
+            felEdits_.clear();
+        }
         if (!mirror.start(err)) r = {false, "Live sync did not start: " + err + "."};
         else {
             p.progress(0, 1, "Live with the FM-1: changes on either side reach the other.");
@@ -1197,6 +1201,10 @@ bool FM1Processor::feluccaLive(bool on) {
             mirror.stop();
         }
         felLive_ = false;
+        {
+            std::lock_guard<std::mutex> g(felEditsLock_);
+            felEdits_.clear();
+        }
         juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock() && onFeluccaLive) onFeluccaLive(); });
         return r;
     });
@@ -1217,11 +1225,18 @@ std::optional<fm1::Bytes> FM1Processor::feluccaEdit(const fm1::Bytes& request) {
 
 // Copies the patterns (Felucca: and its chain and motion) between the two, from -> to
 static bool copySequencer(felucca::Endpoint& from, felucca::Endpoint& to, int tracks, juce::String& err, const felucca::Progress& progress) {
+    const bool sloop = felucca::isSloop(from.dialect());
+    std::optional<felucca::Chain> chain;
+    if (!sloop) {   // Felucca: while a song chain plays, its steps are the chain's and a write is not taken
+        chain = felucca::readChain(from);
+        auto there = felucca::readChain(to);
+        if (!chain || !there) { err = "no answer to SONG"; return false; }
+        if (chain->running || there->running) { err = "a song chain is playing: stop it first"; return false; }
+    }
     if (!felucca::copyPatterns(from, to, tracks, err, false, progress)) return false;
-    if (felucca::isSloop(from.dialect())) return true;   // (SLOOP's chain is in its settings: not carried)
-    auto chain = felucca::readChain(from);
-    if (!chain) { err = "no answer to SONG"; return false; }
-    if (!to.ask(felucca::chainWrite(chain->rows), 4000)) { err = "no answer to SONG"; return false; }
+    if (sloop) return true;   // (SLOOP's chain is in its settings: not carried)
+    auto rc = [](const std::optional<fm1::Bytes>& r) { auto a = r ? felucca::argsOf(*r) : std::vector<uint8_t>{}; return a.size() >= 2 ? int(a[1]) : -1; };
+    if (int c = rc(to.ask(felucca::chainWrite(chain->rows), 4000)); c != 0) { err = c < 0 ? "no answer to SONG" : "the song chain was refused (rc " + juce::String(c) + ")"; return false; }
     for (int t = 0; t < tracks; ++t) {
         auto src = felucca::readMotion(from, t), dst = felucca::readMotion(to, t);
         if (!src || !dst) { err = "no answer to MOTION"; return false; }
@@ -1229,10 +1244,15 @@ static bool copySequencer(felucca::Endpoint& from, felucca::Endpoint& to, int tr
             && std::equal(src->events.begin(), src->events.end(), dst->events.begin(),
                           [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value; }))
             continue;
-        if (!to.ask(felucca::motionClear(t), 4000)) { err = "no answer to MOTION"; return false; }
+        auto motion = [&](const fm1::Bytes& q) {
+            const int c = rc(to.ask(q, 4000));
+            if (c != 0) err = c < 0 ? juce::String("no answer to MOTION") : "motion was refused (rc " + juce::String(c) + (c == 2 ? ": its 64 events are taken" : "") + ")";
+            return c == 0;
+        };
+        if (!motion(felucca::motionClear(t))) return false;
         for (auto& e : src->events)
-            if (!to.ask(felucca::motionSet(t, e.step, e.param, e.value), 4000)) { err = "no answer to MOTION"; return false; }
-        if (!to.ask(felucca::motionOn(t, src->on), 4000)) { err = "no answer to MOTION"; return false; }
+            if (!motion(felucca::motionSet(t, e.step, e.param, e.value))) return false;
+        if (!motion(felucca::motionOn(t, src->on))) return false;
     }
     return true;
 }

@@ -132,13 +132,14 @@ private:
         int sel = 0;
         juce::uint32 pinged = 0, polled = 0;
         bool chainRunning = false;             // Felucca: a song chain plays (its step pushes are the chain's)
-        bool selMotion = false;                // Felucca: the selected track's motion is on, with events
+        std::vector<int> selMotion;            // Felucca: the parameters the selected track's motion plays (on, with events)
         Bytes lastReload;                      // the last RELOAD it pushed (engine, preset, track)
         uint8_t caps = 0;                      // its INFO 53 01 (no RELOAD echo of our loads: kCapNoEcho)
         std::vector<std::pair<Bytes, juce::uint32>> echoes;   // RELOADs our own loads will push, and when
     };
     bool carry(Side& from, Side& to, const Bytes& push, juce::String& error);
     void poll(Side& s);                        // what is never pushed and a mirror must know
+    bool chainPlays(Side& s);                  // Felucca: SONG asked now
     bool copyTrackSound(Side& from, Side& to, int track, juce::String& error);
     Side a_, b_;
 };

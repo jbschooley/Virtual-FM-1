@@ -522,6 +522,13 @@ static int checks() {
                 CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 1, 5, st), 400).has_value(), who + "a step written");
                 auto back = felucca::readStep(ea, 1, 5);
                 CHECK(back && *back == st, who + "and read back the same: notes, tie, accent and slide, " + (slp ? "levels and ratchets" : "lanes, accents and chance"));
+                if (!slp) {
+                    felucca::Step plain;
+                    plain.n = 1; plain.note = {50, 0, 0, 0}; plain.time = felucca::kNote;
+                    ea.ask(felucca::stepWrite(ea.dialect(), 1, 6, plain), 400);
+                    auto pb = felucca::readStep(ea, 1, 6);
+                    CHECK(pb && pb->chance == 100, who + "a step written with the defaults always plays (chance 100)");
+                }
                 CHECK(ea.ask(felucca::paramWrite(1, felucca::kLen, 24), 400) && felucca::readParam(ea, 1, felucca::kLen) == 24, who + "LEN set and read");
                 if (slp) {
                     felucca::DrumStep ds;
@@ -565,6 +572,19 @@ static int checks() {
                         const auto t1a = t1 ? felucca::argsOf(*t1) : std::vector<uint8_t>{};
                         if (t1a.size() >= 3) ia.extra.push_back(felucca::frame(felucca::kReload, {t1a[1], t1a[2], 1}));
                         CHECK(m.tick(err) && felucca::readStep(eb, 0, 4) != dev2, who + "a track selected is not a pattern re-read");
+                        {   // a preset loaded in the plugin: the synth's echo of it is its newest RELOAD, so the
+                            // device's next step edit (a RELOAD naming the same) still re-reads the patterns
+                            b->select(1);
+                            b->applyPreset(1, 2);
+                            for (int k = 0; k < 20; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); m.tick(err); }
+                            felucca::Step dev3 = dev; dev3.note = {79, 0, 0, 0};
+                            ea.ask(felucca::stepWrite(ea.dialect(), 1, 2, dev3), 400);
+                            auto t2 = ea.ask(felucca::frame(felucca::kTrackDump, {1}), 400);
+                            const auto t2a = t2 ? felucca::argsOf(*t2) : std::vector<uint8_t>{};
+                            CHECK(t2a.size() >= 3 && t2a[2] == 2, who + "the preset reached the synth");
+                            if (t2a.size() >= 3) ia.extra.push_back(felucca::frame(felucca::kReload, {t2a[1], t2a[2], 1}));
+                            CHECK(m.tick(err) && felucca::readStep(eb, 1, 2) == dev3, who + "after a preset loaded in the plugin, a device step edit is still caught");
+                        }
                     } else {
                         // a chain playing: its step pushes are not the pattern's
                         // project A: the pattern with another first step, which the chain plays
@@ -588,6 +608,12 @@ static int checks() {
                         CHECK(m.tick(err) && felucca::readStep(eb, 0, 0) == before, who + "a step push while a chain plays is not carried");
                         ea.ask(felucca::chainPlay(false), 400);
                         for (int k = 0; k < 8; ++k) a->render(l.data(), r.data(), 256);
+                        {   // stopped: at once carried again (not a second later)
+                            felucca::Step after = st; after.note = {33, 0, 0, 0}; after.n = 1;
+                            ea.ask(felucca::stepWrite(ea.dialect(), 0, 1, after), 400);
+                            ia.extra.push_back(felucca::frame(felucca::kStepChanged, {1, 0}));
+                            CHECK(m.tick(err) && felucca::readStep(eb, 0, 1) == after, who + "once the chain stops, step pushes are carried again");
+                        }
                         // motion on the selected track: its values are not carried
                         ea.ask(felucca::motionSet(0, 2, 9, 30), 400);
                         ea.ask(felucca::motionOn(0, true), 400);
@@ -603,6 +629,11 @@ static int checks() {
                         ia.extra.push_back(felucca::frame(felucca::kChanged, q2));
                         CHECK(m.tick(err) && b->param(0, 9) == bRate && b->param(0, felucca::kLen) != bLen,
                               who + "with motion on, a motion parameter is not carried; LEN is");
+                        const int bAtk = b->param(0, 1);
+                        std::vector<uint8_t> q3 = {0, 1};
+                        v14(q3, bAtk == 20 ? 21 : 20);
+                        ia.extra.push_back(felucca::frame(felucca::kChanged, q3));
+                        CHECK(m.tick(err) && b->param(0, 1) != bAtk, who + "a motion parameter without events (ATK) still is");
                     }
                     m.stop();
                 }
