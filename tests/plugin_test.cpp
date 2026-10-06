@@ -1663,9 +1663,10 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                         if (auto fe = p.felucca()) { fe->arrangementDo(1, 0); fe->arrangementDo(1, 2); fe->setChain({{0, 4}, {2, 2}, {0, 4}}, true); fe->arrangementDo(4, 2); }
                         seqPage->showView(1);
                         save("sloop-sequencer-song");
-                        seqPage->showView(0);
                         const int was = ed->getWidth(), hgt = ed->getHeight();
                         ed->setSize(402, 780);
+                        save("phone-sloop-sequencer-song");
+                        seqPage->showView(0);
                         save("phone-sloop-sequencer");
                         ed->setSize(was, hgt);
                     }

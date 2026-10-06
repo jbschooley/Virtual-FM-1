@@ -323,7 +323,10 @@ int main() {
         f.transport(true);
         run(4);
         CHECK(f.arrangementDo(0, 1) == 0 && f.arrangement()->queued == 1 && f.arrangement()->playing == 0, "playing, B asked for waits for the bar");
-        run(500);   // (two seconds and more: a bar at 90 BPM)
+        run(396);   // (a bar at 90 BPM: 2.67 s, 459 blocks)
+        a = f.arrangement();
+        CHECK(a && a->playing == 0 && a->queued == 1, "before the bar, A still plays");
+        run(100);
         a = f.arrangement();
         CHECK(a && a->playing == 1 && a->queued == -1 && f.param(0, 0) == 90, "and plays from the next bar");
         f.transport(false);
@@ -338,12 +341,26 @@ int main() {
         run(8);
         a = f.arrangement();
         CHECK(a && a->songPlays && a->entry == 0 && f.arrangementDo(0, 0) == 2, "PLAY plays the song; a section is not played meanwhile");
+        CHECK(f.setChain({{0, 1}}, false) == 2 && f.arrangement()->chain == want, "the song is not edited while it plays");
         f.transport(false);
         run(4);
         CHECK(f.arrangementDo(2, 0) == 0 && f.arrangementDo(3, 1) == 0 && f.arrangement()->songRec == 1, "SONG REC armed");
         CHECK(f.arrangementDo(2, 1) == 3, "song mode waits while SONG REC is on");
         CHECK(f.arrangementDo(3, 0) == 0 && f.arrangement()->songRec == 0, "and off");
         CHECK(f.arrangementDo(4, 0b0101) == 0 && f.arrangement()->solo == 0b0101u, "solo: parts 1 and 3");
+        f.arrangementDo(4, 0);
+        CHECK(f.arrangementDo(0, 0) == 0 && f.arrangementDo(3, 1) == 0, "A played, SONG REC armed");
+        f.transport(true);
+        run(500);
+        CHECK(f.arrangement()->songRec == 2, "it records from the next bar");
+        CHECK(f.arrangementDo(0, 1) == 0, "B asked for");
+        run(1000);
+        CHECK(f.arrangementDo(3, 0) == 0, "SONG REC off");
+        f.transport(false);
+        run(4);
+        a = f.arrangement();
+        CHECK(a && a->songRec == 0 && a->chain.size() == 2 && a->chain[0].first == 0 && a->chain[1].first == 1 && a->chain[1].second >= 1,
+              "what was played, A then B, is the song");
     }
 
     // ---- a copy given back is as good as new ----

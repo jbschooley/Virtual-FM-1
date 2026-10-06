@@ -631,14 +631,15 @@ uint32_t FEL(arr_state)(uint8_t *o, uint32_t max)
 }
 
 /* the song: count entries of (section 0..3, bars 1..64), loop 0/1; as its SONG screen edits it
- * (any section, stored or not: song mode checks when it starts). 0 done, 1 invalid, 2 it plays */
+ * (any section, stored or not: song mode checks when it starts), stopped only ("STOP FIRST",
+ * ui_song.c). 0 done, 1 invalid, 2 playing */
 int32_t FEL(arr_chain)(const uint8_t *e, uint32_t n, int loop)
 {
     uint32_t i;
     if (!n || n > ARR_STEPS) return 1;
     for (i = 0; i < n; i++)
         if (e[2 * i] > 3u || !e[2 * i + 1] || e[2 * i + 1] > 64u) return 1;
-    if (arrangement_clock.running) return 2;
+    if (arrangement_clock.running || song.playing || transport_req == 1u) return 2;
     arrangement.count = (uint8_t)n;
     arrangement.loop = loop ? 1u : 0u;
     for (i = 0; i < n; i++) {

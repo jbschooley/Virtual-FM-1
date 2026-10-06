@@ -348,16 +348,19 @@ private:
 class FeluccaSeqPage::SloopSongView : public juce::Component, private juce::Timer {
 public:
     explicit SloopSongView(FeluccaSeqPage& p) : page_(p) {
+        addAndMakeVisible(view_);
+        view_.setViewedComponent(&content_, false);
+        view_.setScrollBarsShown(true, false);
         static const char* const names[4] = {"A", "B", "C", "D"};
         for (int s = 0; s < 4; ++s) {
             play_[s].setButtonText(juce::String("Play ") + names[s]);
             store_[s].setButtonText(juce::String("Store ") + names[s]);
             play_[s].onClick = [this, s] { act(0, s); };
-            store_[s].onClick = [this, s] { act(1, s); };
+            store_[s].onClick = [this, s] { store(s); };
             play_[s].setTooltip("Playing: this section from the next bar; stopped: it becomes the loop (SAVE + key on the device)");
-            store_[s].setTooltip("The loop as it is now, as this section");
-            addAndMakeVisible(play_[s]);
-            addAndMakeVisible(store_[s]);
+            store_[s].setTooltip("The loop as it is now, as this section (a stored one: press again within 3 s to replace it)");
+            content_.addAndMakeVisible(play_[s]);
+            content_.addAndMakeVisible(store_[s]);
         }
         for (int t = 0; t < 4; ++t) {
             mute_[t].setButtonText(t < 3 ? "Mute " + juce::String(t + 1) : juce::String("Mute drums"));
@@ -372,24 +375,24 @@ public:
                 for (int k = 0; k < 4; ++k) m |= solo_[k].getToggleState() ? 1u << k : 0u;
                 if (auto f = page_.engine()) f->arrangementDo(4, int(m));
             };
-            addAndMakeVisible(mute_[t]);
-            addAndMakeVisible(solo_[t]);
+            content_.addAndMakeVisible(mute_[t]);
+            content_.addAndMakeVisible(solo_[t]);
         }
-        for (auto* b : {&songMode_, &songRec_, &loop_}) b->setClickingTogglesState(true), addAndMakeVisible(b);
+        for (auto* b : {&songMode_, &songRec_, &loop_}) b->setClickingTogglesState(true), content_.addAndMakeVisible(b);
         songMode_.onClick = [this] { act(2, songMode_.getToggleState() ? 1 : 0); };
         songRec_.onClick = [this] { act(3, songRec_.getToggleState() ? 1 : 0); };
         loop_.onClick = [this] { writeChain(); };
         songMode_.setTooltip("Song mode: PLAY plays the song below, section by section; off, the loop");
         songRec_.setTooltip("SONG REC: from the next bar, the sections you play (Play A-D) and how long become the song; off again to finish");
         loop_.setTooltip("At the end of the song, from its start again");
-        addAndMakeVisible(add_);
+        content_.addAndMakeVisible(add_);
         add_.onClick = [this] { if (chain_.size() < 16) { chain_.push_back({0, 4}); writeChain(); } };
         for (auto* l : {&status_, &sectionsLabel_, &songLabel_, &mixLabel_}) {
             l->setColour(juce::Label::textColourId, kDim);
-            addAndMakeVisible(l);
+            content_.addAndMakeVisible(l);
         }
         sectionsLabel_.setText("Sections", juce::dontSendNotification);
-        songLabel_.setText("Song", juce::dontSendNotification);
+        songLabel_.setText("Song (edited while stopped)", juce::dontSendNotification);
         mixLabel_.setText("Mix (on this instance; mute also reaches the FM-1 while Live)", juce::dontSendNotification);
         startTimerHz(5);
     }
@@ -416,13 +419,17 @@ public:
         juce::String st = a->songPlays ? "The song plays: part " + juce::String(a->entry + 1) + ", bar " + juce::String(a->bar + 1)
                         : a->playing >= 0 ? juce::String("Playing section ") + names[a->playing] : juce::String("No section yet: store the loop as one");
         if (a->queued >= 0) st << " (next: " << names[a->queued] << ")";
-        if (a->songRec == 1) st << ". SONG REC: from the next bar";
+        // SONG REC records from the bar after a section is played (seq.c): none yet, nothing records
+        if (a->songRec == 1) st << (a->playing < 0 ? ". SONG REC: play a section first (Play A-D)" : ". SONG REC: from the next bar");
         if (a->songRec == 2) st << ". SONG REC: recording";
+        if (a->songMode && !a->songPlays && !chainReady(*a)) st << ". The song has an empty section: PLAY will not start it";
         status_.setText(st, juce::dontSendNotification);
-        if (a->chain != chain_ || rows_.empty()) { chain_ = a->chain; build(); }
+        if (!pending_ && (a->chain != chain_ || rows_.empty())) { chain_ = a->chain; build(); }
     }
     void resized() override {
-        auto r = getLocalBounds().reduced(8);
+        view_.setBounds(getLocalBounds());
+        const int width = std::max(300, getWidth() - 12);
+        auto r = juce::Rectangle<int>(0, 0, width, 2000).reduced(8);
         sectionsLabel_.setBounds(r.removeFromTop(20));
         auto row = r.removeFromTop(30);
         const int w = std::min(120, (row.getWidth() - 12) / 4);
@@ -430,8 +437,8 @@ public:
         row = r.removeFromTop(30);
         for (int s = 0; s < 4; ++s) { store_[s].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
         r.removeFromTop(4);
-        status_.setBounds(r.removeFromTop(22));
-        r.removeFromTop(6);
+        status_.setBounds(r.removeFromTop(36));
+        r.removeFromTop(4);
         mixLabel_.setBounds(r.removeFromTop(20));
         row = r.removeFromTop(28);
         for (int t = 0; t < 4; ++t) { mute_[t].setBounds(row.removeFromLeft(w)); row.removeFromLeft(4); }
@@ -440,8 +447,10 @@ public:
         r.removeFromTop(8);
         songLabel_.setBounds(r.removeFromTop(20));
         row = r.removeFromTop(28);
-        songMode_.setBounds(row.removeFromLeft(110)); row.removeFromLeft(4);
-        songRec_.setBounds(row.removeFromLeft(100)); row.removeFromLeft(4);
+        const bool narrow = row.getWidth() < 390;   // (a phone: two rows)
+        songMode_.setBounds(row.removeFromLeft(narrow ? row.getWidth() / 2 - 2 : 110)); row.removeFromLeft(4);
+        songRec_.setBounds(row.removeFromLeft(narrow ? row.getWidth() : 100)); row.removeFromLeft(4);
+        if (narrow) { r.removeFromTop(4); row = r.removeFromTop(28); }
         loop_.setBounds(row.removeFromLeft(70)); row.removeFromLeft(4);
         add_.setBounds(row.removeFromLeft(90));
         r.removeFromTop(6);
@@ -455,6 +464,7 @@ public:
             rw->remove.setBounds(line.removeFromLeft(70));
             r.removeFromTop(3);
         }
+        content_.setSize(width, r.getY() + 8);
     }
 
 private:
@@ -465,12 +475,33 @@ private:
         juce::TextButton remove{"Remove"};
     };
     void timerCallback() override { if (isShowing() && !isMouseButtonDownAnywhere()) read(); }
+    static bool chainReady(const FeluccaEngine::Arrangement& a) {
+        for (auto [s, bars] : a.chain) if (!((a.stored >> s) & 1u)) return false;
+        return !a.chain.empty();
+    }
     void act(int op, int arg) {
         auto f = page_.engine();
         if (!f) return;
         static const char* const why[4] = {"", "That section is empty: store the loop as it first", "The song plays: stop it first", "SONG REC is on"};
         const int rc = f->arrangementDo(op, arg);
-        if (rc > 0 && rc < 4) page_.info_.setText(why[rc], juce::dontSendNotification);
+        if (rc > 0 && rc < 4) page_.say(why[rc]);
+        read();
+    }
+    // a stored section is replaced on a second press within 3 s, as its panel asks ("AGAIN")
+    void store(int s) {
+        auto f = page_.engine();
+        if (!f) return;
+        auto a = f->arrangement();
+        const auto now = juce::Time::getMillisecondCounter();
+        if (a && ((a->stored >> s) & 1u) && !(armed_ == s && now - armedAt_ < 3000)) {
+            armed_ = s;
+            armedAt_ = now;
+            page_.say(juce::String("Section ") + juce::juce_wchar('A' + s) + " is stored: press Store again to replace it with the loop");
+            return;
+        }
+        armed_ = -1;
+        f->arrangementDo(1, s);
+        page_.say(juce::String("The loop stored as section ") + juce::juce_wchar('A' + s));
         read();
     }
     void build() {
@@ -485,31 +516,38 @@ private:
             rw->bars.setValue(chain_[i].second, juce::dontSendNotification);
             rw->bars.setTextValueSuffix(" bars");
             rw->section.onChange = [this, i] { chain_[i].first = rows_[i]->section.getSelectedId() - 1; writeLater(); };
-            rw->bars.onValueChange = [this, i] { chain_[i].second = int(rows_[i]->bars.getValue()); if (!rows_[i]->bars.isMouseButtonDown()) writeLater(); };
+            rw->bars.onValueChange = [this, i] { chain_[i].second = int(rows_[i]->bars.getValue()); pending_ = true; if (!rows_[i]->bars.isMouseButtonDown()) writeLater(); };
             rw->bars.onDragEnd = [this] { writeLater(); };
             rw->remove.onClick = [this, i] { if (chain_.size() > 1) { chain_.erase(chain_.begin() + long(i)); writeLater(); } };
-            for (auto* c : std::initializer_list<juce::Component*>{&rw->index, &rw->section, &rw->bars, &rw->remove}) addAndMakeVisible(c);
+            for (auto* c : std::initializer_list<juce::Component*>{&rw->index, &rw->section, &rw->bars, &rw->remove}) content_.addAndMakeVisible(c);
             rows_.push_back(std::move(rw));
         }
         resized();
     }
     void writeChain() {
+        pending_ = false;
         if (auto f = page_.engine()) {
             const int rc = f->setChain(chain_, loop_.getToggleState());
-            if (rc == 2) page_.info_.setText("The song plays: stop it first", juce::dontSendNotification);
+            if (rc == 2) page_.say("Stop first: the song is edited while stopped, as on the device");
         }
         rows_.clear();
         read();
     }
     void writeLater() {
+        pending_ = true;   // (until written, the timer's read does not take the device's song over this one)
         juce::Component::SafePointer<SloopSongView> self(this);
         juce::MessageManager::callAsync([self] { if (self) self->writeChain(); });
     }
     FeluccaSeqPage& page_;
+    juce::Viewport view_;
+    juce::Component content_;
     juce::TextButton play_[4], store_[4], mute_[4], solo_[4], songMode_{"Song mode"}, songRec_{"SONG REC"}, loop_{"Loop"}, add_{"Add a part"};
     juce::Label status_, sectionsLabel_, songLabel_, mixLabel_;
     std::vector<std::pair<int, int>> chain_;
     std::vector<std::unique_ptr<Row>> rows_;
+    bool pending_ = false;
+    int armed_ = -1;
+    juce::uint32 armedAt_ = 0;
 };
 
 // ---- the page ---------------------------------------------------------------------------------------
@@ -556,7 +594,20 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     songTab_.onClick = [this] { showView(1); };
     motionTab_.onClick = [this] { showView(2); };
     play_.setClickingTogglesState(true);
-    play_.onClick = [this] { if (auto f = engine()) f->transport(play_.getToggleState()); };
+    play_.onClick = [this] {
+        auto f = engine();
+        if (!f) return;
+        if (play_.getToggleState() && sloop())
+            if (auto a = f->arrangement(); a && a->songMode && !a->songPlays) {   // as its SONG page: an empty section does not start
+                for (auto [sec, bars] : a->chain)
+                    if (!((a->stored >> sec) & 1u)) {
+                        say(juce::String("The song has an empty section (") + juce::juce_wchar('A' + sec) + "): store it first, or turn song mode off");
+                        play_.setToggleState(false, juce::dontSendNotification);
+                        return;
+                    }
+            }
+        f->transport(play_.getToggleState());
+    };
     play_.setTooltip("Start or stop this instance's sequencer (with \"Tempo follows the host\" on, the host's transport does)");
     for (auto* b : {&octDown_, &octUp_}) addAndMakeVisible(b);
     octDown_.onClick = [this] { lowNote_ = std::max(0, lowNote_ - 12); grid_->repaint(); };
