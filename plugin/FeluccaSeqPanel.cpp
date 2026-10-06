@@ -1,4 +1,5 @@
 #include "FeluccaSeqPanel.h"
+#include "ChosenFile.h"
 
 #if FM1_FELUCCA
 
@@ -623,18 +624,18 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
         chooser_ = std::make_unique<juce::FileChooser>("Export the patterns as a MIDI file", juce::File(), "*.mid");
         chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
             [this](const juce::FileChooser& c) {
-                auto f = c.getResult();
-                if (f == juce::File()) return;
-                f = f.withFileExtension(".mid");
-                juce::FileOutputStream out(f);
-                const bool ok = out.openedOk() && (out.setPosition(0), out.truncate(), exportMidi().writeTo(out));
-                say(ok ? "Exported " + f.getFileName() : "Could not write " + f.getFullPathName());
+                juce::String name;
+                const bool ok = fm1ui::saveChosen(c, ".mid", [this](const juce::File& f) {
+                    juce::FileOutputStream out(f);
+                    return out.openedOk() && (out.setPosition(0), out.truncate(), exportMidi().writeTo(out));
+                }, name);
+                if (name.isNotEmpty()) say(ok ? "Exported " + name : "Could not write " + name);
             });
     };
     importMidi_.onClick = [this] {
         chooser_ = std::make_unique<juce::FileChooser>("Import a MIDI file onto this track", juce::File(), "*.mid;*.midi");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& c) {
-            auto f = c.getResult();
+            auto f = fm1ui::openedFile(c);
             if (!f.existsAsFile()) return;
             juce::FileInputStream in(f);
             juce::MidiFile file;

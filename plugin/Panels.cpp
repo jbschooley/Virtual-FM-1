@@ -1,4 +1,5 @@
 #include "Panels.h"
+#include "ChosenFile.h"
 
 #include "Fm1Record.h"
 
@@ -83,9 +84,9 @@ void saveAs(std::unique_ptr<juce::FileChooser>& chooser, const juce::String& tit
     chooser = std::make_unique<juce::FileChooser>(title, documents().getChildFile(fileName), "*" + juce::File(fileName).getFileExtension());
     chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
         [write, status](const juce::FileChooser& fc) {
-            auto f = fc.getResult();
-            if (f == juce::File()) return;
-            status(write(f) ? "Saved " + f.getFileName() : "Could not write " + f.getFileName());
+            juce::String name;
+            const bool ok = fm1ui::saveChosen(fc, {}, write, name);
+            if (name.isNotEmpty()) status(ok ? "Saved " + name : "Could not write " + name);
         });
 }
 
@@ -168,7 +169,7 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
         chooser_ = std::make_unique<juce::FileChooser>("Import presets and patterns (.json), or an FM-1 backup, DX7 bank or voice (.syx)",
             juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.json;*.syx;*.SYX");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
-            auto f = fc.getResult();
+            auto f = fm1ui::openedFile(fc);
             if (!f.existsAsFile()) return;
             if (f.hasFileExtension("json")) importJson(f);
             else setStatus(proc_.importSyx(f));
@@ -767,7 +768,7 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     importPatterns_.onClick = [this] {
         chooser_ = std::make_unique<juce::FileChooser>("Import patterns (.json), or a MIDI file into this pattern (.mid)", documents(), "*.json;*.mid;*.midi");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
-            auto f = fc.getResult();
+            auto f = fm1ui::openedFile(fc);
             if (!f.existsAsFile()) return;
             if (f.hasFileExtension("mid;midi")) fileStatus_.setText(proc_.importPatternMidi(f), juce::dontSendNotification);
             else showImportResult(this, proc_.importJson(f, false, true), [this](const juce::String& m) { fileStatus_.setText(m, juce::dontSendNotification); });
