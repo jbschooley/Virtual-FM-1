@@ -99,14 +99,83 @@ struct FeluccaDeviceView::Knob : juce::Component {
     }
 };
 
+// A key's light, as the firmware sets its LED (FeluccaEngine::leds): 0 dark, 1 the background
+// glow, 2 dim, 3 lit. The whole key glows, as the FM-1's backlit keys do.
+static void drawGlow(juce::Graphics& g, juce::Rectangle<float> r, float corner, int level, juce::Colour lit) {
+    static const float alpha[4] = {0.0f, 0.12f, 0.32f, 0.75f};
+    level = std::clamp(level, 0, 3);
+    if (level == 0) return;
+    if (level == 3) {   // a halo round a lit key
+        g.setColour(lit.withAlpha(0.22f));
+        g.drawRoundedRectangle(r.expanded(1.5f), corner + 1.5f, 3.0f);
+    }
+    g.setColour(lit.withAlpha(alpha[level]));
+    g.fillRoundedRectangle(r, corner);
+}
+
+// A front-panel key, drawn as a small raised rubber key with its label, lit by its LED; PLAY is the
+// device's one PLAY/STOP key, labelled both ways (PLAY over STOP); its LED also lights green (one
+// LED, two colours: Felucca drives the green as a second LED and darkens the other meanwhile).
+// Labels as printed on the FM-1 (Felucca's SCL is its SEL key).
+struct FeluccaDeviceView::PanelKey : juce::Button {
+    explicit PanelKey(const juce::String& name) : juce::Button(name) {}
+    int led = 0, green = 0;
+    void setLeds(int l, int gr) { if (l != led || gr != green) { led = l; green = gr; repaint(); } }
+    void paintButton(juce::Graphics& g, bool over, bool down) override {
+        auto r = getLocalBounds().toFloat().reduced(2.0f);
+        const float c = std::min(5.0f, r.getHeight() * 0.18f);
+        g.setColour(juce::Colour(0xff15151a));                 // its shadow, under the key
+        g.fillRoundedRectangle(r.translated(0.0f, 1.5f), c);
+        auto face = down ? r.translated(0.0f, 1.0f) : r;
+        juce::ColourGradient grad(juce::Colour(down ? 0xff2c2c34 : over ? 0xff474754 : 0xff40404b), face.getX(), face.getY(),
+                                  juce::Colour(down ? 0xff26262d : 0xff32323b), face.getX(), face.getBottom(), false);
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(face, c);
+        g.setColour(juce::Colours::white.withAlpha(down ? 0.04f : 0.10f));   // the top edge catching the light
+        g.drawRoundedRectangle(face.reduced(0.5f), c, 1.0f);
+        // the FM-1's LEDs are white, but REC's red and PLAY's green (Felucca: its green while playing)
+        if (green > 0) drawGlow(g, face, c, green, juce::Colour(0xff40e070));
+        else drawGlow(g, face, c, led, getButtonText() == "REC" ? juce::Colour(0xffff4a3d) : juce::Colours::white);
+        const bool bright = green == 0 && led >= 3 && getButtonText() != "REC";   // (lit white: a dark label)
+        g.setColour((bright ? juce::Colour(0xff1c1c22) : juce::Colour(0xffd6d6de)).withAlpha(isEnabled() ? 1.0f : 0.4f));
+        auto name = getButtonText();
+        if (name == "SCL") name = "SEL";
+        if (name == "PLAY") {   // PLAY / STOP, smaller
+            const float fs = std::min(11.0f, face.getHeight() * 0.32f);
+            g.setFont(juce::FontOptions(fs, juce::Font::bold));
+            auto top = face.withTrimmedBottom(face.getHeight() * 0.5f), bottom = face.withTrimmedTop(face.getHeight() * 0.5f);
+            g.drawText("PLAY", top.withTrimmedTop(2.0f), juce::Justification::centredBottom);
+            g.drawText("STOP", bottom.withTrimmedBottom(2.0f), juce::Justification::centredTop);
+            g.setColour(juce::Colour(0xffd6d6de).withAlpha(0.35f));
+            g.drawHorizontalLine(int(face.getCentreY()), face.getX() + face.getWidth() * 0.3f, face.getRight() - face.getWidth() * 0.3f);
+        } else {
+            g.setFont(juce::FontOptions(std::min(13.0f, face.getHeight() * 0.42f), juce::Font::bold));
+            g.drawText(name, face, juce::Justification::centred);
+        }
+    }
+};
+
 // One of the 27 keys (from F, as Felucca's key map has them): held while the mouse is down.
+// Each lit by its LED, and the black ones with the FM-1's printed labels (OP1 .. POLY; the last
+// black key has none).
 struct FeluccaDeviceView::Key : juce::Component {
     std::function<void(bool)> pressed;
     bool black = false, down = false;
+    int led = 0;
+    juce::String label;
+    void setLed(int l) { if (l != led) { led = l; repaint(); } }
     void paint(juce::Graphics& g) override {
-        g.setColour(down ? juce::Colour(0xff6fb7c9) : black ? juce::Colour(0xff0e0e12) : juce::Colour(0xffd8d8e0));
-        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 3.0f);
-        if (black) { g.setColour(juce::Colour(0xff50505c)); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 3.0f, 1.0f); }
+        auto r = getLocalBounds().toFloat().reduced(1.0f);
+        // white keys a little grey, so that their white light shows
+        g.setColour(down ? juce::Colour(0xff6fb7c9) : black ? juce::Colour(0xff0e0e12) : juce::Colour(0xffb4b4bd));
+        g.fillRoundedRectangle(r, 3.0f);
+        if (black) { g.setColour(juce::Colour(0xff50505c)); g.drawRoundedRectangle(r, 3.0f, 1.0f); }
+        drawGlow(g, r, 3.0f, led, juce::Colours::white);
+        if (black && label.isNotEmpty()) {
+            g.setColour(juce::Colour(0xffc8c8d0));
+            g.setFont(juce::FontOptions(std::min(9.0f, r.getWidth() * 0.32f), juce::Font::bold));
+            g.drawFittedText(label, r.reduced(1.0f, 3.0f).toNearestInt(), juce::Justification::centredTop, 1, 0.7f);
+        }
     }
     void mouseDown(const juce::MouseEvent&) override { down = true; if (pressed) pressed(true); repaint(); }
     void mouseUp(const juce::MouseEvent&) override { down = false; if (pressed) pressed(false); repaint(); }
@@ -120,7 +189,7 @@ void FeluccaDeviceView::build() {
     if (!f || !buttons_.isEmpty()) return;
     const auto buttonNames = f ? f->buttonNames() : std::vector<std::string>{};
     for (size_t i = 0; i < buttonNames.size(); ++i) {
-        auto* b = buttons_.add(new juce::TextButton(buttonNames[i]));
+        auto* b = buttons_.add(new PanelKey(buttonNames[i]));
         const int label = int(i);
         // held while the mouse is down: HOME, SAVE, SEQ and REC mean something else held
         b->onStateChange = [this, b, label] {
@@ -139,9 +208,13 @@ void FeluccaDeviceView::build() {
         k->turned = [this, role](int n) { if (auto e = engine()) e->knob(role, n); };
         addAndMakeVisible(k);
     }
+    static const char* const blackLabels[] = {"OP1", "OP2", "OP3", "OP4", "OP5", "OP6", "PIT", "GLO", "MONO", "POLY"};
+    int blacks = 0;
     for (int i = 0; i < 27; ++i) {
         auto* k = keys_.add(new Key());
         k->black = ((0x54A >> ((i + 5) % 12)) & 1) != 0;   // seq.c key_black: key 0 is an F
+        if (k->black && blacks < 10) k->label = blackLabels[blacks];
+        if (k->black) ++blacks;
         k->pressed = [this, i](bool down) { if (auto e = engine()) e->key(i, down); };
         addAndMakeVisible(k);
     }
@@ -158,6 +231,12 @@ void FeluccaDeviceView::timerCallback() {
     auto f = engine();
     if (!f) return;
     f->draw(px_);
+    const auto leds = f->leds();   // (drawn just now, with the screen)
+    if (leds.size() >= 14 + 27 + 1) {
+        for (int i = 0; i < buttons_.size() && i < 14; ++i)
+            if (auto* b = dynamic_cast<PanelKey*>(buttons_[i])) b->setLeds(leds[size_t(i)], b->getButtonText() == "PLAY" ? leds[41] : 0);
+        for (int i = 0; i < keys_.size() && i < 27; ++i) keys_[i]->setLed(leds[size_t(14 + i)]);
+    }
     juce::Image::BitmapData d(screen_, juce::Image::BitmapData::writeOnly);
     for (int y = 0; y < 240; ++y)
         for (int x = 0; x < 240; ++x) {
@@ -180,7 +259,10 @@ void FeluccaDeviceView::resized() {
     const bool narrow = getWidth() < 600;
     auto keys = r.removeFromBottom(std::min(narrow ? 56 : 70, r.getHeight() / 5));
     r.removeFromBottom(8);
-    const int cols = narrow ? 5 : 4, rows = (buttons_.size() + cols - 1) / cols;
+    // the keys as the FM-1 has them: OCT- and OCT+ on a row above, then FX .. GLO and HOME .. REC
+    std::vector<juce::Button*> oct, main;
+    for (auto* b : buttons_) (b->getButtonText().startsWith("OCT") ? oct : main).push_back(b);
+    const int cols = std::max(1, int(main.size() + 1) / 2), rows = 2 + (oct.empty() ? 0 : 1);
     // the screen at a whole multiple of its 240 pixels on the display's own pixels (sharp at
     // any display scale): beside the controls, at most about 360 points so they keep their
     // room; on a phone above them, as wide as fits
@@ -205,8 +287,17 @@ void FeluccaDeviceView::resized() {
     r.removeFromTop(8);
 
     const int bw = r.getWidth() / cols, bh = std::min(40, r.getHeight() / std::max(1, rows));
-    for (int i = 0; i < buttons_.size(); ++i)
-        buttons_[i]->setBounds(r.getX() + (i % cols) * bw + 2, r.getY() + (i / cols) * bh + 2, bw - 4, bh - 4);
+    int row = 0;
+    auto place = [&](const std::vector<juce::Button*>& keys) {
+        for (size_t i = 0; i < keys.size(); ++i) {
+            const int col = int(i) % cols;
+            if (i > 0 && col == 0) ++row;
+            keys[i]->setBounds(r.getX() + col * bw + 2, r.getY() + row * bh + 2, bw - 4, bh - 4);
+        }
+        if (!keys.empty()) ++row;
+    };
+    place(oct);
+    place(main);
     if (narrow)   // the keys take what is left, up to 100 high
         keys.setTop(std::max(keys.getBottom() - 100, r.getY() + rows * bh + 8));
     // a keyboard: the white keys side by side, each black one over the gap before the next white

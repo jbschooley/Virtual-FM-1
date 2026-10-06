@@ -27,6 +27,7 @@ public:
 private:
     struct Knob;
     struct Key;
+    struct PanelKey;
     void build();
     void timerCallback() override;
     std::shared_ptr<FeluccaEngine> engine() const { return proc_.felucca(); }
@@ -34,7 +35,7 @@ private:
     juce::Image screen_{juce::Image::RGB, 240, 240, true};
     std::vector<uint16_t> px_;
     juce::Rectangle<int> screenArea_;
-    juce::OwnedArray<juce::TextButton> buttons_;
+    juce::OwnedArray<juce::Button> buttons_;
     juce::OwnedArray<Knob> knobs_;
     juce::OwnedArray<Key> keys_;
 };
