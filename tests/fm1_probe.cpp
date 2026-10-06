@@ -342,12 +342,79 @@ int main(int argc, char** argv) {
             int locks = 0;   // (FM-1_096: 8 bytes a step, four (what, value) pairs, what 0xFF = none)
             for (size_t i = 0; i + 1 < pp.locks.size(); i += 2) locks += pp.locks[i] != 0xFF;
             std::printf("  pattern %2d: length %d, tempo %d, gate %d, swing %d, preset %d, %d notes, %d locks\n", p + 1, pp.length, pp.tempo, pp.gate, pp.swing, pp.sound + 1, notes, locks);
-            for (const auto& m : fm1::seq::encodeWrite(pp, p, true, !pp.locks.empty())) keep.insert(keep.end(), m.begin(), m.end());
+            // (FM-1_096: whole steps and every lock message, so the file puts back exactly what was there)
+            const auto msgs = pp.readFrom >= 96 ? fm1::seq::encodeWholeSteps(pp, p, true) : fm1::seq::encodeWrite(pp, p, true, !pp.locks.empty());
+            for (const auto& m : msgs) keep.insert(keep.end(), m.begin(), m.end());
         }
         if (argc > 4 && !last.failed) {
             juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[4])).replaceWithData(keep.data(), keep.size());
             std::printf("wrote %s (%zu bytes)\n", argv[4], keep.size());
         }
+        return last.failed ? 1 : 0;
+    }
+    if (cmd == "pattern-roundtrip" && argc > 2) {   // pattern-roundtrip <n>: pull pattern n, send it back unchanged, pull it again
+        const int pat = std::atoi(argv[2]) - 1;
+        session.pullPatterns({pat});
+        waitIdle(session);
+        if (pats.size() != 1 || last.failed) { std::printf("could not read pattern %d\n", pat + 1); return 1; }
+        const auto before = pats[0].second;
+        std::printf("read pattern %d (from FM-1_0%d): %zu step bytes kept\n", pat + 1, before.readFrom, before.raw.size());
+        session.pushPatterns({{pat, before}}, true);
+        waitIdle(session);
+        if (last.failed) { std::printf("the send failed: %s\n", last.text.toRawUTF8()); return 1; }
+        pats.clear();
+        session.pullPatterns({pat});
+        waitIdle(session);
+        if (pats.size() != 1) { std::printf("could not read it back\n"); return 1; }
+        const auto& after = pats[0].second;
+        const bool raw = after.raw == before.raw, locks = after.locks == before.locks;
+        const bool set = fm1::seq::settingsBytes(after) == fm1::seq::settingsBytes(before);
+        std::printf("steps' bytes %s, locks %s, settings %s\n", raw ? "the same" : "DIFFERENT", locks ? "the same" : "DIFFERENT", set ? "the same" : "DIFFERENT");
+        return raw && locks && set ? 0 : 1;
+    }
+    if (cmd == "pattern-edit-roundtrip" && argc > 2) {   // pattern-edit-roundtrip <n>: pull, add a note on step 16, send, pull: as edited?
+        const int pat = std::atoi(argv[2]) - 1;
+        session.pullPatterns({pat});
+        waitIdle(session);
+        if (pats.size() != 1 || last.failed) { std::printf("could not read pattern %d\n", pat + 1); return 1; }
+        auto edited = pats[0].second;
+        edited.steps[15].notes.push_back({60, 77, 0});
+        edited = fm1::seq::normalise(edited);
+        session.pushPatterns({{pat, edited}}, true);
+        waitIdle(session);
+        if (last.failed) { std::printf("the send failed: %s\n", last.text.toRawUTF8()); return 1; }
+        pats.clear();
+        session.pullPatterns({pat});
+        waitIdle(session);
+        if (pats.size() != 1) { std::printf("could not read it back\n"); return 1; }
+        auto back = pats[0].second;
+        int differ = 0;
+        for (int k = 0; k < fm1::seq::kSteps; ++k) {
+            const auto& a = edited.steps[size_t(k)];
+            const auto& b2 = back.steps[size_t(k)];
+            bool same = a.rate == b2.rate && a.ratchet == b2.ratchet && a.gate == b2.gate && a.chance == b2.chance && a.transpose == b2.transpose
+                        && a.accent == b2.accent && a.notes.size() == b2.notes.size();
+            for (size_t j = 0; same && j < a.notes.size(); ++j)
+                same = a.notes[j].note == b2.notes[j].note && a.notes[j].vel == b2.notes[j].vel && a.notes[j].len == b2.notes[j].len;
+            if (!same) { ++differ; std::printf("  step %d differs\n", k + 1); }
+        }
+        const bool locks = back.locks == edited.locks;
+        std::printf("%d steps differ from the edited pattern; locks %s; the bytes %s\n", differ, locks ? "the same" : "DIFFERENT",
+                    back.raw == fm1::seq::stepBytes(edited) ? "as built" : "not as built (the synth laid some out its own way)");
+        return differ == 0 && locks ? 0 : 1;
+    }
+    if (cmd == "pattern-put-raw" && argc > 6) {   // pattern-put-raw <n> <steps1-16.bin> <steps17-64.bin> <gset.bin> <locks.bin>: send those bytes back (FM-1_096)
+        const int pat = std::atoi(argv[2]) - 1;
+        auto load = [&](int i) { juce::MemoryBlock mb; juce::File(argv[i]).loadFileAsData(mb); return fm1::Bytes(static_cast<const uint8_t*>(mb.getData()), static_cast<const uint8_t*>(mb.getData()) + mb.getSize()); };
+        auto steps = load(3);
+        const auto ext = load(4), gset = load(5), locks = load(6);
+        steps.insert(steps.end(), ext.begin(), ext.end());
+        if (steps.size() != 2048 || gset.size() != size_t(fm1::seq::kGsetLen) || locks.size() != 512) { std::printf("wrong file sizes\n"); return 1; }
+        auto p = fm1::seq::decodePattern(steps, gset, pat, true);
+        p.locks = locks;
+        p.readFrom = 96;
+        session.pushPatterns({{pat, p}}, true);
+        waitIdle(session);
         return last.failed ? 1 : 0;
     }
     if (cmd == "mem") {   // mem <addr hex> <len hex> <file>: read RAM in 256-byte requests
