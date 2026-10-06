@@ -295,6 +295,9 @@ void FM1Processor::applyParamsToEngine() {
         params.fillVced(vced_.data());
         baseRecord_ = base().record;
     }
+    const bool silent = fm1::engineOf(baseRecord_) == fm1::Engine::EightBit;   // its patch is not a DX7 voice
+    if (silent && !silent_) synth_.allSoundOff();
+    silent_ = silent;
     synth_.setPatch(vced_.data());
     fx_.setChain(params.fxChain(fm1::fxFromRecord(baseRecord_)));
     fm1::Envelope e = params.envelope();
@@ -409,7 +412,7 @@ void FM1Processor::renderEngine(float* out, int numSamples, const juce::MidiBuff
         const auto m = meta.getMessage();
         int at = juce::jlimit(0, numSamples, meta.samplePosition);
         if (at > p0) { synth_.render(out + p0, at - p0); p0 = at; }
-        if (m.isNoteOn()) synth_.noteOn(m.getNoteNumber(), m.getVelocity());
+        if (m.isNoteOn()) { if (!silent_) synth_.noteOn(m.getNoteNumber(), m.getVelocity()); }
         else if (m.isNoteOff()) synth_.noteOff(m.getNoteNumber());
         else if (m.isPitchWheel()) synth_.setPitchBend(m.getPitchWheelValue());
         else if (m.isSustainPedalOn()) synth_.setSustain(true);

@@ -53,7 +53,7 @@ Every field is optional. The plugin writes all of them.
 |---|---|
 | `slot` | 1 (A01) to 128 (D32): the slot it was saved from. See above for where imports go. |
 | `name` | Up to 10 plain ASCII characters. |
-| `engine` | `"FM"` or `"VA"`. Informational; not changed on import. |
+| `engine` | `"FM"`, `"VA"` or `"8-Bit"` (FM-1_096). Informational; not changed on import. |
 | `algorithm` | 1 to 32. |
 | `feedback` | 0 to 7. |
 | `oscKeySync` | true or false. |
@@ -83,6 +83,12 @@ VA engine, and the VA engine's own settings are not mapped yet, so `raw`
 carries them. Readable VA settings will be added once the firmware's source
 shows what those bytes are. Knob assignments (KNOB1-4) are also kept only
 in `raw` for now, for every preset, since where they are stored is not known.
+
+**8-Bit presets** (FM-1_096) are written with `name`, `engine`, `effects` and
+`raw` only: the bytes where other presets keep the FM settings, the note
+filter and the envelope hold the 8-Bit kit, bass and lead there. Importing
+one with any of those fields is an error, so that nothing is written over
+them.
 
 Some factory presets store values outside the ranges above, such as a
 detune of +8. The plugin leaves such a field out when writing, and `raw`

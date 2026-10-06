@@ -10,7 +10,8 @@ juce::File LibraryStore::root() {
 }
 
 juce::String LibraryStore::formatOf(const fm1::Sound& s) {
-    return fm1::engineOf(s.record) == fm1::Engine::VA ? "baudgirl.va" : "fm1.voice";
+    const auto e = fm1::engineOf(s.record);
+    return e == fm1::Engine::VA ? "baudgirl.va" : e == fm1::Engine::EightBit ? "baudgirl.8bit" : "fm1.voice";
 }
 
 static juce::String toHex(const uint8_t* p, size_t n) { return juce::String::toHexString(p, int(n), 0); }
@@ -128,7 +129,7 @@ int LibraryStore::save(BankModel& bank) {
     auto info = dir.getChildFile("bank.json");
     if (!info.existsAsFile())
         writeAtomically(info, "{\n  \"bank\": \"FM-1\",\n  \"slots\": 128,\n  \"firmwares\": [\"fm1_stock\", \"baudgirl_fm1va\"],\n"
-                              "  \"formats\": [\"fm1.voice\", \"baudgirl.va\"]\n}\n");
+                              "  \"formats\": [\"fm1.voice\", \"baudgirl.va\", \"baudgirl.8bit\"]\n}\n");
     int written = 0;
     for (int i = 0; i < BankModel::kSlots; ++i) {
         const auto& s = bank.slot(i);

@@ -124,6 +124,11 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     vaPage_.setText("The VA engine is baud girl's, and its source is not published yet.\n"
                     "Until it is, VA presets play through the FM engine here; their VA settings\n"
                     "are kept exactly as stored, and sync to the FM-1 unchanged.", juce::dontSendNotification);
+    chipPage_.setJustificationType(juce::Justification::centred);
+    chipPage_.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.75f));
+    chipPage_.setText("The 8-Bit engine (FM-1_096) is baud girl's, and its source is not published yet.\n"
+                      "Until it is, 8-Bit presets are silent here; their settings are kept exactly\n"
+                      "as stored, and sync to the FM-1 unchanged.", juce::dontSendNotification);
     init_.setTooltip("Start the current preset over from a blank sound (an unsaved edit until you store it)");
     init_.onClick = [this] { showInitMenu(); };
     refreshPorts();
@@ -309,9 +314,9 @@ void LibraryPanel::paintListBoxItem(int row, juce::Graphics& g, int w, int h, bo
     g.setColour(juce::Colours::white.withAlpha(selected ? 1.0f : 0.85f));
     g.setFont(juce::FontOptions(14.0f));
     g.drawText(BankModel::bankName(row) + "   " + juce::String(fm1::voiceName(s.sound.voice)).trimEnd(), 8, 0, w - 90, h, juce::Justification::centredLeft);
-    bool va = fm1::engineOf(s.sound.record) == fm1::Engine::VA;
-    g.setColour(va ? juce::Colours::orange : juce::Colours::lightgreen);
-    g.drawText(va ? "VA" : "FM", w - 80, 0, 24, h, juce::Justification::centred);
+    const auto engine = fm1::engineOf(s.sound.record);
+    g.setColour(engine == fm1::Engine::VA ? juce::Colours::orange : engine == fm1::Engine::EightBit ? juce::Colours::violet : juce::Colours::lightgreen);
+    g.drawText(fm1::engineLabel(engine), w - 82, 0, 38, h, juce::Justification::centred);
     juce::String mark = !s.onDevice ? "?" : (s.synced() ? "=" : "*");
     g.setColour(mark == "=" ? juce::Colours::lightgreen : mark == "*" ? juce::Colours::orange : juce::Colours::grey);
     g.drawText(mark, w - 40, 0, 24, h, juce::Justification::centred);
@@ -391,23 +396,24 @@ void LibraryPanel::setEditorPages(juce::Component* fm, juce::Component* fx) {
 void LibraryPanel::setFirmware(const fm1::FirmwareChoice& f) {
     vaEngine_ = f.vaEngine;
     pagesSlot_ = -1;
-    pagesVa_ = -1;   // build them again
+    pagesEngine_ = -1;   // build them again
     showPagesFor(proc_.bank.currentSlot());
 }
 
-// The tabs for the selected preset: Sync, its engine's editor (FM, or VA in the same place),
-// Effects & Envelope. The editor tab stays open when the engine changes with the preset.
+// The tabs for the selected preset: Sync, its engine's editor (FM, or VA or 8-Bit in the same
+// place), Effects & Envelope. The editor tab stays open when the engine changes with the preset.
 void LibraryPanel::showPagesFor(int slot) {
     pagesSlot_ = slot;   // (the engine may change with the slot staying: a pull, an import)
-    const int va = vaEngine_ && fm1::engineOf(proc_.bank.slot(slot).sound.record) == fm1::Engine::VA ? 1 : 0;
-    if (va == pagesVa_) return;
-    pagesVa_ = va;
+    const auto engine = vaEngine_ ? fm1::engineOf(proc_.bank.slot(slot).sound.record) : fm1::Engine::FM;
+    if (int(engine) == pagesEngine_) return;
+    pagesEngine_ = int(engine);
     auto bg = juce::Colour(0xff26262e);
     juce::String was = pages_.getNumTabs() > 0 ? pages_.getCurrentTabName() : juce::String("Sync");
-    if (was == "FM" || was == "VA") was = va ? "VA" : "FM";
+    if (was == "FM" || was == "VA" || was == "8-Bit") was = fm1::engineLabel(engine);
     pages_.clearTabs();
     pages_.addTab("Sync", bg, &syncPage_, false);
-    if (va) pages_.addTab("VA", bg, &vaPage_, false);
+    if (engine == fm1::Engine::VA) pages_.addTab("VA", bg, &vaPage_, false);
+    else if (engine == fm1::Engine::EightBit) pages_.addTab("8-Bit", bg, &chipPage_, false);
     else if (fmPage_ != nullptr) pages_.addTab("FM", bg, fmPage_, false);
     if (fxPage_ != nullptr) pages_.addTab("Effects & Envelope", bg, fxPage_, false);
     const int keep = pages_.getTabNames().indexOf(was);
@@ -532,7 +538,8 @@ void FmEditorPanel::refreshName() {
         global_->name.setText(proc_.editName(), juce::dontSendNotification);
     bool edited = proc_.isEdited();
     global_->slotLabel.setText(BankModel::bankName(proc_.bank.currentSlot())
-        + (fm1::engineOf(proc_.bank.current().record) == fm1::Engine::VA ? "   Virtual Analog" : "   FM")
+        + juce::String(fm1::engineOf(proc_.bank.current().record) == fm1::Engine::VA ? "   Virtual Analog"
+                       : fm1::engineOf(proc_.bank.current().record) == fm1::Engine::EightBit ? "   8-Bit" : "   FM")
         + (edited ? "\nedited, not stored" : ""), juce::dontSendNotification);
     global_->slotLabel.setColour(juce::Label::textColourId, edited ? juce::Colour(0xffe0a040) : juce::Colours::white.withAlpha(0.8f));
     global_->storeButton.setEnabled(edited);

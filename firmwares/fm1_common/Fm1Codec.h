@@ -34,6 +34,7 @@ constexpr int kBankSlots   = 32;   // slots per bank A..D
 
 constexpr uint8_t kMarkVA = 0x5A;
 constexpr uint8_t kMarkFM = 0xA5;
+constexpr uint8_t kMark8Bit = 0xC3;   // FM-1_096: an 8-Bit preset (her fm1preset.js MARK_8BIT)
 constexpr uint8_t kSubId  = 0x7D;
 constexpr size_t  kExactLen = 231;
 
@@ -44,7 +45,8 @@ using Voice  = std::array<uint8_t, kVoiceBytes>;
 using Edit   = std::array<uint8_t, kEditBytes>;
 using Record = std::array<uint8_t, kRecordBytes>;
 
-enum class Engine { FM, VA };
+enum class Engine { FM, VA, EightBit };
+const char* engineLabel(Engine e);   // "FM", "VA", "8-Bit"
 
 struct Sound {
     int slot = -1;              // 0..127, or -1 when the source gave none

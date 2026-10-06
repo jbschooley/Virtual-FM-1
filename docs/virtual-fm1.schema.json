@@ -40,7 +40,7 @@
       "properties": {
         "slot": { "type": "integer", "minimum": 1, "maximum": 128, "description": "1 = A01 ... 128 = D32. Without it, imported presets fill from the selected slot on." },
         "name": { "type": "string", "maxLength": 10, "pattern": "^[ -~]*$", "description": "Up to 10 plain ASCII characters, as the FM-1's screen shows them." },
-        "engine": { "enum": ["FM", "VA"], "description": "Read only: which engine the preset uses. Virtual Analog settings live in raw.settings." },
+        "engine": { "enum": ["FM", "VA", "8-Bit"], "description": "Read only: which engine the preset uses. Virtual Analog settings live in raw.settings; an 8-Bit preset (FM-1_096) has only its effects as fields, the rest in raw." },
         "algorithm": { "type": "integer", "minimum": 1, "maximum": 32, "description": "DX7 algorithm 1-32." },
         "feedback": { "type": "integer", "minimum": 0, "maximum": 7 },
         "oscKeySync": { "type": "boolean", "description": "Restart the operators' oscillators on each note." },

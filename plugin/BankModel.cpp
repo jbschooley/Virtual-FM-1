@@ -55,7 +55,7 @@ juce::String BankModel::bankName(int slot) {
 juce::String BankModel::slotLabel(int i) const {
     const auto& s = slots_[size_t(i)];
     juce::String label = bankName(i) + "  " + juce::String(fm1::voiceName(s.sound.voice)).trimEnd();
-    label += fm1::engineOf(s.sound.record) == fm1::Engine::VA ? "  [VA]" : "  [FM]";
+    label += juce::String("  [") + fm1::engineLabel(fm1::engineOf(s.sound.record)) + "]";
     if (!s.onDevice) label += "  ?";
     else if (!s.synced()) label += "  *";
     return label;

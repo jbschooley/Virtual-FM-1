@@ -4,6 +4,22 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Added
+
+- **baud girl's FM-1_096.** 8-Bit presets show as 8-Bit in the library, with
+  an 8-Bit tab in place of the FM editor. The plugin has no 8-Bit engine (her
+  source is not published), so they are silent here, and only their effects
+  can be edited; everything else in them is kept exactly and syncs unchanged.
+  JSON writes their effects and raw bytes only.
+
+### Changed
+
+- FM-1+VA 0.96 is the release the plugin syncs with (not tried on an FM-1
+  yet, and its line beside Find FM-1 says so); 0.93 and 0.94 are synced as
+  before, without 8-Bit presets.
+
 ## [0.4.1] - 2026-10-05
 
 ### Changed

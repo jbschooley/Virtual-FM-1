@@ -158,7 +158,11 @@ const Edit kInitEdit = [] {
 
 // ---- the record --------------------------------------------------------------
 
-Engine engineOf(const Record& r) { return r[18] == kMarkVA ? Engine::VA : Engine::FM; }
+Engine engineOf(const Record& r) {
+    return r[18] == kMarkVA ? Engine::VA : r[18] == kMark8Bit ? Engine::EightBit : Engine::FM;
+}
+
+const char* engineLabel(Engine e) { return e == Engine::VA ? "VA" : e == Engine::EightBit ? "8-Bit" : "FM"; }
 
 Record defaultRecord() {
     Record r{};

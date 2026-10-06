@@ -372,9 +372,12 @@ var presetToJson(const fm1::Sound& s) {
     var o = newObject();
     if (s.slot >= 0) put(o, "slot", s.slot + 1);
     put(o, "name", String(fm1::voiceName(s.voice)).trimEnd());
-    const bool va = fm1::engineOf(r) == fm1::Engine::VA;
-    put(o, "engine", va ? "VA" : "FM");
-    if (!va) putFmFields(o, e);   // a Virtual Analog preset has no FM settings to show; raw keeps its bytes
+    const auto engine = fm1::engineOf(r);
+    put(o, "engine", fm1::engineLabel(engine));
+    if (engine == fm1::Engine::FM) putFmFields(o, e);   // a VA or 8-Bit preset has no FM settings to show; raw keeps its bytes
+    // an 8-Bit preset (FM-1_096) keeps its kit, bass and lead where the filter and the
+    // envelope are elsewhere: only its effects are shown, raw keeps the rest
+    const bool chip = engine == fm1::Engine::EightBit;
 
     const fm1::FxChain fc = fm1::fxFromRecord(r);
     var fx;
@@ -391,6 +394,13 @@ var presetToJson(const fm1::Sound& s) {
     }
     put(o, "effects", fx);
 
+    if (chip) {
+        var raw = newObject();
+        put(raw, "voice", toHex(s.voice.data(), s.voice.size()));
+        put(raw, "settings", toHex(s.record.data(), s.record.size()));
+        put(o, "raw", raw);
+        return o;
+    }
     const fm1::VaFilter f = fm1::filterFromRecord(r);
     var flt = newObject();
     put(flt, "on", f.on);
@@ -440,6 +450,9 @@ std::optional<fm1::Sound> presetFromJson(const var& v, const String& path, Strin
 
     fm1::Edit e = fm1::unpackVoice(s.voice);
     const fm1::Edit original = e;
+    if (fm1::engineOf(s.record) == fm1::Engine::EightBit)   // its kit, bass and lead are in raw only
+        for (const char* key : {"algorithm", "feedback", "oscKeySync", "transpose", "lfo", "pitchEnvelope", "operators", "noteFilter", "envelope"})
+            if (has(v, key)) errors.add(path + "." + key + ": an 8-Bit preset takes its sound from raw only");
     if (has(v, "name")) {
         var nm = get(v, "name");
         String name = nm.toString();

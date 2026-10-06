@@ -49,6 +49,7 @@
 
 #include "PluginProcessor.h"
 #include "Firmwares.h"
+#include "Fm1Json.h"
 #include "Panels.h"
 #if FM1_FELUCCA
  #include "FeluccaSync.h"
@@ -189,18 +190,20 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.93" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.2"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.2"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
-        CHECK(at(93).known && at(93).support == Support::Current && at(93).text == "FM-1_093", "FM-1_093: current, nothing to say");
+        CHECK(at(96).known && at(96).support == Support::Current && at(96).text.find("not tried") != std::string::npos, "FM-1_096: current, said to be untried");
+        CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
               && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0.2 known");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
-        auto n = at(95);
-        CHECK(n.newer && !n.known && n.support == Support::Tested && n.text.find("newer") != std::string::npos && n.text.find("0.94") != std::string::npos,
+        auto n = at(97);
+        CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.96") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
         CHECK(at(911).newer && at(911).firmwareId == "felucca" && at(911).text.find("1.0") != std::string::npos, "Felucca 1.1 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
-        CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos, "one between known releases is not called older");
+        CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos && at(95).text.find("not a release the plugin knows") != std::string::npos,
+              "one between known releases is not called older");
         CHECK(n.text.find("GLOBE settings not read") != std::string::npos, "a newer FM-1+VA says what newest-known support it lacks");
         CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
@@ -261,6 +264,51 @@ static int checks() {
         m2.addEvent(juce::MidiMessage::noteOn(1, 64, juce::uint8(100)), 0);
         p.processBlock(big, m2);
         CHECK(big.getMagnitude(0, 1000, 1000) > 0.0f, "a block larger than announced is rendered to its end");
+    }
+    // an 8-Bit preset (FM-1_096): kept byte for byte, silent, and only its effects editable
+    {
+        FM1Processor p;
+        fm1::Sound chip = p.bank.slot(9).sound;
+        chip.slot = 9;
+        chip.hasRecord = true;
+        chip.record[18] = fm1::kMark8Bit;
+        for (int i : {19, 20, 21, 22, 23, 24, 25, 26, 45, 46, 47, 48, 49, 50, 51, 54, 55, 56, 57, 58}) chip.record[size_t(i)] = uint8_t(0xF0 + (i & 7));
+        for (size_t i = 0; i < 118; ++i) chip.voice[i] = uint8_t((i * 37) & 0x7F);   // not a DX7 voice
+        p.bank.setSound(9, chip, false);
+        p.selectSlot(9);
+        CHECK(fm1::engineOf(p.bank.current().record) == fm1::Engine::EightBit && p.bank.slotLabel(9).contains("[8-Bit]"), "an 0xC3 record is an 8-Bit preset");
+        auto move = [&](const juce::String& id) {
+            if (auto* prm = p.apvts.getParameter(id)) prm->setValueNotifyingHost(prm->getValue() > 0.5f ? 0.1f : 0.9f);
+        };
+        move(Params::vcedId(134)); move(Params::filterId(1)); move(Params::envId(0)); move(Params::fxParamId(1, 0));
+        CHECK(p.isEdited(), "the moved controls count as an edit");
+        const fm1::Sound after = p.commitCurrent();
+        bool kept = after.voice == chip.voice;
+        for (int i = 0; i < fm1::kRecordBytes; ++i) if (i != 3) kept &= after.record[size_t(i)] == chip.record[size_t(i)];
+        CHECK(kept, "storing an 8-Bit preset changes none of its kit, bass and lead (FM, filter and envelope controls ignored)");
+        CHECK(after.record[3] != chip.record[3], "its effects still edit");
+        p.setPlayConfigDetails(0, 2, 44100.0, 256);
+        p.prepareToPlay(44100.0, 256);
+        juce::AudioBuffer<float> buf(2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8(100)), 0);
+        float peak = 0;
+        for (int k = 0; k < 20; ++k) { buf.clear(); p.processBlock(buf, midi); midi.clear(); peak = std::max(peak, buf.getMagnitude(0, 256)); }
+        CHECK(peak == 0.0f, "an 8-Bit preset is silent (its engine's source is not published)");
+        p.selectSlot(0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 62, juce::uint8(100)), 0);
+        peak = 0;
+        for (int k = 0; k < 20; ++k) { buf.clear(); p.processBlock(buf, midi); midi.clear(); peak = std::max(peak, buf.getMagnitude(0, 256)); }
+        CHECK(peak > 0.01f, "an FM preset after it plays again");
+        // JSON: an 8-Bit preset has only its effects as fields, and reads back to the same bytes
+        juce::StringArray errors;
+        auto j = fm1json::presetToJson(after);
+        auto back = fm1json::presetFromJson(juce::JSON::parse(juce::JSON::toString(j)), "p", errors);
+        CHECK(j["engine"].toString() == "8-Bit" && !j.hasProperty("operators") && !j.hasProperty("envelope") && !j.hasProperty("noteFilter")
+              && back && back->voice == after.voice && back->record == after.record, "an 8-Bit preset through JSON: the same bytes");
+        j.getDynamicObject()->setProperty("algorithm", 3);
+        errors.clear();
+        CHECK(!fm1json::presetFromJson(j, "p", errors) && errors.joinIntoString(" ").contains("8-Bit"), "an FM field on an 8-Bit preset is refused");
     }
    #if FM1_FELUCCA
     // an instance set to Felucca plays Felucca's engines, and keeps them in its project

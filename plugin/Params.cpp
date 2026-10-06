@@ -194,6 +194,7 @@ void Params::commit(fm1::Sound& s) {
     }
     fm1::Edit e = fm1::unpackVoice(s.voice);
     bool voiceChanged = false;
+    const bool chip = fm1::engineOf(s.record) == fm1::Engine::EightBit;
     auto chainPos = [&s](int effect) {
         for (int k = 0; k < fm1::kEffects; ++k) if (s.record[size_t(27 + 3 * k)] == effect) return k;
         return -1;
@@ -204,6 +205,9 @@ void Params::commit(fm1::Sound& s) {
         if (v == committed_[i]) continue;
         committed_[i] = v;
         auto u = uint8_t(v);
+        // an 8-Bit preset (FM-1_096) keeps its kit, bass and lead where the FM settings, the
+        // filter and the envelope are: only the effects mean the same on it
+        if (chip && b.kind != Kind::FxParam && b.kind != Kind::FxOn && b.kind != Kind::FxType) continue;
         switch (b.kind) {
             case Kind::Vced:    e[size_t(b.a)] = u; voiceChanged = true; break;
             case Kind::FxParam: s.record[size_t(3 * b.a + b.b)] = u; break;

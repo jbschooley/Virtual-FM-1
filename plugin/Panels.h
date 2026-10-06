@@ -115,10 +115,10 @@ private:
     juce::TabbedComponent pages_{juce::TabbedButtonBar::TabsAtTop};
     juce::Component* fmPage_ = nullptr;
     juce::Component* fxPage_ = nullptr;
-    juce::Label vaPage_;
+    juce::Label vaPage_, chipPage_;
     bool vaEngine_ = true;
     int pagesSlot_ = -1;
-    int pagesVa_ = -1;         // the tabs shown are for a VA preset (1), an FM one (0), not built (-1)
+    int pagesEngine_ = -1;     // the tabs shown are for this fm1::Engine, or not built (-1)
     juce::ComboBox inPorts_, outPorts_;
     juce::TextButton connect_{"Connect"}, autoConnect_{"Find FM-1"};
     juce::Label identity_;

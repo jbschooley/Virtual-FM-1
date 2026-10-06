@@ -269,6 +269,7 @@ private:
     const fm1::Sound& base() const { return projectBase_ ? *projectBase_ : bank.current(); }
     std::optional<fm1::Sound> projectBase_;        // changed under nameLock_
     fm1::Record baseRecord_{};                     // the base's record for the audio thread
+    bool silent_ = false;                          // an 8-Bit preset: no engine for it yet (audio thread)
     void prepareEngine();
     void renderEngine(float* out, int numSamples, const juce::MidiBuffer& events);
 
