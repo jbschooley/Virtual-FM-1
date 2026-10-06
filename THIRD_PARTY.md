@@ -11,7 +11,7 @@
   See `plugin/dexed_ui/NOTICE.md`.
 - **Felucca** (`engines/felucca/upstream`, generated tables, FM6 patches and
   samples in `engines/felucca/generated`): Leo Kuroshita's FM-1 firmware,
-  v1.0. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
+  v1.0.2. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
   Instruments, including the Hügelton Sample Pack drum sounds. Its other
   sample sets are the Versilian Studios samples (CC0). Parts of it come from
   others under their own licences, listed in its `LICENSING.md`: msfa
