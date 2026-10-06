@@ -339,8 +339,10 @@ int main(int argc, char** argv) {
         fm1::Bytes keep;
         for (const auto& [p, pp] : pats) {
             int notes = 0; for (const auto& st : pp.steps) notes += int(st.notes.size());
-            std::printf("  pattern %2d: length %d, tempo %d, gate %d, swing %d, preset %d, %d notes\n", p + 1, pp.length, pp.tempo, pp.gate, pp.swing, pp.sound + 1, notes);
-            for (const auto& m : fm1::seq::encodeWrite(pp, p, true)) keep.insert(keep.end(), m.begin(), m.end());
+            int locks = 0;   // (FM-1_096: 8 bytes a step, four (what, value) pairs, what 0xFF = none)
+            for (size_t i = 0; i + 1 < pp.locks.size(); i += 2) locks += pp.locks[i] != 0xFF;
+            std::printf("  pattern %2d: length %d, tempo %d, gate %d, swing %d, preset %d, %d notes, %d locks\n", p + 1, pp.length, pp.tempo, pp.gate, pp.swing, pp.sound + 1, notes, locks);
+            for (const auto& m : fm1::seq::encodeWrite(pp, p, true, !pp.locks.empty())) keep.insert(keep.end(), m.begin(), m.end());
         }
         if (argc > 4 && !last.failed) {
             juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[4])).replaceWithData(keep.data(), keep.size());
