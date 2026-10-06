@@ -4,6 +4,19 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **Felucca 1.0.1 and 1.0.2 on the FM-1**: the plugin tells them from 1.0
+  (they answer as 1.0 does, FM-1_910) by what their editor says, and the
+  line beside Find FM-1 says the FM-1 runs a newer Felucca than the one
+  built in. Live with an FM-1 on 1.0.2 no longer waits for a reload that
+  1.0.2 does not send back, which could hide a real one for two seconds.
+- **Pull from FM-1** keeps the plugin's own Felucca settings (palette, panel
+  calibration, favourites, LED mode), as Send keeps the FM-1's. A newer
+  Felucca's settings could make the whole Pull fail.
+
 ## [0.4.0] - 2026-10-05
 
 ### Changed

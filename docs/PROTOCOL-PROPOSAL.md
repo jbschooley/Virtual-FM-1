@@ -117,13 +117,18 @@ With `WATCH` on, Felucca sends what changes on the device (a knob, a step, a
 part selected, a preset loaded) without being asked, at most one message per
 value every 20 ms, and never for the tool's own writes. Any request keeps
 watching alive; `PING` is the one meant for it. A tool and the device then stay the same without polling. Two lessons
-from implementing the other side:
+from implementing the other side, both fixed in Felucca 1.0.2 (hugelton/Felucca#65), which says so in INFO
+(`53 01 caps`: bit 0 and bit 1):
 
 - Asking to watch again must not reset what the device counts as known, or a
   change made just before is never sent. Keep a separate keep-alive.
-- A load the tool asked for (a preset) is pushed back as a reload, so a tool
-  mirroring two devices has to recognise its own loads. A push should say
-  whether a tool's request caused it.
+- A load the tool asked for (a preset) must not come back as a reload, or a
+  tool mirroring two devices has to recognise its own loads (and can swallow a
+  real reload that way). Before 1.0.2 Felucca pushed one back.
+
+And one rule a tool must keep: one request at a time, keep-alives included,
+from one queue. Felucca holds one incoming SysEx frame until it has answered
+it and drops a frame that arrives before then, whole.
 
 *Proposed:* `WATCH` (`1B`) and a push kind (`58`) carrying the parameter id
 and value, or the slot loaded, with a flag for "caused by your request".
