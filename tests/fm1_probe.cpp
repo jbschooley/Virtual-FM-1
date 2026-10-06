@@ -241,7 +241,23 @@ int main(int argc, char** argv) {
         if (!o) { std::printf("backup failed: %s\n", err.toRawUTF8()); return 1; }
         const int rc = mine.f->putObject(0, (*o)[0]);
         std::printf("the synth's music into the plugin's Felucca: rc %d; part 1 engine %s\n", rc, mine.f->engineName(mine.f->engineOf(0)).c_str());
-        felucca::Mirror mirror(synth, mine);
+        // every push the FM-1 sends, printed as it arrives (what the mirror then carries is printed below)
+        struct Tap : felucca::Endpoint {
+            felucca::Endpoint& e;
+            explicit Tap(felucca::Endpoint& x) : e(x) {}
+            const felucca::Dialect& dialect() const override { return e.dialect(); }
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { return e.ask(q, t); }
+            std::vector<fm1::Bytes> pushes() override {
+                auto p = e.pushes();
+                for (auto& m : p) {
+                    std::printf("  FM-1 pushed cmd %d:", felucca::commandOf(m));
+                    for (auto b : felucca::argsOf(m)) std::printf(" %d", b);
+                    std::printf("\n");
+                }
+                return p;
+            }
+        } tap(synth);
+        felucca::Mirror mirror(tap, mine);
         if (!mirror.start(err)) { std::printf("mirror did not start: %s\n", err.toRawUTF8()); return 1; }
         {   // the plugin's side to the synth: a value set here, read back from the synth (its RAM only)
             const int sel = mine.f->selected(), id = 9;   // P_LRATE of the selected part
