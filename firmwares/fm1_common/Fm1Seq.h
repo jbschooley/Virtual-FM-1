@@ -79,7 +79,8 @@ struct Pattern {
 };
 bool hasLocks(const Pattern& p);          // any step holds a lock
 
-Pattern normalise(const Pattern& p);   // every value in range, notes unique, at most 9, vel 1..127
+Pattern normalise(const Pattern& p, bool withLocks = true);   // every value in range, notes unique, at most 9, vel 1..127
+                                                             // (withLocks false: no locks, nothing allocated for them)
 
 // Eight steps of a pattern: steps 8*part+1 .. 8*part+8, part 0..7. 177 bytes.
 Bytes encodeWritePart(const Pattern& p, int pat, int part, bool save);

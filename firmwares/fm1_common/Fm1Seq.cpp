@@ -10,7 +10,7 @@ const int kValueTicks[10] = {768, 384, 192, 128, 96, 64, 48, 32, 24, 16};
 
 static int clamp(int v, int lo, int hi) { return std::min(hi, std::max(lo, v)); }
 
-Pattern normalise(const Pattern& p) {
+Pattern normalise(const Pattern& p, bool withLocks) {
     Pattern out;
     out.length = clamp(p.length, 1, kSteps);
     out.rate = clamp(p.rate, 0, 9);
@@ -20,7 +20,7 @@ Pattern normalise(const Pattern& p) {
     out.sound = p.sound < 0 ? -1 : clamp(p.sound, 0, 127);
     out.chain = p.chain < 0 ? -1 : clamp(p.chain, 0, kPatterns - 1);
     out.transpose = clamp(p.transpose, -24, 24);
-    if (p.locks.size() == size_t(kLockBytes)) out.locks = p.locks;   // as the synth's table holds them
+    if (withLocks && p.locks.size() == size_t(kLockBytes)) out.locks = p.locks;   // as the synth's table holds them
     for (int i = 0; i < kSteps; ++i) {
         const Step& s = p.steps[size_t(i)];
         Step o;

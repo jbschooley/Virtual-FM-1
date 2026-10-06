@@ -17,7 +17,7 @@ void Sequencer::startPattern(int pat, double atTick, bool first) {
     pat_ = juce::jlimit(0, kPatterns - 1, pat);
     {
         const juce::SpinLock::ScopedTryLockType l(lock);
-        if (l.isLocked()) cur_ = fm1::seq::normalise(patterns[size_t(pat_)]);
+        if (l.isLocked()) cur_ = fm1::seq::normalise(patterns[size_t(pat_)], false);   // (locks are not played)
         else if (first) cur_ = fm1::seq::Pattern{};   // could not read it: play silence rather than stall
     }
     times_ = fm1::seq::stepTimes(cur_);

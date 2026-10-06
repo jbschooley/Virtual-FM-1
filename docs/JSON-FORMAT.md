@@ -85,10 +85,11 @@ shows what those bytes are. Knob assignments (KNOB1-4) are also kept only
 in `raw` for now, for every preset, since where they are stored is not known.
 
 **8-Bit presets** (FM-1_096) are written with `name`, `engine`, `effects` and
-`raw` only: the bytes where other presets keep the FM settings, the note
-filter and the envelope hold the 8-Bit kit, bass and lead there. Importing
-one with any of those fields is an error, so that nothing is written over
-them.
+`raw` only: where other presets keep the FM settings, an 8-Bit preset keeps
+its kit, bass and lead, and where they keep the note filter, its waveforms,
+arpeggios and Key; what the envelope's bytes do on it is not known yet.
+Importing one with any of those fields is an error, so that nothing is
+written over them.
 
 Some factory presets store values outside the ranges above, such as a
 detune of +8. The plugin leaves such a field out when writing, and `raw`

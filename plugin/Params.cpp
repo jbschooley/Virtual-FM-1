@@ -205,8 +205,9 @@ void Params::commit(fm1::Sound& s) {
         if (v == committed_[i]) continue;
         committed_[i] = v;
         auto u = uint8_t(v);
-        // an 8-Bit preset (FM-1_096) keeps its kit, bass and lead where the FM settings, the
-        // filter and the envelope are: only the effects mean the same on it
+        // an 8-Bit preset (FM-1_096) keeps its kit, bass and lead where the FM settings are, and
+        // its waveforms, arpeggios and Key where the filter's; what the envelope's bytes do on it
+        // is not known: only the effects are edited, the rest kept as stored
         if (chip && b.kind != Kind::FxParam && b.kind != Kind::FxOn && b.kind != Kind::FxType) continue;
         switch (b.kind) {
             case Kind::Vced:    e[size_t(b.a)] = u; voiceChanged = true; break;

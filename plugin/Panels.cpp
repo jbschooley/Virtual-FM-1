@@ -728,7 +728,7 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     stepRate_.onChange = applyS; ratchet_.onChange = applyS;
     for (auto* s : {&stepGate_, &stepChance_, &stepTranspose_}) s->onValueChange = applyS;
     accent_.onClick = applyS; slide_.onClick = applyS;
-    clearStep_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = fm1::seq::Step{}; pattern().steps[size_t(selectedStep_)].rate = pattern().rate; } loadStepControls(); repaint(); };
+    clearStep_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = fm1::seq::Step{}; pattern().steps[size_t(selectedStep_)].rate = pattern().rate; stepLocks(selectedStep_, nullptr); } loadStepControls(); repaint(); };
     addAndMakeVisible(importPatterns_);
     addAndMakeVisible(exportPatterns_);
     addAndMakeVisible(fileStatus_);
@@ -750,8 +750,8 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     };
     exportPatterns_.onClick = [this] { showExportMenu(); };
     clearPattern_.onClick = [this] { { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); int r = pattern().rate; for (auto& s : pattern().steps) { s = fm1::seq::Step{}; s.rate = r; } pattern().locks.clear(); } loadStepControls(); repaint(); };
-    copyStep_.onClick = [this] { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); clipboard_ = pattern().steps[size_t(selectedStep_)]; };
-    pasteStep_.onClick = [this] { if (!clipboard_) return; { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = *clipboard_; } loadStepControls(); repaint(); };
+    copyStep_.onClick = [this] { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); clipboard_ = pattern().steps[size_t(selectedStep_)]; clipboardLocks_ = stepLocks(selectedStep_); };
+    pasteStep_.onClick = [this] { if (!clipboard_) return; { const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock); pattern().steps[size_t(selectedStep_)] = *clipboard_; stepLocks(selectedStep_, &clipboardLocks_); } loadStepControls(); repaint(); };
     pull_.onClick = [this] { proc_.pullPatterns(); };
     push_.onClick = [this] { proc_.pushPatterns(true); };
     info_.setFont(juce::FontOptions(12.0f));
@@ -795,6 +795,24 @@ SeqPanel::SeqPanel(FM1Processor& p) : proc_(p) {
     loadPatternControls();
     loadStepControls();
     startTimerHz(20);
+}
+
+std::array<uint8_t, 8> SeqPanel::stepLocks(int step) {
+    std::array<uint8_t, 8> out;
+    out.fill(0xFF);
+    const auto& t = pattern().locks;
+    if (t.size() == size_t(fm1::seq::kLockBytes)) std::copy_n(t.begin() + 8 * step, 8, out.begin());
+    return out;
+}
+
+void SeqPanel::stepLocks(int step, const std::array<uint8_t, 8>* locks) {
+    auto& t = pattern().locks;
+    const bool any = locks != nullptr && std::any_of(locks->begin(), locks->end(), [](uint8_t b) { return b != 0xFF; });
+    if (t.size() != size_t(fm1::seq::kLockBytes)) {
+        if (!any) return;
+        t.assign(size_t(fm1::seq::kLockBytes), 0xFF);
+    }
+    for (int i = 0; i < 8; ++i) t[size_t(8 * step + i)] = any ? (*locks)[size_t(i)] : uint8_t(0xFF);
 }
 
 fm1::seq::Pattern& SeqPanel::pattern() { return proc_.sequencer.patterns[size_t(proc_.sequencer.selected.load())]; }

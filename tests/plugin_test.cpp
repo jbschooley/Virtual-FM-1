@@ -280,6 +280,8 @@ static int checks() {
         auto move = [&](const juce::String& id) {
             if (auto* prm = p.apvts.getParameter(id)) prm->setValueNotifyingHost(prm->getValue() > 0.5f ? 0.1f : 0.9f);
         };
+        auto valueOf = [&](const juce::String& id) { auto* prm = p.apvts.getParameter(id); return prm ? prm->getValue() : -1.0f; };
+        const float fltBefore = valueOf(Params::filterId(1)), envBefore = valueOf(Params::envId(0));
         move(Params::vcedId(134)); move(Params::filterId(1)); move(Params::envId(0)); move(Params::fxParamId(1, 0));
         CHECK(p.isEdited(), "the moved controls count as an edit");
         const fm1::Sound after = p.commitCurrent();
@@ -287,6 +289,8 @@ static int checks() {
         for (int i = 0; i < fm1::kRecordBytes; ++i) if (i != 3) kept &= after.record[size_t(i)] == chip.record[size_t(i)];
         CHECK(kept, "storing an 8-Bit preset changes none of its kit, bass and lead (FM, filter and envelope controls ignored)");
         CHECK(after.record[3] != chip.record[3], "its effects still edit");
+        CHECK(!p.isEdited() && valueOf(Params::filterId(1)) == fltBefore && valueOf(Params::envId(0)) == envBefore,
+              "after Store the ignored controls show what it holds again");
         p.setPlayConfigDetails(0, 2, 44100.0, 256);
         p.prepareToPlay(44100.0, 256);
         juce::AudioBuffer<float> buf(2, 256);

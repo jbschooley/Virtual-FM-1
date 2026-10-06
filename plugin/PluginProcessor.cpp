@@ -488,6 +488,9 @@ fm1::Sound& FM1Processor::commitCurrent() {
             projectBase_.reset();   // stored: the library's slot is the project's sound now
         }
         bank.setSound(bank.currentSlot(), c, false);
+        // an 8-Bit preset keeps only its effects' edits (Params::commit): the other controls show
+        // what it holds again
+        if (fm1::engineOf(c.record) == fm1::Engine::EightBit) params.load(bank.current());
     }
     return bank.current();
 }

@@ -118,14 +118,17 @@ answer the identity request on both.
 An 8-Bit preset (record byte 18 = `0xC3`) keeps a kit of twelve drums, twelve
 sound effects, a bass and a lead where other presets keep the FM voice, and the
 bass's and lead's waveforms, its User Arpeggios and its Key in record bytes
-19-26 and 45-51 (her 096 `fm1preset.js`). The plugin keeps those bytes
-as stored and syncs them unchanged, but has no 8-Bit engine: such a preset is
-silent, and only its effects can be edited. Look for `chip.h` and the 8-Bit
-engine in her source.
+19-26 and 45-51 (her 096 release notes and `fm1preset.js`). Whether the
+envelope (54-58) applies to one is not known: her `newPreset` says Erase Preset
+writes "the Envelope's switch on an 8-Bit preset" among bytes 52-53. The plugin
+keeps every byte but the effects' as stored and syncs them unchanged, but has
+no 8-Bit engine: such a preset is silent, and only its effects can be edited.
+Look for `chip.h` and the 8-Bit engine in her source.
 
-096 also adds a seventh effect, Bitcrush (Bits, Sample Rate, Mix), with its
-switch and place in record byte 5, and banks for the four knobs. The plugin
-neither plays nor edits them; their bytes travel unchanged.
+096 also adds a seventh effect, Bitcrush (Bits, Sample Rate, Mix; its switch
+and place in record byte 5, her `fm1preset.js`), and banks for the four knobs
+(her release notes). The plugin neither plays nor edits them; their bytes
+travel unchanged.
 
 ## 3. Addresses that depend on the firmware build
 

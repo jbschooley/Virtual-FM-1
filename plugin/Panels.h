@@ -236,6 +236,11 @@ private:
     std::vector<std::unique_ptr<juce::Label>> labels_;
     bool loading_ = false;
     std::optional<fm1::seq::Step> clipboard_;
+    // FM-1_096's parameter locks of a step (8 bytes of the pattern's table, 0xFF = none), under
+    // the lock: read, or set (nullptr: none). They go with the step when it is cleared or pasted.
+    std::array<uint8_t, 8> stepLocks(int step);
+    void stepLocks(int step, const std::array<uint8_t, 8>* locks);
+    std::array<uint8_t, 8> clipboardLocks_{};
     // step recording: notes within a short window form one chord
     std::vector<fm1::seq::Note> recChord_;
     int seenVersion_ = 0;

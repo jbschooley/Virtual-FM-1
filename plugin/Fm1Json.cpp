@@ -375,8 +375,9 @@ var presetToJson(const fm1::Sound& s) {
     const auto engine = fm1::engineOf(r);
     put(o, "engine", fm1::engineLabel(engine));
     if (engine == fm1::Engine::FM) putFmFields(o, e);   // a VA or 8-Bit preset has no FM settings to show; raw keeps its bytes
-    // an 8-Bit preset (FM-1_096) keeps its kit, bass and lead where the filter and the
-    // envelope are elsewhere: only its effects are shown, raw keeps the rest
+    // an 8-Bit preset (FM-1_096) keeps its waveforms, arpeggios and Key where the filter's
+    // bytes are, and what its envelope's bytes do is not known: only its effects are shown,
+    // raw keeps the rest
     const bool chip = engine == fm1::Engine::EightBit;
 
     const fm1::FxChain fc = fm1::fxFromRecord(r);
