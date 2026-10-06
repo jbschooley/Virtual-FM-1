@@ -131,6 +131,7 @@ static void fm1_main(void)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
+    usb_serial_apply();                                 /* (#67: the saved USB SERIAL before usb_start) */
     lcd_init();
     lcd_fill(0, 0, 240, 240, T_BG);
     draw_text_box(0, 94, 240, &AF_L, "FELUCCA", T_THEME, 1);

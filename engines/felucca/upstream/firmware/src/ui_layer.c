@@ -21,7 +21,16 @@
  * layers OCT± do not shift the octave: OCT- (on release, not with OCT+) puts back what the layer changed since it
  * opened. A HOLD key's effect lasts until the key is let go, the map with it. No layer in the menu, a dialog,
  * NAME or the UPDATE MODE countdown. After a tap, until the layer has been opened once: "HOLD [GLO] QUICK"
- * (the seen bits are kept with the settings, favorites.c spare byte). */
+ * (the seen bits are kept with the settings, favorites.c spare byte).
+ * The lock (Discussion #83): a double tap (the second press within LY_DTAP_MS of the first tap, both let go before
+ * HOLD, nothing else touched) opens the map and keeps it open with no button held (ui.lock): ly_down() counts the
+ * lock as the button held, so the keys (seq.c keyboard_block: kb_lock), KNOB 1..4, OCT-, PLAY act exactly as held.
+ * A tap of its button closes it (the press hands it back to the button: held on, a peek; let go, closed; never a
+ * tap), so do another page button, HOME, SAVE, SEQ (each then acts as always), the menu, a dialog, NAME. The first
+ * tap is not deferred (a single tap opens its page at once, no lag): it opens the page and remembers the page it
+ * left (lys.nv); the second tap locks the layer over that page, put back, so a double tap leaves the page as it was.
+ * A first tap that acted instead of opening a page (EDIT on STEP: clear the step; on USER / PROJECT: rename) arms no
+ * double tap: two quick taps there still act twice. */
 enum { LK_HOLD, LK_SET };
 typedef struct {
     uint8_t btn, kind, fam;            /* the button, HOLD / SET, the family whose first page KNOB 1..4 edit */
@@ -55,12 +64,17 @@ static struct {
     uint8_t ntap;
     uint8_t quiet;                     /* #39: a layer closed after it opened: KNOB 1..4 do nothing until quiet_t + */
     uint32_t quiet_t;                  /* LY_QUIET_MS (fm1_ms) */
+    uint8_t dt_l, dt_hint, dtap;       /* #83: the layer of the last tap that opened a page (0 none), its hint said; the
+                                        * press now armed is that tap's second (a double tap) */
+    uint32_t dt_ms;                    /* .. when that tap was let go (fm1_ms) */
+    struct { uint8_t home, page, act, seq, fam[FAM_COUNT]; } nv;   /* .. the page it left (put back by the lock) */
 } lys;
 #define LY_QUIET_MS 250u
+#define LY_DTAP_MS 300u                /* #83: the second press of a double tap at most this long after the first tap */
 
 static int layer_allowed(void) { return !ui.menu && !ui.confirm && !ui.uboot && !name_on(); }
 static uint32_t ly_bit(uint32_t l) { return 1u << panel.btn[LAYERS[l].btn]; }
-static uint32_t ly_down(uint32_t l) { return l && (fm1_in.buttons & ly_bit(l)) != 0u; }
+static uint32_t ly_down(uint32_t l) { return l && ((fm1_in.buttons & ly_bit(l)) != 0u || ui.lock == l); }   /* (locked: held) */
 static uint32_t layer_bits(void)
 {
     uint32_t l, m = 0;
@@ -87,6 +101,7 @@ static void layer_masks(void)
                : ui.ly ? ly_bit(ui.ly) : layer_bits() & ~fm1_in.buttons;
     kb_mask = m;
     perf_mask = m & ly_bit(LAYER_FX);
+    kb_lock = (uint8_t)(m && ui.lock ? 1u | (ui.lock == LAYER_FX ? 2u : 0u) : 0u);   /* (no button held: the ISR's) */
 }
 
 /* a layer button pressed (its edge) while none is armed: it is now, a dead one where no layer opens */
@@ -99,8 +114,61 @@ static void layer_arm(uint32_t pressed, uint32_t now)
         if (pressed & ly_bit(l)) {
             ui.ly = (uint8_t)l;
             ui.ly_t0 = (now & ~15u) | 1u | (layer_allowed() ? 0u : LY_DEAD);
+            lys.dtap = lys.dt_l == l && fm1_ms - lys.dt_ms <= LY_DTAP_MS;   /* (#83: the second tap of a double tap?) */
+            lys.dt_l = 0;
             return;
         }
+}
+
+/* the armed layer lets go (its button up, or its lock closed): FX's macros snap back (FX LATCH: they stay); one that
+ * opened, or a combo: KNOB 1..4 quiet for a while (#39: the knob still turning is not the page's) */
+static void layer_let_go(uint32_t quiet)
+{
+    if (ui.ly == LAYER_FX && !perf_latch_on)
+        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+    if (quiet) {
+        lys.quiet = 1;
+        lys.quiet_t = fm1_ms;
+    }
+    ui.ly_t0 = 0;
+    ui.ly = 0;
+    ui.lock = 0;
+}
+
+/* #83, each pass before the layer's buttons are read: a locked layer closes. Its own button pressed: the lock goes,
+ * the button held keeps it open (a peek: let go, it closes, no tap). Another button but PLAY, REC and OCT- / OCT+
+ * (another page button, another layer's, HOME, SAVE, SEQ): closed now, and that button acts as always. Any other
+ * button pressed between the taps of a double tap: no double tap */
+static void layer_lock_input(uint32_t pressed)
+{
+    uint32_t keep = 1u << panel.btn[B_PLAY] | 1u << panel.btn[B_REC] | 1u << panel.btn[B_OCTDN] | 1u << panel.btn[B_OCTUP];
+    if (lys.dt_l && (pressed & ~ly_bit(lys.dt_l)))
+        lys.dt_l = 0;
+    if (!ui.lock)
+        return;
+    if (pressed & ly_bit(ui.lock))
+        ui.lock = 0;
+    else if (pressed & ~keep)
+        layer_let_go(1);
+}
+static int layer_locked(void) { return ui.lock && ui.layer == ui.lock; }   /* (the map's header: the lock's mark) */
+
+static void layer_opened(uint32_t l);
+/* #83: the second tap of a double tap: the page the first one left comes back, and the layer locks open over it */
+static void layer_lock(uint32_t l, uint32_t now)
+{
+    ui.home = lys.nv.home;
+    ui.page = lys.nv.page;
+    memcpy(ui.fam_last, lys.nv.fam, sizeof ui.fam_last);
+    ui.act = lys.nv.act;
+    song.seq_mode = lys.nv.seq;
+    ui.entry_open = 0;
+    if (lys.dt_hint)
+        ui.msg_t = 0;                                   /* (the first tap's "HOLD [..] QUICK") */
+    ui.lock = (uint8_t)l;
+    ui.ly_t0 = (now & ~15u) | 1u | LY_OPEN;
+    ui.force = 1;
+    layer_opened(l);
 }
 
 /* the layer opened: once seen, no more hint; SET: what OCT- will put back */
@@ -131,8 +199,10 @@ static uint32_t layer_gesture(uint32_t now, uint32_t combo)
     uint32_t *t0 = &ui.ly_t0, l = ui.ly;
     if (!l)
         return 0;
-    if (!layer_allowed())
+    if (!layer_allowed()) {
         *t0 |= LY_DEAD;
+        ui.lock = 0;                                    /* (the menu, a dialog, NAME: the lock closes) */
+    }
     if (ly_down(l)) {
         if (!(*t0 & (LY_OPEN | LY_DEAD)) &&
             (combo || now - (*t0 & ~15u) >= (uint32_t)HOLD_MS[settings_hold % 4u] * 1000u * FM1_TICKS_PER_US)) {
@@ -141,15 +211,13 @@ static uint32_t layer_gesture(uint32_t now, uint32_t combo)
         }
         return 0;
     }
-    if (l == LAYER_FX && !perf_latch_on)
-        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;   /* the knob macros snap back (FX LATCH: they stay) */
-    if (*t0 & LY_OPEN || combo) {                       /* (#39: the knob still turning is not the page's) */
-        lys.quiet = 1;
-        lys.quiet_t = fm1_ms;
-    }
     l = *t0 & (LY_OPEN | LY_DEAD) || combo ? 0u : l;   /* (a knob turned as it was let go: a combo, no tap) */
-    *t0 = 0;
-    ui.ly = 0;
+    if (l && lys.dtap) {                                /* #83: a double tap: locked open (no tap) */
+        lys.dtap = 0;
+        layer_lock(l, now);
+        return 0;
+    }
+    layer_let_go(*t0 & LY_OPEN || combo);
     return l;
 }
 
@@ -178,11 +246,23 @@ static void layer_show(void)
 static void layer_tap(uint32_t l)
 {
     uint8_t m = ui.msg_t;
-    page_tap(LAYERS[l].btn);
+    int acted;
+    lys.nv.home = ui.home;                              /* (#83: the page this tap leaves, for a double tap) */
+    lys.nv.page = ui.page;
+    lys.nv.act = ui.act;
+    lys.nv.seq = song.seq_mode;
+    memcpy(lys.nv.fam, ui.fam_last, sizeof lys.nv.fam);
+    acted = page_tap(LAYERS[l].btn);
+    lys.dt_hint = 0;
     if (!((layer_seen >> l) & 1u) && ui.msg_t == m && !name_on() && !ui.confirm && !ui.menu) {
         ui_say("HOLD [", KC[LY_KC[l]].label);
         str_cpy(ui.msg + str_len(ui.msg), "] QUICK", sizeof ui.msg - str_len(ui.msg));
         ui.msg_t = 90;                                  /* ~1.5 s */
+        lys.dt_hint = 1;
+    }
+    if (!acted && !name_on() && !ui.confirm && !ui.menu) {   /* a page opened: a second tap soon locks the layer */
+        lys.dt_l = (uint8_t)l;
+        lys.dt_ms = fm1_ms;
     }
 }
 

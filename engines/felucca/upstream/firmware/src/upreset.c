@@ -4,7 +4,8 @@
  * slots in two storage.c objects (OBJ_UPRESET0/1, A/B sectors at
  * 0xDC000..0xDFFFF), 16 records each, mirrored in RAM so browsing never
  * reads flash. A record: engine, name, the instrument parameters, a 16-step
- * pattern (factory PATTERNS[] format). Loading one loads the sound only; its pattern
+ * pattern (factory PATTERNS[] format). An FM6 sound's patch is kept beside the record (up_fm6.c, since 1.0.3:
+ * the record itself is unchanged). Loading one loads the sound only; its pattern
  * is offered by SEQ > PATTERNS ("U07", up_pat_load). The format is unchanged.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
@@ -221,7 +222,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
         v[i] = (int16_t)clamp(v[i], param_desc_of(r->engine, i)->min, param_desc_of(r->engine, i)->max);
 }
 
-#include "fm6_bank.c"                          /* the FM6 patch bank: the same kind of store */
+#include "up_fm6.c"                            /* the FM6 user presets' patches: the same kind of store */
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
@@ -230,7 +231,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
-    fm6_bank_boot();
+    upf_boot();                                  /* (after the banks: it may move the retired FM6 bank's patches) */
 #ifdef FELUCCA_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
         if (!up_used(k)) favorite_set(NENGINES, k, 0);
@@ -352,7 +353,15 @@ static int up_store(uint32_t k, const char *name)
             }
         }
     }
-    return up_put(k, &r);
+    {
+        int rc = up_put(k, &r);                         /* the record first, then its FM6 patch (up_fm6.c) */
+        if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
+            int u = upf_store(k, (uint32_t)(TSEL - trk));
+            if (u == 2)
+                rc = 2;
+        }
+        return rc;
+    }
 }
 
 /* slot k renamed (name 0 or "": the automatic one), the sound and its pattern as they are; up_put's result, 1 for
@@ -398,7 +407,7 @@ static int up_load(uint32_t k)
                 t->p[i] = v[i];
         t->preset = 0;
         fm1_irq_on();
-        fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
+        upf_track_load(t, k);                           /* FM6: the preset's own patch (up_fm6.c) */
     }
     t->user = (uint8_t)(k + 1u);
     load_end(t);

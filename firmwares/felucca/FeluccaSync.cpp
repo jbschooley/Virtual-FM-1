@@ -51,8 +51,11 @@ bool unpack7(const std::vector<uint8_t>& a, size_t at, std::vector<uint8_t>& out
 // alike in both; Felucca's 24 is the reverb type, SLOOP's 25..29 its drum level and reverb and
 // master bus (DUST, DUCK, FILT).
 const Dialect& feluccaDialect() {
+    // objects 0..9 (1.0.3: 8 the retired FM6 bank, always empty there, 9 the user presets' FM6
+    // patches; 1.0.2: 0..8; 1.0 and 1.0.1: 0..7): 6 and 7 before 8 (an old archive's bank becomes
+    // the presets' patches on 1.0.3), the music last
     static const Dialect d{"Felucca", kBackupList, kBackupGet, kBackupPut, true,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34}, {2, 3, 4, 5, 6, 7, 8, 1, 0}, 8, true, "felucca-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34}, {2, 3, 4, 5, 6, 7, 8, 9, 1, 0}, 9, true, "felucca-backup",
                            {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24}};
     return d;
 }
@@ -99,9 +102,9 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     auto* objs = v.getProperty("objects", {}).getArray();
     const auto& ids = d.ids;
     const bool sloop = !d.fm6;
-    // (a Felucca archive of firmware before FM6 has no object 8: 11 objects; SLOOP's editor
-    // writes the objects it has, and needs 0 and 1)
-    const bool complete = objs && (sloop || objs->size() == int(ids.size()) || objs->size() == int(ids.size()) - 1);
+    // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
+    // SLOOP's editor writes the objects it has, and needs 0 and 1)
+    const bool complete = objs && (sloop || (objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
     if (v.getProperty("format", {}).toString() != d.fileFormat || int(v.getProperty("version", 0)) != 1 || !complete) {
         error = juce::String("not a complete ") + d.name + " backup";
         return false;

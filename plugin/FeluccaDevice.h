@@ -1,5 +1,5 @@
 // FeluccaDevice -- the virtual Felucca (or SLOOP) device's stored objects (its four project
-// slots, user presets, FM6 patch bank and settings) kept in the library folder, as the file its
+// slots, user presets and their FM6 patches, and settings) kept in the library folder, as the file its
 // web editor writes for a full backup (felucca-backup or sloop-backup version 1, JSON), so the
 // same file restores a real FM-1 running it and the other way round:
 //

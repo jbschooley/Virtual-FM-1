@@ -6,7 +6,8 @@
  * The patch is the sound: every track has one (fm6_patch, the generic 155-byte single-voice layout: six
  * operators with their 4-rate / 4-level envelopes, keyboard level and rate scaling, velocity, ratio or
  * fixed frequency, detune; 32 algorithms, feedback, LFO, pitch envelope, transpose). It is edited in the
- * web editor (EDITOR_PROTOCOL.md FM6_*), loaded from the PATCH slots, and saved inside projects (FUN8).
+ * web editor (EDITOR_PROTOCOL.md FM6_*: a .syx voice sent to a track), loaded from the factory slots, and saved inside
+ * projects (FUN8) and user presets (up_fm6.c). Whatever is loaded becomes the track's patch.
  * On the device the eight EDIT values are macros on top of it:
  *   ALG   PAT = the patch's algorithm, 1..32 another one
  *   FB    added to the patch's feedback (0..7)
@@ -15,8 +16,11 @@
  *   MEG   the modulators' envelope times: + slower (rates down to 40 steps), - faster
  *   VMOD  added to the modulators' velocity sensitivity (0..7)
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
- *   PTCH  loads a patch: F1..F8 the factory patches, B1..B27 the patch bank (fm6_bank.c, flash). The
- *         patch stays the track's own (a project keeps it); turning PTCH loads another
+ *   SLOT  F1..F8 load a factory patch; OWN (8) is the track's own patch: what a project, a user preset or the
+ *         editor put there. A load shows F n when the patch is that factory one unchanged, else OWN (fm6_adopt).
+ *         Turning SLOT from OWN to F n keeps the own patch aside; back to OWN brings it back (fm6_poll).
+ *         Before 1.0.3 the values 8..34 were F1..F8 then B1..B27, a flash bank (retired: its patches moved into
+ *         the user presets, up_fm6.c); a stored 8..34 is clamped to 8, OWN, and its patch comes with the record
  * The operator envelopes are the voice's amplitude and end it (engine_t.ownenv / done): the track's ADSR,
  * ENV DEST and the matrix's ENV do nothing here. The track's FLT moves MLVL (ENV / LFO -> FLT, the
  * matrix's CUT), SHP the feedback, PIT the pitch (bend, glide, tune: the voice's pitch and fine factor).
@@ -30,13 +34,14 @@
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_POLY 6               /* engine_t.poly */
-#define FM6_BANK_N 27u           /* patch bank slots (fm6_bank.c) */
-#define FM6_NSLOT (FM6_NFACTORY + FM6_BANK_N)   /* PTCH: F1..F8, B1..B27 */
+#define FM6_OWN FM6_NFACTORY     /* SLOT: the track's own patch (F1..F8 before it) */
 #define FM6_PACKED 128u
 
 static uint8_t fm6_patch[NTRK][FP_SIZE + 1u];   /* the tracks' patches (main loop writes, then fm6_pgen) */
 static volatile uint8_t fm6_pgen[NTRK];          /* +1 after each write of fm6_patch[t] */
-static uint8_t fm6_slot[NTRK];                   /* the PTCH value last loaded (main loop); 0xFF = none */
+static uint8_t fm6_slot[NTRK];                   /* the SLOT value last loaded (main loop); 0xFF = none */
+static uint8_t fm6_own[NTRK][FM6_PACKED];        /* the own patch while SLOT shows a factory one (fm6_poll) */
+static uint8_t fm6_own_ok;                       /* bit tr: fm6_own[tr] holds it */
 static struct {                                  /* the patch through the macros: the audio ISR's copy */
     uint8_t p[FP_SIZE + 1u];
     uint8_t gen, alg, fb, ok;
@@ -138,9 +143,6 @@ static void fm6_pack(const uint8_t *v, uint8_t *b)
 }
 
 /* ---------------------------------------------------- the track's patch --- */
-/* the patch bank (fm6_bank.c sets it with FELUCCA_FLASH): slot k's packed record -> pk, 0 = got it */
-static int (*fm6_bank_read)(uint32_t k, uint8_t *pk);
-
 /* track tr's patch = v (155 bytes, sanitized). Main loop: the ISR takes it at its next block */
 static void fm6_set_patch(uint32_t tr, const uint8_t *v)
 {
@@ -153,30 +155,49 @@ static void fm6_set_patch(uint32_t tr, const uint8_t *v)
     fm6_pgen[tr]++;
 }
 
-/* PTCH value s -> its packed record (F1..F8; the bank, an empty slot: the init voice) */
-static void fm6_slot_get(uint32_t s, uint8_t *pk)
-{
-    if (s < FM6_NFACTORY)
-        memcpy(pk, FM6_FACTORY[s], FM6_PACKED);
-    else if (s >= FM6_NSLOT || !fm6_bank_read || fm6_bank_read(s - FM6_NFACTORY, pk))
-        memcpy(pk, FM6_INIT, FM6_PACKED);
-}
-
+/* SLOT value s < FM6_NFACTORY: that factory patch into track tr */
 static void fm6_load_slot(uint32_t tr, uint32_t s)
 {
-    uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
-    fm6_slot_get(s, pk);
-    fm6_unpack(pk, v);
+    uint8_t v[FP_SIZE + 1u];
+    fm6_unpack(FM6_FACTORY[s % FM6_NFACTORY], v);
     fm6_set_patch(tr, v);
-    fm6_slot[tr % NTRK] = (uint8_t)s;
+    fm6_slot[tr % NTRK] = (uint8_t)(s % FM6_NFACTORY);
 }
 
-/* a sound load put a PTCH value in (a preset, a user preset, undo, an engine change): its patch */
+/* track tr's patch was just put in as its own (a project, a user preset, the editor, a conversion): an FM6 track's
+ * SLOT shows the factory patch it equals unchanged (F n; the SLOT it had first), else OWN; nothing reloads over it
+ * (fm6_poll) */
+static void fm6_adopt(uint32_t tr)
+{
+    track_t *t = &trk[tr % NTRK];
+    int32_t s = t->p[P_E7];
+    tr %= NTRK;
+    fm6_own_ok &= (uint8_t)~(1u << tr);
+    if (t->eng_req == ENGI_FM6) {
+        uint8_t v[FP_SIZE + 1u];
+        uint32_t k, f = s >= 0 && s < (int32_t)FM6_NFACTORY ? (uint32_t)s : 0u;
+        for (k = 0; k < FM6_NFACTORY; k++) {
+            fm6_unpack(FM6_FACTORY[(f + k) % FM6_NFACTORY], v);
+            if (!memcmp(v, fm6_patch[tr], FP_SIZE))
+                break;
+        }
+        s = k < FM6_NFACTORY ? (int32_t)((f + k) % FM6_NFACTORY) : (int32_t)FM6_OWN;
+        t->p[P_E7] = (int16_t)s;
+    }
+    fm6_slot[tr] = (uint8_t)s;
+}
+
+/* a factory sound load put a SLOT value in (a preset, an engine change): its patch (OWN: the patch stays) */
 static void fm6_track_loaded(const track_t *t)
 {
     uint32_t tr = (uint32_t)(t - trk);
-    if (tr < NTRK && t->eng_req == ENGI_FM6)
-        fm6_load_slot(tr, (uint32_t)clamp(t->p[P_E7], 0, FM6_NSLOT - 1));
+    if (tr < NTRK && t->eng_req == ENGI_FM6) {
+        fm6_own_ok &= (uint8_t)~(1u << tr);
+        if (t->p[P_E7] >= 0 && t->p[P_E7] < (int32_t)FM6_NFACTORY)
+            fm6_load_slot(tr, (uint32_t)t->p[P_E7]);
+        else
+            fm6_adopt(tr);
+    }
 }
 
 /* power-on: every track the init voice (what a project stores for the tracks that never played FM6) */
@@ -191,13 +212,34 @@ static void fm6_init(void)
     }
 }
 
-/* main loop: PTCH turned (a knob, the editor, MIDI, motion) -> that patch */
+/* main loop: SLOT turned (a knob, the editor, MIDI, motion) -> that factory patch; from OWN the own patch is kept
+ * aside (fm6_own), and turning back to OWN brings it back */
 static void fm6_poll(void)
 {
-    uint32_t tr;
-    for (tr = 0; tr < NTRK; tr++)
-        if (trk[tr].eng_req == ENGI_FM6 && trk[tr].p[P_E7] != fm6_slot[tr])
-            fm6_load_slot(tr, (uint32_t)clamp(trk[tr].p[P_E7], 0, FM6_NSLOT - 1));
+    uint32_t tr, bit;
+    for (tr = 0; tr < NTRK; tr++) {
+        int32_t s = trk[tr].p[P_E7];
+        if (trk[tr].eng_req != ENGI_FM6 || s == fm6_slot[tr])
+            continue;
+        bit = 1u << tr;
+        if (s < 0 || s >= (int32_t)FM6_NFACTORY) {           /* OWN */
+            if (fm6_own_ok & bit) {
+                uint8_t v[FP_SIZE + 1u];
+                fm6_unpack(fm6_own[tr], v);
+                fm6_set_patch(tr, v);
+            }
+            fm6_own_ok &= (uint8_t)~bit;
+            fm6_slot[tr] = FM6_OWN;
+            if (s != FM6_OWN)
+                trk[tr].p[P_E7] = FM6_OWN;
+            continue;
+        }
+        if (fm6_slot[tr] == FM6_OWN && !(fm6_own_ok & bit)) {
+            fm6_pack(fm6_patch[tr], fm6_own[tr]);
+            fm6_own_ok |= (uint8_t)bit;
+        }
+        fm6_load_slot(tr, (uint32_t)s);
+    }
 }
 
 /* -------------------------------------------------------------- macros --- */
@@ -326,13 +368,10 @@ static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t len, const
 static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
-static const char *const N_FM6_PATCH[] = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "B1", "B2", "B3", "B4",
-                                          "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", "B13", "B14", "B15",
-                                          "B16", "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24", "B25",
-                                          "B26", "B27", 0};
-_Static_assert(NELEM(N_FM6_PATCH) == FM6_NSLOT + 1u, "a PTCH name per slot");
+static const char *const N_FM6_PATCH[] = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "OWN", 0};
+_Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + 2u, "a SLOT name per value");
 
-/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, PTCH}: the factory patch F1..F8 as it is, DTUN on the pad */
+/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
 static const preset_t FM6_PRESETS[] = {
     {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 45, 25, 35), PAT(6)},
     {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70), PAT(7)},
@@ -355,7 +394,7 @@ static const engine_t ENG_FM6 = {
         {"MEG", F_BIPCT, -64, 63, 0, 0, 0},
         {"VMOD", F_INT, -7, 7, 0, 0, 0},
         {"DTUN", F_PCT, 0, 127, 0, 0, 0},
-        {"PTCH", F_INT, 0, FM6_NSLOT - 1, 0, N_FM6_PATCH, 0},
+        {"SLOT", F_INT, 0, FM6_OWN, 0, N_FM6_PATCH, 0},
     },
     .presets = FM6_PRESETS,
     .npresets = NELEM(FM6_PRESETS),

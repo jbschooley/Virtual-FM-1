@@ -8,6 +8,15 @@ for the code. New work goes under the next version at the top.
 
 ### Added
 
+- **Felucca 1.0.3** is built in (it was 1.0.2): its FM6 patch bank is gone
+  (each track has its own patch, SLOT is F1-F8 or OWN, and user presets keep
+  their FM6 patch), its LARGE screen layout and layer lock on the Device tab,
+  and ROUT CH1-4 listening to channels 1-4 only. An FM-1 still on 1.0 to 1.0.2
+  is synced too: Send never empties its bank (nor sends it what it cannot
+  take), and Pull hands its bank to the Felucca built in, which turns it into
+  the user presets' patches as the update does (per Felucca's protocol notes;
+  not tried with an FM-1 on 1.0.2).
+
 - **SLOOP 2.3** (isod89's groovebox firmware, built on Felucca) as a firmware
   choice, built from its source: its nine engines on three parts and a drum
   track, played and edited in the Felucca editor and as host parameters for

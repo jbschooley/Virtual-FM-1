@@ -99,6 +99,25 @@ static uint32_t arp_led(void)
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
 }
 
+/* Discussion #81: the keys of the notes MIDI IN (USB and TRS, routed by ROUT) holds on track t, bit k = key k: as
+ * play_leds, where the keys play that note at the octave now, the lowest key that gives it; a note no key plays is
+ * not shown. Read from midi_control.c's own state (midi_note_held: the notes each channel holds for the track, the
+ * pedal's too, and the tones of MIDI chords): no state here; nothing to do while MIDI holds none of the track's */
+static uint32_t midi_leds(const track_t *t)
+{
+    uint32_t k, note, m = 0, seen[4] = {0, 0, 0, 0};
+    if (!midi_owners[trk_index(t)])
+        return 0;
+    for (k = 0; k < 27u; k++) {
+        note = kb_map(t, k);
+        if (note > 127u || ((seen[note >> 5] >> (note & 31u)) & 1u))
+            continue;                                   /* (silent, or a lower key gives it) */
+        seen[note >> 5] |= 1u << (note & 31u);
+        m |= (uint32_t)midi_note_held(t, note) << k;
+    }
+    return m;
+}
+
 /* the keys of the notes the selected track's sequencer and ARP sound now (#38), bit k = key k: where the keys
  * play that note (kb_map: the octave, TRN, QNT, an engine's own map), the lowest key that gives it (QNT SNAP
  * rounds the keys above down onto it); a note no key plays is not shown. A snapshot of the ISR's seq_notes /
@@ -121,7 +140,7 @@ static uint32_t play_leds(void)
             }
         m |= hit << k;
     }
-    return m;
+    return m | midi_leds(t);
 }
 
 /* 1: the keys show a map of their own (NAME, a layer's map: SCL's scale, FX; the DRUM grid, SLICES), lit or
@@ -136,7 +155,7 @@ static int keys_own(void)
 }
 
 /* the key LEDs, bit k = key k: NAME's keys, the layer's map, the DRUM grid, else the keys held and the notes
- * the selected track's sequencer and ARP play (and on SLICES the keys of the selected slice) */
+ * the selected track's sequencer, ARP and MIDI IN play (and on SLICES the keys of the selected slice) */
 static uint32_t key_leds(void)
 {
     uint32_t c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
@@ -661,31 +680,34 @@ static int layer_set_open(void);
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct);
 static int layer_allowed(void);
 static uint32_t ly_bit(uint32_t l);
+static void layer_lock_input(uint32_t pressed);
 
-/* a page button let go (they act on release; a layer's own button: layer_gesture) */
-static void page_tap(uint32_t b)
+/* a page button let go (they act on release; a layer's own button: layer_gesture). 1: it acted (EDIT on STEP, USER,
+ * PROJECT) instead of opening a page */
+static int page_tap(uint32_t b)
 {
     uint32_t f;
     if (b == B_GLO) {
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
-        return;
+        return 0;
     }
     if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* STEP: EDIT clears the step */
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+        if (chain_busy()) { ui_message("STOP TO EDIT"); return 1; }
         step_clear(&TSEL->step[ui.cursor]);
         cursor_set(ui.cursor + 1);
         ui_message("STEP CLEARED");
-        return;
+        return 1;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_SLOTS)) {
         name_rename();                                  /* SAVE > USER / PROJECT: EDIT renames the slot */
-        return;
+        return 1;
     }
     for (f = FAM_HOME + 1u; f < FAM_COUNT; f++)
         if (FAM_BTN[f] == b) {
             open_family(f);
-            return;
+            return 0;
         }
+    return 0;
 }
 
 /* messages of things that happened elsewhere (a load, the editor, MIDI in): after this frame's own */
@@ -724,6 +746,9 @@ static void ui_input(void)
 #endif
     perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
     fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
+    if (!ui.menu)
+        usb_serial_apply();                             /* (MENU > USB SERIAL: when the menu has closed) */
+    layer_lock_input(pressed);                          /* (#83: a button closes a locked layer) */
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_arm(pressed, now);
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */

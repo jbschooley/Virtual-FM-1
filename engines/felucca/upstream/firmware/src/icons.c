@@ -153,7 +153,7 @@ static const icon_map_t ICON_MAP[] = {
     {"BUZZ", ICON_PULSE}, {"BRTH", ICON_NOISE}, {"Q", ICON_RESO}, {"RAND", ICON_PROB},
     {"FREQ", ICON_CUTOFF}, {"TRK", ICON_KEYTRACK}, {"DRFT", ICON_SWEEP},   /* NOISE (COLR, DENS, CRSH: above) */
     {"MLVL", ICON_MOD}, {"MRAT", ICON_RATIO}, {"MEG", ICON_DECAY}, {"VMOD", ICON_ACCENT}, {"DTUN", ICON_DETUNE},
-    {"PTCH", ICON_LOAD},                                                    /* FM6 (ALG, FB: above) */
+    {"SLOT", ICON_LOAD},                                                    /* FM6 (ALG, FB: above) */
     /* fixed columns drawn by ui_draw.c (STEP page, preset browser, SYSTEM) */
     {"NOTE", ICON_PITCH}, {"STEP", ICON_STEPS}, {"FLAG", ICON_ACCENT}, {"ACC", ICON_ACCENT}, {"LANE", ICON_DRUM}, {"HIT", ICON_GATE}, {"SLD", ICON_SLIDE}, {"USB", ICON_MIDI},
     {"TRACK", ICON_MIX},                  /* TRACKS page (LEVEL, LEN, PAN: above) */

@@ -170,7 +170,7 @@ int main() {
     CHECK(FeluccaEngine::copiesInUse(kSloop) == 0 && FeluccaEngine::instances(kSloop) == 0, "every copy is given back");
     {   // a Felucca and a Sloop side by side: each its own
         FeluccaEngine fel, slp{kSloop};
-        CHECK(fel.version() == "v1.0.2" && slp.version() == "SLOOP 2.3" && fel.engines() == 14 && slp.engines() == 9,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.3" && fel.engines() == 14 && slp.engines() == 9,
               "a Felucca instance and a Sloop instance at once, each its own firmware");
     }
 

@@ -72,7 +72,7 @@ enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
     G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,
     G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,
-    G_MIDI, G_SYNC, G_ROUTE, G_INFO,   /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4), 1 SEL (seq.c) */
+    G_MIDI, G_SYNC, G_ROUTE, G_INFO,   /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4, 5..16 ignored), 1 SEL (seq.c) */
     G_SLOT, G_NAME, G_LOAD, G_SAVE,
     G_ENGSEL, G_ENGGO,          /* no page: the editor switches the engine with a SET of G_ENGSEL; G_ENGGO is
                                  * unused (ids are fixed by the formats and the protocol) */

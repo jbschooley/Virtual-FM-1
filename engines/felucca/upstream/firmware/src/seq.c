@@ -5,9 +5,9 @@
  * ends in trk_note_on / trk_note_off: engines never see where a note came from.
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
  * SWING / GATE (polymeter). The keys play the selected track; MIDI IN by GLO > SYSTEM ROUT (G_ROUTE):
- * CH1-4 (0) channels 1..4 play parts 1..4, any other channel the selected track; SEL (1) every channel
- * the selected track. Their CC1 (mod wheel), CC11 (expression) and channel aftertouch go to the same
- * track's modulation matrix (mod.c; the selected track: the one selected then).
+ * CH1-4 (0) channels 1..4 play parts 1..4, channels 5..16 are ignored (midi_control.c midi_event); SEL (1)
+ * every channel the selected track. Their CC1 (mod wheel), CC11 (expression) and channel aftertouch go to
+ * the same track's modulation matrix (mod.c; the selected track: the one selected then).
  * A note into an armed track (song.rec) while
  * the transport runs is recorded into its pattern, quantised to its (swung) steps, with its
  * held length as TIE steps (rec_note, rec_hold, rec_release). With the ARP on, the notes the arp
@@ -446,18 +446,21 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
+    uint32_t lay, fx;
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
     if (!ch)
         return;
+    lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
+    fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
             continue;
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
             kb_trk[k] = song.sel;
-            if (fm1_in.buttons & kb_mask) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
-                kb_note[k] = KB_SILENT;           /* with FX an effect (perform.c) */
+            if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
+                kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
-                if (fm1_in.buttons & perf_mask)
+                if (fx)
                     perf_press(perf_key(k), 1);
                 continue;
             }
@@ -648,7 +651,9 @@ static void seq_tick(track_t *t, uint32_t n)
     }
 }
 
-/* MIDI in: the track a channel plays (0..15): G_ROUTE CH1-4 (0) channels 1..4 their parts, SEL (1) none */
+/* MIDI in: the track a channel plays (0..15): G_ROUTE CH1-4 (0) channels 1..4 their parts (5..16 never get
+ * here: midi_event drops them), SEL (1) every channel the selected track */
+static uint8_t midi_route;                 /* the G_ROUTE events_block last saw (a change to CH1-4: midi_route_ch14) */
 static track_t *midi_track(uint32_t ch) { return ch < NPART && !song.g[G_ROUTE] ? &trk[ch] : TSEL; }
 
 #include "midi_control.c"
@@ -680,6 +685,11 @@ static void events_block(uint32_t n)
             seq_start();
         }
         transport_req = 0;
+    }
+    if (midi_route != (uint8_t)song.g[G_ROUTE]) {     /* ROUT changed: CH1-4 lets go of channels 5..16 */
+        midi_route = (uint8_t)song.g[G_ROUTE];
+        if (!midi_route)
+            midi_route_ch14();
     }
     pr = panic_req;
     panic_req = 0;

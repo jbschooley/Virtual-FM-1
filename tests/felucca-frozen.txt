@@ -21,7 +21,7 @@ engine FM6 E4	MRAT -16..16 def 0 fmt 0
 engine FM6 E5	MEG -64..63 def 0 fmt 2
 engine FM6 E6	VMOD -7..7 def 0 fmt 0
 engine FM6 E7	DTUN 0..127 def 0 fmt 1
-engine FM6 E8	PTCH 0..34 def 0 fmt 0
+engine FM6 E8	SLOT 0..8 def 0 fmt 0
 engine GRAIN E1	SRC 0..7 def 0 fmt 8 PIANO PIANO FLUTE SAX PIANO USR1 USR2 USR3
 engine GRAIN E2	POS 0..127 def 32 fmt 1
 engine GRAIN E3	SIZE 0..127 def 80 fmt 1

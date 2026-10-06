@@ -1098,7 +1098,7 @@ static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Di
 }
 
 // what a full Pull or Send moves, said in the firmware's terms
-static juce::String everything(const felucca::Dialect& d) { return d.fm6 ? "music, projects, user presets and FM6 bank" : "working project, projects A-D and user presets"; }
+static juce::String everything(const felucca::Dialect& d) { return d.fm6 ? "music, projects and user presets (with their FM6 patches)" : "working project, projects A-D and user presets"; }
 
 bool FM1Processor::feluccaPull() {
     auto f = felucca();
@@ -1136,6 +1136,10 @@ bool FM1Processor::feluccaSend() {
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
         if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
+        // Felucca: never an empty FM6 bank (8: 1.0.3's is always empty; sent to 1.0.2 it would
+        // empty the synth's bank), and no 9 for a synth that does not list it (before 1.0.3)
+        if (auto it = ours->find(8); it != ours->end() && it->second.empty()) ours->erase(it);
+        if (!theirs->count(9)) ours->erase(9);
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
         return Fm1Session::JobResult{true, "Sent the " + everything(d) + " to the FM-1. Its backup from before: " + kept};
@@ -1377,7 +1381,7 @@ void FM1Processor::setFirmware(const juce::String& id) {
                 next.reset();
                 status(juce::String(choices[size_t(index)].name) + " could not start in this instance; it is silent.");   // (not expected: there is no limit)
             } else {
-                {   // the device's projects, user presets (FM6 bank) and settings, from the library
+                {   // the device's projects, user presets (and their FM6 patches) and settings, from the library
                     juce::String msg;
                     {
                         std::lock_guard<std::mutex> g(felDeviceLock_);

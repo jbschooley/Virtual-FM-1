@@ -191,12 +191,12 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.2"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.3"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
         CHECK(at(96).known && at(96).support == Support::Current && at(96).text.find("not tried") != std::string::npos, "FM-1_096: current, said to be untried");
         CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
-              && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0.2 known");
+              && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0.3 known");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
         auto n = at(97);
         CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.96") != std::string::npos,
@@ -223,14 +223,17 @@ static int checks() {
                   "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
-            const auto v103 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.3"});
-            CHECK(v103.newer && v103.text.find("Felucca 1.0.3, newer than the plugin's 1.0.2") != std::string::npos,
-                  "a later 1.0.x (FM-1_910, as 1.0) is told apart by its INFO: " + v103.text);
+            const auto v104 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.4"});
+            CHECK(v104.newer && v104.text.find("Felucca 1.0.4, newer than the plugin's 1.0.3") != std::string::npos,
+                  "a later 1.0.x (FM-1_910, as 1.0) is told apart by its INFO: " + v104.text);
             const auto v10 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"});
-            CHECK(!v10.newer && v10.support == Support::Tested && v10.text.find("Felucca 1.0, older than the plugin's 1.0.2") != std::string::npos,
+            CHECK(!v10.newer && v10.support == Support::Tested && v10.text.find("Felucca 1.0, older than the plugin's 1.0.3") != std::string::npos,
                   "and 1.0 is an earlier one: " + v10.text);
             const auto v102 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.2"});
-            CHECK(!v102.newer && v102.support == Support::Current && v102.text == "FM-1_910", "1.0.2 is the one built in");
+            CHECK(!v102.newer && v102.support == Support::Older && v102.text.find("older than the plugin's 1.0.3") != std::string::npos
+                  && v102.text.find("FM6 patch bank") != std::string::npos, "1.0.2: older, its bank its own: " + v102.text);
+            const auto v103 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.3"});
+            CHECK(!v103.newer && v103.support == Support::Current && v103.text == "FM-1_910", "1.0.3 is the one built in");
         }
         CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
               "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
@@ -944,7 +947,7 @@ static int checks() {
             juce::MemoryBlock mb;
             made.getStateInformation(mb);
             auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
-            CHECK(tree.getProperty("firmwareVersion").toString() == "1.0.2" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.0.2",
+            CHECK(tree.getProperty("firmwareVersion").toString() == "1.0.3" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.0.3",
                   "a project says the release it was made for");
             tree.setProperty("firmwareVersion", "0.9", nullptr);
             juce::MemoryOutputStream os;
@@ -993,7 +996,7 @@ static int checks() {
                     juce::String perr;
                     if (!felucca::backup(ve, {}, perr)) ++refused;
                     auto o = felucca::objectsOf(*e);
-                    if (o.size() == 9 && o[3] == music && o[0].size() == 3584) ++direct;
+                    if (o.size() == 10 && o[3] == music && o[0].size() == 3584) ++direct;   // (0..9: 1.0.3)
                 }
                 auto o = felucca::objectsOf(*e);
                 auto f2 = std::make_shared<FeluccaEngine>();
@@ -1045,7 +1048,7 @@ static int checks() {
             {   // INFO's live-sync capabilities (53 01 caps, Felucca 1.0.2 on): the one built in has both
                 auto e = std::make_shared<FeluccaEngine>();
                 auto info = e->ask(felucca::frame(felucca::kInfo));
-                CHECK(info && felucca::liveCaps(felucca::argsOf(*info)) == 3, "the Felucca built in (1.0.2) has both live-sync capabilities");
+                CHECK(info && felucca::liveCaps(felucca::argsOf(*info)) == 3, "the Felucca built in (1.0.3) has both live-sync capabilities");
                 // as 1.0.2 sends it (EDITOR_PROTOCOL.md): names with an S (0x53) in them, then the blocks
                 std::vector<uint8_t> a;
                 for (char c : std::string("FELUCCA v1.0.2")) a.push_back(uint8_t(c));

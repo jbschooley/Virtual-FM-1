@@ -18,9 +18,14 @@
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
 
 /* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
- * user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
- * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_COUNT };
+ * user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the user
+ * presets' FM6 patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000.
+ * Those two sectors held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired): both objects use the same pair,
+ * told apart by the commit record's type. The bank is only read, once, to move its patches into the user presets
+ * (up_fm6.c upf_boot); the first write of the new object goes to the sector that does not hold the bank's newest
+ * copy (st_save_to), so a power cut never loses both. */
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
+       OBJ_COUNT };
 
 typedef struct {
     uint32_t magic;
@@ -53,7 +58,7 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
 {
     if (obj == OBJ_SETTINGS)
         return 0xFC000u + copy * ST_SECTOR;
-    if (obj == OBJ_FM6BANK)
+    if (obj == OBJ_FM6BANK || obj == OBJ_UPFM6)          /* (the same pair: see the flash map) */
         return copy ? 0xFE000u : 0x9F000u;
     if (obj >= OBJ_UPRESET0)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;
@@ -118,16 +123,19 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     return (int)h.len;
 }
 
-static int st_save(uint32_t obj, const void *src, uint32_t len)
+/* save into copy `to` (0 A, 1 B; -1: the one that is not the current copy, as st_save) */
+static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
 {
     uint32_t seq, base, off;
     int cur, rc;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX)
+    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX || to > 1)
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
-    base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
+    if (to < 0)
+        to = cur == 0 ? 1 : 0;                        /* write the other copy */
+    base = st_sector(obj, (uint32_t)to);
     for (off = 0; off < len; off++)
         st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
     if ((rc = st_erase(base)) != 0)
@@ -139,7 +147,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     }
     h.magic = ST_MAGIC;
     h.type = (uint16_t)obj;
-    h.slot = (uint16_t)(cur == 0 ? 1 : 0);
+    h.slot = (uint16_t)to;
     h.seq = seq + 1u;
     h.len = len;
     h.crc = st_crc32(st_buf, len);
@@ -149,9 +157,11 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
         return rc;
     {   /* read back: a write-protected or failing part must not report SAVED */
         st_hdr_t chk;
-        uint32_t c = cur == 0 ? 1u : 0u;
+        uint32_t c = (uint32_t)to;
         if (st_head(obj, c, &chk) || memcmp(&chk, &h, sizeof h) || st_body(obj, c, &chk))
             return -7;
     }
     return 0;
 }
+
+static int st_save(uint32_t obj, const void *src, uint32_t len) { return st_save_to(obj, src, len, -1); }

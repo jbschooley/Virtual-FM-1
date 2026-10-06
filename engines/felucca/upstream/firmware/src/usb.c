@@ -9,7 +9,9 @@
  * the main loop to enter UBOOT. VID 0x1209 / PID 0x0001 is the pid.codes
  * TEST id: fine for the bench, must be replaced before any release.
  * FELUCCA_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
- * EP3 bulk data) for the console in console.c.
+ * EP3 bulk data) for the console in console.c; FELUCCA_USB_LAYOUT picks how
+ * the composite presents itself, usb_cdc_switch / FELUCCA_CDC_DEFAULT=0 leave
+ * the console out (descriptors, below).
  * FELUCCA_UAC=1 adds a USB audio input (UAC1, class compliant): the master
  * output as 16-bit stereo at 44.1 kHz on an isochronous asynchronous IN
  * endpoint (EP4), so a computer can record the FM-1 over the cable. audio.c
@@ -156,69 +158,129 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 }
 
 /* ------------------------------------------------------- descriptors --- */
-/* interfaces: 0 audio control, 1 MIDI streaming, 2 audio streaming (FELUCCA_UAC), then CDC's two.
- * bcdDevice: 3.00 MIDI, +0.01 CDC, +0.10 the audio input (hosts cache descriptors per version) */
-#define CDC_IF (2 + FELUCCA_UAC)
-#define UAC_AS_IF 2u
-#define CFG_LEN (101 + 74 * FELUCCA_CDC + 74 * FELUCCA_UAC)
-#define USB_NIF (2 + FELUCCA_UAC + 2 * FELUCCA_CDC)
-#if FELUCCA_CDC
-static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00,
-                                     0x01 + 0x10 * FELUCCA_UAC, 0x03, 1, 2, 0, 1};   /* misc/IAD */
-static const uint8_t CFG_DESC[] = {
-    9, 2, CFG_LEN & 0xFF, CFG_LEN >> 8, USB_NIF, 1, 0, 0x80, 50,
-    8, 0x0B, 0, 2 + FELUCCA_UAC, 1, 1, 0, 0,            /* IAD: audio + MIDI (IF 0-1, 0-2) */
-#else
+/* Two functions: audio + MIDI (0 audio control, 1 MIDI streaming, 2 audio streaming with FELUCCA_UAC)
+ * and, with FELUCCA_CDC, the CDC-ACM console (communication + data). The endpoints never move:
+ * EP1 MIDI, EP2 CDC notify, EP3 CDC data, EP4 audio.
+ * bcdDevice: 3.00 MIDI, +0.10 the audio input, +0.01 CDC (+0.02 per FELUCCA_USB_LAYOUT step, so a host
+ * never reuses what it learnt about another layout).
+ * FELUCCA_USB_LAYOUT, how the CDC build presents itself (#67: macOS 13-15 attach Apple's CDC composite
+ * driver to a misc / IAD device that has a CDC function, and their kernel audio driver then never
+ * takes the audio interfaces; macOS 26 / 27 (usbaudiod, matched per interface) and iOS / iPadOS work):
+ *   0  1.0: device class EF 02 01 (misc / IAD), audio + MIDI IF 0.., CDC last         (the default)
+ *   1  CDC first: CDC IF 0-1, then audio + MIDI, both with IADs, EF 02 01
+ *   2  as 0 with device class 00 00 01: outside AppleUSBCDC's device personalities
+ *      (02 * *, EF 02 01, 00 00 00); the IADs stay for Windows / Linux (test build)
+ *   3  as 0 with device class 00 00 00 (test build: does AppleUSBCDC's "Vendor" personality take it?)
+ * usb_cdc_on (FELUCCA_CDC_DEFAULT at boot; usb_cdc_switch re-enumerates): 0 presents the device without
+ * the console, byte for byte as a FELUCCA_CDC=0 build: device class 0, audio + MIDI, no IAD. */
+#ifndef FELUCCA_USB_LAYOUT
+#define FELUCCA_USB_LAYOUT 0
+#endif
+#ifndef FELUCCA_CDC_DEFAULT
+#define FELUCCA_CDC_DEFAULT 1
+#endif
 #ifndef FELUCCA_USB_PID
 #define FELUCCA_USB_PID 0x0001   /* the update loader is 0x0002 */
 #endif
-static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
-                                     FELUCCA_USB_PID >> 8, 0x00 + 0x10 * FELUCCA_UAC, 0x03,
-                                     1, 2, 0, 1};
-static const uint8_t CFG_DESC[] = {
-    9, 2, CFG_LEN & 0xFF, CFG_LEN >> 8, USB_NIF, 1, 0, 0x80, 50,
+#if FELUCCA_USB_LAYOUT < 0 || FELUCCA_USB_LAYOUT > 3
+#error "FELUCCA_USB_LAYOUT is 0..3"
 #endif
-    9, 4, 0, 0, 0, 1, 1, 0, 0,
+
+#define D_CFG(len, nif) 9, 2, (len) & 0xFF, (len) >> 8, (nif), 1, 0, 0x80, 50
+#define D_IAD(first, n, cls, sub, proto) 8, 0x0B, (first), (n), (cls), (sub), (proto), 0
 #if FELUCCA_UAC
-    10, 0x24, 1, 0x00, 0x01, 31, 0, 2, 1, UAC_AS_IF,    /* AC header 1.00: MIDI + audio streaming */
-    12, 0x24, 2, 1, 0x03, 0x06, 0, 2, 0x03, 0x00, 0, 0, /* input terminal 1: line, 2 ch (L R) */
-    9, 0x24, 3, 2, 0x01, 0x01, 0, 1, 0,                 /* output terminal 2: USB streaming, from 1 */
+#define D_AC(a)                                                                                      \
+    9, 4, (a), 0, 0, 1, 1, 0, 0,                                                                     \
+    10, 0x24, 1, 0x00, 0x01, 31, 0, 2, (a) + 1, (a) + 2,   /* AC header 1.00: MIDI + audio streaming */ \
+    12, 0x24, 2, 1, 0x03, 0x06, 0, 2, 0x03, 0x00, 0, 0,    /* input terminal 1: line, 2 ch (L R) */      \
+    9, 0x24, 3, 2, 0x01, 0x01, 0, 1, 0,                    /* output terminal 2: USB streaming, from 1 */
+#define D_AS(s)                                                                                      \
+    9, 4, (s), 0, 0, 1, 2, 0, 0,                           /* audio streaming, alt 0: no bandwidth */    \
+    9, 4, (s), 1, 1, 1, 2, 0, 0,                           /* alt 1: the stream */                      \
+    7, 0x24, 1, 2, 1, 0x01, 0x00,                          /* AS general: terminal 2, delay 1, PCM */   \
+    11, 0x24, 2, 1, 2, 2, 16, 1, UAC_RATE & 0xFF, (UAC_RATE >> 8) & 0xFF, UAC_RATE >> 16,           \
+                                                           /* type I: 2 ch, 16 bit, one rate */         \
+    9, 5, 0x84, 0x05, UAC_MAXP & 0xFF, UAC_MAXP >> 8, 1, 0, 0,   /* EP4 IN isochronous async, 1 ms */   \
+    7, 0x25, 1, 0x01, 0, 0, 0,                             /* CS endpoint: sampling frequency control */
 #else
-    9, 0x24, 1, 0x00, 0x01, 9, 0, 1, 1,
+#define D_AC(a) 9, 4, (a), 0, 0, 1, 1, 0, 0, 9, 0x24, 1, 0x00, 0x01, 9, 0, 1, (a) + 1,
+#define D_AS(s)
 #endif
-    9, 4, 1, 0, 2, 1, 3, 0, 0,
-    7, 0x24, 1, 0x00, 0x01, 0x41, 0x00,
-    6, 0x24, 2, 1, 1, 0,
-    6, 0x24, 2, 2, 2, 0,
-    9, 0x24, 3, 1, 3, 1, 2, 1, 0,
-    9, 0x24, 3, 2, 4, 1, 1, 1, 0,
-    9, 5, 0x01, 2, 64, 0, 0, 0, 0,
-    5, 0x25, 1, 1, 1,
-    9, 5, 0x81, 2, 64, 0, 0, 0, 0,
+#define D_MIDI(m)                                                                                    \
+    9, 4, (m), 0, 2, 1, 3, 0, 0,                                                                     \
+    7, 0x24, 1, 0x00, 0x01, 0x41, 0x00,                                                              \
+    6, 0x24, 2, 1, 1, 0,                                                                             \
+    6, 0x24, 2, 2, 2, 0,                                                                             \
+    9, 0x24, 3, 1, 3, 1, 2, 1, 0,                                                                    \
+    9, 0x24, 3, 2, 4, 1, 1, 1, 0,                                                                    \
+    9, 5, 0x01, 2, 64, 0, 0, 0, 0,                                                                   \
+    5, 0x25, 1, 1, 1,                                                                                \
+    9, 5, 0x81, 2, 64, 0, 0, 0, 0,                                                                   \
     5, 0x25, 1, 1, 3,
-#if FELUCCA_UAC
-    9, 4, UAC_AS_IF, 0, 0, 1, 2, 0, 0,                  /* IF2 audio streaming, alt 0: no bandwidth */
-    9, 4, UAC_AS_IF, 1, 1, 1, 2, 0, 0,                  /* alt 1: the stream */
-    7, 0x24, 1, 2, 1, 0x01, 0x00,                       /* AS general: terminal 2, delay 1, PCM */
-    11, 0x24, 2, 1, 2, 2, 16, 1, UAC_RATE & 0xFF, (UAC_RATE >> 8) & 0xFF, UAC_RATE >> 16,
-                                                        /* type I: 2 ch, 16 bit, one rate */
-    9, 5, 0x84, 0x05, UAC_MAXP & 0xFF, UAC_MAXP >> 8, 1, 0, 0,   /* EP4 IN isochronous async, 1 ms */
-    7, 0x25, 1, 0x01, 0, 0, 0,                          /* CS endpoint: sampling frequency control */
-#endif
+#define D_AUDIO(a) D_AC(a) D_MIDI((a) + 1) D_AS((a) + 2)   /* audio + MIDI from interface a */
+#define AUD_NIF (2 + FELUCCA_UAC)
+#define AUD_LEN (92 + 74 * FELUCCA_UAC)
+#define D_CDC(c)                                                                                     \
+    D_IAD((c), 2, 2, 2, 1),                                /* IAD: CDC ACM */                           \
+    9, 4, (c), 0, 1, 2, 2, 1, 0,                           /* communication */                          \
+    5, 0x24, 0x00, 0x10, 0x01,                             /* header 1.10 */                            \
+    5, 0x24, 0x01, 0x00, (c) + 1,                          /* call management: the data IF */           \
+    4, 0x24, 0x02, 0x02,                                   /* ACM: line coding + state */               \
+    5, 0x24, 0x06, (c), (c) + 1,                           /* union */                                  \
+    7, 5, 0x82, 3, 8, 0, 16,                               /* EP2 IN interrupt (never sent) */          \
+    9, 4, (c) + 1, 0, 2, 0x0A, 0, 0, 0,                    /* data */                                   \
+    7, 5, 0x03, 2, 64, 0, 0,                               /* EP3 OUT bulk */                           \
+    7, 5, 0x83, 2, 64, 0, 0,                               /* EP3 IN bulk */
+#define CDC_LEN 66                                         /* with its IAD */
+#define BCD_LO(cdc) (0x10 * FELUCCA_UAC + ((cdc) ? 0x01 + 2 * FELUCCA_USB_LAYOUT : 0))
+#define D_DEV(bcdusb, cls, sub, proto, cdc)                                                          \
+    18, 1, (bcdusb) & 0xFF, (bcdusb) >> 8, (cls), (sub), (proto), 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF, \
+    FELUCCA_USB_PID >> 8, BCD_LO(cdc), 0x03, 1, 2, 0, 1
+
+/* without the console (FELUCCA_CDC=0, or usb_cdc_on = 0): class 0, no IAD, as a plain USB-MIDI / audio device */
+#define CFG_LEN_PLAIN (9 + AUD_LEN)
+static const uint8_t DEV_DESC_PLAIN[18] = {D_DEV(0x0110, 0, 0, 0, 0)};
+static const uint8_t CFG_DESC_PLAIN[] = {D_CFG(CFG_LEN_PLAIN, AUD_NIF), D_AUDIO(0)};
+typedef char cfg_plain_len_ok[sizeof CFG_DESC_PLAIN == CFG_LEN_PLAIN ? 1 : -1];
 #if FELUCCA_CDC
-    8, 0x0B, CDC_IF, 2, 2, 2, 1, 0,                     /* IAD: CDC ACM (IF 2-3, 3-4) */
-    9, 4, CDC_IF, 0, 1, 2, 2, 1, 0,                     /* communication */
-    5, 0x24, 0x00, 0x10, 0x01,                          /* header 1.10 */
-    5, 0x24, 0x01, 0x00, CDC_IF + 1,                    /* call management: the data IF */
-    4, 0x24, 0x02, 0x02,                                /* ACM: line coding + state */
-    5, 0x24, 0x06, CDC_IF, CDC_IF + 1,                  /* union */
-    7, 5, 0x82, 3, 8, 0, 16,                            /* EP2 IN interrupt (never sent) */
-    9, 4, CDC_IF + 1, 0, 2, 0x0A, 0, 0, 0,              /* data */
-    7, 5, 0x03, 2, 64, 0, 0,                            /* EP3 OUT bulk */
-    7, 5, 0x83, 2, 64, 0, 0,                            /* EP3 IN bulk */
+#define CFG_LEN (9 + 8 + AUD_LEN + CDC_LEN)
+#define USB_NIF (AUD_NIF + 2)
+#if FELUCCA_USB_LAYOUT == 1
+#define AUD_IF_CDC 2u                                      /* the audio function's first interface */
+#define CDC_IF_CDC 0u
+#else
+#define AUD_IF_CDC 0u
+#define CDC_IF_CDC AUD_NIF
+#endif
+#if FELUCCA_USB_LAYOUT == 2
+static const uint8_t DEV_DESC[18] = {D_DEV(0x0200, 0x00, 0x00, 0x01, 1)};
+#elif FELUCCA_USB_LAYOUT == 3
+static const uint8_t DEV_DESC[18] = {D_DEV(0x0200, 0x00, 0x00, 0x00, 1)};
+#else
+static const uint8_t DEV_DESC[18] = {D_DEV(0x0200, 0xEF, 0x02, 0x01, 1)};   /* misc / IAD */
+#endif
+static const uint8_t CFG_DESC[] = {
+    D_CFG(CFG_LEN, USB_NIF),
+#if FELUCCA_USB_LAYOUT == 1
+    D_CDC(CDC_IF_CDC)
+#endif
+    D_IAD(AUD_IF_CDC, AUD_NIF, 1, 1, 0),                  /* IAD: audio + MIDI */
+    D_AUDIO(AUD_IF_CDC)
+#if FELUCCA_USB_LAYOUT != 1
+    D_CDC(CDC_IF_CDC)
 #endif
 };
 typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
+static uint8_t usb_cdc_on = FELUCCA_CDC_DEFAULT != 0;      /* the console is presented (read by the TIMER5 ISR) */
+#define USB_CDC_ON usb_cdc_on
+#define AUD_IF (usb_cdc_on ? AUD_IF_CDC : 0u)
+#else
+#define DEV_DESC DEV_DESC_PLAIN
+#define CFG_DESC CFG_DESC_PLAIN
+#define USB_CDC_ON 0
+#define AUD_IF 0u
+#endif
+#define UAC_AS_IF (AUD_IF + 2u)
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
 static const uint8_t STR1[] = {42, 3, 'H', 0, 0xFC, 0, 'g', 0, 'e', 0, 'l', 0, 't', 0, 'o', 0, 'n', 0, ' ', 0, 'I', 0,
                                'n', 0, 's', 0, 't', 0, 'r', 0, 'u', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 's', 0};
@@ -233,12 +295,12 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
 {
     switch (wvalue >> 8) {
     case 1:
-        *d = DEV_DESC;
-        *l = sizeof DEV_DESC;
+        *d = USB_CDC_ON ? DEV_DESC : DEV_DESC_PLAIN;
+        *l = 18;
         return 1;
     case 2:
-        *d = CFG_DESC;
-        *l = sizeof CFG_DESC;
+        *d = USB_CDC_ON ? CFG_DESC : CFG_DESC_PLAIN;
+        *l = (uint16_t)(USB_CDC_ON ? sizeof CFG_DESC : sizeof CFG_DESC_PLAIN);
         return 1;
     case 3:
         switch (wvalue & 0xFFu) {
@@ -335,6 +397,8 @@ static void ep1_config(void)
     sie_wr(S_INTRRX1E, 0x02);
     fm1_usb_ep_enable(1u << 1);
 #if FELUCCA_CDC
+    if (!usb_cdc_on)
+        goto no_cdc;                                    /* presented without the console: EP2 / EP3 unused */
     fm1_usb_ep_txbuf(2, ep2tx);
     sie_wr(S_INDEX, 2);
     sie_wr(S_TXMAXP, 0xFF);
@@ -352,6 +416,7 @@ static void ep1_config(void)
     sie_wr(S_INTRRX1E, 0x0A);
     fm1_usb_ep_enable((1u << 2) | (1u << 3));
     cdc.rx_pend = 1;                                    /* look once: a packet may already wait */
+no_cdc:;
 #endif
 #if FELUCCA_UAC
     fm1_usb_ep4_txbuf(ep4tx);
@@ -515,11 +580,7 @@ static void ep0_service(void)
         e0_send(zero2, 1, wlength);
         return;
     case 0x0201: {                                      /* CLEAR_FEATURE(ENDPOINT_HALT): data toggle reset */
-#if FELUCCA_CDC
-        uint32_t ep = s[4] & 0x0Fu, last = 3u;
-#else
-        uint32_t ep = s[4] & 0x0Fu, last = 1u;
-#endif
+        uint32_t ep = s[4] & 0x0Fu, last = USB_CDC_ON ? 3u : 1u;
 #if FELUCCA_UAC
         if (wvalue == 0 && s[4] == 0x84u)
             goto ack;                                   /* isochronous: no halt, no toggle */
@@ -537,6 +598,8 @@ static void ep0_service(void)
     }
 #if FELUCCA_CDC
     case 0x2120:                                        /* SET_LINE_CODING: 7 bytes follow */
+        if (!usb_cdc_on)
+            goto stall;
         if (wlength) {
             cdc.e0_rx = 1;
             sie_wr(S_INDEX, 0);
@@ -545,12 +608,18 @@ static void ep0_service(void)
         }
         goto ack;
     case 0xA121:                                        /* GET_LINE_CODING */
+        if (!usb_cdc_on)
+            goto stall;
         e0_send(cdc.line, 7, wlength);
         return;
     case 0x2122:                                        /* SET_CONTROL_LINE_STATE */
+        if (!usb_cdc_on)
+            goto stall;
         cdc.dtr = s[2] & 1u;
         goto ack;
     case 0x2123:                                        /* SEND_BREAK */
+        if (!usb_cdc_on)
+            goto stall;
         goto ack;
 #endif
 #if FELUCCA_UAC
@@ -1059,7 +1128,7 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
     if (usb.config)
         ep1_tx();
 #if FELUCCA_CDC
-    if (usb.config) {
+    if (usb.config && usb_cdc_on) {
         if (ir & 0x08u)
             cdc.rx_pend = 1;
         if (cdc.rx_pend)                                /* not every poll: 3 SIE round trips each */
@@ -1108,3 +1177,24 @@ static void usb_detach(void)
     usb.up = 0;
     fm1_usb_off();
 }
+
+#if FELUCCA_CDC
+/* Present the device with or without the serial console (main loop; at boot before usb_start, or later
+ * from a setting). A change while attached drops off the bus; usb_retry attaches again within a second
+ * with the other descriptors, and the host enumerates the device afresh. */
+static __attribute__((unused)) void usb_cdc_switch(uint32_t on)
+{
+    on = on != 0;
+    if (on == usb_cdc_on)
+        return;
+    if (usb.up) {
+        usb.up = 0;                                     /* usb_poll (TIMER5) stops before the SIE goes */
+        RING_PUBLISH();
+        fm1_usb_off();
+    }
+    usb.config = 0;
+    cdc.dtr = 0;                                        /* the console stops writing */
+    cdc.rx_pend = 0;
+    usb_cdc_on = (uint8_t)on;
+}
+#endif

@@ -2,7 +2,7 @@
 
 `upstream/` is part of [Felucca](https://github.com/hugelton/Felucca), Leo
 Kuroshita's firmware for the M-VAVE FM-1 (Hügelton Instruments), at
-**v1.0.2** (commit `db70550344f36cb10657d1652f567b5932ac4b2b`, 2026-10-06).
+**v1.0.3** (commit `b22a24b64b09ccd9d7e7ddd245858b5d4283365c`, 2026-10-06).
 It is GPL-3.0-only; see `upstream/LICENSE` and `upstream/LICENSING.md`. The
 author has agreed to its use in Virtual FM-1 under the GPL
 ([issue #1](https://github.com/hugelton/Felucca/issues/1)).
@@ -14,7 +14,7 @@ Copied unchanged:
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: Felucca's
   regression (87 golden renders), run by ctest as `felucca_regress`. From 1.0 to 1.0.2
   three changed, all where SAMPLE's PERC set played (retired in 1.0.2: such a sound is
-  the DRUM engine's kit now)
+  the DRUM engine's kit now); none from 1.0.2 to 1.0.3
 - `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`,
   `gen_fm6_patches.py`, `gen_aa_font.py`, `gen_aa_icons.py`,
   `gen_aa_keycaps.py`, `gen_ui_palettes.py`, `aa_raster.py`: the generators

@@ -1,15 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca menu (HOME held): a list that scrolls (MENU_VIS rows shown, the selected one kept in the middle: no state),
- * grouped: the screen (COLOR, STYLE, ANIM, LEDS), the controls (HOLD: the layer threshold, KNOB ACCEL, FX LATCH,
- * BPM LOCK), the sound (SPEAKER EQ: FLAT LOWCUT BASS+, USB LEVEL), then CALIBRATION (the setup screen: HARDWARE
+ * grouped: the screen (COLOR, STYLE, LARGE, ANIM, LEDS), the controls (HOLD: the layer threshold, KNOB ACCEL, FX LATCH,
+ * BPM LOCK), the sound (SPEAKER EQ: FLAT LOWCUT BASS+, USB LEVEL), USB SERIAL, then CALIBRATION (the setup screen: HARDWARE
  * CALIBRATION) and ABOUT. No BACK row: OCT- is back.
  * The two-valued rows are bits of ui_prefs (MENU_FLAGS). PRESETS scrolls from ABOUT through all credits.
  * ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
-enum { MI_COLOR, MI_STYLE, MI_ANIM, MI_LEDS, MI_HOLD, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_LOWCUT, MI_USB, MI_PANEL, MI_ABOUT, MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "STYLE", "ANIM", "LEDS", "HOLD", "KNOB ACCEL", "FX LATCH", "BPM LOCK",
-                                              "SPEAKER EQ", "USB LEVEL", "CALIBRATION", "ABOUT"};
+enum { MI_COLOR, MI_STYLE, MI_LARGE, MI_ANIM, MI_LEDS, MI_HOLD, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_LOWCUT, MI_USB, MI_SERIAL, MI_PANEL, MI_ABOUT, MI_COUNT };
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "STYLE", "LARGE", "ANIM", "LEDS", "HOLD", "KNOB ACCEL", "FX LATCH", "BPM LOCK",
+                                              "SPEAKER EQ", "USB LEVEL", "USB SERIAL", "CALIBRATION", "ABOUT"};
 /* STYLE (ui_style, gfx.c ST_*): FLAT the filled cards; LINE black areas divided by 1 px rules (#50, #57: the 0.9 look)
  * (1.0.2: PIXEL retired, a saved PIXEL reads as LINE) */
 static const char *const STYLE_N[2] = {"FLAT", "LINE"};
@@ -17,12 +17,26 @@ static const char *const STYLE_N[2] = {"FLAT", "LINE"};
  * (the other value), left = clear (the default) */
 typedef struct { uint8_t row, bit; const char *name[2]; } menu_flag_t;
 static const menu_flag_t MENU_FLAGS[] = {
+    {MI_LARGE, PREF_LARGE, {"OFF", "ON"}},            /* #15 / Discussion #80: ON, big knob labels and values (ui.c large_kind) */
     {MI_ANIM, PREF_ANIM_OFF, {"ON", "OFF"}},          /* #46: OFF, values snap (ui_draw.c roll_note, ui_graph.c pr_follow) */
     {MI_ACCEL, PREF_ACCEL, {"OFF", "ON"}},            /* #52: ui_input.c accel */
     {MI_LATCH, PREF_LATCH, {"OFF", "ON"}},
     {MI_USB, PREF_USB_FIXED, {"MASTER", "FIXED"}},     /* fx.c fx_usb_fixed: FIXED, USB at the full level */
     {MI_BPMLOCK, PREF_BPM_LOCK, {"OFF", "ON"}},        /* #58: ON, SELECT sets the tempo with GLO held only (ui_input.c) */
+    {MI_SERIAL, PREF_SERIAL_OFF, {"ON", "OFF"}},       /* #67: OFF, no serial console (usb_serial_apply) */
 };
+/* MENU > USB SERIAL (#67). The serial console is a developer tool (README: FELUCCA_CDC). ON (the default) presents it,
+ * the descriptors byte for byte as before; OFF re-enumerates as audio + MIDI only, device class 0 (the bytes of a
+ * FELUCCA_CDC=0 build): macOS 13-15 then attach their USB audio driver (with the console Apple's CDC composite driver
+ * takes the device and the audio input never appears). USB-MIDI stays, and with it the editor, the update installer
+ * and the soft key (SysEx on EP1). Applied at boot before USB starts (main.c: enumerated with it from the start, never
+ * on then off) and while the menu is closed (ui_input: one re-enumeration when it closes, not one per KNOB 1 step) */
+static void usb_serial_apply(void)
+{
+#if FELUCCA_CDC
+    usb_cdc_switch(FELUCCA_CDC_DEFAULT && !(ui_prefs & PREF_SERIAL_OFF));   /* (a FELUCCA_CDC_DEFAULT=0 build: off) */
+#endif
+}
 static const menu_flag_t *menu_flag(uint32_t row)
 {
     uint32_t i;
@@ -214,8 +228,8 @@ static uint32_t menu_top(void)                         /* the first row shown: t
 static const khint_t MENU_KEYS[3] = {{KC_PRESETS, "MOVE"}, {KC_OCTUP, "OK"}, {KC_OCTDN, "BACK"}};
 static void draw_menu(void)
 {
-    static const uint16_t ICO[MI_COUNT] = {ICON_X_PALETTE, ICON_SHAPE, ICON_RATE, ICON_X_STAR_O, ICON_X_TIMER, ICON_X_MOTION,
-                                           ICON_X_LOCK, ICON_TEMPO, ICON_X_SPEAKER, ICON_X_USB, ICON_X_DOCTOR, ICON_X_INFO};
+    static const uint16_t ICO[MI_COUNT] = {ICON_X_PALETTE, ICON_SHAPE, ICON_SIZE, ICON_RATE, ICON_X_STAR_O, ICON_X_TIMER, ICON_X_KNOB,
+                                           ICON_X_FX, ICON_TEMPO, ICON_X_SPEAKER, ICON_X_USB, ICON_X_DOC, ICON_X_DOCTOR, ICON_X_INFO};
     uint32_t i, pass, top = menu_top(), sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u +
                             settings.lowcut * 7919u + settings_hold * 3511u + settings_leds * 6151u + ui_prefs * 4099u + ui_style * 257u +
                             song.rec * 65537u + song.sel * 13u +

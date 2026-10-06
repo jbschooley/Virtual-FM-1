@@ -54,7 +54,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define __attribute__(x)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
 #define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
-#define FELUCCA_VERSION "v1.0.2"
+#define FELUCCA_VERSION "v1.0.3"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
  * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
  * 240 KB of each one's state */
@@ -622,7 +622,9 @@ const char *FEL(lane_name)(uint32_t track, uint32_t lane)
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor_backup.c):
  * 0 the music now (a FUN8 project), 1 the settings, 2..5 the project slots, 6 and 7 the user
- * preset banks, 8 the FM6 patch bank. Without stopping the transport: the plugin calls these
+ * preset banks, 8 the FM6 patch bank of 1.0..1.0.2 (since 1.0.3 always empty; a put of one with
+ * data moves its patches into the user presets), 9 the user presets' FM6 patches (1.0.3). Without
+ * stopping the transport: the plugin calls these
  * between audio blocks. ------------------------------------------------------------------------- */
 uint32_t FEL(object_max)(void) { return ED_BK_MAX; }
 
@@ -639,7 +641,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
     } else if (id == 1u) {
         ed_bk_settings = persist_saved;
         settings_export(&ed_bk_settings);
-    } else if (id > 8u) {
+    } else if (id > 9u) {
         return -1;
     }
     p = ed_bk_object(id, &len);
@@ -654,7 +656,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
-    if (id > 8u || len > ED_BK_MAX || (id == 0u && len != sizeof(project_store_t) && len != PROJ_STORE_V7))
+    if (id > 9u || len > ED_BK_MAX || (id == 0u && len != sizeof(project_store_t) && len != PROJ_STORE_V7))
         return 1;
     memcpy(ED_BK_RAW, data, len);
     ed_bk_id = (uint8_t)id;

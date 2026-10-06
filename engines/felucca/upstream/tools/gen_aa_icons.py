@@ -81,7 +81,7 @@ EXTRA = {
     "x_doctor": "symbol_doctor", "x_bat0": "system_battery_0", "x_bat1": "system_battery_1",
     "x_bat3": "system_battery_3", "x_bat4": "system_battery_4", "x_bat_chg": "system_battery_charging",
     # the FX hold layer (ui_draw.c draw_layer, Fukiai 0.8.3) and the HOLD menu row
-    "x_fx": "control_fx", "x_timer": "symbol_stopwatch", "x_hpf": "function_filter_hpf",
+    "x_fx": "control_fx", "x_knob": "ui_knob", "x_timer": "symbol_stopwatch", "x_hpf": "function_filter_hpf",
     "x_repeat": "control_arrow_loop", "x_reverse": "control_reverse_f", "x_tstop": "symbol_stop",
     "x_freeze": "symbol_freeze",
     # OCT UP / OCT DN (the harmonizer): stand-ins until Fukiai has a pitch-shift glyph;
@@ -115,7 +115,7 @@ BIG_DEFAULT = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_usb", "x_st
                "x_cog", "x_power", "x_warn", "x_palette", "x_speaker", "x_info", "x_hugelton", "x_doc",
                "wave", "algorithm", "phase", "bits", "sample", "mouth", "trio", "drawbar", "slice", "grain",
                "phys", "drum", "noise", "mod", "tempo", "tape",
-               "x_song", "x_motion", "x_motion_del", "x_doctor", "x_fx", "x_timer", "rate", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
+               "x_song", "x_motion", "x_motion_del", "x_doctor", "x_fx", "x_knob", "x_timer", "rate", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
 
 
 def glyph_table(font_path):

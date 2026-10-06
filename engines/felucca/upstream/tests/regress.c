@@ -875,8 +875,10 @@ static int chk_voice_cap(char *msg, uint32_t n)
     return most[0] == 4u && most[1] == 4u;
 }
 
-/* no hanging notes: 6 s of random MIDI note-ons / offs on channels 1..4 (the parts), 5, 10 and 16 (the
- * selected track), and keys, while the selected track changes; the parts in random voice modes,
+/* no hanging notes: 6 s of random MIDI note-ons / offs on channels 1..4 (the parts), 5, 10 and 16 (ignored
+ * with ROUT CH1-4, the selected track with SEL), and keys, while the selected track changes; round 1 with ROUT
+ * CH1-4, round 2 SEL, round 3 switching ROUT every 0.5 s (CH1-4 lets go of channels 5..16's notes,
+ * seq.c events_block); the parts in random voice modes,
  * some with ARP, SUS 127 (a hanging note keeps sounding). A channel's note-off goes to the same channel
  * as its note-on. Then every held note off: no gate may stay on, no ARP may still hold a key, every voice
  * must be free (also the same note held on two "selected track" channels across a selection change). */
@@ -889,6 +891,7 @@ static int chk_hang(char *msg, uint32_t n)
     int bad = 0;
     for (round = 0; round < 3u && !bad; round++) {
         host_tracks_init();
+        song.g[G_ROUTE] = round ? 1 : 0;
         for (k = 0; k < NPART; k++) {
             host_preset(&trk[k], rnd(NENGINES), rnd(4));
             trk[k].p[P_VOICE] = (int16_t)rnd(4);
@@ -898,6 +901,8 @@ static int chk_hang(char *msg, uint32_t n)
         }
         for (k = 0; k < 6u * FS / CTL; k++) {
             uint32_t r = rnd(16);
+            if (round == 2u && k % (FS / CTL / 2u) == 0u)
+                song.g[G_ROUTE] ^= 1;              /* ROUT changed with notes held */
             if (r < 6u) {                          /* MIDI */
                 uint32_t ci = rnd(7), note = 36u + rnd(36);
                 if (on[ci][note]) {
@@ -943,7 +948,7 @@ static int chk_hang(char *msg, uint32_t n)
         }
     }
     snprintf(msg, n, "%u random MIDI / key events on ch 1-4, 5, 10, 16 and the keys, track selection changing, "
-             "3 rounds: %s", ev, bad ? who : "no gate left on, every voice free");
+             "3 rounds (ROUT CH1-4, SEL, switching): %s", ev, bad ? who : "no gate left on, every voice free");
     return !bad;
 }
 

@@ -60,7 +60,7 @@ juce::File DeviceStore::defaultFile(const Dialect& d) {
 }
 
 // The stored objects into the engine, as the web editor restores them: the project slots,
-// user presets (and FM6 bank), and the settings (not the music: the instance's own).
+// user presets (and their FM6 patches), and the settings (not the music: the instance's own).
 juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     Objects o;
     juce::String error;

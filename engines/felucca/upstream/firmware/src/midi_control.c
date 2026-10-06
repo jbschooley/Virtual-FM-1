@@ -260,9 +260,34 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
     }
 }
 
-/* Keep the occasional controller/panic dispatch outside the hot rendering loop. */
+/* ROUT CH1-4 listens to channels 1..4 only. A switch to it from SEL (events_block, before the queue) lets go
+ * of what channels 5..16 hold: their notes released (also pedal-held ones), their pedal, bend, wheel and RPN
+ * selection reset, so no note can hang on a channel that is no longer heard. Each part's bend then follows
+ * its own channel (1..4), as CH1-4 routes it. */
+static void __attribute__((noinline)) midi_route_ch14(void)
+{
+    uint32_t ch, note;
+    for (ch = NPART; ch < 16u; ch++) {
+        midi_channel_t *c = midi_channel(ch);
+        for (note = 0; note < 128u; note++)
+            if (midi_notes[ch][note])
+                midi_release(ch, note);
+        c->pedal = c->wheel = 0;
+        c->bend = 0;
+        c->rpn_msb = c->rpn_lsb = 127;
+    }
+    for (ch = 0; ch < NPART; ch++)
+        midi_expression(&trk[ch], midi_channel(ch));
+}
+
+/* Keep the occasional controller/panic dispatch outside the hot rendering loop. Channel voice messages only
+ * (realtime and clock are handled in events_block, SysEx never reaches here). With ROUT CH1-4 channels
+ * 5..16 are ignored entirely: notes, bend, CCs (CC1/11/64, RPN, and the CC120/121/123 panic and reset),
+ * channel aftertouch, so they stay free for other instruments. */
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
+    if (ch >= NPART && !song.g[G_ROUTE])
+        return;
     if (st == 0x90u || st == 0x80u)
         midi_note_event(ch, d1, st == 0x90u ? d2 : 0);
     else if (st == 0xE0u) {
