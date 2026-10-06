@@ -1082,6 +1082,9 @@ bool FM1Processor::feluccaPull() {
         auto objects = felucca::backup(synth, progress, err);
         if (!objects) return Fm1Session::JobResult{false, "Could not read the FM-1: " + err + "."};
         const auto kept = saveSynthBackup(*objects);
+        // the plugin's settings stay its own, as Send leaves the synth's (a newer Felucca's settings,
+        // its LED mode from 1.0.1, would not be taken by the Felucca built in)
+        objects->erase(1);
         if (!felucca::putObjects(*f, *objects, err)) return Fm1Session::JobResult{false, "Read the FM-1, but the plugin's Felucca refused it: " + err + "."};
         felResync_ = true;
         juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock()) feluccaChanged(); });
