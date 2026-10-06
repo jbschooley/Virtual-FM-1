@@ -105,9 +105,9 @@ static void drawGlow(juce::Graphics& g, juce::Rectangle<float> r, float corner, 
     static const float alpha[4] = {0.0f, 0.12f, 0.32f, 0.75f};
     level = std::clamp(level, 0, 3);
     if (level == 0) return;
-    if (level == 3) {   // a halo round a lit key
+    if (level == 3) {   // a halo round a lit key (within the key's own bounds)
         g.setColour(lit.withAlpha(0.22f));
-        g.drawRoundedRectangle(r.expanded(1.5f), corner + 1.5f, 3.0f);
+        g.drawRoundedRectangle(r.expanded(0.5f), corner + 0.5f, 1.0f);
     }
     g.setColour(lit.withAlpha(alpha[level]));
     g.fillRoundedRectangle(r, corner);
