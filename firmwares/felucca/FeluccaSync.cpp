@@ -332,8 +332,8 @@ uint8_t liveCaps(const std::vector<uint8_t>& a) {
         const uint8_t tag = a[k];
         size_t len = 0;
         switch (tag) {
-            case 0x55: case 0x42: case 0x53: len = 1; break;   // UI caps, backup caps, live sync caps
-            case 0x4D: case 0x46: len = 2; break;              // motion, FM6 bank
+            case 0x55: case 0x42: case 0x53: case 0x50: len = 1; break;   // UI caps, backup caps, live sync caps, FM6 v2 (1.0.3)
+            case 0x4D: case 0x46: len = 2; break;              // motion, FM6 patches (factory, bank count)
             default: return 0;                                 // a block this does not know: stop
         }
         if (a[k + 1] != 1 || k + 2 + len > a.size()) return 0;

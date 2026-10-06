@@ -5,7 +5,7 @@
 // so the same code copies either way and can be tested with two virtual ones.
 //
 //   backup / restore   every stored object (the music, settings, project slots, user
-//                      presets, FM6 bank) as Felucca's full backup moves them; user
+//                      presets and their FM6 patches) as the full backup moves them; user
 //                      sample slots are never read or written
 //   Mirror             live: each side's changes as the other side's editor would make them
 //
@@ -40,7 +40,7 @@ enum Cmd : int {
 };
 
 // What differs between Felucca and SLOOP: the backup commands and their objects, the backup file,
-// the FM6 bank (Felucca only) and which globals a mirror carries.
+// FM6 (Felucca only: its patches, and the bank of 1.0..1.0.2) and which globals a mirror carries.
 struct Dialect {
     const char* name;                          // "Felucca", "SLOOP"
     int backupList, backupGet, backupPut;      // the full backup's commands

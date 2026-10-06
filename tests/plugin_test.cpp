@@ -1176,7 +1176,7 @@ static int checks() {
             juce::AudioBuffer<float> qb(2, 256);
             juce::MidiBuffer qm;
             q.prepareToPlay(44100.0, 256);
-            q.processBlock(qb, qm);   // (where Felucca's main loop would load PTCH's slot)
+            q.processBlock(qb, qm);   // (where Felucca's main loop would load SLOT's factory patch)
             CHECK(q.felucca()->fm6Patch(2) == felPatch, "and an FM6 part's own patch");
         }
     }

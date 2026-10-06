@@ -286,7 +286,7 @@ int main() {
         }
     }
 
-    // ---- FM6's patch: read, written, and kept over PTCH's slot ----
+    // ---- FM6's patch: read, written, and kept as the track's own (SLOT OWN) ----
     {
         FeluccaEngine f;
         const int fm6 = f.fm6Engine();
@@ -297,9 +297,10 @@ int main() {
         patch[134] = uint8_t((patch[134] + 5) % 32);                                       // the algorithm
         f.setFm6Patch(1, patch);
         CHECK(f.fm6Patch(1) == patch, "a patch set reads back");
+        CHECK(f.param(1, f.firstEngineParam() + 7) == 8, "and is the track's own: SLOT OWN, as FM6_PUT does on 1.0.3");
         std::vector<float> l(256), r(256);
-        f.render(l.data(), r.data(), 256);   // Felucca's main loop would load PTCH's slot if it disagreed
-        CHECK(f.fm6Patch(1) == patch && patch != factory, "and stays: PTCH's slot does not replace it");
+        f.render(l.data(), r.data(), 256);   // Felucca's main loop would load SLOT's factory patch if it disagreed
+        CHECK(f.fm6Patch(1) == patch && patch != factory, "and stays: SLOT's factory patch does not replace it");
         f.applyPreset(1, 1);
         f.render(l.data(), r.data(), 256);
         CHECK(f.fm6Patch(1) != patch, "a preset brings its own patch");

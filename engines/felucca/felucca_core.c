@@ -53,7 +53,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 
 #define __attribute__(x)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
-#define FELUCCA_FLASH 1                  /* projects, user presets and the FM6 bank in "flash" (RAM below) */
+#define FELUCCA_FLASH 1                  /* projects, user presets and their FM6 patches in "flash" (RAM below) */
 #define FELUCCA_VERSION "v1.0.3"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
  * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
@@ -171,7 +171,8 @@ static void fel_panel_setup(void) { ui_message("PANEL: ON THE FM-1"); }
 #include "../upstream/firmware/src/ui_layer.c"
 
 /* the flash: the storage objects' sectors in RAM (settings, four projects, two user preset banks,
- * the FM6 bank; two copies each), as the 1 MiB part the firmware expects */
+ * the user presets' FM6 patches, in 1.0.2's FM6 bank's place; two copies each), as the 1 MiB part
+ * the firmware expects */
 #define FEL_NSECT 18u
 static uint32_t sect_addr[FEL_NSECT];    /* address + 1; 0: free */
 static uint8_t sect_data[FEL_NSECT][4096];
@@ -474,11 +475,11 @@ void FEL(fm6_patch_get)(uint32_t track, uint8_t *v155)
     if (track < NTRK)
         FEL(memcpy)(v155, fm6_patch[track], FP_SIZE);
 }
-void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* after PTCH (P_E7) is set: as editor_fm6.c */
+void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* as editor_fm6.c's FM6_PUT to a track (1.0.3) */
 {
     if (track < NTRK) {
         fm6_set_patch(track, v155);
-        fm6_slot[track] = (uint8_t)trk[track].p[P_E7];   /* the track's patch now: fm6_poll keeps it */
+        fm6_adopt(track);                 /* the track's own patch now: SLOT OWN (F n if it is that factory patch) */
     }
 }
 
