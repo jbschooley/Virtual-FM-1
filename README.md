@@ -39,8 +39,7 @@ On an iPhone (the iOS app builds from source):
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
   an FM-1 yet; 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
-  1.0.2 (1.0 too) or **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.3 (not
-  tried on an FM-1 yet). On M-VAVE's own
+  1.0.2 (1.0 too) or **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.3. On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -151,9 +150,6 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca** and **SLOOP**: their user sample slots are empty.
-- **SLOOP**: its parameters are not host parameters yet (no automation).
-  Syncing with an FM-1 running SLOOP has been tried between two of the
-  plugin's own SLOOPs only, not with an FM-1 yet.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.

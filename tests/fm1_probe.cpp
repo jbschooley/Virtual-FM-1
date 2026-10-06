@@ -23,6 +23,7 @@
 #include "Fm1Session.h"
 #include "FmSynth.h"
 #include "FeluccaSync.h"
+#include "Firmwares.h"
 #if FM1_FELUCCA
  #include "FeluccaEngine.h"
 #endif
@@ -103,6 +104,14 @@ int main(int argc, char** argv) {
     waitIdle(session);
     if (!session.lastIdentity()) return 1;
     if (cmd == "identify") return 0;
+   #if FM1_FELUCCA
+    // an FM-1 running SLOOP: its dialect, and a SLOOP of the plugin's own on the other side
+    const bool slp = fm1::firmwareIdFor(*session.lastIdentity()) == "sloop";
+    const felucca::Dialect& dl = slp ? felucca::sloopDialect() : felucca::feluccaDialect();
+    const auto flavor = slp ? FeluccaEngine::Flavor::Sloop : FeluccaEngine::Flavor::Felucca;
+   #else
+    const felucca::Dialect& dl = felucca::feluccaDialect();
+   #endif
 
     auto range = [&](int dflt0, int dflt1) {
         int a = argc > 2 ? std::atoi(argv[2]) : dflt0, b = argc > 3 ? std::atoi(argv[3]) : a;
@@ -141,39 +150,42 @@ int main(int argc, char** argv) {
         return written.size() == 1 ? 0 : 1;
     }
     if (cmd == "felucca-backup" && argc > 2) {   // reads only
-        felucca::LinkEndpoint synth(link);
+        felucca::LinkEndpoint synth(link, dl);
         juce::String err;
         auto o = felucca::backup(synth, [](int done, int total, const juce::String&) { std::printf("\r  %d / %d bytes", done, total); std::fflush(stdout); return true; }, err);
         std::printf("\n");
         if (!o) { std::printf("failed: %s\n", err.toRawUTF8()); return 1; }
         for (auto& [id, b] : *o) std::printf("  object %d: %zu bytes\n", id, b.size());
-        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*o, "FM-1 running Felucca"));
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*o, juce::String("FM-1 running ") + dl.name, dl));
         std::printf("wrote %s\n", argv[2]);
         return 0;
     }
    #if FM1_FELUCCA
     if (cmd == "felucca-send" && argc > 2) {   // writes the synth's flash: as the plugin's Send does
         struct Mine : felucca::Endpoint {
-            const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
-            std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
+            const felucca::Dialect& dialect() const override { return *d; }
+            const felucca::Dialect* d = nullptr;
+            std::shared_ptr<FeluccaEngine> f;
             std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f->ask(q); }
             std::vector<fm1::Bytes> pushes() override { f->takeSysex(); return {}; }
         } mine;
-        felucca::LinkEndpoint synth(link);
+        mine.f = std::make_shared<FeluccaEngine>(flavor);
+        mine.d = &dl;
+        felucca::LinkEndpoint synth(link, dl);
         juce::String err;
         auto progress = [](int done, int total, const juce::String&) { std::printf("\r  %d / %d", done, total); std::fflush(stdout); return true; };
         // 1. the synth's backup, kept (argv[2])
         auto theirs = felucca::backup(synth, progress, err);
         std::printf("\n");
         if (!theirs) { std::printf("backup failed: %s\n", err.toRawUTF8()); return 1; }
-        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*theirs, "FM-1 running Felucca"));
+        juce::File(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])).replaceWithText(felucca::backupJson(*theirs, juce::String("FM-1 running ") + dl.name, dl));
         std::printf("the FM-1's backup: %s\n", argv[2]);
         // 2. the plugin's Felucca: the synth's things (or a device file's: argv[3]), and one user
         // preset only it has
         felucca::Objects source = *theirs;
         if (argc > 3) {
             source.clear();
-            if (!felucca::readBackup(juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), source, err)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
+            if (!felucca::readBackup(juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), source, err, dl)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
             std::printf("the plugin's Felucca from %s\n", argv[3]);
         }
         if (!felucca::restore(mine, source, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
@@ -206,8 +218,9 @@ int main(int argc, char** argv) {
     }
     if (cmd == "felucca-live" && argc > 2) {   // the synth's values, steps and selection change; no flash written
         struct Mine : felucca::Endpoint {
-            const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
-            std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
+            const felucca::Dialect& dialect() const override { return *d; }
+            const felucca::Dialect* d = nullptr;
+            std::shared_ptr<FeluccaEngine> f;
             std::vector<fm1::Bytes> got;
             std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override {
                 std::optional<fm1::Bytes> r;
@@ -219,7 +232,9 @@ int main(int argc, char** argv) {
                 std::vector<fm1::Bytes> out; out.swap(got); return out;
             }
         } mine;
-        felucca::LinkEndpoint synth(link);
+        mine.f = std::make_shared<FeluccaEngine>(flavor);
+        mine.d = &dl;
+        felucca::LinkEndpoint synth(link, dl);
         juce::String err;
         // start alike: the synth's music into the plugin's Felucca (read from the synth only)
         auto o = felucca::backup(synth, {}, err);

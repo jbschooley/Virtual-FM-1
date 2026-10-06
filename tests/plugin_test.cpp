@@ -215,7 +215,7 @@ static int checks() {
                   && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.3",
                   "an FM-1 running SLOOP is SLOOP, a choice (2.3) played like Felucca");
             const auto cur = fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.3"});
-            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text.find("not tried") != std::string::npos, "SLOOP 2.3: current, said to be untried: " + cur.text);
+            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.3", "SLOOP 2.3: current, nothing to say: " + cur.text);
             const auto v30 = fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"});
             CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.3") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
             CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.3") != std::string::npos,

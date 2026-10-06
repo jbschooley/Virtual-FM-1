@@ -13,10 +13,10 @@ for the code. New work goes under the next version at the top.
   track, played and edited in the Felucca editor, with its own screen and front
   panel on the Device tab. Its projects and user presets are kept in the
   library as SLOOP's own backup file (`SLOOP/SLOOP device.json`). With an FM-1
-  running SLOOP: Pull, Send, Live and a part's sound, as with Felucca (tried
-  between two of the plugin's SLOOPs, not with an FM-1 yet). Live carries the
-  drum track's steps whole (every lane, its level and ratchet). Not yet: host
-  parameters for automation.
+  running SLOOP: Pull, Send, Live and a part's sound, as with Felucca (tried on
+  an FM-1 running SLOOP 2.3: a full backup, Send, and Live from the plugin's
+  side). Live carries the drum track's steps whole (every lane, its level and
+  ratchet).
 
 - **baud girl's FM-1_096.** 8-Bit presets show as 8-Bit in the library, with
   an 8-Bit tab in place of the FM editor. The plugin has no 8-Bit engine (her

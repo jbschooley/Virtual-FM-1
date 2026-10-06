@@ -56,7 +56,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
     static const std::vector<KnownVersion> sloop = {
-        {900, "2.3", Support::Current, "not tried on an FM-1 yet"},
+        {900, "2.3", Support::Current, ""},   // tried on an FM-1 (2026-10-06): backup, Send, Live from the plugin
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -94,7 +94,7 @@ VersionCheck checkVersion(const Identity& id) {
         const auto at = id.editor.find("SLOOP ");
         const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 6);
         if (release.empty() || release == current.label) {
-            c.text = id.name() + ": SLOOP " + std::string(current.label) + ", " + current.note;
+            c.text = id.name() + ": SLOOP " + std::string(current.label) + (*current.note ? ", " + std::string(current.note) : std::string());
             return c;
         }
         c.known = nullptr;
