@@ -26,8 +26,10 @@ public:
         if (f == Feature::ReadGlobals) return "The plugin can read the FM-1's GLOBE settings on FM-1_093 and FM-1_094 only.";
         return Firmware::cannot(f);
     }
-    // each write rebuilds the effects and writes flash; closer spacing was heard as crackling (her bank.js)
-    int writePaceMs() const override { return 3000; }
+    // each write rebuilds the effects and writes flash; closer spacing was heard as crackling (her
+    // bank.js). FM-1_096's own editor writes one, reads it back, and waits 120 ms (app/transfer.js
+    // PACE), as the plugin does after its read-back
+    int writePaceMs() const override { return version >= 96 ? 120 : 3000; }
 
     std::optional<Sound> readPreset(Port& port, int slot, juce::String& error) override {
         error.clear();
