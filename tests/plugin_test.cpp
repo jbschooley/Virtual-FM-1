@@ -216,6 +216,11 @@ static int checks() {
                   "and it says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
+            const auto v102 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.2"});
+            CHECK(v102.newer && v102.text.find("Felucca 1.0.2, newer than the plugin's 1.0") != std::string::npos,
+                  "Felucca 1.0.2 (FM-1_910, as 1.0) is told apart by its INFO: " + v102.text);
+            const auto v10 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"});
+            CHECK(!v10.newer && v10.support == Support::Current, "and 1.0 with its INFO is 1.0");
         }
         CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
               "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");

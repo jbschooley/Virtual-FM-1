@@ -1,5 +1,7 @@
 #include "Firmwares.h"
 
+#include <cctype>
+
 namespace fm1 {
 
 const std::vector<FirmwareChoice>& firmwareChoices() {
@@ -73,6 +75,28 @@ VersionCheck checkVersion(const Identity& id) {
     const std::string who = id.name();
     for (const auto& v : list)
         if (v.identity == id.version) c.known = &v;
+    if (c.known && c.firmwareId == "felucca" && id.editor.rfind("FELUCCA v", 0) == 0) {
+        // Felucca X.Y.Z answers as X.Y (FM-1_9XY): its INFO's version tells a newer bug-fix release
+        const std::string release = id.editor.substr(9);
+        auto parts = [](const std::string& v) {
+            std::vector<int> n;
+            for (size_t i = 0; i < v.size();) {
+                if (!std::isdigit(static_cast<unsigned char>(v[i]))) break;
+                int x = 0;
+                while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) x = x * 10 + (v[i++] - '0');
+                n.push_back(x);
+                if (i < v.size() && v[i] == '.') ++i; else break;
+            }
+            return n;
+        };
+        if (parts(release) > parts(c.known->label)) {
+            c.newer = true;
+            c.support = c.known->support;
+            c.text = who + ": Felucca " + release + ", newer than the plugin's " + c.known->label + "; synced as "
+                   + c.known->label + " (not tried yet)";
+            return c;
+        }
+    }
     if (c.known) {
         c.support = c.known->support;
         c.text = who;
