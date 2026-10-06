@@ -74,33 +74,107 @@ if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     set(FM1_BUILD_FELUCCA OFF)
 endif()
 set(FELUCCA_COPIES 16 CACHE STRING "How many Felucca instances play without sharing a copy (more share one, at some CPU cost)")
-if(FM1_BUILD_FELUCCA)
-    math(EXPR felLast "${FELUCCA_COPIES} - 1")
-    set(felDecl "")
-    set(felTable "")
-    set(felObjects "")
-    # What every copy reads and none writes, compiled once rather than in each copy: the
-    # sample sets (SMP_DATA, 194 KB) and the empty user sample slots. The copies include a
-    # felucca_samples.h written here from the vendored one, with SMP_DATA declared, not defined
-    # (its contents left as an unused array the compiler drops); felucca_shared.c defines it.
-    set(felSamplesIn ${CMAKE_SOURCE_DIR}/engines/felucca/generated/felucca_samples.h)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${felSamplesIn})
-    file(READ ${felSamplesIn} felS)
-    set(felSmpDecl "static const uint8_t SMP_DATA[")
-    string(FIND "${felS}" "${felSmpDecl}" felAt)
-    if(felAt LESS 0)
-        message(FATAL_ERROR "felucca_samples.h: no SMP_DATA array (a new generator? see CMakeLists.txt)")
+set(SLOOP_COPIES 16 CACHE STRING "How many Sloop instances play without sharing a copy (more share one, at some CPU cost)")
+# Sloop (engines/sloop: SLOOP 2.3, a fork of Felucca, GPL-3.0-only) is built the same way, from
+# sloop_core.c, behind the same API (felucca_core.h), into the same library.
+
+# fm1_core_copies(<kind> <tag> <copies>): engines/<kind>/<kind>_core.c compiled <copies> times, copy i
+# with the prefix <tag><i>_ and its own sections; <kind>_copies.inc declares them and lists their
+# functions (FeluccaEngine.cpp). What every copy reads and none writes is compiled once: the sample
+# sets (SMP_DATA) and the empty user sample slots, in <kind>_shared.c (<tag>_smp_data,
+# <tag>_no_samples); the copies include a felucca_samples.h written here from the vendored one, with
+# SMP_DATA declared, not defined (its contents left as an unused array the compiler drops).
+# Sets <kind>Objects in the caller.
+function(fm1_core_copies kind tag copies)
+    math(EXPR last "${copies} - 1")
+    set(decl "")
+    set(table "")
+    set(objects "")
+    set(samplesIn ${CMAKE_SOURCE_DIR}/engines/${kind}/generated/felucca_samples.h)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${samplesIn})
+    file(READ ${samplesIn} smp)
+    set(smpDecl "static const uint8_t SMP_DATA[")
+    string(FIND "${smp}" "${smpDecl}" at)
+    if(at LESS 0)
+        message(FATAL_ERROR "${kind}: felucca_samples.h has no SMP_DATA array (a new generator? see CMakeLists.txt)")
     endif()
-    string(SUBSTRING "${felS}" ${felAt} -1 felTail)
-    string(FIND "${felTail}" "};" felEnd)
-    math(EXPR felEnd "${felEnd} + 2")
-    string(SUBSTRING "${felTail}" 0 ${felEnd} felArray)
-    string(REPLACE "${felSmpDecl}" "const uint8_t fel_smp_data[" felArray "${felArray}")
-    file(WRITE ${CMAKE_BINARY_DIR}/felucca/shared/felucca_shared.c
-         "/* written by CMakeLists.txt: what every Felucca copy reads, once */\n#include <stdint.h>\n"
-         "const uint8_t fel_no_samples[3][0x14000] = {{0}};\n${felArray}\n")
-    string(REPLACE "${felSmpDecl}" "extern const uint8_t fel_smp_data[];\n#define SMP_DATA fel_smp_data\nstatic const uint8_t fel_smp_data_unused[" felHeader "${felS}")
-    file(WRITE ${CMAKE_BINARY_DIR}/felucca/shared/felucca_samples.h "${felHeader}")
+    string(SUBSTRING "${smp}" ${at} -1 tail)
+    string(FIND "${tail}" "};" arrEnd)
+    math(EXPR arrEnd "${arrEnd} + 2")
+    string(SUBSTRING "${tail}" 0 ${arrEnd} array)
+    string(REPLACE "${smpDecl}" "const uint8_t ${tag}_smp_data[" array "${array}")
+    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
+         "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
+         "const uint8_t ${tag}_no_samples[3][0x14000] = {{0}};\n${array}\n")
+    string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
+    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
+    set(includes ${CMAKE_BINARY_DIR}/${kind}/shared ${CMAKE_SOURCE_DIR}/engines/${kind}/generated
+                 ${CMAKE_SOURCE_DIR}/engines/felucca ${CMAKE_SOURCE_DIR}/engines/${kind})
+    foreach(i RANGE 0 ${last})
+        string(APPEND decl "#define FEL_PREFIX ${tag}${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
+        string(APPEND table "#define FEL_PREFIX ${tag}${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
+        if(WIN32)
+            set(dir ${CMAKE_BINARY_DIR}/${kind}/copy${i})
+            file(MAKE_DIRECTORY ${dir})
+            set(obj ${dir}/${kind}_core${CMAKE_C_OUTPUT_EXTENSION})
+            set(incFlags "")
+            foreach(d ${includes})
+                list(APPEND incFlags -I${d})
+            endforeach()
+            add_custom_command(OUTPUT ${obj}
+                COMMAND ${FEL_CLANG} --target=${felTarget} -std=c11 -O2 -w -S -emit-llvm
+                        -DFEL_PREFIX=${tag}${i}_
+                        "-DFEL_BSS_SECTION=\"${tag}b${i}$m\"" "-DFEL_DATA_SECTION=\"${tag}d${i}$m\""
+                        "-DFEL_BSS_FIRST=\"${tag}b${i}$a\"" "-DFEL_BSS_LAST=\"${tag}b${i}$z\""
+                        "-DFEL_DATA_FIRST=\"${tag}d${i}$a\"" "-DFEL_DATA_LAST=\"${tag}d${i}$z\""
+                        ${incFlags}
+                        -MD -MF ${dir}/${kind}_core.d -MT ${obj}
+                        -o ${dir}/${kind}_core.ll ${CMAKE_SOURCE_DIR}/engines/${kind}/${kind}_core.c
+                COMMAND fel_sections ${dir}/${kind}_core.ll ${dir}/${kind}_core.sections.ll
+                COMMAND ${FEL_CLANG} --target=${felTarget} -O2 -c -o ${obj} ${dir}/${kind}_core.sections.ll
+                DEPENDS engines/${kind}/${kind}_core.c fel_sections
+                DEPFILE ${dir}/${kind}_core.d
+                COMMENT "${kind} copy ${i}"
+                VERBATIM)
+            set_source_files_properties(${obj} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+            list(APPEND objects ${obj})
+            continue()
+        endif()
+        add_library(${kind}_core_${i} OBJECT engines/${kind}/${kind}_core.c)
+        # the copy's own sections, and the linker's symbols for where they start and stop
+        if(APPLE)
+            set(b "__DATA,__${tag}b${i},zerofill")   # zeros at start: no space in the file
+            set(d "__DATA,__${tag}d${i}")
+            set(bs "section$start$__DATA$__${tag}b${i}")
+            set(be "section$end$__DATA$__${tag}b${i}")
+            set(ds "section$start$__DATA$__${tag}d${i}")
+            set(de "section$end$__DATA$__${tag}d${i}")
+        else()
+            set(b "${tag}b${i}")
+            set(d "${tag}d${i}")
+            set(bs "__start_${tag}b${i}")
+            set(be "__stop_${tag}b${i}")
+            set(ds "__start_${tag}d${i}")
+            set(de "__stop_${tag}d${i}")
+        endif()
+        target_compile_definitions(${kind}_core_${i} PRIVATE FEL_PREFIX=${tag}${i}_
+            "FEL_BSS_SECTION=\"${b}\"" "FEL_DATA_SECTION=\"${d}\""
+            "FEL_BSS_START=\"${bs}\"" "FEL_BSS_STOP=\"${be}\""
+            "FEL_DATA_START=\"${ds}\"" "FEL_DATA_STOP=\"${de}\"")
+        target_include_directories(${kind}_core_${i} PRIVATE ${includes})
+        set_target_properties(${kind}_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+        target_compile_options(${kind}_core_${i} PRIVATE -w -O2)   # the firmware's own code, as upstream builds it
+        list(APPEND objects $<TARGET_OBJECTS:${kind}_core_${i}>)
+    endforeach()
+    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc.new
+         "// written by CMakeLists.txt: the ${copies} copies of ${kind}_core.c\n"
+         "#ifdef FELUCCA_COPIES_DECLARE\n${decl}#endif\n"
+         "#ifdef FELUCCA_COPIES_TABLE\n${table}#endif\n")
+    configure_file(${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc.new ${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc COPYONLY)
+    set(${kind}Objects ${objects} ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c PARENT_SCOPE)
+endfunction()
+
+if(FM1_BUILD_FELUCCA)
     if(WIN32)
         # Windows: Clang loses the section pragma's names in COFF (Clang 18 and 19: every such
         # variable goes to one section with no name). Each copy is compiled to LLVM IR, given its
@@ -124,66 +198,10 @@ if(FM1_BUILD_FELUCCA)
             message(FATAL_ERROR "Felucca on Windows: no clang beside ${CMAKE_C_COMPILER}")
         endif()
     endif()
-    foreach(i RANGE 0 ${felLast})
-        string(APPEND felDecl "#define FEL_PREFIX fel${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
-        string(APPEND felTable "#define FEL_PREFIX fel${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
-        if(WIN32)
-            set(felDir ${CMAKE_BINARY_DIR}/felucca/copy${i})
-            file(MAKE_DIRECTORY ${felDir})
-            set(felObj ${felDir}/felucca_core${CMAKE_C_OUTPUT_EXTENSION})
-            add_custom_command(OUTPUT ${felObj}
-                COMMAND ${FEL_CLANG} --target=${felTarget} -std=c11 -O2 -w -S -emit-llvm
-                        -DFEL_PREFIX=fel${i}_
-                        "-DFEL_BSS_SECTION=\"felb${i}$m\"" "-DFEL_DATA_SECTION=\"feld${i}$m\""
-                        "-DFEL_BSS_FIRST=\"felb${i}$a\"" "-DFEL_BSS_LAST=\"felb${i}$z\""
-                        "-DFEL_DATA_FIRST=\"feld${i}$a\"" "-DFEL_DATA_LAST=\"feld${i}$z\""
-                        -I${CMAKE_BINARY_DIR}/felucca/shared -I${CMAKE_SOURCE_DIR}/engines/felucca/generated
-                        -I${CMAKE_SOURCE_DIR}/engines/felucca
-                        -MD -MF ${felDir}/felucca_core.d -MT ${felObj}
-                        -o ${felDir}/felucca_core.ll ${CMAKE_SOURCE_DIR}/engines/felucca/felucca_core.c
-                COMMAND fel_sections ${felDir}/felucca_core.ll ${felDir}/felucca_core.sections.ll
-                COMMAND ${FEL_CLANG} --target=${felTarget} -O2 -c -o ${felObj} ${felDir}/felucca_core.sections.ll
-                DEPENDS engines/felucca/felucca_core.c fel_sections
-                DEPFILE ${felDir}/felucca_core.d
-                COMMENT "Felucca copy ${i}"
-                VERBATIM)
-            set_source_files_properties(${felObj} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
-            list(APPEND felObjects ${felObj})
-            continue()
-        endif()
-        add_library(felucca_core_${i} OBJECT engines/felucca/felucca_core.c)
-        # the copy's own sections, and the linker's symbols for where they start and stop
-        if(APPLE)
-            set(felB "__DATA,__felb${i},zerofill")   # zeros at start: no space in the file
-            set(felD "__DATA,__feld${i}")
-            set(felBS "section$start$__DATA$__felb${i}")
-            set(felBE "section$end$__DATA$__felb${i}")
-            set(felDS "section$start$__DATA$__feld${i}")
-            set(felDE "section$end$__DATA$__feld${i}")
-        else()
-            set(felB "felb${i}")
-            set(felD "feld${i}")
-            set(felBS "__start_felb${i}")
-            set(felBE "__stop_felb${i}")
-            set(felDS "__start_feld${i}")
-            set(felDE "__stop_feld${i}")
-        endif()
-        target_compile_definitions(felucca_core_${i} PRIVATE FEL_PREFIX=fel${i}_
-            "FEL_BSS_SECTION=\"${felB}\"" "FEL_DATA_SECTION=\"${felD}\""
-            "FEL_BSS_START=\"${felBS}\"" "FEL_BSS_STOP=\"${felBE}\""
-            "FEL_DATA_START=\"${felDS}\"" "FEL_DATA_STOP=\"${felDE}\"")
-        target_include_directories(felucca_core_${i} PRIVATE ${CMAKE_BINARY_DIR}/felucca/shared engines/felucca/generated engines/felucca)
-        set_target_properties(felucca_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-        target_compile_options(felucca_core_${i} PRIVATE -w -O2)   # Felucca's own code, as upstream builds it
-        list(APPEND felObjects $<TARGET_OBJECTS:felucca_core_${i}>)
-    endforeach()
-    file(WRITE ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new
-         "// written by CMakeLists.txt: the ${FELUCCA_COPIES} copies of felucca_core.c\n"
-         "#ifdef FELUCCA_COPIES_DECLARE\n${felDecl}#endif\n"
-         "#ifdef FELUCCA_COPIES_TABLE\n${felTable}#endif\n")
-    configure_file(${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc.new ${CMAKE_BINARY_DIR}/felucca/felucca_copies.inc COPYONLY)
-    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${CMAKE_BINARY_DIR}/felucca/shared/felucca_shared.c ${felObjects})
-    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca)
+    fm1_core_copies(felucca fel ${FELUCCA_COPIES})
+    fm1_core_copies(sloop slp ${SLOOP_COPIES})
+    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects})
+    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
 
@@ -220,6 +238,10 @@ if(FM1_BUILD_FELUCCA)
     target_link_libraries(felucca_test PRIVATE fm1_felucca)
     target_compile_definitions(felucca_test PRIVATE FELUCCA_FROZEN="${CMAKE_SOURCE_DIR}/tests/felucca-frozen.txt")
     add_test(NAME felucca_test COMMAND felucca_test)
+    add_executable(sloop_test tests/sloop_test.cpp)
+    target_link_libraries(sloop_test PRIVATE fm1_felucca)
+    target_compile_definitions(sloop_test PRIVATE SLOOP_FROZEN="${CMAKE_SOURCE_DIR}/tests/sloop-frozen.txt")
+    add_test(NAME sloop_test COMMAND sloop_test)
 endif()
 endif()
 

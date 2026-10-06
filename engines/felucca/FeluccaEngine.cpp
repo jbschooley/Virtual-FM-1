@@ -1,26 +1,32 @@
 #include "FeluccaEngine.h"
 
 #include <algorithm>
+#include <memory>
 
-// The compiled copies (felucca_copies.inc, written by CMake: FELUCCA_COPIES of them):
-// first their declarations, then a table of their functions.
+// The compiled copies of each firmware (felucca_copies.inc and sloop_copies.inc, written by
+// CMake: FELUCCA_COPIES and SLOOP_COPIES of them): first their declarations, then tables of
+// their functions.
 extern "C" {
 #define FELUCCA_COPIES_DECLARE
 #include "felucca_copies.inc"
+#include "sloop_copies.inc"
 #undef FELUCCA_COPIES_DECLARE
 }
 
 namespace {
 
 #define FEL_ENTRY(ret, name, params) &FEL(name),
-const FeluccaCopy kCopies[] = {
+const FeluccaCopy kFeluccaCopies[] = {
 #define FELUCCA_COPIES_TABLE
 #include "felucca_copies.inc"
 #undef FELUCCA_COPIES_TABLE
 };
+const FeluccaCopy kSloopCopies[] = {
+#define FELUCCA_COPIES_TABLE
+#include "sloop_copies.inc"
+#undef FELUCCA_COPIES_TABLE
+};
 #undef FEL_ENTRY
-
-constexpr int kCount = int(sizeof kCopies / sizeof kCopies[0]);
 
 std::mutex& poolLock() { static std::mutex m; return m; }
 
@@ -33,35 +39,49 @@ struct Slot {
     const FeluccaEngine* resident = nullptr;   // whose state is in the copy now
     int instances = 0;                     // how many have it as theirs (poolLock)
 };
-std::array<Slot, kCount>& slots() { static std::array<Slot, kCount> s; return s; }
+// One firmware's copies and their slots
+struct Pool {
+    const FeluccaCopy* copies;
+    int count;
+    std::unique_ptr<Slot[]> slots;
+    Pool(const FeluccaCopy* c, int n) : copies{c}, count{n}, slots{new Slot[size_t(n)]} {}
+};
+Pool& pool(FeluccaEngine::Flavor f) {
+    static Pool felucca{kFeluccaCopies, int(sizeof kFeluccaCopies / sizeof kFeluccaCopies[0])};
+    static Pool sloop{kSloopCopies, int(sizeof kSloopCopies / sizeof kSloopCopies[0])};
+    return f == FeluccaEngine::Flavor::Sloop ? sloop : felucca;
+}
 
 }  // namespace
 
-int FeluccaEngine::copies() { return kCount; }
+int FeluccaEngine::copies(Flavor f) { return pool(f).count; }
 
-int FeluccaEngine::copiesInUse() {
+int FeluccaEngine::copiesInUse(Flavor f) {
     std::lock_guard<std::mutex> g(poolLock());
+    auto& p = pool(f);
     int n = 0;
-    for (auto& s : slots()) n += s.instances > 0;
+    for (int i = 0; i < p.count; ++i) n += p.slots[size_t(i)].instances > 0;
     return n;
 }
 
-int FeluccaEngine::instances() {
+int FeluccaEngine::instances(Flavor f) {
     std::lock_guard<std::mutex> g(poolLock());
+    auto& p = pool(f);
     int n = 0;
-    for (auto& s : slots()) n += s.instances;
+    for (int i = 0; i < p.count; ++i) n += p.slots[size_t(i)].instances;
     return n;
 }
 
-FeluccaEngine::FeluccaEngine() {
+FeluccaEngine::FeluccaEngine(Flavor flavor) : flavor_{flavor} {
     {
         std::lock_guard<std::mutex> g(poolLock());   // the copy with the fewest instances
+        auto& p = pool(flavor_);
         int best = 0;
-        for (int i = 1; i < kCount; ++i)
-            if (slots()[size_t(i)].instances < slots()[size_t(best)].instances) best = i;
-        slots()[size_t(best)].instances++;
+        for (int i = 1; i < p.count; ++i)
+            if (p.slots[size_t(i)].instances < p.slots[size_t(best)].instances) best = i;
+        p.slots[size_t(best)].instances++;
         index_ = best;
-        core_ = &kCopies[best];
+        core_ = &p.copies[best];
     }
     ctl_ = int(core_->ctl());
     saved_.resize(core_->state_bytes());   // its state while another instance plays in the copy
@@ -70,7 +90,7 @@ FeluccaEngine::FeluccaEngine() {
 
 FeluccaEngine::~FeluccaEngine() {
     if (index_ < 0) return;
-    auto& s = slots()[size_t(index_)];
+    auto& s = pool(flavor_).slots[size_t(index_)];
     {
         std::lock_guard<std::mutex> g(s.m);
         if (s.resident == this) s.resident = nullptr;
@@ -82,7 +102,7 @@ FeluccaEngine::~FeluccaEngine() {
 // This instance's state in its copy, with the copy's lock held: another instance's state is
 // saved out first, then this one's put back (or, the first time, the copy started afresh).
 std::unique_lock<std::mutex> FeluccaEngine::bind() const {
-    auto& s = slots()[size_t(index_)];
+    auto& s = pool(flavor_).slots[size_t(index_)];
     std::unique_lock<std::mutex> l(s.m);
     if (s.resident != this) {
         if (s.resident != nullptr) core_->state_get(s.resident->saved_.data());

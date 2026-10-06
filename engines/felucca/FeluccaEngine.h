@@ -35,11 +35,15 @@ struct FeluccaCopy {
 
 class FeluccaEngine {
 public:
-    static int copies();                       // the compiled copies (instances beyond them share)
-    static int copiesInUse();                  // copies with at least one instance
-    static int instances();                    // instances, in all copies
+    // Which firmware: Felucca, or SLOOP (engines/sloop, a fork of Felucca behind the same API,
+    // with its own copies: SLOOP_COPIES)
+    enum class Flavor { Felucca, Sloop };
+    static int copies(Flavor f = Flavor::Felucca);       // the compiled copies (instances beyond them share)
+    static int copiesInUse(Flavor f = Flavor::Felucca);  // copies with at least one instance
+    static int instances(Flavor f = Flavor::Felucca);    // instances, in all copies
 
-    FeluccaEngine();                           // in the copy with the fewest instances
+    explicit FeluccaEngine(Flavor f = Flavor::Felucca);   // in the copy with the fewest instances
+    Flavor flavor() const { return flavor_; }
     ~FeluccaEngine();
     FeluccaEngine(const FeluccaEngine&) = delete;
     FeluccaEngine& operator=(const FeluccaEngine&) = delete;
@@ -123,6 +127,7 @@ private:
     std::unique_lock<std::mutex> bind() const; // its state in its copy, the copy's lock held
     void feed(const uint8_t* bytes, int size); // (bind() held) a SysEx message into its USB port
     void drain();                              // (bind() held) what it sent, into sxDone_
+    Flavor flavor_ = Flavor::Felucca;
     const FeluccaCopy* core_ = nullptr;
     int index_ = -1;
     mutable std::vector<uint8_t> saved_;       // its state while another instance plays in its copy

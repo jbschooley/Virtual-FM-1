@@ -39,3 +39,27 @@ section 7 permission. Felucca 1.0 has since put its assets under GPL-3.0-only
 with the rest; this project takes Sloop's copy of the icon atlas the same way.
 The samples compiled in are CC0 (Versilian Studios VSCO-2 CE and VCSL, Sonic
 Pi), the font is Terminus (SIL OFL 1.1).
+
+## The plugin's side
+
+- `sloop_core.c` compiles the whole firmware as one unit, in its `felucca.c`'s
+  order, behind the same API as `engines/felucca/felucca_core.c`
+  (`felucca_core.h`), and is compiled `SLOOP_COPIES` times (16) the same way:
+  each copy with its own prefix (`slp0_` ...) and sections, an instance's state
+  (about 660 KB) saved out of its copy and put back when instances share one.
+  `FeluccaEngine` plays it with `Flavor::Sloop`, from a pool of its own.
+- The hardware is replaced as for Felucca: the panel and screen are the
+  plugin's, the flash is RAM, the clock follows the audio rendered and the main
+  loop runs every 16 ms of it. Not built: `lcd.c`, `audio.c`, the update and
+  boot loader (`ota.c`, `recovery.c`), the serial console, the TRS MIDI input
+  and the USB audio input. The LEDs are stubs; the MASTER knob is fixed at the
+  device's power-on level.
+- The sample sets (`SMP_DATA`) are compiled once for all copies
+  (`sloop_shared.c`, written by CMakeLists.txt), with the empty user sample
+  slots.
+- The stored objects are those of Sloop's editor backup (v6): 0 the working
+  project, 1 the settings, 2-5 the projects A-D, 6 and 7 the user preset banks.
+  The user sample slots (32-34) are not kept.
+- `tests/sloop_test.cpp` checks the copies, sound, parameters, the editor
+  protocol and the objects; `tests/sloop-frozen.txt` keeps its parameters and
+  factory presets, so a later Sloop that changes them is noticed.

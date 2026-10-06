@@ -1,0 +1,222 @@
+engine ANALOG E1	WAVE 0..4 def 0 fmt 8 SAW SQR TRI SIN PWM
+engine ANALOG E2	DTN 0..127 def 10 fmt 0
+engine ANALOG E3	MIX 0..127 def 64 fmt 1
+engine ANALOG E4	NOIS 0..127 def 0 fmt 1
+engine ANALOG E5	CUT 0..127 def 90 fmt 5
+engine ANALOG E6	RES 0..127 def 30 fmt 1
+engine ANALOG E7	DRV 0..127 def 0 fmt 1
+engine ANALOG E8	KTR 0..127 def 64 fmt 1
+engine DIGITAL E1	ALG 0..7 def 0 fmt 8 1 2 3 4 5 6 7 8
+engine DIGITAL E2	R2 0..14 def 1 fmt 8 .5 1 2 3 4 5 6 7 8 9 10 11 12 14 16
+engine DIGITAL E3	R3 0..14 def 1 fmt 8 .5 1 2 3 4 5 6 7 8 9 10 11 12 14 16
+engine DIGITAL E4	R4 0..14 def 1 fmt 8 .5 1 2 3 4 5 6 7 8 9 10 11 12 14 16
+engine DIGITAL E5	IDX 0..127 def 60 fmt 1
+engine DIGITAL E6	MDEC 0..127 def 60 fmt 3
+engine DIGITAL E7	FB 0..127 def 0 fmt 1
+engine DIGITAL E8	- 0..0 def 0 fmt 0
+engine GRAIN E1	SRC 0..10 def 0 fmt 8 PIANO BASS VIBES HORNS STRGS FLUTE SCRCH PERC USR1 USR2 USR3
+engine GRAIN E2	POS 0..127 def 32 fmt 1
+engine GRAIN E3	SIZE 0..127 def 80 fmt 1
+engine GRAIN E4	DENS 0..127 def 80 fmt 1
+engine GRAIN E5	PTCH -24..24 def 0 fmt 7
+engine GRAIN E6	SPRD 0..127 def 30 fmt 1
+engine GRAIN E7	RAND 0..127 def 10 fmt 1
+engine GRAIN E8	TONE 0..127 def 127 fmt 1
+engine LOFI E1	CHIP 0..4 def 0 fmt 8 4BIT 4B/2 8BIT 1BIT STEP
+engine LOFI E2	WAVE 0..4 def 0 fmt 8 PLS TRI SAW NOIS WRAM
+engine LOFI E3	DUTY 0..127 def 64 fmt 0
+engine LOFI E4	CRSH 0..127 def 0 fmt 1
+engine LOFI E5	SWP 0..127 def 0 fmt 1
+engine LOFI E6	VIB 0..127 def 0 fmt 1
+engine LOFI E7	ARP 0..3 def 0 fmt 8 OFF OCT MAJ MIN
+engine LOFI E8	TONE 0..127 def 127 fmt 1
+engine PHASE E1	WAVE 0..7 def 0 fmt 8 SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
+engine PHASE E2	WAVE2 0..8 def 0 fmt 8 - SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
+engine PHASE E3	DCW 0..127 def 60 fmt 1
+engine PHASE E4	ENV 0..127 def 64 fmt 1
+engine PHASE E5	DTN 0..127 def 0 fmt 0
+engine PHASE E6	LINE 0..1 def 0 fmt 8 MIX RING
+engine PHASE E7	SUB 0..127 def 0 fmt 1
+engine PHASE E8	- 0..0 def 0 fmt 0
+engine SAMPLE E1	SET 0..10 def 0 fmt 8 PIANO BASS VIBES HORNS STRGS FLUTE SCRCH PERC USR1 USR2 USR3
+engine SAMPLE E2	TUNE -24..24 def 0 fmt 7
+engine SAMPLE E3	BITS 0..127 def 0 fmt 0
+engine SAMPLE E4	LOOP 0..1 def 1 fmt 8 OFF ON
+engine SAMPLE E5	CUT 0..127 def 127 fmt 0
+engine SAMPLE E6	- 0..0 def 0 fmt 0
+engine SAMPLE E7	DRV 0..127 def 0 fmt 1
+engine SAMPLE E8	- 0..0 def 0 fmt 0
+engine TRIO E1	WAVE 0..15 def 0 fmt 8 SAW3 PLS3 PPT SST TRI3 S&T P&S P+N NOIS SYNC SYNCP SYNC3 RING RING3 R+S R+SP
+engine TRIO E2	INT2 -24..24 def 0 fmt 7
+engine TRIO E3	INT3 -24..24 def -12 fmt 7
+engine TRIO E4	DTN 0..50 def 6 fmt 0
+engine TRIO E5	MODE 0..3 def 0 fmt 8 LP BP HP NOT
+engine TRIO E6	CUT 0..127 def 80 fmt 5
+engine TRIO E7	RES 0..127 def 40 fmt 1
+engine TRIO E8	PW 0..127 def 64 fmt 1
+engine VOICE E1	VOWL 0..127 def 0 fmt 0
+engine VOICE E2	VOWL2 0..127 def 64 fmt 0
+engine VOICE E3	TALK 0..127 def 0 fmt 3
+engine VOICE E4	SHIFT -12..12 def 0 fmt 7
+engine VOICE E5	BUZZ 0..127 def 64 fmt 1
+engine VOICE E6	BRTH 0..127 def 10 fmt 1
+engine VOICE E7	Q 0..127 def 64 fmt 1
+engine VOICE E8	RAND 0..127 def 0 fmt 1
+engine WHEEL E1	REG 0..15 def 4 fmt 8 FLUTE MELLO HOLLW SMOOT 3BAR BLUES GOSPL ROCK TOPS CLARI REED STRNG CHAPL BRITE BASS FULL
+engine WHEEL E2	SUB -8..8 def 0 fmt 0
+engine WHEEL E3	BODY -8..8 def 0 fmt 0
+engine WHEEL E4	TOP -8..8 def 0 fmt 0
+engine WHEEL E5	PERC 0..6 def 0 fmt 8 OFF 2ND 3RD 2SOFT 3SOFT 2SLOW 3SLOW
+engine WHEEL E6	CLICK 0..127 def 40 fmt 1
+engine WHEEL E7	DRV 0..127 def 0 fmt 1
+engine WHEEL E8	ROTR 0..2 def 1 fmt 8 OFF SLOW FAST
+global BPM#1	40..240 def 90 fmt 9
+global CDP#1	0..127 def 60 fmt 1
+global CH#1	0..16 def 10 fmt 0
+global CLICK#1	0..2 def 0 fmt 8 OFF REC ON
+global CLRSQ#1	0..1 def 0 fmt 8 -- GO
+global COLR#1	0..127 def 70 fmt 1
+global CPU#1	0..0 def 0 fmt 0
+global CRT#1	0..127 def 40 fmt 4
+global DAMP#1	0..127 def 60 fmt 1
+global DUCK#1	0..127 def 0 fmt 1
+global DUST#1	0..127 def 0 fmt 1
+global ENG#1	0..8 def 0 fmt 8 ANALOG DIGITAL PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN
+global FDBK#1	0..120 def 60 fmt 1
+global FILT#1	-64..63 def 0 fmt 15
+global INIT#1	0..1 def 0 fmt 8 -- GO
+global LOAD#1	0..1 def 0 fmt 8 -- GO
+global LVL#1	0..127 def 100 fmt 0
+global MIDI#1	0..0 def 0 fmt 8 --
+global MIX#1	0..127 def 90 fmt 1
+global NAME#1	0..0 def 0 fmt 8 --
+global NEW#1	0..1 def 0 fmt 8 -- GO
+global REV#1	0..127 def 16 fmt 0
+global ROLL#1	0..4 def 1 fmt 8 1/8 1/16 1/32 32T 1/64
+global ROUT#1	0..0 def 0 fmt 8 --
+global SAVE#1	0..1 def 0 fmt 8 -- GO
+global SET#1	0..1 def 0 fmt 8 -- GO
+global SIZE#1	0..127 def 90 fmt 1
+global SLOT#1	1..4 def 1 fmt 0
+global SWING#1	0..100 def 0 fmt 14
+global SYNC#1	0..2 def 0 fmt 8 INT USB TRS
+global TIME#1	0..5 def 1 fmt 8 1/4 1/8 1/16 1/32 8T 16T
+global TUNE#1	-50..50 def 0 fmt 0
+param ALLOC#1	0..1 def 0 fmt 8 ROT REUSE
+param AMP#1	0..127 def 0 fmt 1
+param ATK#1	0..127 def 10 fmt 3
+param CHO#1	0..127 def 0 fmt 1
+param CHORD#1	0..5 def 0 fmt 8 OFF TRIAD 7TH 9TH SUS4 POWER
+param DEC#1	0..127 def 70 fmt 3
+param DEPTH#1	0..127 def 127 fmt 1
+param DIV#1	0..5 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T
+param DLY#1	0..127 def 0 fmt 1
+param DST#1	0..127 def 0 fmt 1
+param DTUNE#1	0..127 def 40 fmt 0
+param FADE#1	0..127 def 0 fmt 3
+param FLT#1	-64..63 def 0 fmt 2
+param FLT#2	-64..63 def 0 fmt 2
+param GATE#1	1..127 def 64 fmt 1
+param GATE#2	1..127 def 64 fmt 1
+param GLD#1	0..127 def 0 fmt 3
+param GLMOD#1	0..1 def 0 fmt 8 RATE TIME
+param HOLD#1	0..1 def 0 fmt 8 OFF ON
+param LEN#1	1..64 def 16 fmt 13
+param LVL#1	0..127 def 104 fmt 6
+param MODE#1	0..5 def 0 fmt 8 OFF UP DN UPDN RND ORD
+param MUTE#1	0..1 def 0 fmt 8 OFF ON
+param OCT#1	1..4 def 1 fmt 0
+param ORD#1	0..1 def 0 fmt 8 NOTE PLAY
+param PAN#1	-64..63 def 0 fmt 2
+param PAT#1	1..16 def 1 fmt 0
+param PHS#1	0..127 def 0 fmt 0
+param PIT#1	-64..63 def 0 fmt 2
+param PIT#2	-64..63 def 0 fmt 2
+param PRIO#1	0..2 def 0 fmt 8 LAST LOW HIGH
+param PROB#1	0..127 def 127 fmt 1
+param QNT#1	0..2 def 0 fmt 8 OFF SNAP WHITE
+param RATE#1	0..127 def 60 fmt 4
+param RATE#2	0..5 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T
+param RATE#3	0..5 def 1 fmt 8 1/8 1/16 1/32 8T 16T 32T
+param REL#1	0..127 def 60 fmt 3
+param REV#1	0..127 def 0 fmt 1
+param ROOT#1	0..11 def 0 fmt 10
+param SCL#1	0..15 def 0 fmt 8 CHR MAJ MIN DOR MIX PEN MPEN HARM PHRY LYD LOC MEL BLUES WHOLE DIMHW DIMWH
+param SHP#1	-64..63 def 0 fmt 2
+param SHP#2	-64..63 def 0 fmt 2
+param SLCR#1	0..2 def 0 fmt 8 OFF GATE STUT
+param SUS#1	0..127 def 90 fmt 1
+param SWG#1	0..100 def 0 fmt 14
+param SWG#2	0..100 def 0 fmt 14
+param TRIM#1	-64..63 def 0 fmt 0
+param TRN#1	-24..24 def 0 fmt 7
+param VCE#1	0..3 def 0 fmt 8 POLY MONO LEG UNI
+param WAVE#1	0..4 def 0 fmt 8 SIN TRI SAW SQR S&H
+preset ANALOG 0	808 BOOM d006c8c579e27ff1
+preset ANALOG 1	808 DIRTY 1247eab0b72883
+preset ANALOG 10	TRAP PLUCK 2de7ad2de5278a72
+preset ANALOG 11	SYN BRASS 190469321f7a20c6
+preset ANALOG 12	SUPERSAW 99ad273f4cb5736b
+preset ANALOG 13	WARM PAD 3bc50521349b84ff
+preset ANALOG 14	DARK STR 78d5939be15d7d73
+preset ANALOG 15	ATMOS PAD dce6ec17429ae29d
+preset ANALOG 2	SUB BASS 6dcf27e68d451952
+preset ANALOG 3	808 SLIDE 97e8f8f6cd4b6ea1
+preset ANALOG 4	ACID 303 229a8da06a34fbce
+preset ANALOG 5	PLUGG BASS c83b2b9702c26b39
+preset ANALOG 6	REESE 58d56c5f7d2d639b
+preset ANALOG 7	WOBBLE e6e7375b984b0e09
+preset ANALOG 8	FUNK BASS f47d03f728a94e09
+preset ANALOG 9	G-FUNK LD 428e5bba4847cc93
+preset DIGITAL 0	RHODES debcf8d2503040f
+preset DIGITAL 1	DX RHODES 3c7cf11229c4c565
+preset DIGITAL 10	PLUGG BELL cc1396c20661e814
+preset DIGITAL 11	GLASS PAD 9512f03dc2dd1641
+preset DIGITAL 12	FM BASS 40cf62bb3b3d96c9
+preset DIGITAL 2	WURLI 15d49f33bd69a589
+preset DIGITAL 3	CLAV 5f0a66dd084e56af
+preset DIGITAL 4	M1 PIANO 7b0a04e29cd73ab1
+preset DIGITAL 5	AFRO KEYS e489f89d464c51f
+preset DIGITAL 6	TRAP BELL d899bc3d228f085f
+preset DIGITAL 7	MUSIC BOX ac5a925a99039627
+preset DIGITAL 8	MARIMBA d4c4545a7dd29401
+preset DIGITAL 9	KALIMBA be32a86bb75d5c42
+preset GRAIN 0	LOFI CLOUD 64f6b6516fb729f1
+preset GRAIN 1	VIBE HAZE ace4a99e4548418
+preset GRAIN 2	FLUTE DUST e27a9f10391797a2
+preset LOFI 0	GAME LEAD 3f77180ccf819d73
+preset LOFI 1	GB BASS 9f15bca77d04be39
+preset LOFI 2	8BIT ARP 5fc9be7b2374b10f
+preset PHASE 0	CZ BASS e2ab71ca5649d085
+preset PHASE 1	SOFT KEYS 27dbed097fb3177
+preset PHASE 2	CZ STRING a5ac6b107d93b38a
+preset PHASE 3	RESO PLUCK 5df3dd4c44aa57b0
+preset PHASE 4	CZ BRASS 1fa3c0168ee8c8ea
+preset SAMPLE 0	GRAND PNO fbb93bb459dccca9
+preset SAMPLE 1	UP BASS bf0cabdde24daebe
+preset SAMPLE 10	DEEP BASS 5f4d7e7ddf103bbf
+preset SAMPLE 2	VIBES bc33c7d569fabaa2
+preset SAMPLE 3	HORN STAB 7035f1fa4b0cd79e
+preset SAMPLE 4	STRING STB 33e80d0dc9df6664
+preset SAMPLE 5	LOFI FLUTE a1746c7af3c0d7bd
+preset SAMPLE 6	SCRATCH 6747dac4d9851cb5
+preset SAMPLE 7	GM KIT 62e5bb199b7e6b4a
+preset SAMPLE 8	DUSTY PNO 15811ca7e0b93a46
+preset SAMPLE 9	LOFI KEYS fa4c67ce0fccdcd8
+preset TRIO 0	FAT BASS 71be5ff24ca108e8
+preset TRIO 1	MIN STAB 3b5bf5a67b90f69f
+preset TRIO 2	MIN7 STAB 87529c928de6cba7
+preset TRIO 3	RAVE STAB 6fc897942eda6b5d
+preset TRIO 4	DUB CHORD 2d3ab739d53f9cc7
+preset TRIO 5	SAW PAD 488b745bc06b5cdc
+preset TRIO 6	SYNC LEAD d19a80ff97f6f22f
+preset TRIO 7	HOOVER 41a0091a0eb6826d
+preset VOICE 0	CHOIR AAH e724ef1b6f905e81
+preset VOICE 1	SOUL OOH aee62ded74c98c18
+preset VOICE 2	TALKBOX ba4805225af4c372
+preset VOICE 3	WOW BASS f6edd1d5884cc26f
+preset WHEEL 0	SOUL ORGAN 6308de754c11baaa
+preset WHEEL 1	GOSPEL 30b40fd4ac26ec17
+preset WHEEL 2	JAZZ ORGAN 6699d5b2d76fed46
+preset WHEEL 3	DIRTY B3 13b3f57eac5aae08
+preset WHEEL 4	HOUSE ORGN e723112c05cfd64a
