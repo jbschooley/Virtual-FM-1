@@ -98,6 +98,9 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     auto report = [this](const juce::String& e) { if (e == lastError_) return juce::String(); lastError_ = e; return e; };
     const auto hash = fileHash();
     const bool changedThere = file_.existsAsFile() && hash != seen_;
+    // SLOOP 2.4 refuses its user presets and FM6 bank (6, 7, 8) while it plays: another instance's
+    // save waits until it stops (and so does saving its own changes, which would write over it)
+    if (changedThere && f.flavor() == FeluccaEngine::Flavor::Sloop && f.playing()) return {};
     if (blocked_) {   // only a changed file that reads lets it save again
         if (!changedThere) return {};
         seen_ = hash;

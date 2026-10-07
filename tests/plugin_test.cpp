@@ -1010,6 +1010,28 @@ static int checks() {
             CHECK(json.getProperty("format", {}).toString() == "sloop-backup" && felucca::readBackup(file, o, err, felucca::sloopDialect())
                   && o[4] == music && o.count(8), "as SLOOP's editor writes a backup (sloop-backup), slot C and the FM6 bank (2.4) in it");
             CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
+            {   // another instance's FM6 bank change, while this one plays: 2.4 refuses object 8 then, so it waits
+                auto e2 = std::make_shared<FeluccaEngine>(Fl::Sloop);
+                felucca::DeviceStore store2(file, felucca::sloopDialect());
+                store2.load(*e2);
+                felucca::VirtualEndpoint ve(e);
+                const auto factory = ve.ask(felucca::frame(felucca::kFm6Get, {2, 0}), 400);
+                const auto fa = factory ? felucca::argsOf(*factory) : std::vector<uint8_t>{};
+                std::vector<uint8_t> put = {1, 7};
+                if (fa.size() == 3 + 128) put.insert(put.end(), fa.begin() + 3, fa.end());
+                CHECK(fa.size() == 3 + 128 && ve.ask(felucca::frame(felucca::kFm6Put, put), 400), "a patch into bank slot 7");
+                juce::Thread::sleep(20);
+                CHECK(store.tick(*e).isEmpty(), "and saved");
+                std::vector<float> l(256), r(256);
+                e2->transport(true);
+                for (int k = 0; k < 4; ++k) e2->render(l.data(), r.data(), 256);
+                std::vector<uint8_t> b8, saved8;
+                e->object(8, saved8);
+                CHECK(e2->playing() && store2.tick(*e2).isEmpty() && e2->object(8, b8) && b8 != saved8, "playing: no error, the bank not taken yet");
+                e2->transport(false);
+                for (int k = 0; k < 4; ++k) e2->render(l.data(), r.data(), 256);
+                CHECK(!e2->playing() && store2.tick(*e2).isEmpty() && e2->object(8, b8) && b8 == saved8, "stopped: taken");
+            }
             file.deleteFile();
         }
     }
