@@ -11,14 +11,21 @@ for the code. New work goes under the next version at the top.
 - **SLOOP 2.4.1** is built in (it was 2.3): its FM6 engine (DX7-style, with
   its factory patches and a 27-slot bank), each track's filter (FILT, the drums
   too), STRUM and VLEAD for chords, DIV up to 2BAR, the delay's dotted times,
-  a fourth user sample slot, sequencer MIDI out and clock-only MIDI in, and
-  its full-screen visualiser on the Device tab. Its FM6 bank is kept with its
+  a fourth user sample slot, and its full-screen visualiser on the Device
+  tab. Its FM6 bank is kept with its
   projects and user presets and syncs with an FM-1 running 2.4. The host
   parameters gain FILT, STRUM and VLEAD for each part and FILT for the drums;
   DIV and the delay TIME span their new values, so automation of those two
   written for 2.3 lands on other values. An FM-1 still on SLOOP 2.3 is
   pulled from only (2.3 does not read 2.4's projects): update it with
   SLOOP's installer to send to it or go Live.
+- SLOOP's sequencer tab edits 2.4's **parameter locks**, **step nudges** and
+  **fill conditions**: the step editor has a nudge (in 64ths of a step), when
+  the step plays (always, only in a fill, or not in a fill), and a lock for any
+  sound parameter on that step. Pull, Send and Live carry them, and MIDI export
+  plays nudged steps where SLOOP plays them.
+- An FM-1 on SLOOP 2.4 is recognised and synced as 2.4.1 (the same projects);
+  the update to 2.4.1 fixes imported FM6 patches that use AMS playing noise.
 
 ## [0.5.1] - 2026-10-07
 
