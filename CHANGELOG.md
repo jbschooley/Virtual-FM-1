@@ -47,8 +47,38 @@ for the code. New work goes under the next version at the top.
   notes from 0.92), but a Send to them still carries notes only, as baud
   girl's own app does.
 
+- **A Sequencer tab for Felucca and SLOOP**: each part's steps on a grid (a
+  roll for notes, lanes for drum hits), the selected step's time, accent,
+  slide, velocity and chance (SLOOP: each note's level and ratchet), each
+  part's LEN, DIV, swing and gate, pages of 16, 32 or 64 steps; Felucca's song
+  chain and motion, SLOOP's live sections A-D, song, SONG REC, mute and solo.
+  Pull and Send the patterns, and every edit reaches the FM-1 while Live runs
+  (tried on an FM-1 with Felucca 1.0.3 and with SLOOP 2.3: steps, recording,
+  drum hits both ways; Felucca's chain and motion are not tried on one yet).
+  Export the patterns as a MIDI file, or import one onto a part.
+- **The FM-1+VA Sequencer, as 0.96's Pattern screen**: sixteen steps a page
+  in lanes (Notes and Locks, or an 8-Bit preset's Lead, Bass, SFX, Drums and
+  Locks), each lane opening into a row for each note (a roll to click notes
+  into and drag longer), its drum and SFX keys by name, or its locks as bars.
+  Below, the step as the FM-1's step list has it, with each note's velocity
+  and length and its locks by their FM-1 names (added, set and removed here,
+  sent to the FM-1; not played by the plugin). The Chain has its Repeats.
+- **The front panel looks like the FM-1's** on Felucca's and SLOOP's Device
+  tab: OCT- and OCT+ above, FX to GLO and HOME to REC on two rows, printed
+  labels (SEL, PLAY over STOP, OP1 .. POLY on the black keys), and every key
+  lit as the firmware lights it (white, REC red, PLAY/STOP green while
+  playing).
+- **An Android app** (arm64, Android 7 and later; tried on a Galaxy S22): the
+  standalone, Felucca and SLOOP included. CI builds the APK; a release has
+  it once the repository has a signing key.
+
 ### Changed
 
+- **Live is in the top bar**, beside Connect and Find FM-1, for every tab:
+  Felucca's and SLOOP's two-way sync, or stock and FM-1+VA's sound sent as
+  you edit it. A reply the FM-1 drops (another program talking to it) is
+  asked for again instead of ending Live.
+- Audio/MIDI, Connect, Find FM-1, Live and the sequencers' Play are icons.
 - FM-1+VA 0.96 is the release the plugin syncs with, tried on an FM-1:
   presets (FM, VA and 8-Bit) and patterns with locks and step settings come
   back unchanged. 0.93 and 0.94 are synced as before, without 8-Bit presets
