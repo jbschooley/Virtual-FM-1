@@ -22,6 +22,7 @@
 #include "Fm1Record.h"
 #include "Fm1Session.h"
 #include "FmSynth.h"
+#include "FeluccaSeq.h"
 #include "FeluccaSync.h"
 #include "Firmwares.h"
 #if FM1_FELUCCA
@@ -215,6 +216,54 @@ int main(int argc, char** argv) {
         std::printf("the FM-1's U32: \"%s\"\n", name.toRawUTF8());
         std::printf("%d the same, %d different\n", same, differ);
         return differ == 0 && name == "SEND TEST" ? 0 : 1;
+    }
+    if (cmd == "sloop-extras") {   // SLOOP 2.4: part 2's locks, nudges and fill conditions, pulled and sent; put back after (RAM only)
+        struct Mine : felucca::Endpoint {
+            const felucca::Dialect& dialect() const override { return *d; }
+            const felucca::Dialect* d = nullptr;
+            std::shared_ptr<FeluccaEngine> f;
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f->ask(q); }
+            std::vector<fm1::Bytes> pushes() override { f->takeSysex(); return {}; }
+        } mine;
+        mine.f = std::make_shared<FeluccaEngine>(flavor);
+        mine.d = &dl;
+        felucca::LinkEndpoint synth(link, dl);
+        juce::String err;
+        const int t = 1;
+        int fails = 0;
+        auto check = [&](bool ok, const char* what) { std::printf("%s: %s\n", what, ok ? "ok" : "FAILED"); if (!ok) ++fails; };
+        auto extrasOf = [&](felucca::Endpoint& e) { felucca::TrackPattern x; return felucca::readExtras(e, t, x) ? std::optional<felucca::TrackPattern>(x) : std::nullopt; };
+        auto same = [](const felucca::TrackPattern& a, const felucca::TrackPattern& b) { return a.locks == b.locks && a.micro == b.micro && a.fill == b.fill; };
+        auto orig = felucca::readPattern(synth, t, err);
+        if (!orig || !orig->extras) { std::printf("the FM-1 gave no locks, nudges or conditions (%s)\n", err.toRawUTF8()); return 1; }
+        std::printf("part 2 on the FM-1: %zu locks\n", orig->locks.size());
+        // set on the FM-1 through its editor protocol, read back
+        synth.ask(felucca::lockSet(t, 4, 1, 100), 400);   // step 5: ATK 100
+        synth.ask(felucca::microSet(t, 4, -12), 400);
+        synth.ask(felucca::fillSet(t, 5, felucca::kFillNot), 400);
+        auto a = extrasOf(synth);
+        check(a && std::find(a->locks.begin(), a->locks.end(), felucca::Lock{4, 1, 100}) != a->locks.end() && a->micro[4] == -12 && a->fill[5] == felucca::kFillNot,
+              "set on the FM-1 and read back");
+        // Pull: into the plugin's SLOOP
+        check(felucca::copyPatterns(synth, mine, 4, err), "pull");
+        auto m = extrasOf(mine);
+        check(a && m && same(*a, *m), "the plugin has the FM-1's locks, nudges and conditions");
+        // Send: changed in the plugin, sent, read back from the FM-1
+        mine.ask(felucca::lockDelete(t, 4, 1), 400);
+        mine.ask(felucca::lockSet(t, 8, 39, 20), 400);    // step 9: PAN 20
+        mine.ask(felucca::microSet(t, 8, 7), 400);
+        mine.ask(felucca::fillSet(t, 8, felucca::kFillOnly), 400);
+        check(felucca::copyPatterns(mine, synth, 4, err), (juce::String("send ") + err).toRawUTF8());
+        auto s2 = extrasOf(synth), m2 = extrasOf(mine);
+        check(s2 && m2 && same(*s2, *m2) && s2->micro[8] == 7 && s2->fill[8] == felucca::kFillOnly
+              && std::find(s2->locks.begin(), s2->locks.end(), felucca::Lock{4, 1, 100}) == s2->locks.end(), "the FM-1 has the plugin's (the deleted lock gone)");
+        // put the FM-1's part 2 back as it was
+        auto now = felucca::readPattern(synth, t, err);
+        check(now && felucca::writePattern(synth, t, *orig, err, &*now), "put back");
+        auto back = extrasOf(synth);
+        check(back && same(*back, *orig), "the FM-1's part 2 as before");
+        std::printf("%s\n", fails ? "FAILED" : "all ok");
+        return fails ? 1 : 0;
     }
     if (cmd == "felucca-live" && argc > 2) {   // the synth's values, steps and selection change; no flash written
         struct Mine : felucca::Endpoint {
