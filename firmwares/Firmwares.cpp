@@ -62,6 +62,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     static const std::vector<KnownVersion> sloop = {
         // 2.3 does not read 2.4's projects (FUN5) and its engine parameters sit 3 lower: pulled from only
         {900, "2.3", Support::Older, "pulled from only: update it to 2.4.1 with SLOOP's installer to send to it or go Live"},
+        {900, "2.4", Support::Older, "synced as 2.4.1 (the same projects and protocol): update it to 2.4.1 with SLOOP's installer, which fixes imported FM6 patches with AMS playing noise"},
         {900, "2.4.1", Support::Current, ""},
     };
     if (firmwareId == "felucca") return felucca;

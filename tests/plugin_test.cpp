@@ -236,6 +236,13 @@ static int checks() {
             }
             const auto cur = fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.4.1"});
             CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.4.1", "SLOOP 2.4.1: current, nothing to say: " + cur.text);
+            {
+                const fm1::Identity s24{"FM-1", 900, "FELUCCA SLOOP 2.4"};
+                const auto c24 = fm1::checkVersion(s24);
+                CHECK(c24.known && c24.support == fm1::Support::Older && c24.text.find("not tried") == std::string::npos
+                      && c24.text.find("update it to 2.4.1") != std::string::npos && fm1::writesRefused(s24).empty(),
+                      "SLOOP 2.4: a known release, synced as 2.4.1, with the hotfix suggested: " + c24.text);
+            }
             const fm1::Identity s23{"FM-1", 900, "FELUCCA SLOOP 2.3"};
             const auto old = fm1::checkVersion(s23);
             CHECK(old.known && old.support == fm1::Support::Older && old.text.find("pulled from only") != std::string::npos
