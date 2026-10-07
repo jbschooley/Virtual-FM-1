@@ -55,24 +55,27 @@ const int kGlobalRange[27][3] = {
     {0, 1, 0}, {0, 1, 0}, {0, 13, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
     {0, 1, 0}, {0, 0, 0}, {0, 0, 0}};
 
-// SLOOP 2.3's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the
-// slicer (48), then CHORD (49) and the engine's eight from 50. Not P_ED_FX (8): SLOOP's level
-// trim, which its presets set. Its drum track (4) has its kit (P_E0), pattern and slicer only, as
-// the device shows it; its level and reverb are globals (DRLVL, DRREV).
-constexpr int kSloopEngineFirst = 50;
+// SLOOP 2.4.1's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the
+// slicer (48), then CHORD (49), 2.4's FILT, STRUM, VLEAD (50-52) and the engine's eight from 53. Not
+// P_ED_FX (8): SLOOP's level trim, which its presets set. Its drum track (4) has its kit (P_E0),
+// pattern, slicer and filter only, as the device shows it; its level and reverb are globals (DRLVL,
+// DRREV). 2.4's three are listed after the rest (their ids added, none moved).
+constexpr int kSloopCommon = 50, kSloopEngineFirst = 53;
+const struct { const char* name; int range[3]; } kSloop24[3] = {
+    {"filt", {-64, 63, 0}}, {"strum", {-60, 60, 0}}, {"vlead", {0, 1, 0}}};
 const int kSloopTrackRange[50][3] = {
     {0, 127, 104}, {0, 127, 10}, {0, 127, 70}, {0, 127, 90}, {0, 127, 60}, {-64, 63, 0},
     {-64, 63, 0}, {-64, 63, 0}, {-64, 63, 0}, {0, 127, 60}, {0, 4, 0}, {0, 127, 0},
     {0, 127, 0}, {-64, 63, 0}, {-64, 63, 0}, {-64, 63, 0}, {0, 127, 0}, {0, 5, 0},
     {0, 5, 2}, {1, 4, 1}, {1, 127, 64}, {0, 100, 0}, {0, 127, 127}, {0, 1, 0},
     {0, 1, 0}, {0, 11, 0}, {0, 15, 0}, {0, 2, 0}, {-24, 24, 0}, {1, 64, 16},
-    {0, 5, 2}, {0, 100, 0}, {1, 127, 64}, {0, 127, 0}, {0, 127, 0}, {0, 127, 0},
+    {0, 8, 2}, {0, 100, 0}, {1, 127, 64}, {0, 127, 0}, {0, 127, 0}, {0, 127, 0},
     {0, 127, 0}, {0, 3, 0}, {0, 127, 0}, {-64, 63, 0}, {0, 1, 0}, {0, 1, 0},
     {0, 2, 0}, {0, 1, 0}, {0, 127, 40}, {0, 2, 0}, {1, 16, 1}, {0, 5, 1},
     {0, 127, 127}, {0, 5, 0}};
 const int kSloopDrumIds[] = {29, 30, 31, 32, 45, 46, 47, 48};   // the pattern and the slicer
 const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
-    {"bpm", 0, {40, 240, 90}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"dtime", 4, {0, 5, 1}},
+    {"bpm", 0, {40, 240, 90}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"dtime", 4, {0, 7, 1}},
     {"dfdbk", 5, {0, 120, 60}}, {"dcolor", 6, {0, 127, 70}}, {"dmix", 7, {0, 127, 90}}, {"rsize", 8, {0, 127, 90}},
     {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}},
     {"drlvl", 25, {0, 127, 100}}, {"drrev", 26, {0, 127, 16}}, {"dust", 27, {0, 127, 0}},
@@ -91,13 +94,17 @@ std::vector<Entry> build() {
     // SLOOP's
     auto name = [](int i) { return i == 49 ? juce::String("chord") : juce::String(kTrack[i]); };
     for (int t = 0; t < 3; ++t) {
-        for (int i = 0; i < kSloopEngineFirst; ++i)
+        for (int i = 0; i < kSloopCommon; ++i)
             if (i != 8) out.push_back({"slp_t" + juce::String(t + 1) + "_" + name(i), t, i, defaultOf(kSloopTrackRange[i]), true});
         for (int e = 0; e < 8; ++e) out.push_back({"slp_t" + juce::String(t + 1) + "_e" + juce::String(e), t, kSloopEngineFirst + e, 0.0f, true});
     }
     out.push_back({"slp_dr_kit", 3, kSloopEngineFirst, 0.0f, true});
     for (int i : kSloopDrumIds) out.push_back({"slp_dr_" + name(i), 3, i, defaultOf(kSloopTrackRange[i]), true});
     for (const auto& g : kSloopGlobal) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true});
+    for (int t = 0; t < 3; ++t)   // (2.4)
+        for (int k = 0; k < 3; ++k)
+            out.push_back({"slp_t" + juce::String(t + 1) + "_" + kSloop24[k].name, t, kSloopCommon + k, defaultOf(kSloop24[k].range), true});
+    out.push_back({"slp_dr_filt", 3, kSloopCommon, defaultOf(kSloop24[0].range), true});
     return out;
 }
 

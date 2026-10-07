@@ -239,7 +239,7 @@ void LibraryPanel::refreshLive() {
    #if FM1_FELUCCA
     if (proc_.felucca()) {
         on = proc_.feluccaLiveOn();
-        can = proc_.feluccaSynth() && (on || !proc_.session.busy());
+        can = proc_.feluccaSynth() && (on || !proc_.session.busy()) && proc_.feluccaWritesRefused().isEmpty();
         tip = "Live: what changes on the FM-1 changes here and the other way round, in every tab (sounds, the device, "
               "the sequencer). Pull or send first so both start the same.";
     }

@@ -13,10 +13,13 @@
  *    eng_formant.c formant_nz, voice.c's unison seed), the FX buffers, the limiter.
  * 2. health checks on every render: no sample beyond 16 bits, none near full scale, DC offset, the
  *    peak level, every voice free after the release, silence at the end. Fails with the numbers.
- * 3. CPU budget: per engine x preset (8 notes held; VOICE: its 4) and a few mixes, the instructions
- *    per sample counted by the kernel (proc_pid_rusage ri_instructions: the same on every run within
- *    ~1 %, unlike wall time), compared with CPU_FILE (tests/cpu_baseline.txt) at +-25 %; ns per
- *    sample printed for information. A count over the budget fails, one far under it only warns.
+ * 3. CPU budget: per engine x preset (8 notes held; VOICE: its 4) and a few mixes, the cost per
+ *    sample relative to the idle + drums mix (= 1000): instructions counted by the kernel where there
+ *    is a counter (macOS proc_pid_rusage, ~1 % run to run; elsewhere CPU_VALGRIND=1 counts each job
+ *    under callgrind, exact), else the best of three timed seconds (noisier, so the tolerance is
+ *    wider). Compared with CPU_FILE
+ *    (tests/cpu_baseline.txt) at +25 % (instructions) or +35 % (time); ns per sample printed for
+ *    information. A counted cost over the budget fails, a timed one or one far under it only warns.
  * 4. voices: the shared budget of 8 across 3 parts, stolen voices fade (no step), MONO / LEGATO /
  *    UNISON keep their note under pressure, the VOICE engine's 4-voice cap, release frees voices, and
  *    no hanging note after the note-offs on any routing (USB channels 1..3, 10, others while the
@@ -42,8 +45,9 @@
 #ifndef TAIL_S
 #define TAIL_S 3                  /* FX tail rendered after the voices are free */
 #endif
-#define CPU_TOL 0.25              /* +-25 %, and at least CPU_SLACK instructions (light presets) */
-#define CPU_SLACK 20
+#define CPU_TOL 0.25              /* +-25 % with an instruction counter, CPU_TOL_NS timed; and at least */
+#define CPU_TOL_NS 0.35           /* CPU_SLACK (per mille of the idle + drums mix: light presets) */
+#define CPU_SLACK 40
 
 /* ------------------------------------------------------------ results --- */
 typedef struct {
@@ -51,7 +55,7 @@ typedef struct {
     uint32_t frames, over, near, vmax, ok;     /* ok: a scenario's own checks passed */
     int32_t peak, tail_peak, tail_dc, tmin, tmax;
     double dc, free_s;                         /* free_s: s from the last note-off until all voices free, -1 never */
-    double ipc, ns;                            /* CPU: instructions and ns per sample */
+    double ipc, ns, rel;                       /* CPU: instructions and ns per sample; rel: per mille of idle + drums */
     char msg[512];
 } res_t;
 
@@ -306,6 +310,13 @@ static void job_song(const job_t *j)
 
 /* CPU: parts[k] = {engine, preset, notes} (POLY, SUS 127, no ARP; SLICE: MODE LOOP), drums on 16ths if parts[3][0];
  * 0.5 s to settle, then 1 s counted */
+/* this thread's CPU time: unlike the wall clock it does not count the time the host gave to others */
+static uint64_t cpu_ns_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+}
 static uint64_t instr_now(void)
 {
 #ifdef __APPLE__
@@ -315,6 +326,26 @@ static uint64_t instr_now(void)
 #endif
     return 0;
 }
+/* the drums of the CPU mixes: kick on the 1, snare on the 3, hats on the 8ths */
+static void cpu_drums(uint32_t k)
+{
+    if ((k * CTL) % (FS / 8u) < CTL)
+        drum_on((k * CTL) % (FS / 2u) < CTL ? 36u : ((k * CTL) / (FS / 8u)) % 4u == 2u ? 38u : 42u, 100u);
+}
+/* the counted second (its own function: under callgrind, --toggle-collect=cpu_counted counts just this;
+ * hostsim.c empties __attribute__, so the pragma keeps it out of line) */
+#pragma GCC push_options
+#pragma GCC optimize("no-inline")
+static void cpu_counted(uint32_t nb, uint32_t drums_on)
+{
+    uint32_t k;
+    for (k = nb / 2u; k < nb / 2u + nb; k++) {
+        if (drums_on)
+            cpu_drums(k);
+        mix_block(last_out, CTL);
+    }
+}
+#pragma GCC pop_options
 static void job_cpu(const job_t *j)
 {
     static const uint8_t NOTES[8] = {48, 52, 55, 59, 60, 64, 67, 71};
@@ -334,18 +365,50 @@ static void job_cpu(const job_t *j)
         for (i = 0; i < parts[p][2]; i++)
             trk_note_on(&trk[p], NOTES[i] + 12u * p, 100);
     }
-    for (k = 0; k < nb / 2u + nb; k++) {
-        if (k == nb / 2u) {
-            i0 = instr_now();
-            t0 = now_ns();
-        }
-        if (drums_on && (k * CTL) % (FS / 8u) < CTL)
-            drum_on((k * CTL) % (FS / 2u) < CTL ? 36u : ((k * CTL) / (FS / 8u)) % 4u == 2u ? 38u : 42u, 100u);
+    for (k = 0; k < nb / 2u; k++) {                    /* 0.5 s to settle */
+        if (drums_on)
+            cpu_drums(k);
         mix_block(last_out, CTL);
     }
-    R.ns = (double)(now_ns() - t0) / (nb * CTL);
-    R.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
+    {
+        uint32_t reps = instr_now() || getenv("CPU_JOB") ? 1u : 3u, r;   /* timed: the best of three seconds */
+        double best = 0;
+        for (r = 0; r < reps; r++) {
+            double ns;
+            i0 = instr_now();
+            t0 = cpu_ns_now();
+            cpu_counted(nb, drums_on);
+            ns = (double)(cpu_ns_now() - t0) / (nb * CTL);
+            if (!r)
+                R.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
+            if (!r || ns < best)
+                best = ns;
+        }
+        R.ns = best;
+    }
 }
+/* no instruction counter but valgrind (CPU_VALGRIND=1): each CPU job again in a child under callgrind,
+ * which counts the instructions of cpu_counted exactly (the same on every run, ~40 x slower) */
+static double cpu_callgrind(const char *self, const char *gpath, const char *cpath, const char *job)
+{
+    char cmd[1024], line[512];
+    double got = 0;
+    FILE *f;
+    snprintf(cmd, sizeof cmd,
+             "CPU_JOB='%s' valgrind --tool=callgrind --collect-atstart=no '--toggle-collect=cpu_counted*' "
+             "--callgrind-out-file=/dev/null '%s' '%s' '%s' 2>&1 >/dev/null", job, self, gpath, cpath);
+    if (!(f = popen(cmd, "r")))
+        return 0;
+    while (fgets(line, sizeof line, f)) {
+        const char *c = strstr(line, "Collected :");
+        if (c)
+            got = atof(c + 11);
+    }
+    pclose(f);
+    return got / ((double)(FS / CTL) * CTL);
+}
+/* a CPU job's cost in the unit this host has: instructions, else ns */
+static double cpu_cost(const job_t *j) { return j->r.ipc ? j->r.ipc : j->r.ns; }
 
 static int run_job_body(job_t *j)
 {
@@ -380,9 +443,12 @@ static int run_job_body(job_t *j)
 }
 
 /* run jobs [0, n) in children, up to nj at once; results come back through pipes */
+static int only_cpu;                                 /* CPU_JOB: no other job runs (cpu_callgrind's child) */
 static void run_jobs(job_t *jobs, uint32_t n, uint32_t nj)
 {
     uint32_t i, k;
+    if (only_cpu)
+        return;
     for (i = 0; i < n; i += nj) {
         int fd[64];
         pid_t pid[64];
@@ -761,6 +827,7 @@ int main(int argc, char **argv)
     char name[64], s[64];
     if (jobs_at_once < 1u || jobs_at_once > 64u)
         jobs_at_once = 8;
+    only_cpu = getenv("CPU_JOB") != 0;
 
     /* 1 + 2: the golden renders */
     g0 = nj;
@@ -855,7 +922,24 @@ int main(int argc, char **argv)
         j->e = 0xFF;
     }
     c1 = nj;
+    if (getenv("CPU_JOB")) {                          /* one CPU job in this process (cpu_callgrind's child) */
+        for (i = c0; i < c1; i++)
+            if (!strcmp(J[i].name, getenv("CPU_JOB"))) {
+                job_cpu(&J[i]);
+                return 0;
+            }
+        return 2;
+    }
     run_jobs(J + c0, c1 - c0, 1);
+    if (!J[c0].r.ipc && getenv("CPU_VALGRIND") && !system("valgrind --version >/dev/null 2>&1")) {
+        printf("regress: CPU: counting instructions under callgrind (%u jobs)...\n", c1 - c0);
+        fflush(stdout);
+        for (i = c0; i < c1; i++) {
+            double ipc = cpu_callgrind(argv[0], gpath, cpath, J[i].name);
+            if (ipc > 0)
+                J[i].r.ipc = ipc;
+        }
+    }
 
     /* ---- report: goldens and health ---- */
     ng = load_kv(gpath, gold, MAXJ);
@@ -946,59 +1030,76 @@ int main(int argc, char **argv)
     /* a preset's own cost: its count less the idle mix's (the mix alone is half of a light preset's),
      * so +25 % means 25 % more engine work; the mixes as they are */
     nc = load_kv(cpath, cpu, MAXJ);
-    idle_now = J[c1 - 3u].r.ipc;
-    idle_base = kv_get(cpu, nc, J[c1 - 3u].name) ? atof(kv_get(cpu, nc, J[c1 - 3u].name)) : 0;
-    for (i = c0; i < c1; i++) {
-        const job_t *j = &J[i];
-        const char *want = kv_get(cpu, nc, j->name);
-        int own = j->e < NENGINES && idle_base > 0;
-        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = j->r.ipc - (own ? idle_now : 0);
-        if (j->crashed) {
-            printf("regress: CRASH  %s\n", j->name);
-            crash++;
-            continue;
+    {
+        /* every cost per mille of the idle + drums mix of this run: comparable across hosts and units */
+        double ref = cpu_cost(&J[c1 - 2u]), tol = J[c0].r.ipc ? CPU_TOL : CPU_TOL_NS;
+        const char *unit = J[c0].r.ipc ? "instructions" : "time";
+        if (ref <= 0)
+            ref = 1;
+        idle_now = cpu_cost(&J[c1 - 3u]) / ref * 1000.0;
+        idle_base = kv_get(cpu, nc, J[c1 - 3u].name) ? atof(kv_get(cpu, nc, J[c1 - 3u].name)) : 0;
+        for (i = c0; i < c1; i++) {
+            job_t *j = &J[i];
+            const char *want = kv_get(cpu, nc, j->name);
+            int own = j->e < NENGINES && idle_base > 0;
+            double rel = cpu_cost(j) / ref * 1000.0, b = want ? atof(want) - (own ? idle_base : 0) : 0,
+                   v = rel - (own ? idle_now : 0);
+            j->r.rel = rel;
+            if (j->crashed) {
+                printf("regress: CRASH  %s\n", j->name);
+                crash++;
+                continue;
+            }
+            if (j->e < NENGINES && cpu_cost(j) > heavy[j->e]) {
+                heavy[j->e] = cpu_cost(j);
+                heavy_ns[j->e] = j->r.ns;
+                heavy_p[j->e] = j->pi;
+            }
+            if (cupd)
+                continue;
+            if (!want)
+                printf("regress: CPU %s: %.0f per mille of the idle + drums mix, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, v);
+            else if (v > b * (1 + tol) && v > b + CPU_SLACK) {
+                printf("regress: CPU OVER BUDGET  %s: %.0f%s (%s), baseline %.0f (+%.0f %%, limit +%.0f %%)%s\n",
+                       j->name, v, own ? " over the idle mix" : "", unit, b, (v / b - 1) * 100, tol * 100,
+                       j->r.ipc ? "" : " -- timed: a note, not a failure");
+                if (j->r.ipc)
+                    c_fail++;                         /* timed costs are too noisy on a shared host to fail on */
+                else
+                    c_warn++;
+            } else if (v < b * (1 - tol) && v < b - CPU_SLACK) {
+                printf("regress: CPU note  %s: %.0f (%s), baseline %.0f (%.0f %%): faster? "
+                       "BUDGET_UPDATE=1 to keep it\n", j->name, v, unit, b, (v / b - 1) * 100);
+                c_warn++;
+            }
         }
-        if (j->e < NENGINES && j->r.ipc > heavy[j->e]) {
-            heavy[j->e] = j->r.ipc;
-            heavy_ns[j->e] = j->r.ns;
-            heavy_p[j->e] = j->pi;
-        }
-        if (!j->r.ipc || cupd)
-            continue;
-        if (!want)
-            printf("regress: CPU %s: %.0f instructions / sample, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, ipc);
-        else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
-            printf("regress: CPU OVER BUDGET  %s: %.0f instructions / sample%s, baseline %.0f (+%.0f %%, limit +%.0f %%)\n",
-                   j->name, ipc, own ? " over the idle mix" : "", b, (ipc / b - 1) * 100, CPU_TOL * 100);
-            c_fail++;
-        } else if (ipc < b * (1 - CPU_TOL) && ipc < b - CPU_SLACK) {
-            printf("regress: CPU note  %s: %.0f instructions / sample, baseline %.0f (%.0f %%): faster? "
-                   "BUDGET_UPDATE=1 to keep it\n", j->name, ipc, b, (ipc / b - 1) * 100);
-            c_warn++;
-        }
+        if (!J[c0].r.ipc)
+            printf("regress: CPU: no instruction counter on this host: timed (best of three seconds, limit +%.0f %%;"
+                   " CPU_VALGRIND=1 counts them exactly under callgrind)\n", CPU_TOL_NS * 100);
     }
-    if (!J[c0].r.ipc)
-        printf("regress: CPU: no instruction counter on this host (proc_pid_rusage); the budget is not checked\n");
-    else if (cupd) {
+    if (cupd) {
         FILE *f = fopen(cpath, "w");
         if (!f) {
             perror(cpath);
             return 2;
         }
-        fprintf(f, "# FELUCCA host CPU baseline (tests/regress.c): instructions per 44.1 kHz sample, cc -O2 on\n"
-                   "# the Mac (kernel-counted, ~1 %% run to run). The check allows +%.0f %%. Rewritten by BUDGET_UPDATE=1.\n",
-                CPU_TOL * 100);
+        fprintf(f, "# SLOOP host CPU baseline (tests/regress.c): cost per sample, per mille of the idle + drums mix\n"
+                   "# (cpu/mix/idle_drums = 1000), cc -O2; %s on the host that wrote it. The check allows +%.0f %%\n"
+                   "# (instructions) or +%.0f %% (timed). Rewritten by BUDGET_UPDATE=1.\n",
+                J[c0].r.ipc ? "instructions counted" : "timed, best of three seconds", CPU_TOL * 100, CPU_TOL_NS * 100);
         for (i = c0; i < c1; i++)
-            fprintf(f, "%s %.0f\n", J[i].name, J[i].r.ipc);
+            fprintf(f, "%s %.0f\n", J[i].name, J[i].r.rel);
         fclose(f);
         printf("regress: CPU baseline %s rewritten (%u entries)\n", cpath, c1 - c0);
     }
-    printf("regress: CPU, one part with 8 notes held (VOICE 4), heaviest preset per engine (instructions / ns per sample):\n");
+    printf("regress: CPU, one part with 8 notes held (VOICE 4), heaviest preset per engine (%s / ns per sample):\n",
+           J[c0].r.ipc ? "instructions" : "per mille");
     for (e = 0; e < NENGINES; e++)
-        printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
-               heavy[e], heavy_ns[e]);
+        printf("regress:   %-8s %-14s %6.0f %s  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
+               J[c0].r.ipc ? heavy[e] : heavy[e] / cpu_cost(&J[c1 - 2u]) * 1000.0, J[c0].r.ipc ? "instr" : "/1000", heavy_ns[e]);
     for (i = c1 - 3u; i < c1; i++)
-        printf("regress:   %-23s %6.0f instr  %6.1f ns\n", J[i].name + 8, J[i].r.ipc, J[i].r.ns);
+        printf("regress:   %-23s %6.0f %s  %6.1f ns\n", J[i].name + 8, J[i].r.ipc ? J[i].r.ipc : J[i].r.rel,
+               J[i].r.ipc ? "instr" : "/1000", J[i].r.ns);
 
     printf("regress: %u golden renders (%u changed, %u gone), %u health failures, %u voice / routing checks failed, "
            "%u CPU entries over budget (%u notes), %u crashes; %.1f s\n", g1 - g0, gupd ? 0 : g_changed,

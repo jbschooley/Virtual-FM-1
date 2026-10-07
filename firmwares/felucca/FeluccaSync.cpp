@@ -65,8 +65,10 @@ const Dialect& feluccaDialect() {
 // for a lane edit, but TRACK_STEP there is a four-lane view without levels or ratchets: DRUM_STEP
 // (33: index -> index, lanes 3, levels 5, ratchets 5; the same args write them) carries it whole.
 const Dialect& sloopDialect() {
+    // 2.4: object 8, its FM6 patch bank (restored before the projects that name its slots), and a
+    // fourth user sample slot (35)
     static const Dialect d{"SLOOP", 34, 35, 36, false,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34}, {6, 7, 2, 3, 4, 5, 0, 1}, 7, false, "sloop-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34, 35}, {6, 7, 8, 2, 3, 4, 5, 0, 1}, 8, true, "sloop-backup",
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30}, 3, 33};
     return d;
 }
@@ -101,7 +103,7 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     auto v = juce::JSON::parse(f.loadFileAsString());
     auto* objs = v.getProperty("objects", {}).getArray();
     const auto& ids = d.ids;
-    const bool sloop = !d.fm6;
+    const bool sloop = isSloop(d);
     // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
     const bool complete = objs && (sloop || (objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
@@ -139,7 +141,7 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
 }
 
 juce::String backupJson(const Objects& objects, const juce::String& firmware, const Dialect& d) {
-    const bool sloop = !d.fm6;
+    const bool sloop = isSloop(d);
     juce::Array<juce::var> list;
     for (int id : d.ids) {
         auto it = objects.find(id);
@@ -561,7 +563,8 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
         std::vector<uint8_t> q = {uint8_t(track), uint8_t((i - 3) / 2), src[i], src[i + 1]};
         if (!askAgain(to, frame(kTrackParam, q))) { error = "no answer to TRACK_PARAM"; return false; }
     }
-    if (!from.dialect().fm6 || !to.dialect().fm6) return true;   // (SLOOP has no FM6 engine)
+    if (!from.dialect().fm6 || !to.dialect().fm6) return true;
+    if (isSloop(from.dialect()) && track >= 3) return true;   // (SLOOP 2.4: the synth parts have an FM6 patch, the drums none)
     auto p = from.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
     auto pa = p ? argsOf(*p) : std::vector<uint8_t>{};
     if (pa.size() == 3 + 128 && pa[2] == 0) {

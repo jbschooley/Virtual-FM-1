@@ -3,7 +3,7 @@
 /* Felucca user interface. Four columns map to KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "SLOOP 2.3"  /* the beat machine firmware for the FM-1 (based on Felucca) */
+#define FELUCCA_VERSION "SLOOP 2.4.1"  /* the beat machine firmware for the FM-1 (based on Felucca) */
 #endif
 static void project_save(uint32_t slot);
 static void arrangement_save(void);
@@ -69,6 +69,8 @@ static struct {
     uint8_t step_page;           /* SEQ layer: the 16 steps shown (page x 16) */
     uint16_t step_held;          /* SEQ layer: the step keys held (white key index) */
     uint32_t step_sess;          /* SEQ layer: the undo session of this hold */
+    uint8_t lock_par;            /* SEQ layer, a step held + KNOB 4: the parameter it locks (the last sound
+                                  * parameter a knob changed on a page of the selected track; P_ED_FLT at boot) */
     uint8_t hold_kind;           /* a hold to confirm: 1 = clear the track (REC), 2 = save (SAVE) */
     uint32_t hold_t0;            /* (ms) */
     uint8_t hold_trk;
@@ -79,6 +81,8 @@ static struct {
     /* drawn-state cache */
     char col[4][32];
     char focus_l[8], focus_v[8], focus_u[8];   /* the touched column, shown large */
+    char big_l[4][8], big_v[4][10], big_u[4][8];   /* the four columns, for the big values (2.4: pages without a graph) */
+    uint16_t big_c[4];
     uint32_t graph_sig, head_sig, foot_sig, frame;
     uint8_t graph_top;           /* the graph strip's top G_OY rows hold something */
 } ui;
@@ -196,6 +200,35 @@ static void open_family(uint32_t fam)
     page_entered();
 }
 
+/* SELECT on a page: the previous / next page of its family, as tapping the button again but both ways,
+ * stopping at the ends. Not the screens of their own (SONG, DRUMS) nor a family of one page (TRACKS):
+ * 0 then, and SELECT is the tempo there */
+static int page_walk(int32_t s)
+{
+    const page_t *pg = cur_page();
+    uint32_t i, fam = pg->fam, n = 0;
+    int32_t cur = -1, to;
+    uint8_t idx[8];
+    if (ui.home || pg->scope == SC_SONG || pg->scope == SC_DRUM)
+        return 0;
+    for (i = 0; i < NPAGES && n < 8u; i++) {
+        if (PAGES[i].fam != fam || PAGES[i].scope == SC_SONG || PAGES[i].scope == SC_DRUM)
+            continue;
+        if (i == ui.page)
+            cur = (int32_t)n;
+        idx[n++] = (uint8_t)i;
+    }
+    if (n < 2u || cur < 0)
+        return 0;
+    to = clamp(cur + s, 0, (int32_t)n - 1);
+    if (to != cur) {
+        ui.page = idx[to];
+        ui.fam_last[fam] = ui.page;
+        page_entered();
+    }
+    return 1;
+}
+
 static void go_home(void)
 {
 #if FELUCCA_ARRANGER
@@ -223,13 +256,13 @@ static int seq_is_empty(const track_t *t) { return track_empty(t); }
 static void track_defaults_steps(track_t *t) { steps_clear(t); }
 
 /* what loading a sound (factory or user preset) leaves alone: the mix (LEVEL, PAN, MUTE:
- * the TRACKS faders), the pattern parameters (LEN, DIV, SWING, GATE) and the key the part plays
+ * the TRACKS faders, and the track FILTER), the pattern parameters (LEN, DIV, SWING, GATE) and the key the part plays
  * in (ROOT, SCALE, QNT, CHORD: the song's; SCL + key sets the root of every part). The SLICER is
  * part of the sound: a factory preset turns it OFF (its defaults), a user preset brings its own */
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_SLEN && i <= P_SGATE) ||
-           (i >= P_ROOT && i <= P_QUANT) || i == P_CHORD;
+           (i >= P_ROOT && i <= P_QUANT) || i == P_CHORD || i == P_TFLT || i == P_STRUM || i == P_VLEAD;
 }
 
 /* preset pi of the engine the track asked for: the whole sound (not the pattern parameters) */
@@ -268,6 +301,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         }
         preset_extras(t->p, pr);                     /* glide, pitch / LFO modulation, voice mode */
     }
+    fm6_track_loaded(t);                             /* FM6: the preset's patch (its PTCH) */
 }
 
 /* the engine's defaults and its first preset. With the audio IRQ off: the ISR sees the old engine with
@@ -279,6 +313,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
     if (is_drum(t))
         return;
     fm1_irq_off();
+    locks_restore(t);                                 /* (a lock in force: its base first, then the new sound) */
     t->eng_req = (uint8_t)(ei % NENGINES);
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = e->edit[i].def;
@@ -317,21 +352,24 @@ static const struct { uint8_t kind, e; const char *name; } BANK[] = {
     {BK_BASS, 0, "PLUGG BASS"}, {BK_BASS, 0, "REESE"}, {BK_BASS, 0, "WOBBLE"}, {BK_BASS, 0, "ACID 303"},
     {BK_BASS, 1, "FM BASS"}, {BK_BASS, 2, "CZ BASS"}, {BK_BASS, 6, "FAT BASS"}, {BK_BASS, 0, "FUNK BASS"},
     {BK_BASS, 5, "WOW BASS"}, {BK_BASS, 3, "GB BASS"}, {BK_BASS, 4, "UP BASS"}, {BK_BASS, 4, "DEEP BASS"},
+    {BK_BASS, ENGI_FM6, "ROUND BASS"},
     {BK_KEYS, 1, "RHODES"}, {BK_KEYS, 1, "DX RHODES"}, {BK_KEYS, 1, "WURLI"}, {BK_KEYS, 1, "M1 PIANO"},
     {BK_KEYS, 1, "AFRO KEYS"}, {BK_KEYS, 4, "GRAND PNO"}, {BK_KEYS, 4, "DUSTY PNO"}, {BK_KEYS, 4, "LOFI KEYS"}, {BK_KEYS, 2, "SOFT KEYS"},
-    {BK_KEYS, 1, "CLAV"},
+    {BK_KEYS, 1, "CLAV"}, {BK_KEYS, ENGI_FM6, "TINE EP"},
     {BK_ORGAN, 7, "SOUL ORGAN"}, {BK_ORGAN, 7, "GOSPEL"}, {BK_ORGAN, 7, "JAZZ ORGAN"}, {BK_ORGAN, 7, "DIRTY B3"},
-    {BK_ORGAN, 7, "HOUSE ORGN"},
+    {BK_ORGAN, 7, "HOUSE ORGN"}, {BK_ORGAN, ENGI_FM6, "DRAWBARS"},
     {BK_PAD, 0, "WARM PAD"}, {BK_PAD, 6, "SAW PAD"}, {BK_PAD, 1, "GLASS PAD"}, {BK_PAD, 0, "DARK STR"},
     {BK_PAD, 2, "CZ STRING"}, {BK_PAD, 0, "ATMOS PAD"}, {BK_PAD, 8, "LOFI CLOUD"}, {BK_PAD, 8, "VIBE HAZE"},
-    {BK_PAD, 5, "CHOIR AAH"}, {BK_PAD, 5, "SOUL OOH"},
+    {BK_PAD, 5, "CHOIR AAH"}, {BK_PAD, 5, "SOUL OOH"}, {BK_PAD, ENGI_FM6, "SOFT PAD"},
     {BK_LEAD, 0, "SUPERSAW"}, {BK_LEAD, 0, "G-FUNK LD"}, {BK_LEAD, 6, "SYNC LEAD"}, {BK_LEAD, 6, "HOOVER"},
     {BK_LEAD, 5, "TALKBOX"}, {BK_LEAD, 3, "GAME LEAD"}, {BK_LEAD, 4, "LOFI FLUTE"}, {BK_LEAD, 8, "FLUTE DUST"},
     {BK_PLUCK, 0, "TRAP PLUCK"}, {BK_PLUCK, 2, "RESO PLUCK"}, {BK_PLUCK, 1, "PLUGG BELL"}, {BK_PLUCK, 1, "TRAP BELL"},
     {BK_PLUCK, 1, "MUSIC BOX"}, {BK_PLUCK, 1, "KALIMBA"}, {BK_PLUCK, 1, "MARIMBA"}, {BK_PLUCK, 4, "VIBES"},
-    {BK_PLUCK, 3, "8BIT ARP"},
+    {BK_PLUCK, 3, "8BIT ARP"}, {BK_PLUCK, ENGI_FM6, "GLASS BELL"}, {BK_PLUCK, ENGI_FM6, "WOOD BARS"},
+    {BK_PLUCK, ENGI_FM6, "NYLON PICK"},
     {BK_STAB, 6, "MIN STAB"}, {BK_STAB, 6, "MIN7 STAB"}, {BK_STAB, 6, "RAVE STAB"}, {BK_STAB, 6, "DUB CHORD"},
     {BK_STAB, 0, "SYN BRASS"}, {BK_STAB, 2, "CZ BRASS"}, {BK_STAB, 4, "HORN STAB"}, {BK_STAB, 4, "STRING STB"},
+    {BK_STAB, ENGI_FM6, "BRASS SECT"},
     {BK_FX, 4, "SCRATCH"}, {BK_FX, 4, "GM KIT"},
 };
 #define NBANK (sizeof BANK / sizeof BANK[0])

@@ -361,15 +361,28 @@ static void mono_remove(track_t *t, uint32_t note)
     t->nmono = (uint8_t)k;
 }
 
+/* the notes each synth part started since the UI last looked (menu NOTES: a short note lights its key
+ * for a few frames, as a drum hit does; ui_studio.c pads_tick). Set here (mostly the audio ISR), taken
+ * by the UI with the IRQ off */
+static volatile uint32_t note_hits[NPART][4];
+/* the visualiser (ui_vis.c): the tracks a note started on (bit per track), each one's last note, a kick */
+static volatile uint8_t vis_hit, vis_kick_hit, vis_note[NTRK];
+
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = (uint32_t)t->p[P_VOICE];
     if (trk_silent(t))
         return;                                         /* MUTE, or another track soloed */
+    vis_hit |= (uint8_t)(1u << ((uint32_t)(t - trk) & 3u));
+    vis_note[(uint32_t)(t - trk) & 3u] = (uint8_t)note;
     if (is_drum(t)) {                                   /* the drum track: GM drums (drums.c) */
+        if (note == 35u || note == 36u)
+            vis_kick_hit = 1;
         drum_on(note, vel);
         return;
     }
+    if ((uint32_t)(t - trk) < NPART && note < 128u)
+        note_hits[t - trk][note >> 5] |= 1u << (note & 31u);
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
             ;
@@ -410,11 +423,24 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
     }
 }
 
+/* STRUM (2.4, P_STRUM): a chord's notes start one after the other, |P_STRUM| ms apart (> 0 from the lowest up, as
+ * a guitar's down stroke; < 0 from the highest down). The later ones wait here, in samples; a note-off before its
+ * start cancels it, a track's all-off (STOP) clears them */
+#define STQ 16u
+static struct { uint8_t on, trk, note, vel; uint32_t left; } stq[STQ];
+static void strum_cancel(const track_t *t, uint32_t note, int all)
+{
+    uint32_t i;
+    for (i = 0; i < STQ; i++)
+        if (stq[i].on && stq[i].trk == (uint8_t)(t - trk) && (all || stq[i].note == note))
+            stq[i].on = 0;
+}
 static void trk_note_off(track_t *t, uint32_t note)
 {
     uint32_t i, k = 0, mode = (uint32_t)t->p[P_VOICE];
     if (is_drum(t))
         return;                                         /* one-shots */
+    strum_cancel(t, note, 0);
     for (i = 0; i < t->xp_n; i++)                       /* not sounding yet (engine switch): forget it */
         if (t->xp_note[i] != note) {
             t->xp_note[k] = t->xp_note[i];
@@ -450,6 +476,7 @@ static void trk_note_off(track_t *t, uint32_t note)
 static void trk_all_off(track_t *t)
 {
     uint32_t i;
+    strum_cancel(t, 0, 1);
     for (i = 0; i < NVOICE; i++) {
         t->v[i].gate = 0;
         t->v[i].stage = t->v[i].active ? 3 : 0;
@@ -457,6 +484,51 @@ static void trk_all_off(track_t *t)
     t->nmono = 0;
     t->mono_note = 0;
     t->xp_n = 0;
+}
+
+/* note i of a chord of n (notes[]): at once, or strummed (rank: its place from the lowest, or the highest) */
+static void trk_note_chord(track_t *t, const uint8_t *notes, uint32_t n, uint32_t i, uint32_t vel)
+{
+    int32_t s = t->p[P_STRUM];
+    uint32_t rank = 0, j, q;
+    if (!s || n < 2u || is_drum(t)) {
+        trk_note_on(t, notes[i], vel);
+        return;
+    }
+    for (j = 0; j < n; j++)                             /* its place: lowest first (down), highest first (up) */
+        if (j != i && (s > 0 ? notes[j] < notes[i] || (notes[j] == notes[i] && j < i)
+                             : notes[j] > notes[i] || (notes[j] == notes[i] && j < i)))
+            rank++;
+    if (!rank) {
+        trk_note_on(t, notes[i], vel);
+        return;
+    }
+    strum_cancel(t, notes[i], 0);
+    for (q = 0; q < STQ && stq[q].on; q++)
+        ;
+    if (q == STQ) {                                     /* (full: at once) */
+        trk_note_on(t, notes[i], vel);
+        return;
+    }
+    stq[q].trk = (uint8_t)(t - trk);
+    stq[q].note = (uint8_t)notes[i];
+    stq[q].vel = (uint8_t)vel;
+    stq[q].left = rank * (uint32_t)(s < 0 ? -s : s) * (uint32_t)FS / 1000u;
+    stq[q].on = 1;
+}
+/* each audio block: the strummed notes due */
+static void strum_block(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < STQ; i++)
+        if (stq[i].on) {
+            if (stq[i].left <= n) {
+                stq[i].on = 0;
+                trk_note_on(&trk[stq[i].trk % NTRK], stq[i].note, stq[i].vel);
+            } else {
+                stq[i].left -= n;
+            }
+        }
 }
 
 /* engine switch, at each block start (events_block), before any note of the block. The UI writes
@@ -574,10 +646,24 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             continue;
         {
             env = env_tick(t, v);
+            if (e->ownenv && v->active) {               /* the engine's envelopes (FM6): they end the voice */
+                if (e->done(t, v)) {
+                    v->active = v->gate = 0;
+                    v->stage = 0;
+                    v->kill = 0;
+                    v->env = v->env_out = 0;
+                    continue;
+                }
+                if (v->stage != 4u) {                   /* (the ADSR's release never ends it; a voice given up for
+                                                         * another part still fades out: env_tick stage 4) */
+                    v->env = 1 << 24;
+                    env = 32767;
+                }
+            }
             if (e->amp)                                 /* the engine's own amplitude curve */
                 env = e->amp(t, v, env);
-            m.envq15 = env;
-            m.amp1 = mulq15(env, v->vel * 258);
+            m.envq15 = e->ownenv ? 0 : env;
+            m.amp1 = e->ownenv ? env : mulq15(env, v->vel * 258);
             if (p[P_LD_AMP])
                 m.amp1 = mulq15(m.amp1, 32767 - mulq15((lfo + 32768) >> 1, p[P_LD_AMP] * 258));
             if (fade)                                   /* linear to 0 over the fade */
@@ -605,8 +691,9 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             m.pitch16 = clamp(pitch, 0, 2047);
             m.inc = PITCH_INC[m.pitch16];
             q = (q & 255) * 3792 >> 16;                 /* the fraction, as fine (1/16 st = 14.8) */
-            if (v->fine + tune_fine + q)                /* unison detune, fine tune and the fraction */
-                m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine + q));
+            m.fine = v->fine + tune_fine + q;
+            if (m.fine)                                 /* unison detune, fine tune and the fraction */
+                m.inc += (uint32_t)((int32_t)(m.inc >> 12) * m.fine);
         }
         m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7);
         if (v->vel > 110)                               /* accent opens the filter with the env */

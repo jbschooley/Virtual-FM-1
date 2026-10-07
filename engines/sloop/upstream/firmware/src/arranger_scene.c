@@ -8,6 +8,23 @@ static uint32_t arrangement_ready(void)
     return ready;
 }
 
+/* the bars a section's loop takes (its longest pattern: ceil(LEN x step / bar), at least 1): the quick
+ * chain (seq.c chain_*) plays each of its sections this long */
+static uint32_t section_bars(uint32_t s)
+{
+    const project_t *p = &proj_slot[s & 3u];
+    uint32_t k, bars = 1;
+    if (!proj_ok(p))
+        return 1;
+    for (k = 0; k < NTRK; k++) {
+        uint32_t len = (uint32_t)clamp(p->t[k].p[P_SLEN], 1, NSTEP), u = div_units((uint32_t)p->t[k].p[P_SDIV] % NDIV_STEP);
+        uint32_t b = (len * u + 4u * BEAT_U - 1u) / (4u * BEAT_U);   /* (64 x 8 beats fits 32 bits) */
+        if (b > bars)
+            bars = b;
+    }
+    return bars > 64u ? 64u : bars;
+}
+
 /* Called only at an audio-block boundary, after validation of all slots at
  * start. The song keeps one tempo and global FX across every section (only the drum
  * level and reverb come from it). */

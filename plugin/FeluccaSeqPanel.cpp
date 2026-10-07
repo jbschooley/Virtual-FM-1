@@ -783,7 +783,7 @@ void FeluccaSeqPage::timerCallback() {
     play_.setToggleState(f->playing(), juce::dontSendNotification);
     const bool synth = proc_.feluccaSynth() && !proc_.session.busy();
     pull_.setEnabled(synth);
-    send_.setEnabled(synth);
+    send_.setEnabled(synth && proc_.feluccaWritesRefused().isEmpty());
     if (juce::Time::getMillisecondCounter() >= sayUntil_)   // (a message said lately stays)
         info_.setText(proc_.feluccaLiveOn() ? "Live with the FM-1: every edit here reaches it." :
                       proc_.feluccaSynth() ? "Connected: Pull or Send the patterns, or turn Live on (top bar)." : "",

@@ -1130,6 +1130,13 @@ juce::String FM1Processor::feluccaSynthProblem() const {
     return check.support == fm1::Support::Deprecated ? juce::String(check.text) : juce::String();
 }
 
+// Connected to a synth the plugin only reads from (SLOOP before 2.4): why, else empty
+juce::String FM1Processor::feluccaWritesRefused() const {
+    auto id = session.lastIdentity();
+    if (!feluccaSynth() || !id) return {};
+    return fm1::writesRefused(*id);
+}
+
 // The synth's own objects, kept in the library before anything is written to it.
 static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Dialect& d) {
     auto f = LibraryStore::root().getChildFile(d.name).getChildFile("Backups")
@@ -1139,7 +1146,7 @@ static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Di
 }
 
 // what a full Pull or Send moves, said in the firmware's terms
-static juce::String everything(const felucca::Dialect& d) { return d.fm6 ? "music, projects and user presets (with their FM6 patches)" : "working project, projects A-D and user presets"; }
+static juce::String everything(const felucca::Dialect& d) { return !felucca::isSloop(d) ? "music, projects and user presets (with their FM6 patches)" : "working project, projects A-D, user presets and FM6 bank"; }
 
 bool FM1Processor::feluccaPull() {
     auto f = felucca();
@@ -1164,7 +1171,7 @@ bool FM1Processor::feluccaPull() {
 
 bool FM1Processor::feluccaSend() {
     auto f = felucca();
-    if (!f || !feluccaSynth()) return false;
+    if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty()) return false;
     const auto& d = felucca::dialectOf(*f);
     return session.job("Backing up the FM-1, then sending everything to it...", [f, &d](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, d);
@@ -1203,7 +1210,7 @@ bool FM1Processor::feluccaPullSound(int track) {
 
 bool FM1Processor::feluccaSendSound(int track) {
     auto f = felucca();
-    if (!f || !feluccaSynth() || track < 0 || track >= f->tracks()) return false;
+    if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty() || track < 0 || track >= f->tracks()) return false;
     return session.job("Sending part " + juce::String(track + 1) + "'s sound to the FM-1...", [f, track](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
@@ -1217,7 +1224,7 @@ bool FM1Processor::feluccaSendSound(int track) {
 bool FM1Processor::feluccaLive(bool on) {
     if (!on) { if (felLive_) session.cancel(); return true; }
     auto f = felucca();
-    if (!f || !feluccaSynth() || felLive_) return false;
+    if (!f || !feluccaSynth() || felLive_ || feluccaWritesRefused().isNotEmpty()) return false;
     felLive_ = true;
     const bool started = session.job("Live with the FM-1 running " + juce::String(felucca::dialectOf(*f).name) + "...", [this, f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
@@ -1318,7 +1325,7 @@ bool FM1Processor::feluccaPullPatterns() {
 
 bool FM1Processor::feluccaSendPatterns() {
     auto f = felucca();
-    if (!f || !feluccaSynth()) return false;
+    if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty()) return false;
     return session.job("Sending the patterns to the FM-1...", [f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);

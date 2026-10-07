@@ -106,7 +106,7 @@ function(fm1_core_copies kind tag copies)
     string(REPLACE "${smpDecl}" "const uint8_t ${tag}_smp_data[" array "${array}")
     file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
          "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
-         "const uint8_t ${tag}_no_samples[3][0x14000] = {{0}};\n${array}\n")
+         "const uint8_t ${tag}_no_samples[4][0x14000] = {{0}};\n${array}\n")
     string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
     file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
     set(includes ${CMAKE_BINARY_DIR}/${kind}/shared ${CMAKE_SOURCE_DIR}/engines/${kind}/generated

@@ -172,6 +172,10 @@ def svg(kind):
 
 # ---- firmware splash ---------------------------------------------------------------------------
 SPLASH_W, SPLASH_H = 240, 188
+# the scale: the icon (240), the gap (22), the wordmark's x-height (72), the p's descender (36) and its round
+# end (6): 376 units in SPLASH_H rows. At 0.56 (before 2.4) the p's tail ran past row 188 and was cut
+SPLASH_K = 0.5
+assert (262 + 72 + 36 + 6) * SPLASH_K <= SPLASH_H, "the wordmark's p must fit the splash"
 
 
 def rgb565(c):
@@ -180,7 +184,7 @@ def rgb565(c):
 
 
 def splash_header(path):
-    im = render("v", SPLASH_W, SPLASH_H, 0.56)
+    im = render("v", SPLASH_W, SPLASH_H, SPLASH_K)
     # a fixed palette: black, and each logo colour at 1/3, 2/3 and full (the anti-aliased edges)
     cols = [BLACK]
     for c in (WHITE, BLUE, GREEN, YELLOW, ORANGE):
@@ -219,7 +223,7 @@ def assets(out):
     (out / "sloop-icon.svg").write_text(svg("i"))
     render("h", 1520, 520, 2.0).save(out / "sloop-logo.png")
     render("i", 512, 512, 512 / 240).save(out / "sloop-icon.png")
-    render("v", SPLASH_W, SPLASH_H, 0.56).resize((SPLASH_W * 2, SPLASH_H * 2), Image.NEAREST).save(out / "sloop-splash.png")
+    render("v", SPLASH_W, SPLASH_H, SPLASH_K).resize((SPLASH_W * 2, SPLASH_H * 2), Image.NEAREST).save(out / "sloop-splash.png")
     print(f"logo: assets in {out}")
 
 

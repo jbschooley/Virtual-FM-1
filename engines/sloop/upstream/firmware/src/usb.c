@@ -196,6 +196,33 @@ static const uint8_t CFG_DESC[] = {
 #endif
 };
 typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
+#if FELUCCA_CDC
+/* SLOOP 2.4, after Felucca 1.0.3 (#67): menu USB SERIAL. ON presents the serial console as before (the
+ * descriptors above, byte for byte); OFF, the default, presents the device as a FELUCCA_CDC=0 build does: class 0,
+ * no IAD, audio + MIDI only (the same bytes: tests/uac_test.c compares them). With the console, macOS 13-15 let
+ * Apple's CDC composite driver take the device and the USB audio input never appears. The console is a developer
+ * tool; the editor, the installer and the soft key use USB-MIDI. Read once, before usb_start (main.c: the settings
+ * are loaded first), so the host sees one device from the start */
+static uint8_t usb_cdc_on;
+static const uint8_t DEV_DESC_PLAIN[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, 0x01, 0x00,
+                                           0x00 + 0x10 * FELUCCA_UAC, 0x03, 1, 2, 0, 1};
+#define CFG_PLAIN_LEN (CFG_LEN - 74)                    /* without the audio IAD (8) and the CDC block (66) */
+static uint8_t cfg_plain[CFG_PLAIN_LEN];
+static const uint8_t *cfg_plain_get(void)
+{
+    if (!cfg_plain[0]) {
+        memcpy(cfg_plain, CFG_DESC, 9);
+        cfg_plain[2] = CFG_PLAIN_LEN & 0xFF;
+        cfg_plain[3] = CFG_PLAIN_LEN >> 8;
+        cfg_plain[4] = USB_NIF - 2;
+        memcpy(cfg_plain + 9, CFG_DESC + 17, CFG_PLAIN_LEN - 9);
+    }
+    return cfg_plain;
+}
+static int usb_cdc_now(void) { return usb_cdc_on; }   /* (the menu: what this start presents) */
+#else
+static int usb_cdc_now(void) { return 0; }
+#endif
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
 static const uint8_t STR1[] = {42, 3, 'H', 0, 0xFC, 0, 'g', 0, 'e', 0, 'l', 0, 't', 0, 'o', 0, 'n', 0, ' ', 0, 'I', 0,
                                'n', 0, 's', 0, 't', 0, 'r', 0, 'u', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 's', 0};
@@ -212,10 +239,20 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
     case 1:
         *d = DEV_DESC;
         *l = sizeof DEV_DESC;
+#if FELUCCA_CDC
+        if (!usb_cdc_on)
+            *d = DEV_DESC_PLAIN;
+#endif
         return 1;
     case 2:
         *d = CFG_DESC;
         *l = sizeof CFG_DESC;
+#if FELUCCA_CDC
+        if (!usb_cdc_on) {
+            *d = cfg_plain_get();
+            *l = CFG_PLAIN_LEN;
+        }
+#endif
         return 1;
     case 3:
         switch (wvalue & 0xFFu) {
@@ -493,7 +530,7 @@ static void ep0_service(void)
         return;
     case 0x0201: {                                      /* CLEAR_FEATURE(ENDPOINT_HALT): data toggle reset */
 #if FELUCCA_CDC
-        uint32_t ep = s[4] & 0x0Fu, last = 3u;
+        uint32_t ep = s[4] & 0x0Fu, last = usb_cdc_on ? 3u : 1u;   /* (USB SERIAL OFF: EP2 / EP3 are not described) */
 #else
         uint32_t ep = s[4] & 0x0Fu, last = 1u;
 #endif

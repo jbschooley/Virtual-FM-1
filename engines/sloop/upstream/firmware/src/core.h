@@ -17,8 +17,13 @@ enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
 #ifndef FELUCCA_SLICE
 #define FELUCCA_SLICE 0          /* the SLICE engine (eng_slice.c): kept in the tree, not built by default */
 #endif
-#define NENGINES (9 + FELUCCA_SLICE)   /* SLICE, when built, comes last: the other engines keep their numbers */
+/* SLOOP 2.4: FM6 (eng_fm6.c) is engine 9 in every build; SLICE, when built, comes last (10). Projects and user
+ * presets store the engine index as a byte, and no shipped SLOOP was built with SLICE, so its number is stored
+ * nowhere: FM6 may take 9 and SLICE moves up (engines.c ENGINES[], params.c N_ENGNAME follow this order) */
+#define NENGINES (10 + FELUCCA_SLICE)
+#define ENGI_FM6 9u              /* the FM6 engine's index (eng_fm6.c, the stores: append-only) */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
+#define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
 enum {
@@ -53,6 +58,9 @@ enum {                          /* per-track parameters */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c); new common parameters go just
                                                 * before P_E0 (user presets and projects map by count) */
     P_CHORD,                                   /* chord mode: one key plays a chord of the scale (seq.c) */
+    P_TFLT,                                    /* SLOOP 2.4: the track's filter, < 0 low-pass, > 0 high-pass (fx.c) */
+    P_STRUM,                                   /* SLOOP 2.4: a chord's notes one after the other, ms each (> 0 down, < 0 up) */
+    P_VLEAD,                                   /* SLOOP 2.4: chord mode, each chord voiced nearest the last (seq.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -96,6 +104,8 @@ typedef struct {                 /* per-voice control-rate modulation, computed 
     int32_t cutoff;              /* 0..127 << 8 */
     int32_t shape;               /* 0..127 << 8 */
     int32_t envq15;              /* env value (for engines that use it as a mod source) */
+    int32_t fine;                /* the residual below 1/16 semitone in inc: unison detune, TUNE, the glide's
+                                  * fraction (1/4096); FM6 reads it (the others take inc) */
 } vmod_t;
 
 typedef struct {
@@ -137,6 +147,11 @@ typedef struct {
     const param_desc_t *(*desc)(const struct track *t, uint32_t k);
     /* optional: once per block and part, before its voices (also with no voice sounding) */
     void (*block)(struct track *t);
+    /* 1 = the engine's own envelopes are the voice's amplitude (FM6): voice.c renders it at 1.0 (no ADSR, no
+     * velocity; LFO -> AMP and the fades still apply; ENV is 0) and the voice ends when done() says so (once
+     * per control tick, before the render), not at the end of the ADSR's release */
+    uint8_t ownenv;
+    int (*done)(struct track *t, voice_t *v);
 } engine_t;
 
 /* ------------------------------------------------------------ track --- */
@@ -162,6 +177,18 @@ typedef struct {                 /* a step of the drum track (10 bytes, the size
     uint8_t rat[4];              /* 2 bits per lane: ratchet */
 } dstep_t;
 _Static_assert(sizeof(step_t) == 10 && sizeof(dstep_t) == 10, "a step is 10 bytes on every track");
+/* SLOOP 2.4: per-step nudge (micro timing) and parameter locks (seq.c seq_tick / lock_step) */
+#define MICRO_MIN (-32)          /* a step's nudge in 1/64 of its length: half a step early .. */
+#define MICRO_MAX 31             /* .. just under half a step late (0 = on the grid) */
+#define NLOCK 24                 /* parameter locks per track (several may share a step: other params) */
+typedef struct {                 /* a lock: on step `step` the track's p[param] is `val` (4 bytes) */
+    uint8_t step;                /* 0xFF = a free slot */
+    uint8_t param;               /* P_* (a lockable one: p_lockable) */
+    int16_t val;
+} plock_t;
+#define LOCK_FREE 0xFFu
+/* a step's condition (SLOOP 2.4 fill, GLO + key 9 / 10): plays always, only during a fill, never during one */
+enum { FC_NORM, FC_FILL, FC_NOFILL };     /* (3: as FC_NORM) */
 
 typedef struct track {
     int16_t p[P_COUNT];
@@ -191,11 +218,22 @@ typedef struct track {
         step_t step[NSTEP];
         dstep_t dstep[NSTEP];
     };
+    int8_t micro[NSTEP];         /* each step's nudge, MICRO_MIN..MICRO_MAX (1/64 of a step; - early, + late) */
+    plock_t lock[NLOCK];         /* parameter locks, unsorted (step LOCK_FREE = a free slot) */
+    uint8_t fill[NSTEP / 4];     /* each step's condition, 2 bits (seq.c step_fill): FC_* */
+    /* the locks in force (seq.c lock_step): the params overridden now, what they were, what the lock set */
+    uint8_t lk_n;
+    uint8_t lk_param[NLOCK];
+    int16_t lk_base[NLOCK];
+    int16_t lk_set[NLOCK];
     uint32_t seq_abs;            /* the step of the transport grid last played (seq.c trk_grid), SEQ_NONE */
     uint16_t seq_idx;            /* its index in the pattern */
+    uint8_t seq_den;             /* the DIV it was played on (a DIV change waits for the next step) */
+    uint8_t arp_den;             /* the same for the arp's RATE */
     uint8_t seq_notes[4];        /* sounding seq notes */
     uint8_t seq_n;
     uint8_t seq_hold;            /* last step slides: keep the notes until the next step */
+    uint8_t seq_skip;            /* the step playing failed its fill condition: nothing of it sounds */
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint32_t seq_off;            /* units to the note-off of the step's notes */
     uint8_t seq_active;          /* any step programmed */
@@ -258,13 +296,25 @@ static song_t song;
 #endif
 #define BEAT_U ((uint32_t)FS * 60u)
 static volatile uint32_t clk_beat, clk_pos;
-static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* N_DIV: beats = 1 / DEN */
-static uint32_t div_units(uint32_t div) { return BEAT_U / DIV_DEN[div % 6u]; }
-/* length of one division (N_DIV order) in samples at the song tempo (rounded down) */
-static uint32_t div_samples(uint32_t div)
+static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* N_DIV 0..5: beats = 1 / DEN */
+#define NDIV_SHORT 6u            /* the divisions inside a beat (N_DIV, the arp's RATE) */
+#define NDIV_STEP 9u             /* N_SDIV: + 1/2 note, a bar, two bars (whole beats: DIV_BEATS) */
+#define NDIV_DLY 8u              /* N_DLY: + 1/8 and 1/16 dotted */
+static const uint8_t DIV_BEATS[3] = {2, 4, 8};
+/* a step's length in clock units (N_SDIV order; the arp's RATE uses 0..5) */
+static uint32_t div_units(uint32_t div)
 {
-    return div_units(div) / (uint32_t)song.g[G_BPM];
+    return div < NDIV_SHORT ? BEAT_U / DIV_DEN[div] : BEAT_U * DIV_BEATS[(div - NDIV_SHORT) % 3u];
 }
+/* the delay's TIME in clock units (N_DLY order) */
+static uint32_t dly_units(uint32_t d)
+{
+    return d < NDIV_SHORT ? BEAT_U / DIV_DEN[d] : d == NDIV_SHORT ? BEAT_U * 3u / 4u : BEAT_U * 3u / 8u;
+}
+/* length of one step (N_SDIV order) in samples at the song tempo (rounded down) */
+static uint32_t div_samples(uint32_t div) { return div_units(div) / (uint32_t)song.g[G_BPM]; }
+/* length of the delay's TIME (N_DLY order) in samples at the song tempo (rounded down) */
+static uint32_t dly_samples(uint32_t d) { return dly_units(d) / (uint32_t)song.g[G_BPM]; }
 #define TSEL (&trk[song.sel])    /* the selected track */
 #define TDRUM (&trk[TRK_DRUM])
 static int is_drum(const track_t *t) { return t == TDRUM; }

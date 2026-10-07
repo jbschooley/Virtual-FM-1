@@ -109,6 +109,7 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         t->p[P_AMODE + i] = (int16_t)(p->arp[i] ? p->arp[i] - 1 : TP[P_AMODE + i].def);
     }
     preset_extras(t->p, p);
+    fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }
 static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 {
@@ -802,6 +803,7 @@ int main(int argc, char **argv)
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;
         preset_extras(inst.p, p);
     }
+    fm6_track_loaded(&inst);                            /* FM6: the preset's patch */
     inst.p[P_VOICE] = (int16_t)mono;
     inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as felucca_init */
     inst.p[P_DLY] = argc > 5 ? atoi(argv[5]) : 28;

@@ -12,7 +12,9 @@ static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 /* diagnostics, kept across resets and UBOOT entry: read with `fm1t memr` */
 #define DBG_MAGIC 0x44424731u                       /* "DBG1" */
 struct felucca_dbg {
-    uint32_t magic, halves, max_us, nested, in_audio, late, timer_irqs, ui_frames;
+    uint32_t magic, halves, max_us, nested;
+    volatile uint32_t in_audio;           /* TIMER5 reads it to decide what may nest in the render */
+    uint32_t late, timer_irqs, ui_frames;
     uint32_t last_us, cpu_q8, boots;
     uint32_t stage, page, home;           /* where the main loop is (breadcrumbs) */
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
@@ -20,7 +22,7 @@ struct felucca_dbg {
 static volatile uint32_t audio_halves, audio_max_us;
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 #define SCOPE_N 512u
-static int16_t scope_buf[SCOPE_N];
+static int16_t scope_buf[SCOPE_N], scope_bufr[SCOPE_N];   /* left, right (the visualiser): the mix at full level */
 static uint32_t scope_w;
 
 static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 -> 24 bit */
@@ -32,7 +34,10 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 #endif
     for (i = 0; i < n; i++) {
         if (i & 1u)
-            scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
+        {
+            scope_bufr[scope_w & (SCOPE_N - 1u)] = vis_tap[2u * i + 1u];   /* (fx.c: MASTER all the way up) */
+            scope_buf[scope_w++ & (SCOPE_N - 1u)] = vis_tap[2u * i];
+        }
         out[2u * i] <<= OUT_SHIFT;
         out[2u * i + 1u] <<= OUT_SHIFT;
     }

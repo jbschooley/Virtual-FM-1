@@ -257,6 +257,7 @@ static int up_load(uint32_t k)
         t->p[i] = v[i];
     t->preset = 0;
     fm1_irq_on();
+    fm6_track_loaded(t);                                /* FM6: a user preset holds the PTCH and the macros */
     t->user = (uint8_t)(k + 1u);
     sync_reload = 1;
     ui.force = 1;

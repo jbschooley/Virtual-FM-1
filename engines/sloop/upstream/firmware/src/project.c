@@ -6,20 +6,24 @@
  * the transport is stopped and nothing sounds) and comes back at power-on: SLOOP starts where you
  * left it.
  *
- * Formats: 4 ("FUN4", written, SLOOP 2.0): today's P_COUNT / G_COUNT, 10-byte steps (levels and
- * ratchets; the drum track: 16 lanes). Read and converted: 3 ("FUN3", SLOOP 1.x: 8-byte steps, the
- * drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1 ("FUN1"),
- * which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
+ * Formats: 5 ("FUN5", written, SLOOP 2.4): format 4 plus, per track, the nudge of each step (micro), NLOCK
+ * parameter locks, the steps' fill conditions (2 bits each) and P_TFLT (one parameter more, just before P_E0).
+ * Read and converted: 4 ("FUN4", SLOOP 2.0 .. 2.3: PROJ_NP_V4 parameters, today's G_COUNT, 10-byte
+ * steps with levels and ratchets, the drum track's 16 lanes; no nudge, no lock), 3 ("FUN3", SLOOP 1.x: 8-byte
+ * steps, the drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1
+ * ("FUN1"), which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
  * PROJ_NP_V2 - 8 are P_LEVEL.. in order, the last 8 P_E0..P_E7; the parameters added since take their
  * defaults). Their engine bytes are kept: formats 1 and 2 had engines 0..7 (ANALOG .. WHEEL), and the
  * engines added since were appended, no index moved; the drum track's byte (it has no engine) becomes 0.
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), drums.c (the lanes), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E34u                 /* "FUN4": four tracks, P_COUNT parameters each, 10-byte steps */
+#define PROJ_MAGIC 0x46554E35u                 /* "FUN5": format 4 + per-step nudge, parameter locks, fill conditions (SLOOP 2.4) */
+#define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": four tracks, P_COUNT parameters each, 10-byte steps; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": SLOOP 1.x; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
 #define PROJ_MAGIC_V1 0x46554E31u              /* "FUN1": one instrument; loads into track 1 */
+#define PROJ_NP_V4 58u                         /* P_COUNT of format 4 (P_E0 was 50) */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NG_V3 27u                         /* G_COUNT of formats 1..3 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
@@ -31,6 +35,9 @@ typedef struct {                               /* one track; the drum track igno
         step_t step[NSTEP];
         dstep_t dstep[NSTEP];                  /* (the drum track: 16 lanes, the same size) */
     };
+    int8_t micro[NSTEP];                       /* SLOOP 2.4: each step's nudge (core.h) */
+    plock_t lock[NLOCK];                       /* and its parameter locks (step LOCK_FREE = none) */
+    uint8_t fill[NSTEP / 4];                   /* and its fill condition, 2 bits a step (FC_*) */
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -39,6 +46,21 @@ typedef struct {
     proj_trk_t t[NTRK];
     uint32_t sum;
 } project_t;
+typedef struct {                               /* a track of format 4 (SLOOP 2.0 .. 2.3), read only */
+    int16_t p[PROJ_NP_V4];
+    uint8_t engine, preset;
+    union {
+        step_t step[NSTEP];
+        dstep_t dstep[NSTEP];
+    };
+} proj_trk_v4_t;
+typedef struct {                               /* format 4, read only */
+    uint32_t magic, size;
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv[3];
+    proj_trk_v4_t t[NTRK];
+    uint32_t sum;
+} project_v4_t;
 typedef struct { uint8_t note[4], n, time, flags, vel; } step8_t;   /* the steps of formats 1..3 */
 typedef struct {                               /* a track of format 3, read only */
     int16_t p[PROJ_NP_V3];
@@ -70,8 +92,9 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
     proj_trk_v2_t t;
     uint32_t sum;
 } project_v1_t;
-_Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u,
-               "formats 1 / 2 / 3 as they were stored");
+_Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
+               sizeof(project_v4_t) == 3112u, "formats 1 / 2 / 3 / 4 as they were stored");
+_Static_assert(sizeof(project_t) <= 3840u, "format 5 fits one flash object (storage.c ST_PAYLOAD_MAX)");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -85,7 +108,7 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
-/* ---- old formats -> format 4 */
+/* ---- old formats -> format 5 */
 /* an old step into a synth step (no level, no ratchet) */
 static void step_from8(step_t *d, const step8_t *s)
 {
@@ -117,10 +140,24 @@ static void proj_g_from_old(int16_t *g, const int16_t *g2)
     g[G_SWING] = swing_from_v3(g[G_SWING]);
 }
 
+/* no nudge, no lock, no condition (formats 1..4) */
+static void proj_trk_plain(proj_trk_t *d)
+{
+    uint32_t k;
+    memset(d->micro, 0, sizeof d->micro);
+    memset(d->fill, 0, sizeof d->fill);
+    for (k = 0; k < NLOCK; k++) {
+        d->lock[k].step = LOCK_FREE;
+        d->lock[k].param = 0;
+        d->lock[k].val = 0;
+    }
+}
+
 /* a track of format 3 -> today's (by id up to P_SLDEPTH; P_E0.. moved) */
 static void proj_trk_from_v3(proj_trk_t *d, const proj_trk_v3_t *s, int drum)
 {
     uint32_t k, nc = PROJ_NP_V3 - 8u;
+    proj_trk_plain(d);
     for (k = 0; k < P_E0; k++)
         d->p[k] = k < nc ? s->p[k] : TP[k].def;
     for (k = 0; k < 8u; k++)
@@ -150,7 +187,34 @@ static void proj_trk_v2_to_v3(proj_trk_v3_t *d, const proj_trk_v2_t *s, int drum
     memcpy(d->step, s->step, sizeof d->step);
 }
 
-/* a format 3 project -> slot q as format 4 */
+/* a format 4 project (n bytes in *v4) -> slot q as format 5: the same, no nudge, no lock, no condition, no FILTER */
+static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
+{
+    uint32_t i;
+    if (n != (int)sizeof *v4 || v4->magic != PROJ_MAGIC_V4 || v4->size != sizeof *v4 ||
+        v4->sum != proj_hash(v4, sizeof *v4 - 4u))
+        return 0;
+    memset(q, 0, sizeof *q);
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    memcpy(q->g, v4->g, sizeof q->g);
+    q->sel = v4->sel;
+    for (i = 0; i < NTRK; i++) {
+        uint32_t k;
+        for (k = 0; k < P_E0; k++)                     /* by id up to P_CHORD, the parameters added since: */
+            q->t[i].p[k] = k < PROJ_NP_V4 - 8u ? v4->t[i].p[k] : TP[k].def;   /* their defaults; P_E0.. moved */
+        for (k = 0; k < 8u; k++)
+            q->t[i].p[P_E0 + k] = v4->t[i].p[PROJ_NP_V4 - 8u + k];
+        q->t[i].engine = v4->t[i].engine;
+        q->t[i].preset = v4->t[i].preset;
+        memcpy(q->t[i].step, v4->t[i].step, sizeof q->t[i].step);
+        proj_trk_plain(&q->t[i]);
+    }
+    q->sum = proj_sum(q);
+    return 1;
+}
+
+/* a format 3 project -> slot q as format 5 */
 static void proj_from_v3_ok(project_t *q, const project_v3_t *v3)
 {
     uint32_t i;
@@ -173,7 +237,7 @@ static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
 }
 
 static project_v3_t proj_v3_tmp;               /* (formats 1, 2: through format 3) */
-/* a format 2 project (n bytes in *v2) -> slot q as format 4 */
+/* a format 2 project (n bytes in *v2) -> slot q as format 5 */
 static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
 {
     project_v3_t *v3 = &proj_v3_tmp;
@@ -190,7 +254,7 @@ static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
     return 1;
 }
 
-/* a format 1 project (n bytes in *v1) -> slot q as format 4: the instrument becomes track 1,
+/* a format 1 project (n bytes in *v1) -> slot q as format 5: the instrument becomes track 1,
  * tracks 2..4 start empty (their sounds as at power-on) */
 static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
 {
@@ -213,20 +277,21 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
         if (i != TRK_DRUM)
             for (k = 0; k < NSTEP; k++)
                 q->t[i].step[k].time = ST_REST;
+        proj_trk_plain(&q->t[i]);
     }
     q->sum = proj_sum(q);
     return 1;
 }
 
-/* n bytes of a stored project (any format) -> slot q as format 4; 0 = not a project */
+/* n bytes of a stored project (any format) -> slot q as format 5; 0 = not a project */
 static int proj_import(project_t *q, const void *b, int n)
 {
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
         return 1;
     }
-    return proj_from_v3(q, (const project_v3_t *)b, n) || proj_from_v2(q, (const project_v2_t *)b, n) ||
-           proj_from_v1(q, (const project_v1_t *)b, n);
+    return proj_from_v4(q, (const project_v4_t *)b, n) || proj_from_v3(q, (const project_v3_t *)b, n) ||
+           proj_from_v2(q, (const project_v2_t *)b, n) || proj_from_v1(q, (const project_v1_t *)b, n);
 }
 
 /* ---- the working project <-> a project_t */
@@ -244,6 +309,9 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        memcpy(p->t[i].micro, trk[i].micro, sizeof trk[i].micro);
+        memcpy(p->t[i].lock, trk[i].lock, sizeof trk[i].lock);
+        memcpy(p->t[i].fill, trk[i].fill, sizeof trk[i].fill);
     }
     p->sum = proj_sum(p);
 }
@@ -255,7 +323,7 @@ static void proj_apply(const project_t *p, int all)
 {
     uint32_t i, k;
     for (i = 0; i < G_COUNT; i++)
-        if (all ? i != G_SLOT && i != G_LOAD && i != G_SAVE && i != G_SYNC : i == G_DRLVL || i == G_DRREV)
+        if (all ? i != G_SLOT && i != G_LOAD && i != G_SAVE && i != G_SYNC && i != G_MIDI && i != G_ROUTE : i == G_DRLVL || i == G_DRREV)
             song.g[i] = (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
@@ -263,6 +331,7 @@ static void proj_apply(const project_t *p, int all)
         uint32_t e = k < NPART ? s->engine % NENGINES : 0u;
         t->eng_req = (uint8_t)e;
         t->user = 0;                                    /* (no user preset slot is saved) */
+        t->lk_n = 0;                                    /* (the locks in force: the values come from the project) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = k == TRK_DRUM && i == P_E0 ? &DRUM_KIT_DESC :   /* the drum kit */
                                     i >= P_E0 && i <= P_E7 ? &ENGINES[e]->edit[i - P_E0] : &TP[i];
@@ -270,6 +339,30 @@ static void proj_apply(const project_t *p, int all)
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
+        for (i = 0; i < NSTEP; i++)                     /* the nudges and locks, each inside its range */
+            t->micro[i] = (int8_t)clamp(s->micro[i], MICRO_MIN, MICRO_MAX);
+        for (i = 0; i < NSTEP / 4u; i++) {              /* the conditions: 3 means normal (0) */
+            uint32_t b = s->fill[i], j;
+            for (j = 0; j < 4u; j++)
+                if (((b >> (2u * j)) & 3u) == 3u)
+                    b &= ~(3u << (2u * j));
+            t->fill[i] = (uint8_t)b;
+        }
+        for (i = 0; i < NLOCK; i++) {
+            const plock_t *l = &s->lock[i];
+            uint32_t id = l->param;
+            if (l->step < NSTEP && id < P_COUNT && p_lockable(id)) {
+                const param_desc_t *d = k == TRK_DRUM && id == P_E0 ? &DRUM_KIT_DESC :
+                                        id >= P_E0 && id <= P_E7 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
+                t->lock[i].step = l->step;
+                t->lock[i].param = (uint8_t)id;
+                t->lock[i].val = (int16_t)clamp(l->val, d->min, d->max);
+            } else {
+                t->lock[i].step = LOCK_FREE;            /* no such step or parameter: the slot is free */
+                t->lock[i].param = 0;
+                t->lock[i].val = 0;
+            }
+        }
         if (k != TRK_DRUM)
             for (i = 0; i < NSTEP; i++) {
                 step_t *st = &t->step[i];
@@ -281,6 +374,7 @@ static void proj_apply(const project_t *p, int all)
                 for (j = 0; j < 4u; j++)
                     st->note[j] &= 127u;
             }
+        fm6_track_loaded(t);                            /* FM6: the project keeps PTCH, not the patch: its slot's */
     }
 }
 
@@ -290,9 +384,10 @@ static void proj_apply(const project_t *p, int all)
 #endif
 static uint8_t sec_dirty, song_dirty;           /* live sections / the song: in RAM, not yet in flash */
 #if FELUCCA_FLASH
-/* slot from flash into RAM (format 4, or an old one converted) */
+/* slot from flash into RAM (format 5, or an old one converted) */
 static union {
-    project_t v4;
+    project_t v5;
+    project_v4_t v4;
     project_v3_t v3;
     project_v2_t v2;
     project_v1_t v1;
@@ -304,6 +399,7 @@ static void proj_fetch(uint32_t slot)
     if (!proj_import(q, &proj_tmp, n))
         q->magic = 0;
 }
+#include "fm6_bank.c"                           /* the FM6 patch bank (eng_fm6.c PTCH B1..B27): staged in proj_tmp */
 #endif
 
 static void project_save(uint32_t slot)
@@ -504,11 +600,12 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
             } else {
                 int n = st_load(OBJ_PROJECT0 + i, &proj_tmp, sizeof proj_tmp);
-                if (n != (int)sizeof proj_slot[i] || memcmp(&proj_tmp.v4, &proj_slot[i], sizeof proj_slot[i]))
+                if (n != (int)sizeof proj_slot[i] || memcmp(&proj_tmp.v5, &proj_slot[i], sizeof proj_slot[i]))
                     sec_dirty |= (uint8_t)(1u << i);
             }
     }
     up_boot();                                     /* user presets */
+    fm6_bank_boot();                               /* the FM6 patch bank (fm6_bank.c) */
 #endif
 }
 
@@ -590,6 +687,8 @@ static uint32_t settings_restore(const void *raw, uint32_t n)
 #endif
     lights_from_word(p.lights);
     song.g[G_SYNC] = (int16_t)lights_sync;
+    song.g[G_MIDI] = (int16_t)lights_mout;
+    song.g[G_ROUTE] = (int16_t)lights_min;
     palette_set(settings.palette);
     fx_lowcut = (uint8_t)(settings.lowcut != 0);
     ui.force = 1;
@@ -699,6 +798,14 @@ static void sections_flush(void)                        /* main loop */
     }
     if ((uint32_t)song.g[G_SYNC] != lights_sync) {      /* GLO > SYSTEM > SYNC: kept with the settings */
         lights_sync = (uint8_t)song.g[G_SYNC];
+        settings_later = 1;
+    }
+    if ((uint32_t)(song.g[G_MIDI] != 0) != lights_mout) {   /* GLO > SYSTEM > MIDI: the same */
+        lights_mout = (uint8_t)(song.g[G_MIDI] != 0);
+        settings_later = 1;
+    }
+    if ((uint32_t)(song.g[G_ROUTE] != 0) != lights_min) {   /* GLO > SYSTEM > IN: the same */
+        lights_min = (uint8_t)(song.g[G_ROUTE] != 0);
         settings_later = 1;
     }
     if (settings_later) {                               /* the menu closed while playing */

@@ -26,16 +26,19 @@ const GroupDef kTrackGroups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
-// SLOOP 2.3's (core.h P_*): Felucca 1.0's numbering up to the slicer (48), then CHORD (49) and
-// the engine's eight; no modulation matrix
+// SLOOP 2.4.1's (core.h P_*): Felucca 1.0's numbering up to the slicer (48), then CHORD (49), the
+// track's FILT (50), STRUM and VLEAD (51-52, its CHORD+ page) and the engine's eight; no modulation
+// matrix
 const GroupDef kSloopGroups[] = {
     {"Engine", -1, -1},
+    {"Filter", 50, 50},
     {"Envelope", 1, 4},
     {"Envelope to", 5, 7},
     {"LFO", 9, 12},
     {"LFO to", 13, 16},
     {"Voice", 37, 44},
     {"Chord", 49, 49},
+    {"Chord+", 51, 52},
     {"Arpeggiator", 17, 24},
     {"Scale", 25, 28},
     {"Sequencer", 29, 32},
@@ -407,7 +410,7 @@ void FeluccaSoundPage::timerCallback() {
     {   // the sound's sync: with an FM-1 running Felucca, not while another job (Live) runs
         const bool can = proc_.feluccaSynth() && !proc_.session.busy();
         pullSound_.setEnabled(can);
-        sendSound_.setEnabled(can);
+        sendSound_.setEnabled(can && proc_.feluccaWritesRefused().isEmpty());   // (SLOOP 2.3: pulled from only)
     }
     if (auto e = engine(); e && e->selected() != track_ && e->selected() < e->tracks()) {   // chosen on the device (its panel, a synced FM-1)
         track_ = e->selected();
@@ -529,9 +532,10 @@ void FeluccaSoundPage::build() {
     const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
                                              : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
     for (const auto& def : defs) {
-        // SLOOP's drum track: its kit, pattern and slicer (its level and reverb are globals, DRLVL
+        // SLOOP's drum track: its kit, pattern, slicer and filter (its level and reverb are globals, DRLVL
         // and DRREV; the device shows it no other track page, and its drums read nothing else)
-        if (drums && juce::String(def.title) != "Engine" && juce::String(def.title) != "Sequencer" && juce::String(def.title) != "Slicer") continue;
+        if (drums && juce::String(def.title) != "Engine" && juce::String(def.title) != "Sequencer" && juce::String(def.title) != "Slicer"
+            && juce::String(def.title) != "Filter") continue;   // (2.4: the drums have their FILT too)
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {
@@ -658,8 +662,8 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     // in the firmware's own terms: Felucca's music and user presets with their FM6 patches, SLOOP's working project
     auto held = proc_.felucca();
     const juce::String name = held ? juce::String(felucca::dialectOf(*held).name) : juce::String("Felucca");
-    const bool fm6 = !held || felucca::dialectOf(*held).fm6;
-    const juce::String all = fm6 ? "the music, its four projects and the user presets (with their FM6 patches)" : "the working project, projects A-D and user presets";
+    const bool fm6 = !held || !felucca::isSloop(felucca::dialectOf(*held));   // (Felucca's wording)
+    const juce::String all = fm6 ? "the music, its four projects and the user presets (with their FM6 patches)" : "the working project, projects A-D, user presets and FM6 bank";
     about_.setText("An FM-1 running " + name + ", connected with Find FM-1 (or the MIDI menus): pull everything from it, "
                    "send everything to it, or follow it live.", juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);
@@ -690,8 +694,10 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
 void FeluccaSyncPage::update() {
     const bool synth = proc_.feluccaSynth(), busy = proc_.session.busy();
     pullButton_.setEnabled(synth && !busy);
-    sendButton_.setEnabled(synth && !busy);
-    const auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
+    const auto refused = proc_.feluccaWritesRefused();   // (SLOOP 2.3: pulled from only)
+    sendButton_.setEnabled(synth && !busy && refused.isEmpty());
+    auto problem = proc_.feluccaSynthProblem();   // a release too old: say why the buttons are off
+    if (problem.isEmpty()) problem = refused;
     if (problem != problem_.getText()) problem_.setText(problem, juce::dontSendNotification);
 }
 

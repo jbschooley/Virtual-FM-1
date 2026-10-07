@@ -293,17 +293,39 @@ static uint16_t lvl_col(uint32_t lvl)                   /* a hit's colour by its
     return lvl == LV_GHOST ? TE_DIM[3] : lvl == LV_SOFT ? TE_MID[3] : lvl == LV_HARD ? C_WHITE : TE_DRUM;
 }
 static uint16_t pad_lit[DRUM_LANES];                   /* pads and key LEDs: frames left lit */
+static uint8_t key_lit[27];                             /* menu NOTES, a synth track: frames its key stays lit */
+static uint8_t key_lit_trk = 0xFF;                      /* (the track key_lit is for) */
 static void pads_tick(void)                             /* once a frame: the hits since the last one */
 {
-    uint32_t i, hits;
+    uint32_t i, hits, n[NPART][4], k, w;
     fm1_irq_off();
     hits = drums.hits;
     drums.hits = 0;
+    for (i = 0; i < NPART; i++)
+        for (w = 0; w < 4u; w++) {
+            n[i][w] = note_hits[i][w];
+            note_hits[i][w] = 0;
+        }
     fm1_irq_on();
     for (i = 0; i < DRUM_LANES; i++) {
         if ((hits >> i) & 1u) pad_lit[i] = 6;
         else if (pad_lit[i]) pad_lit[i]--;
     }
+    /* a synth track: each note it started lights its key 6 frames (~0.1 s), so a short sequencer note
+     * (a 1/16 at GATE 50 %: 60..80 ms) is seen even when it ends between two frames */
+    if (song.sel != key_lit_trk) {
+        memset(key_lit, 0, sizeof key_lit);
+        key_lit_trk = song.sel;
+    }
+    for (k = 0; k < 27u; k++)
+        if (key_lit[k])
+            key_lit[k]--;
+    if (song.sel < NPART && (n[song.sel][0] | n[song.sel][1] | n[song.sel][2] | n[song.sel][3]))
+        for (k = 0; k < 27u; k++) {
+            uint32_t note = kb_map(TSEL, k);
+            if (note < 128u && (n[song.sel][note >> 5] >> (note & 31u)) & 1u)
+                key_lit[k] = 6;
+        }
 }
 
 static void drum_screen_draw(void)
@@ -410,6 +432,53 @@ static void drum_screen_draw(void)
 static const uint8_t LV_UP[4] = {LV_GHOST, LV_SOFT, LV_NORM, LV_HARD};
 static uint32_t lvl_rank(uint32_t lvl) { return lvl == LV_GHOST ? 0u : lvl == LV_SOFT ? 1u : lvl == LV_NORM ? 2u : 3u; }
 
+/* the GRID page shown, no layer held: its keys are steps (seq.c kb_grid) */
+static int grid_keys_on(void) { return on_drum_page() && !drum_page && song.sel == TRK_DRUM && !ui.menu; }
+/* a key down on the GRID page: the white keys are the 16 steps of this page of steps for the sound of
+ * KNOB 1 — an empty one is set (NORM, the sound heard), a set one cleared; the first four black keys
+ * pick the page (steps 1-16, 17-32, 33-48, 49-64), as in the SEQ layer. The cursor follows */
+static void grid_key(uint32_t k)
+{
+    static const int8_t PG[12] = {-1, 0, -1, 1, -1, 2, -1, -1, 3, -1, -1, -1};
+    uint32_t len = trk_len(TDRUM), idx;
+    int32_t w = punch_key(k);
+    dstep_t *st;
+    if (w < 0) {
+        if (k < 12u && PG[k] >= 0 && (uint32_t)PG[k] * 16u < len) {
+            idx = (uint32_t)PG[k] * 16u + drum_cursor % 16u;
+            drum_cursor = (uint8_t)(idx < len ? idx : len - 1u);
+            ui.force = 1;
+        }
+        return;
+    }
+    idx = drum_cursor / 16u * 16u + (uint32_t)w;
+    if (idx >= len)
+        return;
+    drum_cursor = (uint8_t)idx;
+    if (song.playing && arrangement_enabled) {
+        ui_message("STOP THE SONG FIRST");
+        return;
+    }
+    undo_mark(TDRUM, ui.step_sess ? ui.step_sess : (ui.step_sess = (undo_sess += 4u) | 3u));
+    st = &TDRUM->dstep[idx];
+    fm1_irq_off();
+    if (dstep_has(st, drum_lane)) {
+        dstep_clr(st, drum_lane);
+        if (!dstep_mask(st)) {                          /* an empty step keeps no lock, no nudge, no condition */
+            lock_del(TDRUM, idx, P_COUNT);
+            TDRUM->micro[idx] = 0;
+            step_fill_set(TDRUM, idx, FC_NORM);
+        }
+    } else {
+        dstep_set(st, drum_lane, LV_NORM, 0);
+        TDRUM->seq_active = 1;
+    }
+    fm1_irq_on();
+    if (dstep_has(st, drum_lane))
+        audition_lane(drum_lane);
+    sync_reload = 1;
+}
+
 static void drum_screen_input(uint32_t pressed, uint32_t home)
 {
     uint32_t k, b;
@@ -433,9 +502,10 @@ static void drum_screen_input(uint32_t pressed, uint32_t home)
             return;
         }
     }
-    if ((s = panel_enc(EN_SELECT))) {
-        song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), 40, 240);
-        ui.bpm_t = 40;
+    if ((s = panel_enc(EN_SELECT)) && (uint32_t)(s > 0) != drum_page) {   /* SELECT: grid <- -> kit (its pages) */
+        drum_page = (uint8_t)(s > 0);
+        ui.msg_t = 0;
+        ui.force = 1;
     }
     if ((s = panel_enc(EN_ALGO)) && !ft_on) {
         track_select((uint32_t)clamp((int32_t)song.sel + s, 0, 3));
@@ -450,8 +520,16 @@ static void drum_screen_input(uint32_t pressed, uint32_t home)
         ui.hot_t = 40;
         if (!drum_page) {
             dstep_t *st = &TDRUM->dstep[drum_cursor];
-            if (k == 0) drum_lane = (uint8_t)clamp(drum_lane + s, 0, DRUM_LANES - 1);
-            if (k == 1) drum_cursor = (uint8_t)clamp(drum_cursor + s, 0, TDRUM->p[P_SLEN] - 1);
+            if (k == 0) {                              /* the sound: heard */
+                uint8_t l = (uint8_t)clamp(drum_lane + s, 0, DRUM_LANES - 1);
+                if (l != drum_lane) audition_lane(l);
+                drum_lane = l;
+            }
+            if (k == 1) {                              /* the step: what it holds, heard */
+                uint8_t c = (uint8_t)clamp(drum_cursor + s, 0, TDRUM->p[P_SLEN] - 1);
+                if (c != drum_cursor) audition_step(&TDRUM->dstep[c]);
+                drum_cursor = c;
+            }
             if (k >= 2) {
                 if (song.playing && arrangement_enabled) { ui_message("STOP THE SONG FIRST"); continue; }
                 undo_mark(TDRUM, ui.step_sess ? ui.step_sess : (ui.step_sess = (undo_sess += 4u) | 3u));

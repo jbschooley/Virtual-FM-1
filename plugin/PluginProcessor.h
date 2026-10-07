@@ -120,6 +120,7 @@ public:
     // library), or mirror both ways live until stopped.
     bool feluccaSynth() const;                 // connected, a Felucca it can sync with
     juce::String feluccaSynthProblem() const;  // connected to a Felucca too old to sync with: why
+    juce::String feluccaWritesRefused() const; // connected to one the plugin only reads from (SLOOP 2.3): why
     bool feluccaPull();
     bool feluccaSend();
     // One part's sound (engine, preset, values, FM6 patch) from the connected FM-1 running Felucca

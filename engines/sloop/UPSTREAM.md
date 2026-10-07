@@ -3,32 +3,33 @@
 `upstream/` is part of [SLOOP](https://github.com/isod89/sloop-fm1), isod89's
 groovebox firmware for the M-VAVE FM-1, a fork of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments), at **v2.3** (commit `d691ba7b2d922f1a1f41a3622cffe29ce41c5506`,
-2026-10-05). It is GPL-3.0-only; see `upstream/LICENSE` and
-`upstream/LICENSING.md`.
+Instruments), at **v2.4.1** (commit `a1c5d68767ae10fafb6821dc63b9b1fc490342d2`,
+2026-10-07). It is GPL-3.0-only, but for its FM6 core (`fm6_core.c`, from
+msfa: Apache-2.0, `upstream/LICENSES/Apache-2.0-msfa.txt`); see
+`upstream/LICENSE` and `upstream/LICENSING.md`.
 
 Sloop forked from Felucca before 1.0 (about 0.9-beta) and has its own engines
-(nine), parts (three synths and a drum track), project format and editor
+(ten from 2.4: FM6 joined them), parts (three synths and a drum track), project format and editor
 commands above 32, so it is vendored and built apart from `engines/felucca`.
 
 Copied unchanged:
 
 - `firmware/src/` and `firmware/hal/`: the firmware
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: its regression
-  (97 golden renders), run by ctest as `sloop_regress`. Its CPU budget depends
+  (105 golden renders), run by ctest as `sloop_regress`. Its CPU budget depends
   on the host, so ctest gives it no baseline file and it only prints the counts
 - `tools/gen_font.py`, `gen_icons.py`, `gen_tables.py`, `gen_samples.py`,
-  `gen_drumkits.py`, `gen_logo.py`, `gen_waves.py`, `sampleio.py`: the
-  generators
-- `LICENSE`, `LICENSING.md`, `assets/fonts/Terminus-LICENSE.txt` and
+  `gen_drumkits.py`, `gen_logo.py`, `gen_waves.py`, `gen_fm6_patches.py`,
+  `sampleio.py`: the generators
+- `LICENSE`, `LICENSING.md`, `LICENSES/Apache-2.0-msfa.txt`, `assets/fonts/Terminus-LICENSE.txt` and
   `assets/samples-cc0/ATTRIBUTION.txt`: its licences, and those of the font and
   samples compiled into it
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-checkout of v2.3 with Python 3 and Pillow (it needs that checkout's `assets/`,
+checkout of v2.4.1 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not copied): `felucca_font.h`, `felucca_icons.h`, `felucca_tables.h`,
-`felucca_samples.h`, `felucca_drumkits.h` and `sloop_logo.h`. Generating twice
-gave the same bytes.
+`felucca_samples.h`, `felucca_drumkits.h`, `felucca_fm6.h` and `sloop_logo.h`.
+Generating twice gave the same bytes.
 
 ## Licences
 
@@ -58,9 +59,12 @@ Pi), the font is Terminus (SIL OFL 1.1).
 - The sample sets (`SMP_DATA`) are compiled once for all copies
   (`sloop_shared.c`, written by CMakeLists.txt), with the empty user sample
   slots.
-- The stored objects are those of Sloop's editor backup (v6): 0 the working
-  project, 1 the settings, 2-5 the projects A-D, 6 and 7 the user preset banks.
-  The user sample slots (32-34) are not kept.
+- The stored objects are those of Sloop's editor backup (v9): 0 the working
+  project, 1 the settings, 2-5 the projects A-D, 6 and 7 the user preset banks,
+  8 the FM6 patch bank (read in place on the device, from its RAM sectors here:
+  `FM6_BANK_XIP`). The user sample slots (32-35) are not kept.
+- The visualiser (`ui_vis.c`, 2.4) reads the mix left and right, fed in
+  `FEL(render)` from fx.c's `vis_tap` as audio.c's `audio_block` does.
 - `tests/sloop_test.cpp` checks the copies, sound, parameters, the editor
   protocol and the objects; `tests/sloop-frozen.txt` keeps its parameters and
   factory presets, so a later Sloop that changes them is noticed.

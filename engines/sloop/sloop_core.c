@@ -1,4 +1,4 @@
-/* sloop_core.c -- SLOOP 2.3 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
+/* sloop_core.c -- SLOOP 2.4.1 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
  * Kuroshita / Hügelton Instruments), the whole firmware, as a library the plugin can drive: a
  * virtual FM-1 running Sloop, with its sound, sequencer, arranger, screen, front panel, projects,
  * user presets and editor protocol.
@@ -53,7 +53,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define FELUCCA_ICONS 1
 /* the user sample slots: empty, and never written (the plugin takes no samples yet), so one array
  * of zeros for every copy (sloop_shared.c, written by CMakeLists.txt) */
-extern const uint8_t slp_no_samples[3][0x14000];
+extern const uint8_t slp_no_samples[4][0x14000];   /* (four slots from 2.4: USR1-4) */
 #define SMP_USER_XIP(k) ((const uint8_t *)slp_no_samples[k])
 #define memset FEL(memset)
 #define memcpy FEL(memcpy)
@@ -132,8 +132,9 @@ static void ota_idle(void)
 }
 #include "../upstream/firmware/src/arranger.c"
 #include "../upstream/firmware/src/seq.c"
-#define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope, fed in FEL(render) */
-static int16_t scope_buf[SCOPE_N];
+#define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope and (2.4) the full-screen
+                                          * visualiser, left and right, fed in FEL(render) from fx.c's vis_tap */
+static int16_t scope_buf[SCOPE_N], scope_bufr[SCOPE_N];
 static uint32_t scope_w;
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
@@ -159,6 +160,7 @@ static struct { uint32_t magic, stage, page, home, ui_frames; } felucca_dbg;
 #include "../upstream/firmware/src/ui_studio.c"
 #include "../upstream/firmware/src/icons.c"
 #include "../upstream/firmware/src/ui_draw.c"
+#include "../upstream/firmware/src/ui_vis.c"
 #include "../upstream/firmware/src/ui_layers.c"
 static void fel_panel_setup(void) { ui_message("PANEL: ON THE FM-1"); }
 #define panel_setup() fel_panel_setup()
@@ -231,6 +233,8 @@ static int fl_erase4k_quiet(uint32_t off, uint32_t *took) { (void)off; *took = 0
 static int fl_write(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
 #include "../upstream/firmware/src/storage.c"
 #include "../upstream/firmware/src/upreset.c"
+/* (2.4) the FM6 patch bank is read in place, through the XIP window on the device: here, its sectors */
+#define FM6_BANK_XIP(copy) ((const uint8_t *)sect(st_sector(OBJ_FM6BANK, copy) + ST_PAYLOAD_OFF))
 #include "../upstream/firmware/src/project.c"
 #include "../upstream/firmware/src/editor.c"
 
@@ -241,6 +245,7 @@ static void felucca_init(void)
     uint32_t i;
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
+    fm6_init();                               /* (2.4) every part's FM6 patch: the init voice */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         track_defaults(t);
@@ -256,6 +261,8 @@ static void felucca_init(void)
     song.master_q12 = 2048;                   /* (the MASTER knob: the plugin's own volume follows) */
     autosave_resume();
     song.g[G_SYNC] = (int16_t)lights_sync;
+    song.g[G_MIDI] = (int16_t)lights_mout;    /* (2.4: settings of the FM-1, as G_SYNC) */
+    song.g[G_ROUTE] = (int16_t)lights_min;
     layers_init();
     go_home();
     ui.force = 1;
@@ -451,9 +458,23 @@ uint32_t FEL(engines_shown)(void) { return NENGINES; }
 uint32_t FEL(engine_shown)(uint32_t n) { return n < NENGINES ? n : 0u; }
 
 /* Sloop has no FM6 engine: none of its engines is one, and no track has an FM6 patch */
-uint32_t FEL(fm6_engine)(void) { return NENGINES; }
-void FEL(fm6_patch_get)(uint32_t track, uint8_t *v155) { (void)track; FEL(memset)(v155, 0, 155); }
-void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155) { (void)track; (void)v155; }
+/* (2.4) FM6's patch of a synth part: the 155-byte DX7 single-voice layout (VCED) */
+uint32_t FEL(fm6_engine)(void) { return ENGI_FM6; }
+void FEL(fm6_patch_get)(uint32_t track, uint8_t *v155)
+{
+    if (track < NPART)
+        FEL(memcpy)(v155, fm6_patch[track], FP_SIZE);
+    else
+        FEL(memset)(v155, 0, FP_SIZE);
+}
+void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155)   /* as editor_fm6.c's FM6_PUT to a part */
+{
+    if (track < NPART) {
+        fm6_set_patch(track, v155);
+        fm6_slot[track] = (uint8_t)trk[track].p[P_E7];   /* the part's own patch now, PTCH as it is */
+        ui.force = 1;
+    }
+}
 
 void FEL(midi)(uint32_t pkt) { midi_in_event(pkt); }
 
@@ -484,10 +505,12 @@ void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames 
             fel_main_pass();
         }
         mix_block(out + 2u * i, CTL);
-        {   /* the HOME screen's oscilloscope, as audio.c's audio_block feeds it */
+        {   /* the HOME screen's oscilloscope and the visualiser, as audio.c's audio_block feeds them */
             uint32_t k;
-            for (k = 1u; k < CTL; k += 2u)
-                scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * (i + k)];
+            for (k = 1u; k < CTL; k += 2u) {
+                scope_bufr[scope_w & (SCOPE_N - 1u)] = vis_tap[2u * k + 1u];
+                scope_buf[scope_w++ & (SCOPE_N - 1u)] = vis_tap[2u * k];
+            }
         }
         fel_frames += CTL;
         fel_clock();
@@ -676,9 +699,9 @@ int32_t FEL(arr_chain)(const uint8_t *e, uint32_t n, int loop)
 }
 const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_DRUM && lane < DRUM_LANES ? LANE_NAME[lane] : ""; }
 
-/* ---- the device's stored objects, as the editor's full backup carries them (editor.c v6): 0 the
- * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks. The user
- * sample slots (32..34) are not kept here. ---------------------------------------------------------- */
+/* ---- the device's stored objects, as the editor's full backup carries them (editor.c v9): 0 the
+ * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks, 8 the FM6
+ * patch bank (2.4). The user sample slots (32..35) are not kept here. --------------------------------- */
 uint32_t FEL(object_max)(void) { return (uint32_t)sizeof proj_tmp; }
 
 int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
@@ -689,7 +712,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
         proj_capture((project_t *)ED_BK_RAW);
     else if (id == 1u)
         persist_fill(&ed_bk_set);
-    else if (id > 7u)
+    else if (id > 8u)
         return -1;
     p = ed_bk_obj(id, &len);
     if (!p || len > max)
@@ -702,7 +725,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
-    if (id > 7u || len > sizeof proj_tmp)
+    if (id > 8u || len > sizeof proj_tmp)
         return 1;
     if (transport_req == 2u) {           /* a stop asked for (a project loaded just before): as the next */
         seq_stop();                      /* audio block would, before Sloop refuses this as busy (rc 3) */

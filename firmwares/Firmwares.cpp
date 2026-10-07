@@ -60,7 +60,9 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
     static const std::vector<KnownVersion> sloop = {
-        {900, "2.3", Support::Current, ""},   // tried on an FM-1 (2026-10-06, fm1_probe): backup, Send, Live from the plugin's side
+        // 2.3 does not read 2.4's projects (FUN5) and its engine parameters sit 3 lower: pulled from only
+        {900, "2.3", Support::Older, "pulled from only: update it to 2.4.1 with SLOOP's installer to send to it or go Live"},
+        {900, "2.4.1", Support::Current, ""},
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -88,6 +90,15 @@ static bool sloopNewer(const std::string& a, const std::string& b) {
     return parts(a) > parts(b);
 }
 
+std::string writesRefused(const Identity& id) {
+    if (firmwareIdFor(id) != "sloop") return {};
+    const auto at = id.editor.find("SLOOP ");
+    const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 6);
+    if (release.empty() || !sloopNewer("2.4", release)) return {};
+    return "This FM-1 runs SLOOP " + release + ", which does not read SLOOP 2.4's projects: update it to "
+           + std::string(currentVersion("sloop").label) + " with SLOOP's installer to send to it or go Live. Pull still works.";
+}
+
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
@@ -102,6 +113,13 @@ VersionCheck checkVersion(const Identity& id) {
         c.support = current.support;
         const auto at = id.editor.find("SLOOP ");
         const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 6);
+        for (const auto& v : knownVersions("sloop"))   // a release the plugin knows, other than the current one
+            if (!release.empty() && release == v.label && &v != &current) {
+                c.known = &v;
+                c.support = v.support;
+                c.text = id.name() + ": SLOOP " + release + ", " + v.note;
+                return c;
+            }
         if (release.empty() || release == current.label) {
             c.text = id.name() + ": SLOOP " + std::string(current.label) + (*current.note ? ", " + std::string(current.note) : std::string());
             return c;

@@ -65,5 +65,7 @@ struct VersionCheck {
     std::string text;                      // "FM-1_095: newer than ... (not tried yet)"
 };
 VersionCheck checkVersion(const Identity& id);
+// Why the plugin only reads from this synth (sends nothing, no Live), or empty: SLOOP before 2.4
+std::string writesRefused(const Identity& id);
 
 }  // namespace fm1
