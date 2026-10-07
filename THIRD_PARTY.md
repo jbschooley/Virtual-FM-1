@@ -21,9 +21,10 @@
   Inter Project Authors) and the Fukiai icon font (MIT, Hügelton
   Instruments). See `engines/felucca/UPSTREAM.md`.
 - **SLOOP** (`engines/sloop/upstream`, generated tables, samples, drum kits,
-  font and logo in `engines/sloop/generated`): isod89's FM-1 firmware, v2.3, a
-  fork of Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic),
-  Hügelton Instruments, and its contributors. Its samples are CC0 (Versilian
+  font, FM6 patches and logo in `engines/sloop/generated`): isod89's FM-1 firmware,
+  v2.4.1, a fork of Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic),
+  Hügelton Instruments, and its contributors; its FM6 core (`fm6_core.c`) is
+  msfa's, Apache-2.0 (`engines/sloop/upstream/LICENSES/Apache-2.0-msfa.txt`). Its samples are CC0 (Versilian
   Studios VSCO-2 CE and VCSL, Sonic Pi), its font Terminus (SIL OFL 1.1); see
   `engines/sloop/UPSTREAM.md`, which also says how its icon atlas is taken.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the

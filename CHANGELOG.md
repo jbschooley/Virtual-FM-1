@@ -4,6 +4,22 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **SLOOP 2.4.1** is built in (it was 2.3): its FM6 engine (DX7-style, with
+  its factory patches and a 27-slot bank), each track's filter (FILT, the drums
+  too), STRUM and VLEAD for chords, DIV up to 2BAR, the delay's dotted times,
+  a fourth user sample slot, sequencer MIDI out and clock-only MIDI in, and
+  its full-screen visualiser on the Device tab. Its FM6 bank is kept with its
+  projects and user presets and syncs with an FM-1 running 2.4. The host
+  parameters gain FILT, STRUM and VLEAD for each part and FILT for the drums;
+  DIV and the delay TIME span their new values, so automation of those two
+  written for 2.3 lands on other values. An FM-1 still on SLOOP 2.3 is
+  pulled from only (2.3 does not read 2.4's projects): update it with
+  SLOOP's installer to send to it or go Live.
+
 ## [0.5.1] - 2026-10-07
 
 ### Fixed
