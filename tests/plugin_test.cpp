@@ -866,8 +866,20 @@ static int checks() {
                           && (x.locks[0] == felucca::Lock{10, 1, 127}) && page.pattern().locks == x.locks, who + "a step's nudge, condition and lock (clamped as the synth keeps it)");
                     page.removeLock(1);
                     CHECK(felucca::readExtras(e, 1, x) && x.locks.empty() && page.pattern().locks.empty(), who + "the lock removed");
-                    page.setLock(20, 5);   // P_AMODE: not a sound parameter
+                    page.setLock(20, 5);   // P_AGATE: not a sound parameter
                     CHECK(felucca::readExtras(e, 1, x) && x.locks.empty(), who + "an arp parameter does not lock");
+                    page.setLock(39, 10);   // P_PAN
+                    CHECK(felucca::readExtras(e, 1, x) && x.locks.size() == 1 && x.locks[0].param == 39, who + "PAN locks");
+                    page.removeLock(39);
+                    // the parameters the editor offers are the ones the firmware locks (seq.c p_lockable)
+                    juce::String wrong;
+                    for (int id = 0; id < f->paramCount(); ++id) {
+                        auto r = e.ask(felucca::lockSet(1, 30, id, 0), 400);
+                        const auto a = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                        if (a.size() < 4 || (a[3] != 2) != felucca::lockable(id)) wrong << id << " ";
+                        e.ask(felucca::lockDelete(1, 30, id), 400);
+                    }
+                    CHECK(wrong.isEmpty(), who + "lockable() is the firmware's list (wrong: " + wrong + ")");
                 }
                 page.selectTrack(3);
                 CHECK(page.drumsView(), who + "the drum track shows lanes");

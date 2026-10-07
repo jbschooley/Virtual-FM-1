@@ -184,7 +184,10 @@ std::optional<Bytes> LinkEndpoint::ask(const Bytes& request, int timeoutMs) {
     // track and index; SLOOP's DRUM_STEP: index; TRACK: the track selected): a late reply to an
     // earlier request of the same command (asked again after no answer) is not taken for this one's
     const auto q = argsOf(request);
+    // (SLOOP 2.4: LOCK_SET track, step, param; MICRO_SET / FILL_SET track, step; their GETs the track)
     size_t echo = cmd == kSet || cmd == kTrackParam || cmd == kTrackStep ? 2 : cmd == kTrack || cmd == dialect_.drumStep ? 1 : 0;
+    if (isSloop(dialect_))
+        echo = cmd == kLockSet ? 3 : cmd == kMicroSet || cmd == kFillSet ? 2 : cmd == kLockGet || cmd == kMicroGet || cmd == kFillGet ? 1 : echo;
     echo = std::min(echo, q.size());
     return link_.ask<Bytes>(request, [cmd, q, echo](const Bytes& f) -> std::optional<Bytes> {
         if (commandOf(f) != cmd || isPush(cmd)) return std::nullopt;

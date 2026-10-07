@@ -119,9 +119,10 @@ std::optional<int> readParam(Endpoint& e, int track, int id) {
     return r14(a, 2);
 }
 
-bool lockable(int id) {   // P_LEVEL..P_LD_AMP, P_SGATE, P_DIST..P_REV, P_GLIDE, P_PAN, P_DETUNE, P_SLCR..P_SLDEPTH, P_TFLT, P_E0..P_E7
-    return (id >= 0 && id <= 16) || id == 31 || (id >= 32 && id <= 35) || id == 37 || id == 38 || id == 43
-        || (id >= 44 && id <= 47) || id == 50 || (id >= 53 && id <= 60);
+bool lockable(int id) {   // P_LEVEL..P_LD_AMP 0..16, P_SGATE 32, P_DIST..P_REV 33..36, P_GLIDE 38, P_PAN 39,
+                          // P_DETUNE 44, P_SLCR..P_SLDEPTH 45..48, P_TFLT 50, P_E0..P_E7 53..60
+    return (id >= 0 && id <= 16) || id == 32 || (id >= 33 && id <= 36) || id == 38 || id == 39 || id == 44
+        || (id >= 45 && id <= 48) || id == 50 || (id >= 53 && id <= 60);
 }
 
 Bytes lockSet(int track, int step, int param, int value) {
@@ -136,13 +137,20 @@ Bytes microSet(int track, int step, int nudge) {
 Bytes fillSet(int track, int step, int cond) { return frame(kFillSet, {uint8_t(track), uint8_t(step), uint8_t(std::clamp(cond, 0, 2))}); }
 
 bool readExtras(Endpoint& e, int track, TrackPattern& p) {
-    if (!isSloop(e.dialect())) return false;
+    if (!isSloop(e.dialect()) || e.extras == 0) return false;
+    if (e.extras < 0) {   // INFO's last byte: its protocol (7: locks and nudges, 8: fill conditions); asked once
+        auto info = e.ask(frame(kInfo), kAsk);
+        const auto ia = info ? argsOf(*info) : std::vector<uint8_t>{};
+        if (ia.empty()) return false;
+        e.extras = ia.back() >= 8 ? 1 : 0;
+        if (!e.extras) return false;
+    }
     auto lk = e.ask(frame(kLockGet, {uint8_t(track)}), kAsk);
     auto mc = lk ? e.ask(frame(kMicroGet, {uint8_t(track)}), kAsk) : std::nullopt;
     auto fl = mc ? e.ask(frame(kFillGet, {uint8_t(track)}), kAsk) : std::nullopt;
     if (!fl) return false;
     const auto la = argsOf(*lk), ma = argsOf(*mc), fa = argsOf(*fl);
-    if (la.size() < 2 || la[0] != track || ma.size() < 1 + size_t(kSteps) || fa.size() < 1) return false;
+    if (la.size() < 2 || la[0] != track || ma.size() < 1 + size_t(kSteps) || ma[0] != track || fa.size() < 1 || fa[0] != track) return false;
     p.locks.clear();
     for (size_t i = 2, k = 0; k < la[1] && i + 3 < la.size(); i += 4, ++k) p.locks.push_back({la[i], la[i + 1], r14(la, i + 2)});
     std::sort(p.locks.begin(), p.locks.end());
@@ -156,7 +164,8 @@ bool readExtras(Endpoint& e, int track, TrackPattern& p) {
     }
     if (packed.size() < size_t(kSteps / 4)) return false;
     p.fill.assign(size_t(kSteps), 0);
-    for (int i = 0; i < kSteps; ++i) p.fill[size_t(i)] = std::min(2, int(packed[size_t(i / 4)] >> (2 * (i % 4))) & 3);
+    for (int i = 0; i < kSteps; ++i) p.fill[size_t(i)] = int(packed[size_t(i / 4)] >> (2 * (i % 4))) & 3;
+    for (auto& c : p.fill) if (c == 3) c = kFillAlways;   // (core.h: 3 plays as FC_NORM)
     p.extras = true;
     return true;
 }
