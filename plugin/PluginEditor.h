@@ -7,6 +7,7 @@
 #include "IconButton.h"
 #include "Panels.h"
 #include "FeluccaPanel.h"
+#include "Fm1SeqPanel.h"
 #include "PluginProcessor.h"
 
 class FM1Editor : public juce::AudioProcessorEditor,
@@ -43,7 +44,7 @@ private:
     LibraryPanel library_;
     FmEditorPanel fm_;
     FxPanel fx_;
-    SeqPanel seq_;
+    Fm1SeqPage seq_;
     ScrollPage seqPage_{seq_, [this] { return seq_.contentHeight(); }};   // (scrolls on a phone)
     ArpPanel arp_;
     SettingsPanel settings_;

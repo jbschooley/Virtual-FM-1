@@ -51,6 +51,7 @@
 #include "Firmwares.h"
 #include "Fm1Json.h"
 #include "Panels.h"
+#include "Fm1SeqPanel.h"
 #if FM1_FELUCCA
  #include "FeluccaSync.h"
 #endif
@@ -643,6 +644,38 @@ static int checks() {
                     m.stop();
                 }
             }
+        }
+        // the FM-1+VA Sequencer tab: lanes, notes held over steps, locks
+        {
+            FM1Processor tp;
+            Fm1SeqPage page(tp);
+            page.setSize(1100, 600);
+            page.selectStep(4);
+            page.toggleNote(4, 64);
+            page.setHold(4, 64, 3);
+            {
+                const juce::SpinLock::ScopedLockType l(tp.sequencer.lock);
+                const auto& s4 = tp.sequencer.patterns[0].steps[4];
+                CHECK(s4.notes.size() == 1 && s4.notes[0].note == 64 && s4.notes[0].len == 3, "FM-1+VA tab: a note added and held three steps past its own");
+            }
+            page.toggleNote(4, 64);
+            CHECK(tp.sequencer.patterns[0].steps[4].notes.empty(), "FM-1+VA tab: and taken off again");
+            page.addLock(4, 40);
+            page.addLock(4, 1);
+            page.setLock(4, 1, 200);   // (beyond its range: Feedback is 0 to 7)
+            {
+                const auto& lk = tp.sequencer.patterns[0].locks;
+                CHECK(lk.size() == 512 && lk[8 * 4] == 40 && lk[8 * 4 + 1] == 50 && lk[8 * 4 + 2] == 1 && lk[8 * 4 + 3] == 7,
+                      "FM-1+VA tab: locks start mid-range and keep to their range");
+            }
+            page.removeLock(4, 40);
+            CHECK(tp.sequencer.patterns[0].locks[8 * 4] == 1 && tp.sequencer.patterns[0].locks[8 * 4 + 2] == 0xFF, "FM-1+VA tab: a lock removed, the rest move up");
+            for (int w : {33, 34, 37, 40, 57}) CHECK(Fm1SeqPage::lockName(w).isNotEmpty(), "lock " + juce::String(w) + " is named: " + Fm1SeqPage::lockName(w));
+            CHECK(Fm1SeqPage::lockName(32).isEmpty() && Fm1SeqPage::lockName(35).isEmpty() && Fm1SeqPage::lockName(24).isEmpty(),
+                  "an effect's Type, its On/Off and the unused codes are not lockable");
+            CHECK(Fm1SeqPage::lockName(1) == "Feedback" && Fm1SeqPage::lockRange(1).second == 7 && Fm1SeqPage::lockName(40) == "Delay Feedback"
+                  && Fm1SeqPage::lockRange(33).second == 107, "lock names and ranges as the FM-1 has them");
+            CHECK(page.laneCount() == 2 && !page.chipLanes(), "FM-1+VA tab: an FM pattern's lanes are Notes and Locks");
         }
         // the Sequencer tab: its edits are the device's (both firmwares)
         for (auto id : {"felucca", "sloop"}) {
@@ -1509,7 +1542,65 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
             pages->setCurrentTabIndex(i);
             save("library-" + pages->getTabNames()[i].replaceCharacters(" &", "__"));
         }
+        {   // a pattern to show: notes held over steps, an accent, a ratchet, a step's options, locks
+            const juce::SpinLock::ScopedLockType l(p.sequencer.lock);
+            auto& pt = p.sequencer.patterns[0];
+            pt.length = 32;
+            pt.steps[0].notes = {{60, 100, 3}, {64, 90, 0}};
+            pt.steps[2].notes = {{67, 100, 0}}; pt.steps[2].accent = true;
+            pt.steps[4].notes = {{62, 100, 0}}; pt.steps[4].ratchet = 3;
+            pt.steps[6].notes = {{65, 100, 1}}; pt.steps[6].gate = 65; pt.steps[6].chance = 45;
+            pt.steps[9].notes = {{71, 100, 6}};
+            pt.steps[17].notes = {{72, 100, 0}};
+            pt.locks.assign(512, 0xFF);
+            pt.locks[0] = 1; pt.locks[1] = 5;                        // step 1: Feedback 5
+            pt.locks[8 * 6] = 40; pt.locks[8 * 6 + 1] = 77;           // step 7: Delay Feedback 77
+            pt.locks[8 * 6 + 2] = 33; pt.locks[8 * 6 + 3] = 90;       // and Filter Cutoff 90
+            p.sequencer.selected = 0;
+            ++p.patternsVersion;
+        }
+        Fm1SeqPage* sq = nullptr;
+        {
+            std::function<void(juce::Component*)> findSq = [&](juce::Component* c) {
+                for (auto* ch : c->getChildren()) { if (auto* sp = dynamic_cast<Fm1SeqPage*>(ch)) sq = sp; findSq(ch); }
+            };
+            tabs->setCurrentTabIndex(1);   // (a tab's page is in the window only while it is shown)
+            findSq(ed.get());
+            if (sq != nullptr) sq->refresh();
+        }
         for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("tab-" + tabs->getTabNames()[i]); }
+        {   // the Sequencer's lanes opened, and an 8-Bit pattern's
+            tabs->setCurrentTabIndex(1);
+            CHECK(sq != nullptr && sq->laneCount() == 2, "the Sequencer tab: Notes and Locks lanes");
+            if (sq != nullptr) {
+                sq->selectStep(6);
+                sq->openLane(0);
+                save("sequencer-notes-open");
+                sq->openLane(1);
+                save("sequencer-locks-open");
+                sq->openLane(-1);
+                {
+                    const juce::SpinLock::ScopedLockType l(p.sequencer.lock);
+                    auto& c8 = p.sequencer.patterns[1];
+                    c8.length = 16;
+                    for (int k = 0; k < 16; k += 2) c8.steps[size_t(k)].notes = {{17 + (k % 4 == 0 ? 0 : 2), 100, 0}};   // drums
+                    for (int k = 0; k < 16; k += 4) c8.steps[size_t(k)].notes.push_back({48 + k, 100, 2});           // bass
+                    c8.steps[3].notes.push_back({84, 100, 1});                                                         // lead
+                    c8.steps[8].notes.push_back({31, 100, 0});                                                         // an SFX
+                }
+                p.sequencer.selected = 1;
+                ++p.patternsVersion;
+                sq->refresh();
+                CHECK(sq->chipLanes() && sq->laneCount() == 5 && sq->laneName(0) == "Lead" && sq->laneName(3) == "Drums",
+                      "notes on an 8-Bit preset's keys with drums: its five lanes");
+                save("sequencer-8bit");
+                sq->openLane(3);
+                save("sequencer-8bit-drums");
+                sq->openLane(-1);
+                p.sequencer.selected = 0;
+                sq->refresh();
+            }
+        }
         {   // a phone in portrait (402 x 780 points: an iPhone 17 Pro's screen less its bars)
             const auto desk = ed->getBounds();
             ed->setSize(402, 780);
@@ -1560,9 +1651,9 @@ static int snapshots(const juce::File& outDir, const juce::File& golden) {
                 }
             }
             for (int i = 1; i < tabs->getNumTabs(); ++i) { tabs->setCurrentTabIndex(i); save("phone-tab-" + tabs->getTabNames()[i]); }
-            SeqPanel* seq = nullptr;
+            Fm1SeqPage* seq = nullptr;
             std::function<void(juce::Component*)> findSeq = [&](juce::Component* c) {
-                for (auto* ch : c->getChildren()) { if (auto* sp = dynamic_cast<SeqPanel*>(ch)) seq = sp; findSeq(ch); }
+                for (auto* ch : c->getChildren()) { if (auto* sp = dynamic_cast<Fm1SeqPage*>(ch)) seq = sp; findSeq(ch); }
             };
             tabs->setCurrentTabIndex(1);
             findSeq(ed.get());
