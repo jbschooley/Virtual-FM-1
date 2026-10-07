@@ -105,6 +105,11 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
     const bool complete = objs && (sloop || (objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
+    // Melodee's editor writes "felucca-backup" files too, with its own objects inside: never restored here
+    if (v.getProperty("firmware", {}).toString().containsIgnoreCase("MELODEE")) {
+        error = "a Melodee backup, which the plugin does not support yet";
+        return false;
+    }
     if (v.getProperty("format", {}).toString() != d.fileFormat || int(v.getProperty("version", 0)) != 1 || !complete) {
         error = juce::String("not a complete ") + d.name + " backup";
         return false;

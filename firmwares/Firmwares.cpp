@@ -23,6 +23,10 @@ std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
     // SLOOP (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
     // does, FM-1_900: its editor's INFO says SLOOP ("FELUCCA SLOOP 2.3")
+    // Melodee (keremimo/melodee, from Felucca 1.0) answers FM-1_900 (development), FM-1_9010 .. FM-1_9012
+    // (0.10 .. 0.12) and FM-1_910 from 1.0, as Felucca 1.0 does, and speaks Felucca's editor protocol
+    // with other objects and parameters: told apart by its INFO ("MELODEE v0.12"), never synced as Felucca
+    if (id.version >= 900 && id.editor.find("MELODEE") != std::string::npos) return "melodee";
     if (id.version >= 900 && id.editor.find("SLOOP") != std::string::npos) return "sloop";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
@@ -87,6 +91,11 @@ static bool sloopNewer(const std::string& a, const std::string& b) {
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
+    if (c.firmwareId == "melodee") {   // recognised, not supported (not a firmware choice)
+        c.support = Support::Deprecated;
+        c.text = id.name() + ": " + id.editor + ", which the plugin does not support yet";
+        return c;
+    }
     if (c.firmwareId == "sloop") {   // its release from its INFO ("FELUCCA SLOOP 2.3")
         const auto& current = currentVersion("sloop");
         c.known = &current;
@@ -198,6 +207,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     if (which == "fm1_stock") f = makeStockFirmware();
     else if (which == "felucca") f = makeFeluccaFirmware();
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
+    else if (which == "melodee") f = makeUnsupportedFirmware("Melodee");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

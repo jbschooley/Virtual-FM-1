@@ -217,6 +217,23 @@ static int checks() {
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
                   && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.3",
                   "an FM-1 running SLOOP is SLOOP, a choice (2.3) played like Felucca");
+            {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): recognised, not synced
+                const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
+                CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && !fm1::isFirmwareChoice("melodee")
+                      && !fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is no choice");
+                const auto mc = fm1::checkVersion(m12);
+                CHECK(mc.support == fm1::Support::Deprecated && mc.text.find("MELODEE v0.12, which the plugin does not support yet") != std::string::npos,
+                      "and says it is not supported: " + mc.text);
+                auto prof = fm1::firmwareFor(m12);
+                CHECK(prof->name() == "Melodee" && !prof->has(fm1::Firmware::Feature::ReadPresets) && !prof->has(fm1::Firmware::Feature::WritePatterns),
+                      "its profile does nothing");
+                const auto f = juce::File::createTempFile(".json");
+                f.replaceWithText(R"({"format": "felucca-backup", "version": 1, "firmware": "MELODEE v0.12", "objects": []})");
+                felucca::Objects o;
+                juce::String err;
+                CHECK(!felucca::readBackup(f, o, err, felucca::feluccaDialect()) && err.contains("Melodee"), "its backup files are refused: " + err);
+                f.deleteFile();
+            }
             const auto cur = fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.3"});
             CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.3", "SLOOP 2.3: current, nothing to say: " + cur.text);
             const auto v30 = fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"});

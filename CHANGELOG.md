@@ -4,6 +4,16 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Fixed
+
+- An FM-1 running **Melodee** (keremimo's firmware, built from Felucca) was
+  taken for a newer Felucca, and Pull or Send would have used Felucca's
+  objects on it. It is now recognised by its editor's name, said to be not
+  supported yet, and not connected to; Melodee's backup files (which carry
+  Felucca's file format) are not restored into Felucca.
+
 ## [0.5.0] - 2026-10-06
 
 ### Added
