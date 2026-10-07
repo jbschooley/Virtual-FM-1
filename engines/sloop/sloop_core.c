@@ -401,7 +401,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;
 }
 
-const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.3" */
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.4.1" */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }
@@ -457,7 +457,6 @@ void FEL(apply_preset)(uint32_t track, uint32_t pi) { if (track < NPART) apply_p
 uint32_t FEL(engines_shown)(void) { return NENGINES; }
 uint32_t FEL(engine_shown)(uint32_t n) { return n < NENGINES ? n : 0u; }
 
-/* Sloop has no FM6 engine: none of its engines is one, and no track has an FM6 patch */
 /* (2.4) FM6's patch of a synth part: the 155-byte DX7 single-voice layout (VCED) */
 uint32_t FEL(fm6_engine)(void) { return ENGI_FM6; }
 void FEL(fm6_patch_get)(uint32_t track, uint8_t *v155)

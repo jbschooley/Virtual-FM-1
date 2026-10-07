@@ -76,7 +76,7 @@ if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
 endif()
 set(FELUCCA_COPIES 16 CACHE STRING "How many Felucca instances play without sharing a copy (more share one, at some CPU cost)")
 set(SLOOP_COPIES 16 CACHE STRING "How many Sloop instances play without sharing a copy (more share one, at some CPU cost)")
-# Sloop (engines/sloop: SLOOP 2.3, a fork of Felucca, GPL-3.0-only) is built the same way, from
+# Sloop (engines/sloop: SLOOP 2.4.1, a fork of Felucca, GPL-3.0-only) is built the same way, from
 # sloop_core.c, behind the same API (felucca_core.h), into the same library.
 
 # fm1_core_copies(<kind> <tag> <copies>): engines/<kind>/<kind>_core.c compiled <copies> times, copy i
@@ -104,9 +104,14 @@ function(fm1_core_copies kind tag copies)
     math(EXPR arrEnd "${arrEnd} + 2")
     string(SUBSTRING "${tail}" 0 ${arrEnd} array)
     string(REPLACE "${smpDecl}" "const uint8_t ${tag}_smp_data[" array "${array}")
+    if(kind STREQUAL "sloop")
+        set(userSlots 4)   # (SLOOP 2.4: USR1-4; Felucca: 3)
+    else()
+        set(userSlots 3)
+    endif()
     file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
          "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
-         "const uint8_t ${tag}_no_samples[4][0x14000] = {{0}};\n${array}\n")
+         "const uint8_t ${tag}_no_samples[${userSlots}][0x14000] = {{0}};\n${array}\n")
     string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
     file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
     set(includes ${CMAKE_BINARY_DIR}/${kind}/shared ${CMAKE_SOURCE_DIR}/engines/${kind}/generated
