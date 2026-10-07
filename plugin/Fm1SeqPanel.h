@@ -19,7 +19,7 @@ public:
     ~Fm1SeqPage() override;
     void resized() override;
     void paint(juce::Graphics&) override;
-    static constexpr int kNarrow = 760;          // narrower (a phone): one column, taller than the screen
+    static constexpr int kNarrow = 1040;         // narrower (a phone, an iPad upright): one column, taller than the screen
     int contentHeight() const { return contentBottom_ + 10; }
     void refresh();                              // the pattern read again (the tab does it on its own 20 times a second)
     std::function<void()> onHeightChanged;       // narrow: the page's height changed
@@ -73,7 +73,8 @@ private:
     fm1::seq::Pattern snap_;                     // what the lanes draw
     int sel_ = 0, page_ = 0, opened_ = -1, rollLow_ = 48, contentBottom_ = 0, seenVersion_ = -1;
     int lanesMode_ = 0;                          // 0 as the notes say, 1 FM / VA, 2 8-Bit
-    bool loading_ = false, follow_ = true;
+    bool loading_ = false, follow_ = true, wasPlaying_ = false;
+    int lastPlaying_ = -2;
     juce::uint32 sayUntil_ = 0;
     std::unique_ptr<Lanes> lanes_;
 
@@ -83,7 +84,8 @@ private:
         copyStep_{"Copy step"}, pasteStep_{"Paste step"}, clearStep_{"Clear step"}, clearPattern_{"Clear pattern"};
     juce::ToggleButton sync_{"Sync to host"}, overdub_{"Overdub"}, accent_{"Accent"}, slide_{"Tie & Slide"};
     juce::ComboBox pattern_, steps_, rate_, chain_, repeats_, lanesMode_box_, stepRate_, ratchet_, addLock_;
-    juce::Slider swing_, gate_, tempo_, transpose_, stepGate_, stepChance_, stepTranspose_;
+    juce::Slider swing_, gate_, tempo_, transpose_, stepGate_, stepChance_, stepTranspose_, allVel_;
+    juce::Label allVelL_;
     juce::Label stepsL_, rateL_, swingL_, gateL_, chainL_, repeatsL_, tempoL_, transposeL_, stepTitle_, stepRateL_, ratchetL_,
         stepGateL_, stepChanceL_, stepTransposeL_, notesTitle_, locksTitle_, info_;
     std::vector<std::unique_ptr<NoteRow>> noteRows_;

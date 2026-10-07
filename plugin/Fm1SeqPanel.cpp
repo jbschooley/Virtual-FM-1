@@ -68,8 +68,9 @@ class Fm1SeqPage::Lanes : public juce::Component {
 public:
     explicit Lanes(Fm1SeqPage& p) : page_(p) {}
 
-    static constexpr int kHeader = 18, kLabel = 64;
-    juce::Rectangle<int> grid() const { return getLocalBounds().withTrimmedLeft(kLabel).withTrimmedTop(kHeader); }
+    static constexpr int kHeader = 18;
+    int labelW() const { return page_.opened_ >= 0 && page_.opened_ == page_.laneCount() - 1 ? 116 : 64; }   // (locks' names are long)
+    juce::Rectangle<int> grid() const { return getLocalBounds().withTrimmedLeft(labelW()).withTrimmedTop(kHeader); }
     float colW() const { return float(grid().getWidth()) / kCols; }
     int colAt(int x) const { return juce::jlimit(0, kCols - 1, int((x - grid().getX()) / std::max(1.0f, colW()))); }
     float colX(int c) const { return float(grid().getX()) + float(c) * colW(); }
@@ -123,7 +124,7 @@ public:
             g.fillRect(cell);
         };
         auto noteBars = [&](juce::Rectangle<float> band, int lo, int hi, std::function<float(int)> yOf, float h) {
-            for (int s = 0; s < kSteps; ++s)
+            for (int s = 0; s < len; ++s)   // (steps past the pattern's length are kept, not drawn)
                 for (const auto& n : p.steps[size_t(s)].notes) {
                     if (n.note < lo || n.note > hi) continue;
                     const int a = s - first, b = std::min(s + n.len, len - 1) - first;
@@ -149,7 +150,7 @@ public:
                 for (int c = 0; c < kCols; ++c) column(band, c);
                 g.setColour(kHead);
                 g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-                g.drawText(page_.laneName(lane), juce::Rectangle<float>(0.0f, band.getY(), float(kLabel - 6), bandH), juce::Justification::centredRight);
+                g.drawText(page_.laneName(lane), juce::Rectangle<float>(0.0f, band.getY(), float(labelW() - 6), bandH), juce::Justification::centredRight);
                 if (lane == n - 1) {   // the Locks: a block for each lock, stacked from the bottom
                     const auto& t = p.locks;
                     for (int c = 0; c < kCols; ++c) {
@@ -166,7 +167,8 @@ public:
                 }
                 const Lane l = page_.laneAt(lane);
                 int lo = 127, hi = 0;   // a pitched lane spans its own lowest to highest note
-                for (const auto& st : p.steps) for (const auto& nt : st.notes) if (nt.note >= l.lo && nt.note <= l.hi) { lo = std::min(lo, nt.note); hi = std::max(hi, nt.note); }
+                for (int k = 0; k < len; ++k)
+                    for (const auto& nt : p.steps[size_t(k)].notes) if (nt.note >= l.lo && nt.note <= l.hi) { lo = std::min(lo, nt.note); hi = std::max(hi, nt.note); }
                 if (!l.pitched) { lo = l.lo; hi = l.lo + 11; }
                 if (lo > hi) continue;
                 const float h = 3.0f, span = float(std::max(1, hi - lo));
@@ -182,7 +184,7 @@ public:
                 if (rs[i].black) { g.setColour(juce::Colours::black.withAlpha(0.35f)); g.fillRect(band); }
                 g.setColour(rs[i].black ? kDim : kHead);
                 g.setFont(juce::FontOptions(std::min(12.0f, rowH - 2.0f)));
-                g.drawText(rs[i].name, juce::Rectangle<float>(0.0f, rowY(i), float(kLabel - 6), rowH), juce::Justification::centredRight);
+                g.drawText(rs[i].name, juce::Rectangle<float>(0.0f, rowY(i), float(labelW() - 6), rowH), juce::Justification::centredRight);
             }
             if (page_.opened_ == page_.laneCount() - 1) {   // the Locks: a bar whose height is the value
                 const auto& t = p.locks;
@@ -225,8 +227,8 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override {
         dragNote_ = -1;
-        if (e.x < kLabel) {   // a lane's name: open it (or go back to all of them)
-            if (page_.opened_ >= 0) return;
+        if (e.x < labelW()) {   // a lane's name: open it (or go back to all of them)
+            if (page_.opened_ >= 0 || e.y < kHeader) return;
             const int n = page_.laneCount();
             const int lane = juce::jlimit(0, n - 1, int(float(e.y - grid().getY()) / (float(grid().getHeight()) / float(n))));
             page_.openLane(lane);
@@ -245,14 +247,15 @@ public:
         // on a note that starts here: drag to hold it longer (or let go to take it off); elsewhere, add one
         bool there = false;
         for (const auto& n : page_.snap_.steps[size_t(step)].notes) there = there || n.note == note;
-        if (there) { dragNote_ = note; dragStep_ = step; dragged_ = false; return; }
+        if (there) { dragNote_ = note; dragStep_ = step; dragged_ = false; lastAt_ = -1; return; }
         page_.toggleNote(step, note);
     }
     void mouseDrag(const juce::MouseEvent& e) override {
         if (dragNote_ < 0) return;
         const int at = page_.page_ * kCols + colAt(e.x);
-        if (!dragged_ && at == dragStep_) return;
+        if ((!dragged_ && at == dragStep_) || at == lastAt_) return;
         dragged_ = true;
+        lastAt_ = at;
         page_.setHold(dragStep_, dragNote_, std::max(0, at - dragStep_));
     }
     void mouseUp(const juce::MouseEvent&) override {
@@ -261,13 +264,13 @@ public:
     }
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) override {
         if (page_.opened_ < 0 || page_.opened_ == page_.laneCount() - 1 || !page_.laneAt(page_.opened_).pitched) return;
-        page_.rollLow_ += w.deltaY > 0 ? 1 : w.deltaY < 0 ? -1 : 0;
+        page_.rollLow_ = juce::jlimit(0, 120, page_.rollLow_ + (w.deltaY > 0 ? 1 : w.deltaY < 0 ? -1 : 0));
         repaint();
     }
 
 private:
     Fm1SeqPage& page_;
-    int dragNote_ = -1, dragStep_ = 0;
+    int dragNote_ = -1, dragStep_ = 0, lastAt_ = -1;
     bool dragged_ = false;
 };
 
@@ -335,7 +338,7 @@ Fm1SeqPage::Fm1SeqPage(FM1Processor& p) : proc_(p) {
     rec_.setTooltip("Record: stopped, notes you play go into the outlined step and it moves on; playing, they land on the nearest step");
     rec_.onClick = [this] { proc_.sequencer.recording = rec_.getToggleState() && proc_.sequencer.isPlaying(); lanes_->repaint(); };
     for (int i = 1; i <= Sequencer::kPatterns; ++i) pattern_.addItem("Pattern " + juce::String(i), i);
-    pattern_.onChange = [this] { proc_.sequencer.selected = pattern_.getSelectedId() - 1; sel_ = 0; page_ = 0; readPattern(); loadSettings(); loadStep(); };
+    pattern_.onChange = [this] { proc_.sequencer.selected = pattern_.getSelectedId() - 1; sel_ = 0; readPattern(); loadSettings(); loadStep(); showPage(0); };
     sync_.onClick = [this] { proc_.sequencer.syncToHost = sync_.getToggleState(); };
     overdub_.onClick = [this] { proc_.sequencer.overdub = overdub_.getToggleState(); };
     overdub_.setTooltip("Recording adds to what a step holds (off: the first note in a step replaces it)");
@@ -354,7 +357,14 @@ Fm1SeqPage::Fm1SeqPage(FM1Processor& p) : proc_(p) {
             if (f.hasFileExtension("mid;midi")) say(proc_.importPatternMidi(f));
             else {
                 const auto r = proc_.importJson(f, false, true);
-                say(r.errors.isEmpty() ? r.summary : r.summary + " " + r.errors[0]);
+                say(r.summary);
+                if (!r.errors.isEmpty()) {   // (what was wrong, line by line)
+                    juce::StringArray shown;
+                    for (int i = 0; i < std::min(20, r.errors.size()); ++i) shown.add(r.errors[i]);
+                    if (r.errors.size() > 20) shown.add("... and " + juce::String(r.errors.size() - 20) + " more");
+                    juce::AlertWindow::showAsync(juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon)
+                        .withTitle("Some of the file was not imported").withMessage(shown.joinIntoString("\n")).withButton("OK").withAssociatedComponent(this), nullptr);
+                }
             }
             readPattern(); loadSettings(); loadStep();
         });
@@ -392,8 +402,8 @@ Fm1SeqPage::Fm1SeqPage(FM1Processor& p) : proc_(p) {
                               "preset's when they are all on its parts' keys and some are drums");
     lanesMode_box_.onChange = [this] { lanesMode_ = lanesMode_box_.getSelectedId() - 1; opened_ = -1; resized(); lanes_->repaint(); };
     back_.onClick = [this] { openLane(-1); };
-    octDown_.onClick = [this] { rollLow_ -= 12; lanes_->repaint(); };
-    octUp_.onClick = [this] { rollLow_ += 12; lanes_->repaint(); };
+    octDown_.onClick = [this] { rollLow_ = std::max(0, rollLow_ - 12); lanes_->repaint(); };
+    octUp_.onClick = [this] { rollLow_ = std::min(120, rollLow_ + 12); lanes_->repaint(); };
 
     // the step
     ratchet_.addItem("Off", 1); ratchet_.addItem("2", 2); ratchet_.addItem("3", 3); ratchet_.addItem("4", 4);
@@ -404,6 +414,27 @@ Fm1SeqPage::Fm1SeqPage(FM1Processor& p) : proc_(p) {
     slide_.onClick = applyS;
     slide_.setTooltip("Every note of the step held into the next one");
     accent_.setTooltip("The step's notes at full velocity");
+    // every note of the step at one velocity
+    allVel_.setSliderStyle(juce::Slider::LinearHorizontal);
+    allVel_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 36, 18);
+    allVel_.setRange(1, 127, 1);
+    allVel_.setScrollWheelEnabled(false);
+    allVelL_.setText("All notes", juce::dontSendNotification);
+    allVelL_.setFont(juce::FontOptions(12.0f));
+    allVelL_.setColour(juce::Label::textColourId, kDim);
+    addChildComponent(allVel_);
+    addChildComponent(allVelL_);
+    allVel_.onValueChange = [this] {
+        if (loading_) return;
+        const int v = int(allVel_.getValue());
+        {
+            const juce::SpinLock::ScopedLockType l(proc_.sequencer.lock);
+            for (auto& n : pattern().steps[size_t(sel_)].notes) n.vel = v;
+        }
+        for (auto& r : noteRows_) r->vel.setValue(v, juce::dontSendNotification);
+        readPattern();
+        lanes_->repaint();
+    };
     addLock_.setTextWhenNothingSelected("Add a lock...");
     {
         const char* const groups[4] = {"FM", "Virtual Analog", "8-Bit", "Effects"};
@@ -479,8 +510,8 @@ void Fm1SeqPage::edit(const std::function<void(fm1::seq::Pattern&)>& f) {
 bool Fm1SeqPage::chipLanes() const {
     if (lanesMode_ != 0) return lanesMode_ == 2;
     bool any = false, drum = false;   // (her app's rule: every note on a part's keys, some of them drums)
-    for (const auto& s : snap_.steps)
-        for (const auto& n : s.notes) {
+    for (int k = 0; k < std::min(kSteps, snap_.length); ++k)
+        for (const auto& n : snap_.steps[size_t(k)].notes) {
             if (n.note < 17) return false;
             any = true;
             drum = drum || n.note <= 28;
@@ -496,7 +527,8 @@ void Fm1SeqPage::openLane(int lane) {
     if (opened_ >= 0 && opened_ < laneCount() - 1 && laneAt(opened_).pitched) {   // the roll from the lane's lowest note
         const Lane l = laneAt(opened_);
         int lo = 128;
-        for (const auto& s : snap_.steps) for (const auto& n : s.notes) if (n.note >= l.lo && n.note <= l.hi) lo = std::min(lo, n.note);
+        for (int k = 0; k < std::min(kSteps, snap_.length); ++k)
+            for (const auto& n : snap_.steps[size_t(k)].notes) if (n.note >= l.lo && n.note <= l.hi) lo = std::min(lo, n.note);
         rollLow_ = lo < 128 ? lo - lo % 12 : std::max(l.lo, 48);
     }
     resized();
@@ -570,6 +602,7 @@ void Fm1SeqPage::addLock(int step, int what) {
 }
 
 void Fm1SeqPage::setLock(int step, int what, int value) {
+    if (lockRange(what).second < 0) return;
     edit([&](fm1::seq::Pattern& p) {
         auto l = locksOf(p, step);
         for (auto& x : l) if (x.first == what) x.second = juce::jlimit(lockRange(what).first, lockRange(what).second, value);
@@ -663,12 +696,20 @@ void Fm1SeqPage::loadStep() {
             readPattern();
             lanes_->repaint();
         };
-        r->hold.onValueChange = [this, note, s = r.get()] { setHold(sel_, note, int(s->hold.getValue())); };
-        r->remove.onClick = [this, note] { juce::MessageManager::callAsync([this, note] { toggleNote(sel_, note); }); };
+        // (after the click: the edit rebuilds these rows, this one too)
+        juce::Component::SafePointer<Fm1SeqPage> self(this);
+        r->hold.onValueChange = [self, note, s = r.get()] {
+            const int v = int(s->hold.getValue());
+            juce::MessageManager::callAsync([self, note, v] { if (self) self->setHold(self->sel_, note, v); });
+        };
+        r->remove.onClick = [self, note] { juce::MessageManager::callAsync([self, note] { if (self) self->toggleNote(self->sel_, note); }); };
         r->remove.setTooltip("Remove the note");
         for (auto* c : std::initializer_list<juce::Component*>{&r->name, &r->vel, &r->hold, &r->remove}) addAndMakeVisible(c);
         noteRows_.push_back(std::move(r));
     }
+    allVel_.setVisible(s.notes.size() > 1);
+    allVelL_.setVisible(s.notes.size() > 1);
+    if (s.notes.size() > 1) allVel_.setValue(s.notes[0].vel, juce::dontSendNotification);
     lockRows_.clear();
     for (const auto& [what, value] : locksOf(snap_, sel_)) {
         auto r = std::make_unique<LockRow>();
@@ -694,7 +735,8 @@ void Fm1SeqPage::loadStep() {
             readPattern();
             lanes_->repaint();
         };
-        r->remove.onClick = [this, w] { juce::MessageManager::callAsync([this, w] { removeLock(sel_, w); }); };
+        juce::Component::SafePointer<Fm1SeqPage> self(this);
+        r->remove.onClick = [self, w] { juce::MessageManager::callAsync([self, w] { if (self) self->removeLock(self->sel_, w); }); };
         r->remove.setTooltip("Remove the lock");
         for (auto* c : std::initializer_list<juce::Component*>{&r->name, &r->value, &r->remove}) addAndMakeVisible(c);
         lockRows_.push_back(std::move(r));
@@ -746,16 +788,18 @@ void Fm1SeqPage::timerCallback() {
     }
     if (pattern_.getSelectedId() != proc_.sequencer.selected + 1) {
         pattern_.setSelectedId(proc_.sequencer.selected + 1, juce::dontSendNotification);
-        readPattern(); loadSettings(); loadStep();
+        sel_ = 0;
+        readPattern(); loadSettings(); loadStep(); showPage(0);
     }
     const bool playing = proc_.sequencer.isPlaying();
+    if (playing && !wasPlaying_) follow_ = true;   // (however it was started: the page follows again)
+    wasPlaying_ = playing;
     play_.setToggleState(playing, juce::dontSendNotification);
     play_.setButtonText(playing ? "Stop" : "Play");
     if (enable_.getToggleState() != proc_.sequencer.enabled) enable_.setToggleState(proc_.sequencer.enabled, juce::dontSendNotification);
-    static thread_local int lastPlaying = -2;
     const int at = playingStep();
-    if (at != lastPlaying) {
-        lastPlaying = at;
+    if (at != lastPlaying_) {
+        lastPlaying_ = at;
         if (at >= 0 && follow_ && at / kCols != page_) showPage(at / kCols);   // the page turns with the playhead
         if (proc_.sequencer.recording) readPattern();                          // (real-time recording writes into it)
         lanes_->repaint();
@@ -845,8 +889,10 @@ void Fm1SeqPage::resized() {
         auto field = [&](juce::Label& l, juce::Component& c, int lw, int cw) {
             l.setBounds(b.removeFromLeft(lw)); c.setBounds(b.removeFromLeft(cw)); b.removeFromLeft(10);
         };
-        field(stepsL_, steps_, 38, 58); field(rateL_, rate_, 32, 72); field(swingL_, swing_, 40, 120); field(gateL_, gate_, 32, 120);
-        field(chainL_, chain_, 40, 104); field(repeatsL_, repeats_, 52, 56); field(tempoL_, tempo_, 44, 130); field(transposeL_, transpose_, 62, 120);
+        // (fits from 1040 px, the narrowest this layout is used at)
+        const int sw = juce::jlimit(70, 130, (b.getWidth() - 640) / 4);
+        field(stepsL_, steps_, 38, 58); field(rateL_, rate_, 32, 72); field(swingL_, swing_, 40, sw); field(gateL_, gate_, 32, sw);
+        field(chainL_, chain_, 40, 104); field(repeatsL_, repeats_, 52, 56); field(tempoL_, tempo_, 44, sw); field(transposeL_, transpose_, 62, sw);
     }
     {
         auto b = bar(26);
@@ -886,9 +932,15 @@ void Fm1SeqPage::layoutStep(juce::Rectangle<int> r) {
         copyStep_.setButtonText(w < 80 ? "Copy" : "Copy step"); pasteStep_.setButtonText(w < 80 ? "Paste" : "Paste step");
         clearStep_.setButtonText(w < 80 ? "Clear" : "Clear step"); clearPattern_.setButtonText(w < 80 ? "Clear all" : "Clear pattern");
     }
-    auto col2 = narrow ? r.removeFromTop(22 + 24 * std::max(1, int(noteRows_.size()))) : r.removeFromLeft(r.getWidth() / 2);
+    const int allRow = noteRows_.size() > 1 ? 24 : 0;
+    auto col2 = narrow ? r.removeFromTop(22 + allRow + 24 * std::max(1, int(noteRows_.size()))) : r.removeFromLeft(r.getWidth() / 2);
     if (!narrow) r.removeFromLeft(12); else r.removeFromTop(8);
     notesTitle_.setBounds(col2.removeFromTop(22));
+    if (allRow > 0) {
+        auto b = col2.removeFromTop(22); col2.removeFromTop(2);
+        allVelL_.setBounds(b.removeFromLeft(chipLanes() ? 74 : 60));
+        allVel_.setBounds(b.removeFromLeft(std::max(80, b.getWidth() - 144)));
+    }
     notesTitle_.setText(noteRows_.empty() ? "Notes: none (open a lane to add some, or record)" : "Notes", juce::dontSendNotification);
     for (auto& nr : noteRows_) {
         auto b = col2.removeFromTop(22); col2.removeFromTop(2);

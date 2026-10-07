@@ -37,10 +37,12 @@ public:
         view_.setScrollBarsShown(true, false);
     }
     void resized() override {
+        const auto pos = view_.getViewPosition();   // (a page laid out again stays where it was scrolled to)
         view_.setBounds(getLocalBounds());
         content_.setSize(getWidth(), getHeight());
         const int need = needed_();
         if (need > getHeight()) content_.setSize(getWidth() - view_.getScrollBarThickness(), std::max(getHeight(), needed_()));
+        view_.setViewPosition(pos);
     }
 
 private:
