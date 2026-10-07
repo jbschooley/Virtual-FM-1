@@ -26,6 +26,7 @@ struct Entry {
     int index = 0;        // Felucca 1.0's parameter number (P_* or G_*), or SLOOP 2.3's
     float def = 0.0f;     // its default, 0..1 (0 for an engine's own eight)
     bool sloop = false;   // SLOOP's ("slp_..."), not Felucca's
+    int hint = 0;         // its version hint (0: Felucca's 2, SLOOP's 3); AU orders by it, so an added one has a higher one
 };
 
 // Felucca's, then SLOOP's (added after them: a project's earlier parameters keep their places)

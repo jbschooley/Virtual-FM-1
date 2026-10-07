@@ -127,6 +127,15 @@ int main(int argc, char** argv) {
         juce::StringArray fresh;
         for (auto& line : now) if (!was.contains(line)) { ++added; fresh.add(line); }
         CHECK(missing == 0, "every frozen parameter keeps its id, version hint and range");
+        {   // (AU: a parameter added with a hint no higher than one before it moves the ones after it)
+            int top = 0, lower = 0;
+            for (auto& line : was) {
+                const int h = juce::StringArray::fromTokens(line, "\t", "")[1].getIntValue();
+                if (h < top) { ++lower; std::printf("frozen parameter with a lower version hint than one before it: %s\n", line.toRawUTF8()); }
+                top = std::max(top, h);
+            }
+            CHECK(lower == 0, "each parameter added has a version hint at least as high as every earlier one");
+        }
         if (added > 0 && juce::SystemStats::getEnvironmentVariable("FM1_APPEND_FROZEN", {}).isNotEmpty()) {
             frozen.appendText(fresh.joinIntoString("\n") + "\n");
             std::printf("appended %d new parameters to %s\n", added, frozen.getFullPathName().toRawUTF8());

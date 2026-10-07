@@ -103,8 +103,8 @@ std::vector<Entry> build() {
     for (const auto& g : kSloopGlobal) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true});
     for (int t = 0; t < 3; ++t)   // (2.4)
         for (int k = 0; k < 3; ++k)
-            out.push_back({"slp_t" + juce::String(t + 1) + "_" + kSloop24[k].name, t, kSloopCommon + k, defaultOf(kSloop24[k].range), true});
-    out.push_back({"slp_dr_filt", 3, kSloopCommon, defaultOf(kSloop24[0].range), true});
+            out.push_back({"slp_t" + juce::String(t + 1) + "_" + kSloop24[k].name, t, kSloopCommon + k, defaultOf(kSloop24[k].range), true, 4});
+    out.push_back({"slp_dr_filt", 3, kSloopCommon, defaultOf(kSloop24[0].range), true, 4});
     return out;
 }
 
@@ -147,7 +147,7 @@ void addTo(juce::AudioProcessorValueTreeState::ParameterLayout& layout, std::sha
         });
         const int g = (e.sloop ? 5 : 0) + (e.track < 0 ? 4 : e.track);
         groups[g]->addChild(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID{e.id, e.sloop ? 3 : 2}, name, juce::NormalisableRange<float>(0.0f, 1.0f), e.def, attrs));
+            juce::ParameterID{e.id, e.hint ? e.hint : e.sloop ? 3 : 2}, name, juce::NormalisableRange<float>(0.0f, 1.0f), e.def, attrs));
     }
     for (auto& g : groups) layout.add(std::move(g));
 }
