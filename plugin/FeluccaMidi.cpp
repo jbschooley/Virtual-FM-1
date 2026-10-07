@@ -51,9 +51,13 @@ juce::MidiFile toMidi(const Song& song) {
         const int len = std::clamp(p.len, 1, felucca::kSteps);
         const double base = tr.stepQuarters * kTpq;                                // a straight step, in ticks
         const double late = base * double(tr.swing) / (song.sloop ? 200.0 : 250.0); // an odd step's delay
-        auto start = [&](int i) { return double(i) * base + ((i & 1) ? late : 0.0); };
+        auto swung = [&](int i) { return double(i) * base + ((i & 1) ? late : 0.0); };
         auto length = [&](int i) { return (i & 1) ? base - late : base + late; };     // the swung step
-        double end = start(len - 1) + length(len - 1);
+        auto start = [&](int i) {   // SLOOP 2.4: and its nudge, 1/64 of a step early or late
+            const int m = p.extras && size_t(i) < p.micro.size() ? p.micro[size_t(i)] : 0;
+            return std::max(0.0, swung(i) + base * m / 64.0);
+        };
+        double end = swung(len - 1) + length(len - 1);
         juce::MidiMessageSequence seq;
         seq.addEvent(juce::MidiMessage::textMetaEvent(3, tr.drums ? juce::String("Drums") : "Part " + juce::String(tr.index + 1)), 0);
         if (first) {

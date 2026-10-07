@@ -587,6 +587,24 @@ static int checks() {
                 auto pa = felucca::readPattern(ea, 1, err), pb = felucca::readPattern(eb, 1, err);
                 CHECK(pa && pb && *pa == *pb && pb->len == 24 && pb->steps[5] == st, who + "the other side has them");
                 if (slp) { auto da = felucca::readPattern(ea, 3, err), db = felucca::readPattern(eb, 3, err); CHECK(da && db && da->drums == db->drums && db->drums[7].has(15), who + "drum track too"); }
+                if (slp) {   // 2.4: locks, nudges and fill conditions
+                    CHECK(ea.ask(felucca::lockSet(1, 5, 1, 100), 400) && ea.ask(felucca::lockSet(1, 9, 1, 7), 400)
+                          && ea.ask(felucca::microSet(1, 5, -12), 400) && ea.ask(felucca::fillSet(1, 6, felucca::kFillNot), 400)
+                          && ea.ask(felucca::fillSet(1, 63, felucca::kFillOnly), 400), who + "locks, a nudge and conditions set");
+                    felucca::TrackPattern x;
+                    CHECK(felucca::readExtras(ea, 1, x) && x.locks.size() == 2 && (x.locks[0] == felucca::Lock{5, 1, 100})
+                          && x.micro[5] == -12 && x.micro[4] == 0 && x.fill[6] == felucca::kFillNot && x.fill[63] == felucca::kFillOnly && x.fill[0] == 0,
+                          who + "and read back");
+                    CHECK(felucca::copyPatterns(ea, eb, 4, err), who + "copied again (" + err + ")");
+                    felucca::TrackPattern y;
+                    CHECK(felucca::readExtras(eb, 1, y) && y.locks == x.locks && y.micro == x.micro && y.fill == x.fill, who + "the other side has them");
+                    ea.ask(felucca::lockDelete(1, 9, 1), 400);
+                    ea.ask(felucca::microSet(1, 5, 0), 400);
+                    CHECK(felucca::copyPatterns(ea, eb, 4, err) && felucca::readExtras(eb, 1, y) && y.locks.size() == 1 && y.micro[5] == 0,
+                          who + "a lock deleted and a nudge cleared, copied");
+                    auto pp = felucca::readPattern(ea, 1, err);
+                    CHECK(pp && pp->extras && pp->locks.size() == 1, who + "a pattern read has them");
+                }
                 // the playhead
                 CHECK(a->stepOf(0) == -1, who + "stopped: no step");
                 a->transport(true);
@@ -611,6 +629,14 @@ static int checks() {
                         const auto tda = td ? felucca::argsOf(*td) : std::vector<uint8_t>{};
                         if (tda.size() >= 3) ia.extra.push_back(felucca::frame(felucca::kReload, {tda[1], tda[2], 0}));
                         CHECK(m.tick(err) && felucca::readStep(eb, 0, 3) == dev, who + "a reload that names nothing new re-reads the patterns (" + err + ")");
+                        // 2.4: a step's lock, nudge and condition, carried with its STEP_CHANGED
+                        ea.ask(felucca::lockSet(0, 3, 1, 120), 400);
+                        ea.ask(felucca::microSet(0, 3, 9), 400);
+                        ea.ask(felucca::fillSet(0, 3, felucca::kFillOnly), 400);
+                        ia.extra.push_back(felucca::frame(felucca::kStepChanged, {3, 0}));
+                        felucca::TrackPattern z;
+                        CHECK(m.tick(err) && felucca::readExtras(eb, 0, z) && z.micro[3] == 9 && z.fill[3] == felucca::kFillOnly
+                              && std::find(z.locks.begin(), z.locks.end(), (felucca::Lock{3, 1, 120})) != z.locks.end(), who + "Live carries a step's lock, nudge and condition (" + err + ")");
                         felucca::Step dev2 = dev; dev2.note = {74, 0, 0, 0};
                         ea.ask(felucca::stepWrite(ea.dialect(), 0, 4, dev2), 400);
                         ea.ask(felucca::frame(felucca::kTrack, {1}), 400);
@@ -790,6 +816,20 @@ static int checks() {
                 page.setNoteRatchet(0, 3);
                 auto s10 = felucca::readStep(e, 1, 10);
                 CHECK(s10 && (s10->lvl & 3) == 2 && (s10->rat & 3) == 3, who + "a note's level and ratchet");
+                {   // 2.4: the step's nudge, fill condition and a lock
+                    CHECK(page.pattern().extras, who + "the pattern has locks, nudges and conditions");
+                    page.setStepMicro(-7);
+                    page.setStepFill(felucca::kFillNot);
+                    page.setLock(1, 90);
+                    page.setLock(1, 500);   // (past ATK's 0..127: the synth keeps 127)
+                    felucca::TrackPattern x;
+                    CHECK(felucca::readExtras(e, 1, x) && x.micro[10] == -7 && x.fill[10] == felucca::kFillNot && x.locks.size() == 1
+                          && (x.locks[0] == felucca::Lock{10, 1, 127}) && page.pattern().locks == x.locks, who + "a step's nudge, condition and lock (clamped as the synth keeps it)");
+                    page.removeLock(1);
+                    CHECK(felucca::readExtras(e, 1, x) && x.locks.empty() && page.pattern().locks.empty(), who + "the lock removed");
+                    page.setLock(20, 5);   // P_AMODE: not a sound parameter
+                    CHECK(felucca::readExtras(e, 1, x) && x.locks.empty(), who + "an arp parameter does not lock");
+                }
                 page.selectTrack(3);
                 CHECK(page.drumsView(), who + "the drum track shows lanes");
                 page.toggleLane(5, 12, false);
@@ -937,6 +977,17 @@ static int checks() {
                 CHECK(has(events(felmidi::toMidi(cs)), 1, 52, 100, 240, 270), "a chord's unratcheted note: the gate shared by the largest ratchet, not held into a TIE");
             }
             CHECK(has(es, 10, 36, 127, 0, 60) && has(es, 10, 42, 72, 240, 300), "its drum track: levels as velocities (hard 127, soft 72)");
+            {   // 2.4: a nudge moves a step by 64ths of it (16 of a 120-tick step: 30 late); step 0 nudged early stays at 0
+                auto nudged = ss;
+                auto& d = nudged.tracks[1].pattern;
+                d.extras = true;
+                d.micro.assign(64, 0);
+                d.fill.assign(64, 0);
+                d.micro[2] = 16;
+                d.micro[0] = -16;
+                const auto en = events(felmidi::toMidi(nudged));
+                CHECK(has(en, 10, 42, 72, 270, 330) && has(en, 10, 36, 127, 0, 60), "SLOOP: a nudged step plays late by its 64ths (not before the start)");
+            }
             auto drumsBack = felmidi::fromMidi(felmidi::toMidi(ss), dp, true, true, 0.25, 3);
             CHECK(drumsBack.pattern.drums[0].has(0) && drumsBack.pattern.drums[0].level(0) == 3 && drumsBack.pattern.drums[2].level(4) == 2,
                   "and back onto its lanes, levels from the velocities");

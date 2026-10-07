@@ -119,6 +119,74 @@ std::optional<int> readParam(Endpoint& e, int track, int id) {
     return r14(a, 2);
 }
 
+bool lockable(int id) {   // P_LEVEL..P_LD_AMP, P_SGATE, P_DIST..P_REV, P_GLIDE, P_PAN, P_DETUNE, P_SLCR..P_SLDEPTH, P_TFLT, P_E0..P_E7
+    return (id >= 0 && id <= 16) || id == 31 || (id >= 32 && id <= 35) || id == 37 || id == 38 || id == 43
+        || (id >= 44 && id <= 47) || id == 50 || (id >= 53 && id <= 60);
+}
+
+Bytes lockSet(int track, int step, int param, int value) {
+    std::vector<uint8_t> a = {uint8_t(track), uint8_t(step), uint8_t(param)};
+    v14(a, value);
+    return frame(kLockSet, a);
+}
+Bytes lockDelete(int track, int step, int param) { return frame(kLockSet, {uint8_t(track), uint8_t(step), uint8_t(param)}); }
+Bytes microSet(int track, int step, int nudge) {
+    return frame(kMicroSet, {uint8_t(track), uint8_t(step), uint8_t(std::clamp(nudge, kMicroMin, kMicroMax) + 64)});
+}
+Bytes fillSet(int track, int step, int cond) { return frame(kFillSet, {uint8_t(track), uint8_t(step), uint8_t(std::clamp(cond, 0, 2))}); }
+
+bool readExtras(Endpoint& e, int track, TrackPattern& p) {
+    if (!isSloop(e.dialect())) return false;
+    auto lk = e.ask(frame(kLockGet, {uint8_t(track)}), kAsk);
+    auto mc = lk ? e.ask(frame(kMicroGet, {uint8_t(track)}), kAsk) : std::nullopt;
+    auto fl = mc ? e.ask(frame(kFillGet, {uint8_t(track)}), kAsk) : std::nullopt;
+    if (!fl) return false;
+    const auto la = argsOf(*lk), ma = argsOf(*mc), fa = argsOf(*fl);
+    if (la.size() < 2 || la[0] != track || ma.size() < 1 + size_t(kSteps) || fa.size() < 1) return false;
+    p.locks.clear();
+    for (size_t i = 2, k = 0; k < la[1] && i + 3 < la.size(); i += 4, ++k) p.locks.push_back({la[i], la[i + 1], r14(la, i + 2)});
+    std::sort(p.locks.begin(), p.locks.end());
+    p.micro.assign(size_t(kSteps), 0);
+    for (int i = 0; i < kSteps; ++i) p.micro[size_t(i)] = std::clamp(int(ma[size_t(1 + i)]) - 64, kMicroMin, kMicroMax);
+    // the conditions: 2 bits a step, NSTEP / 4 bytes, pack7 (a top-bits byte, then up to 7 bytes)
+    std::vector<uint8_t> packed;
+    for (size_t i = 1; i < fa.size();) {
+        const uint8_t top = fa[i++];
+        for (int k = 0; k < 7 && i < fa.size() && packed.size() < size_t(kSteps / 4); ++k) packed.push_back(uint8_t(fa[i++] | ((top >> k) & 1) << 7));
+    }
+    if (packed.size() < size_t(kSteps / 4)) return false;
+    p.fill.assign(size_t(kSteps), 0);
+    for (int i = 0; i < kSteps; ++i) p.fill[size_t(i)] = std::min(2, int(packed[size_t(i / 4)] >> (2 * (i % 4))) & 3);
+    p.extras = true;
+    return true;
+}
+
+// what to send so that `have` (a side's extras) holds `want`'s, for the steps in [from, to)
+static bool writeExtras(Endpoint& e, int track, const TrackPattern& want, const TrackPattern& have, int from, int to, juce::String& error) {
+    for (int i = from; i < to; ++i) {
+        if (have.micro[size_t(i)] != want.micro[size_t(i)] && !e.ask(microSet(track, i, want.micro[size_t(i)]), kAsk)) { error = "no answer to MICRO_SET"; return false; }
+        if (have.fill[size_t(i)] != want.fill[size_t(i)] && !e.ask(fillSet(track, i, want.fill[size_t(i)]), kAsk)) { error = "no answer to FILL_SET"; return false; }
+    }
+    auto inRange = [&](const Lock& l) { return l.step >= from && l.step < to; };
+    for (const auto& l : have.locks)   // (first the ones that go: the track has room for 24)
+        if (inRange(l) && std::none_of(want.locks.begin(), want.locks.end(), [&](const Lock& w) { return w.step == l.step && w.param == l.param; })
+            && !e.ask(lockDelete(track, l.step, l.param), kAsk)) { error = "no answer to LOCK_SET"; return false; }
+    for (const auto& l : want.locks)
+        if (inRange(l) && std::find(have.locks.begin(), have.locks.end(), l) == have.locks.end()) {
+            auto r = e.ask(lockSet(track, l.step, l.param, l.value), kAsk);
+            if (!r) { error = "no answer to LOCK_SET"; return false; }
+            const auto a = argsOf(*r);
+            if (a.size() >= 4 && a[3] == 3) { error = "the track has no room for another lock (24 at most)"; return false; }
+        }
+    return true;
+}
+
+bool copyStepExtras(Endpoint& from, Endpoint& to, int track, int step, juce::String& error) {
+    TrackPattern a, b;
+    if (!readExtras(from, track, a) || !readExtras(to, track, b)) return true;   // (a side without them: nothing to carry)
+    return writeExtras(to, track, a, b, step, step + 1, error);
+}
+
 std::optional<TrackPattern> readPattern(Endpoint& e, int track, juce::String& error, int upTo) {
     TrackPattern p;
     int* fields[4] = {&p.len, &p.div, &p.swing, &p.gate};
@@ -141,6 +209,7 @@ std::optional<TrackPattern> readPattern(Endpoint& e, int track, juce::String& er
             p.steps.push_back(*s);
         }
     }
+    readExtras(e, track, p);   // (SLOOP 2.4's locks, nudges and conditions, if it has them)
     return p;
 }
 
@@ -157,6 +226,12 @@ bool writePattern(Endpoint& e, int track, const TrackPattern& p, juce::String& e
     for (size_t i = 0; i < p.drums.size(); ++i) {
         if (known && i < known->drums.size() && known->drums[i] == p.drums[i]) continue;
         if (!e.ask(drumWrite(d, int(i), p.drums[i]), kAsk)) { error = "no answer to DRUM_STEP"; return false; }
+    }
+    if (p.extras) {   // SLOOP 2.4: to a side that has them too (what it holds: known, or read now)
+        TrackPattern have;
+        if (known && known->extras) have = *known;
+        else if (!readExtras(e, track, have)) return true;
+        if (!writeExtras(e, track, p, have, 0, kSteps, error)) return false;
     }
     return true;
 }

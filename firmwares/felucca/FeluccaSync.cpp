@@ -506,13 +506,15 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
             if (!must(r, "DRUM_STEP")) return false;
             auto step = argsOf(*r);
             if (step.size() < 14) return true;
-            return must(askAgain(to.ep, frame(d.drumStep, step)), "DRUM_STEP");
+            if (!must(askAgain(to.ep, frame(d.drumStep, step)), "DRUM_STEP")) return false;
+            return copyStepExtras(from.ep, to.ep, a[1], a[0], error);   // SLOOP 2.4: its locks, nudge, condition
         }
         auto r = askAgain(from.ep, frame(kTrackStep, {a[1], a[0]}));
         if (!must(r, "TRACK_STEP")) return false;
         auto step = argsOf(*r);
         if (step.size() < 10) return true;
-        return must(askAgain(to.ep, frame(kTrackStep, step)), "TRACK_STEP");
+        if (!must(askAgain(to.ep, frame(kTrackStep, step)), "TRACK_STEP")) return false;
+        return copyStepExtras(from.ep, to.ep, a[1], a[0], error);
     }
     if (cmd == kReload && a.size() >= 3) {   // engine, preset, the selected track: a load or a new selection
         auto& echoes = from.echoes;

@@ -44,6 +44,11 @@ public:
     void setNoteLevel(int k, int level);       // SLOOP
     void setNoteRatchet(int k, int ratchet);   // SLOOP
     void setPatternParam(int id, int value);
+    // SLOOP 2.4: the selected step's nudge, fill condition and parameter locks
+    void setStepMicro(int nudge);
+    void setStepFill(int cond);
+    void setLock(int param, int value);
+    void removeLock(int param);
     // MIDI files: every track's pattern out; a file's notes onto the selected track (or its lanes)
     juce::MidiFile exportMidi() const;
     juce::String importMidi(const juce::MidiFile& file);   // what was done, for the user
@@ -91,6 +96,12 @@ private:
     juce::ComboBox paintLevel_, paintRatchet_;  // SLOOP's drum hits: the level and ratchet a click paints
     juce::ComboBox noteLevel_[4], noteRatchet_[4];
     juce::Label noteName_[4];
+    juce::Slider micro_, lockValue_;
+    juce::ComboBox fill_, lockParam_;
+    juce::TextButton lockDel_{"Remove lock"};
+    juce::Label microLabel_, fillLabel_, lockLabel_, locksText_;
+    void loadLockValue();
+    bool extrasShown() const;                  // SLOOP 2.4's step extras (the pattern view)                      // lockValue_ for the parameter lockParam_ names
     std::unique_ptr<Grid> grid_;
     std::unique_ptr<SongView> song_;
     std::unique_ptr<MotionView> motion_;

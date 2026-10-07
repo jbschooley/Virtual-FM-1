@@ -61,13 +61,37 @@ std::optional<DrumStep> readDrumStep(Endpoint& e, int index);
 std::optional<int> readParam(Endpoint& e, int track, int id);
 bool isDrumTrack(const Dialect& d, int track);
 
-// One track's pattern: its settings and steps (SLOOP's drum track: drums, not steps)
+// SLOOP 2.4 (its editor protocol v7, v8): a track's parameter locks (24 at most, a sound parameter's
+// value on a step), each step's nudge (1/64 of a step, -32..31) and fill condition
+constexpr int kLockGet = 37, kLockSet = 38, kMicroGet = 39, kMicroSet = 40, kFillGet = 41, kFillSet = 42;
+constexpr int kLocksPerTrack = 24, kMicroMin = -32, kMicroMax = 31;
+enum { kFillAlways = 0, kFillOnly = 1, kFillNot = 2 };   // core.h FC_NORM, FC_FILL, FC_NOFILL
+struct Lock {
+    int step = 0, param = 0, value = 0;
+    bool operator==(const Lock&) const = default;
+    bool operator<(const Lock& o) const { return step != o.step ? step < o.step : param < o.param; }
+};
+bool lockable(int param);   // SLOOP 2.4's numbering (seq.c p_lockable): the sound's parameters
+Bytes lockSet(int track, int step, int param, int value);
+Bytes lockDelete(int track, int step, int param);
+Bytes microSet(int track, int step, int nudge);
+Bytes fillSet(int track, int step, int cond);
+
+// One track's pattern: its settings and steps (SLOOP's drum track: drums, not steps); SLOOP 2.4's
+// locks, nudges and fill conditions when the side has them (extras)
 struct TrackPattern {
     int len = 16, div = 2, swing = 0, gate = 64;
     std::vector<Step> steps;            // kSteps
     std::vector<DrumStep> drums;        // kSteps on SLOOP's drum track, else empty
+    bool extras = false;                // locks, micro and fill read (SLOOP 2.4)
+    std::vector<Lock> locks;            // sorted by step, then parameter
+    std::vector<int> micro, fill;       // kSteps each when extras
     bool operator==(const TrackPattern&) const = default;
 };
+// A track's locks, nudges and fill conditions (SLOOP 2.4), or false if the side has none (2.3, Felucca)
+bool readExtras(Endpoint& e, int track, TrackPattern& p);
+// Step `step`'s locks, nudge and condition from one side to the other, if both have them
+bool copyStepExtras(Endpoint& from, Endpoint& to, int track, int step, juce::String& error);
 std::optional<TrackPattern> readPattern(Endpoint& e, int track, juce::String& error, int upTo = kSteps);
 bool writePattern(Endpoint& e, int track, const TrackPattern& p, juce::String& error, const TrackPattern* known = nullptr);
 

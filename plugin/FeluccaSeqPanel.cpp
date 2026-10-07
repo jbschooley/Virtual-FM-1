@@ -703,6 +703,31 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
         addChildComponent(noteRatchet_[k]);
         addChildComponent(noteName_[k]);
     }
+    // SLOOP 2.4: the step's nudge, fill condition and locks
+    label(microLabel_, "NUDGE");
+    label(fillLabel_, "FILL");
+    label(lockLabel_, "LOCK");
+    label(locksText_, "");
+    micro_.setSliderStyle(juce::Slider::LinearHorizontal);
+    micro_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 18);
+    micro_.setRange(felucca::kMicroMin, felucca::kMicroMax, 1);
+    micro_.setTooltip("The step's nudge, in 64ths of a step: early (-) or late (+)");
+    micro_.onValueChange = [this] { if (!loading_) setStepMicro(int(micro_.getValue())); };
+    fill_.addItem("Always", felucca::kFillAlways + 1);
+    fill_.addItem("Fill only", felucca::kFillOnly + 1);
+    fill_.addItem("Not in fill", felucca::kFillNot + 1);
+    fill_.setTooltip("When the step plays: always, only while FILL is held, or only while it is not");
+    fill_.onChange = [this] { if (!loading_) setStepFill(fill_.getSelectedId() - 1); };
+    lockParam_.setTextWhenNothingSelected("Parameter");
+    lockParam_.setTooltip("A sound parameter to lock on this step (a dot: locked here)");
+    lockParam_.onChange = [this] { if (!loading_) loadLockValue(); };
+    lockValue_.setSliderStyle(juce::Slider::LinearHorizontal);
+    lockValue_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
+    lockValue_.setTooltip("The parameter's value on this step (moving it locks it)");
+    lockValue_.onValueChange = [this] { if (!loading_ && lockParam_.getSelectedId() > 0) setLock(lockParam_.getSelectedId() - 1, int(lockValue_.getValue())); };
+    lockDel_.onClick = [this] { if (lockParam_.getSelectedId() > 0) removeLock(lockParam_.getSelectedId() - 1); };
+    for (juce::Component* c : std::initializer_list<juce::Component*>{&micro_, &fill_, &lockParam_, &lockValue_, &lockDel_, &microLabel_, &fillLabel_, &lockLabel_, &locksText_})
+        c->setVisible(false), addChildComponent(c);
     refresh();
     fitNotes();
     startTimerHz(10);
@@ -932,6 +957,66 @@ void FeluccaSeqPage::setNoteRatchet(int k, int ratchet) {
     grid_->repaint();
 }
 
+void FeluccaSeqPage::setStepMicro(int nudge) {
+    if (!pat_.extras || size_t(sel_) >= pat_.micro.size()) return;
+    pat_.micro[size_t(sel_)] = std::clamp(nudge, felucca::kMicroMin, felucca::kMicroMax);
+    proc_.feluccaEdit(felucca::microSet(track_, sel_, pat_.micro[size_t(sel_)]));
+    grid_->repaint();
+}
+
+void FeluccaSeqPage::setStepFill(int cond) {
+    if (!pat_.extras || size_t(sel_) >= pat_.fill.size()) return;
+    pat_.fill[size_t(sel_)] = std::clamp(cond, 0, 2);
+    proc_.feluccaEdit(felucca::fillSet(track_, sel_, pat_.fill[size_t(sel_)]));
+    grid_->repaint();
+}
+
+void FeluccaSeqPage::setLock(int param, int value) {
+    if (!pat_.extras || !felucca::lockable(param)) return;
+    auto it = std::find_if(pat_.locks.begin(), pat_.locks.end(), [&](const felucca::Lock& l) { return l.step == sel_ && l.param == param; });
+    if (it == pat_.locks.end() && int(pat_.locks.size()) >= felucca::kLocksPerTrack) {
+        say("The track has " + juce::String(felucca::kLocksPerTrack) + " locks, the most it holds: remove one first");
+        loadLockValue();
+        return;
+    }
+    auto reply = proc_.feluccaEdit(felucca::lockSet(track_, sel_, param, value));
+    const auto a = reply ? felucca::argsOf(*reply) : std::vector<uint8_t>{};
+    if (a.size() < 7 || a[3] != 0) { say("The synth did not take the lock"); return; }
+    const int v = (int(a[5]) | int(a[6]) << 7) - 8192;   // (what it kept: clamped to the parameter's range)
+    if (it != pat_.locks.end()) it->value = v;
+    else { pat_.locks.push_back({sel_, param, v}); std::sort(pat_.locks.begin(), pat_.locks.end()); }
+    loadControls();
+    grid_->repaint();
+}
+
+void FeluccaSeqPage::removeLock(int param) {
+    auto it = std::find_if(pat_.locks.begin(), pat_.locks.end(), [&](const felucca::Lock& l) { return l.step == sel_ && l.param == param; });
+    if (!pat_.extras || it == pat_.locks.end()) return;
+    proc_.feluccaEdit(felucca::lockDelete(track_, sel_, param));
+    pat_.locks.erase(it);
+    loadControls();
+    grid_->repaint();
+}
+
+void FeluccaSeqPage::loadLockValue() {
+    const int param = lockParam_.getSelectedId() - 1;
+    auto f = engine();
+    const bool on = param >= 0 && f;
+    lockValue_.setVisible(on && extrasShown());
+    lockDel_.setVisible(on && extrasShown());
+    if (!on) return;
+    const auto d = f->paramDesc(track_, param);
+    auto it = std::find_if(pat_.locks.begin(), pat_.locks.end(), [&](const felucca::Lock& l) { return l.step == sel_ && l.param == param; });
+    const bool was = loading_;
+    loading_ = true;
+    lockValue_.setRange(d.min, std::max(d.max, d.min + 1), 1);
+    lockValue_.setValue(it != pat_.locks.end() ? it->value : f->param(track_, param), juce::dontSendNotification);
+    loading_ = was;
+    lockDel_.setEnabled(it != pat_.locks.end());
+}
+
+bool FeluccaSeqPage::extrasShown() const { return sloop() && pat_.extras && view_ == 0; }
+
 void FeluccaSeqPage::setPatternParam(int id, int value) {
     proc_.feluccaEdit(felucca::paramWrite(track_, id, value));
     if (auto f = engine()) {   // as it took it (clamped)
@@ -1045,6 +1130,31 @@ void FeluccaSeqPage::loadControls() {
     } else {
         for (int k = 0; k < 4; ++k) { noteName_[k].setVisible(false); noteLevel_[k].setVisible(false); noteRatchet_[k].setVisible(false); }
     }
+    const bool ex = extrasShown() && size_t(sel_) < pat_.micro.size();
+    for (juce::Component* c : std::initializer_list<juce::Component*>{&micro_, &fill_, &lockParam_, &microLabel_, &fillLabel_, &lockLabel_, &locksText_})
+        c->setVisible(ex);
+    if (ex) {
+        micro_.setValue(pat_.micro[size_t(sel_)], juce::dontSendNotification);
+        fill_.setSelectedId(pat_.fill[size_t(sel_)] + 1, juce::dontSendNotification);
+        auto f = engine();
+        const int keep = lockParam_.getSelectedId();
+        lockParam_.clear(juce::dontSendNotification);
+        juce::StringArray here;
+        for (int id = 0; f && id < f->paramCount(); ++id) {
+            if (!felucca::lockable(id)) continue;
+            const auto d = f->paramDesc(track_, id);
+            if (d.label.empty() || d.max <= d.min) continue;   // (an engine slot it does not use)
+            auto it = std::find_if(pat_.locks.begin(), pat_.locks.end(), [&](const felucca::Lock& l) { return l.step == sel_ && l.param == id; });
+            const bool locked = it != pat_.locks.end();
+            lockParam_.addItem(juce::String(d.label) + (locked ? juce::String(juce::CharPointer_UTF8(" \xe2\x97\x8f")) : juce::String()), id + 1);
+            if (locked) here.add(juce::String(d.label) + " " + juce::String(it->value));
+        }
+        lockParam_.setSelectedId(keep, juce::dontSendNotification);
+        locksText_.setText((here.isEmpty() ? juce::String("No locks here") : "Locks: " + here.joinIntoString(", "))
+                               + "  (" + juce::String(pat_.locks.size()) + " of " + juce::String(felucca::kLocksPerTrack) + " on the track)",
+                           juce::dontSendNotification);
+    }
+    loadLockValue();
     stepLabel_.setText(text, juce::dontSendNotification);
     loading_ = false;
 }
@@ -1135,7 +1245,7 @@ void FeluccaSeqPage::resized() {
         octUp_.setBounds(b.removeFromLeft(28));
     }
     // the step's details along the bottom (narrow: two rows)
-    auto details = r.removeFromBottom(narrow ? 120 : 64);
+    auto details = r.removeFromBottom((narrow ? 120 : 64) + (extrasShown() ? (narrow ? 64 : 32) : 0));
     r.removeFromBottom(4);
     grid_->setBounds(r);
     layoutControls(details);
@@ -1147,7 +1257,31 @@ void FeluccaSeqPage::layoutControls(juce::Rectangle<int> r) {
                                                                 &paintLevel_, &paintRatchet_})
             c->setBounds(0, 0, 0, 0);
         for (int k = 0; k < 4; ++k) noteName_[k].setBounds(0, 0, 0, 0), noteLevel_[k].setBounds(0, 0, 0, 0), noteRatchet_[k].setBounds(0, 0, 0, 0);
+        for (juce::Component* c : std::initializer_list<juce::Component*>{&micro_, &fill_, &lockParam_, &lockValue_, &lockDel_, &microLabel_, &fillLabel_, &lockLabel_, &locksText_})
+            c->setBounds(0, 0, 0, 0);
         return;
+    }
+    if (extrasShown()) {   // SLOOP 2.4: along the bottom (narrow: two rows)
+        const bool narrow = r.getWidth() < 740;
+        auto ex = r.removeFromBottom(narrow ? 60 : 28);
+        r.removeFromBottom(4);
+        auto row = narrow ? ex.removeFromTop(28) : ex;
+        microLabel_.setBounds(row.removeFromLeft(48));
+        micro_.setBounds(row.removeFromLeft(narrow ? std::max(100, row.getWidth() / 2 - 40) : 150));
+        row.removeFromLeft(8);
+        fillLabel_.setBounds(row.removeFromLeft(32));
+        fill_.setBounds(row.removeFromLeft(110));
+        if (narrow) { ex.removeFromTop(4); row = ex; }
+        else row.removeFromLeft(12);
+        lockLabel_.setBounds(row.removeFromLeft(40));
+        lockParam_.setBounds(row.removeFromLeft(110));
+        row.removeFromLeft(4);
+        lockValue_.setBounds(row.removeFromLeft(narrow ? std::max(90, row.getWidth() - 100) : 150));
+        row.removeFromLeft(4);
+        lockDel_.setBounds(row.removeFromLeft(96));
+        row.removeFromLeft(8);
+        locksText_.setBounds(narrow ? juce::Rectangle<int>() : row);
+        locksText_.setVisible(!narrow && locksText_.isVisible());
     }
     auto row = r.removeFromTop(28);
     stepLabel_.setBounds(row.removeFromLeft(std::min(260, row.getWidth() / 3)));
