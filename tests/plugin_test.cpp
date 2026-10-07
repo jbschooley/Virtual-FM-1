@@ -1038,6 +1038,13 @@ static int checks() {
                 d.micro[0] = -16;
                 const auto en = events(felmidi::toMidi(nudged));
                 CHECK(has(en, 10, 42, 72, 270, 330) && has(en, 10, 36, 127, 0, 60), "SLOOP: a nudged step plays late by its 64ths (not before the start)");
+                nudged.tracks[1].swing = 50;   // SLOOP: odd steps 50/200 late (30 ticks): even steps 150 long, odd 90
+                d.micro[0] = 0;
+                d.drums[3] = d.drums[2];
+                d.micro[2] = -32;   // half of step 1 (odd, the one it falls in): 45 ticks before 240
+                d.micro[3] = 32;    // half of its own (odd): 45 after 390
+                const auto sw = events(felmidi::toMidi(nudged));
+                CHECK(has(sw, 10, 42, 72, 195, -1) && has(sw, 10, 42, 72, 435, -1), "with swing: a nudge is 64ths of the swung step it falls in");
             }
             auto drumsBack = felmidi::fromMidi(felmidi::toMidi(ss), dp, true, true, 0.25, 3);
             CHECK(drumsBack.pattern.drums[0].has(0) && drumsBack.pattern.drums[0].level(0) == 3 && drumsBack.pattern.drums[2].level(4) == 2,

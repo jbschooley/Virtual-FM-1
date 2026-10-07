@@ -53,9 +53,9 @@ juce::MidiFile toMidi(const Song& song) {
         const double late = base * double(tr.swing) / (song.sloop ? 200.0 : 250.0); // an odd step's delay
         auto swung = [&](int i) { return double(i) * base + ((i & 1) ? late : 0.0); };
         auto length = [&](int i) { return (i & 1) ? base - late : base + late; };     // the swung step
-        auto start = [&](int i) {   // SLOOP 2.4: and its nudge, 1/64 of a step early or late
-            const int m = p.extras && size_t(i) < p.micro.size() ? p.micro[size_t(i)] : 0;
-            return std::max(0.0, swung(i) + base * m / 64.0);
+        auto start = [&](int i) {   // SLOOP 2.4: and its nudge, in 64ths of the step it falls in (seq.c micro_units):
+            const int m = p.extras && size_t(i) < p.micro.size() ? p.micro[size_t(i)] : 0;   // late its own, early the one before
+            return std::max(0.0, swung(i) + length(m < 0 ? i - 1 : i) * m / 64.0);
         };
         double end = swung(len - 1) + length(len - 1);
         juce::MidiMessageSequence seq;
