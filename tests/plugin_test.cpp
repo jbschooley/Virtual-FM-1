@@ -484,13 +484,45 @@ static int checks() {
                 CHECK(ga.size() == 3 + 128 && ga[2] == 0 && std::equal(ga.begin() + 3, ga.end(), fa.begin() + 3),
                       "and its FM6 bank: slot 5 holds the patch");
             }
-            {   // a part's sound, with no FM6 to carry
+            {   // a part's sound
                 auto x = std::make_shared<FeluccaEngine>(Fl::Sloop), y = std::make_shared<FeluccaEngine>(Fl::Sloop);
                 felucca::VirtualEndpoint ex(x), ey(y);
                 x->setEngine(2, 4);
                 x->setParam(2, 9, 77);
                 juce::String cerr;
                 CHECK(felucca::copySound(ex, ey, 2, cerr) && y->engineOf(2) == 4 && y->param(2, 9) == 77, "a part's sound copied (" + cerr + ")");
+                // (2.4) an FM6 part: its patch goes with it
+                x->setEngine(1, x->fm6Engine());
+                auto patch = x->fm6Patch(1);
+                patch[145] = 'Z';   // (its name's first letter)
+                x->setFm6Patch(1, patch);
+                CHECK(felucca::copySound(ex, ey, 1, cerr) && y->engineOf(1) == x->fm6Engine() && y->fm6Patch(1) == x->fm6Patch(1),
+                      "an FM6 part's patch copied with its sound (" + cerr + ")");
+                CHECK(felucca::copySound(ex, ey, 3, cerr), "the drum track: no FM6 patch to carry (" + cerr + ")");
+                // from SLOOP 2.3, whose engine parameters were 50..57 (2.4 added three before them)
+                struct Old : felucca::Endpoint {
+                    felucca::Endpoint& e;
+                    explicit Old(felucca::Endpoint& x) : e(x) {}
+                    const felucca::Dialect& dialect() const override { return e.dialect(); }
+                    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
+                        auto r = e.ask(q, t);
+                        if (!r || felucca::commandOf(*r) != felucca::kTrackDump) return r;
+                        auto a = felucca::argsOf(*r);   // track, engine, preset, then 2 bytes a value: drop 50..52
+                        if (a.size() >= 3 + 2 * 53) a.erase(a.begin() + 3 + 2 * 50, a.begin() + 3 + 2 * 53);
+                        return felucca::frame(felucca::kTrackDump, a);
+                    }
+                    std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+                } old(ex);
+                x->setEngine(0, 4);
+                y->setEngine(0, 4);
+                const int e0 = x->firstEngineParam();
+                int lo = 0, hi = 0;
+                x->paramRange(0, e0 + 7, lo, hi);
+                x->setParam(0, e0 + 7, hi);
+                x->setParam(0, e0, lo);
+                const int filt = y->param(0, 50);
+                CHECK(felucca::copySound(old, ey, 0, cerr) && y->param(0, e0 + 7) == hi && y->param(0, e0) == lo && y->param(0, 50) == filt,
+                      "from 2.3: its engine parameters land on 2.4's (E0..E7), not on FILT/STRUM/VLEAD (" + cerr + ")");
             }
             std::vector<float> l(256), r(256);
             auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };

@@ -560,9 +560,16 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
         if (loaded) *loaded = {true, src[1], src[2]};
         dst = dump(to);
     }
+    // a release that added parameters adds them just before the engine's eight (core.h; SLOOP 2.3's
+    // P_E0 is 50, 2.4's 53): from an older side, those eight go to the newer one's numbers
+    const int srcN = int(src.size() - 3) / 2, dstN = int(dst.size() - 3) / 2;
+    const int added = dstN > srcN && srcN >= 8 ? dstN - srcN : 0;
     for (size_t i = 3; i + 1 < src.size(); i += 2) {
-        if (i + 1 < dst.size() && src[i] == dst[i] && src[i + 1] == dst[i + 1]) continue;
-        std::vector<uint8_t> q = {uint8_t(track), uint8_t((i - 3) / 2), src[i], src[i + 1]};
+        int id = int(i - 3) / 2;
+        if (added && id >= srcN - 8) id += added;
+        const size_t at = 3 + size_t(id) * 2;
+        if (at + 1 < dst.size() && src[i] == dst[at] && src[i + 1] == dst[at + 1]) continue;
+        std::vector<uint8_t> q = {uint8_t(track), uint8_t(id), src[i], src[i + 1]};
         if (!askAgain(to, frame(kTrackParam, q))) { error = "no answer to TRACK_PARAM"; return false; }
     }
     if (!from.dialect().fm6 || !to.dialect().fm6) return true;
