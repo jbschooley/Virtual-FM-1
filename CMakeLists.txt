@@ -334,8 +334,10 @@ if(FM1_BUILD_PLUGIN)
     if(IOS)
         target_sources(VirtualFM1 PRIVATE plugin/SafeArea_ios.mm)
     endif()
-    if(ANDROID)   # JUCE's Java side loads the app as libjuce_jni.so
-        set_target_properties(VirtualFM1_Standalone PROPERTIES OUTPUT_NAME juce_jni)
+    if(ANDROID)   # JUCE's Java side loads the app as libjuce_jni.so, and finds it by its exported
+                  # juce_CreateApplication (so not hidden, as JUCE's own Android exporter has it)
+        set_target_properties(VirtualFM1_Standalone PROPERTIES OUTPUT_NAME juce_jni
+            C_VISIBILITY_PRESET default CXX_VISIBILITY_PRESET default VISIBILITY_INLINES_HIDDEN OFF)
     endif()
 
     target_include_directories(VirtualFM1 PRIVATE plugin plugin/dexed_ui engines/fm1_fx ${FM1_DEVICE_INCLUDES})

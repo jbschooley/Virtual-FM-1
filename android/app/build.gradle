@@ -55,9 +55,24 @@ android {
         ]
     }
 
+    // A release is signed with the key in FM1_KEYSTORE (a .jks file) when it is set (CI: from the
+    // repository's secrets); without it, assembleRelease leaves the APK unsigned
+    def keystore = System.getenv('FM1_KEYSTORE')
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile = file(keystore)
+                storePassword = System.getenv('FM1_KEYSTORE_PASSWORD')
+                keyAlias = System.getenv('FM1_KEY_ALIAS')
+                keyPassword = System.getenv('FM1_KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled = false
+            if (keystore) signingConfig = signingConfigs.release
         }
     }
 }
