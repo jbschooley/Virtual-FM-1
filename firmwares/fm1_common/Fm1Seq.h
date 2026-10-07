@@ -126,6 +126,10 @@ Bytes encodeStepsPart(const std::array<uint8_t, 5>& settings, const uint8_t* ste
 // else built from the steps (as the synth's own step entry lays them out).
 std::vector<uint8_t> stepBytes(const Pattern& p);
 std::array<uint8_t, 5> settingsBytes(const Pattern& p);
+// The pattern as the synth will hold it once sent whole (FM-1_096): a step keeps at most nine note
+// ends (six once it has its own options), so a note whose end does not fit ends on the nearest
+// step before it with room (or after); and Pattern::raw set to those bytes.
+Pattern fitToSynth(const Pattern& p);
 // All of a pattern for FM-1_096: its 16 whole-step messages, then its 8 lock messages (every one,
 // so the synth is left with exactly its locks: a step message clears its four steps' locks);
 // the last saves if `save`.

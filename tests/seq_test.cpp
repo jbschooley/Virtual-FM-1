@@ -339,6 +339,52 @@ int main() {
         g2[118] = uint8_t(128 | 5 << 4 | 6);
         const auto cp = decodePattern(bytes, g2, 0, true);
         CHECK(cp.chain == 6 && cp.repeats == 8, "and read back");
+
+        // one pitch played again while it still sounds: both keep the later end, as the synth's entry
+        // leaves them, and the bytes read go back unchanged
+        Pattern o;
+        o.length = 16;
+        o.steps[0].notes = {{60, 100, 4}};
+        o.steps[2].notes = {{60, 90, 2}};
+        o.raw = stepBytes(o);
+        CHECK(stepBytes(o) == o.raw, "a held note entered again shares its end: its bytes go back as read");
+        const auto on = normalise(o);
+        CHECK(on.steps[0].notes[0].len == 4 && on.steps[2].notes[0].len == 2, "and both keep that end");
+        Pattern cut;
+        cut.length = 16;
+        cut.steps[0].notes = {{60, 100, 4}};
+        cut.steps[2].notes = {{60, 90, 0}};
+        const auto cn = normalise(cut);
+        CHECK(cn.steps[0].notes[0].len == 2 && cn.steps[2].notes[0].len == 0, "one that ends earlier ends the held one there too (the first end found)");
+        // a step keeps at most six note ends once it has its own options: the seventh moves on
+        Pattern full;
+        full.length = 16;
+        for (int k = 0; k < 7; ++k) full.steps[4].notes.push_back({60 + k, 100, 0});
+        full.steps[4].gate = 70;
+        const auto fit = fitToSynth(full);
+        int moved = 0;
+        for (const auto& n : fit.steps[4].notes) moved += n.len != 0;
+        CHECK(moved == 1 && fit.raw == stepBytes(fit), "fitToSynth: the seventh end moves on, and the pattern is what its bytes say");
+    }
+
+    // ---- a chain's Repeats: the pattern plays that many times before the next
+    {
+        Sequencer s;
+        s.prepare(sr);
+        {
+            const juce::SpinLock::ScopedLockType l(s.lock);
+            for (int i = 0; i < 2; ++i) { auto& p = s.patterns[size_t(i)]; p.length = 1; p.rate = 6; p.tempo = 120; for (auto& st : p.steps) st.rate = 6; }
+            s.patterns[0].steps[0].notes = {{40, 100}};
+            s.patterns[1].steps[0].notes = {{50, 100}};
+            s.patterns[0].repeats = 3;
+            s.chain[0] = 1; s.chain[1] = 0;
+        }
+        s.enabled = true; s.syncToHost = false; s.play();
+        auto ev = run(s, sr, 100, 480);
+        std::vector<int> order;
+        for (const auto& e : ev) if (e.on) order.push_back(e.note);
+        CHECK(order.size() >= 8 && order[0] == 40 && order[1] == 40 && order[2] == 40 && order[3] == 50 && order[4] == 40 && order[7] == 50,
+              "Repeats 3: pattern 1 three times, then pattern 2, again");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

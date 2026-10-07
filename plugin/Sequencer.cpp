@@ -15,6 +15,7 @@ void Sequencer::stop() { stopRequest_ = true; }
 
 void Sequencer::startPattern(int pat, double atTick, bool first) {
     pat_ = juce::jlimit(0, kPatterns - 1, pat);
+    if (first) passes_ = 0;
     {
         const juce::SpinLock::ScopedTryLockType l(lock);
         if (l.isLocked()) cur_ = fm1::seq::normalise(patterns[size_t(pat_)], false);   // (locks are not played)
@@ -43,6 +44,11 @@ void Sequencer::stepEvents(const fm1::seq::Pattern& p, const fm1::seq::Times& ti
     for (int h = 0; h < hits; ++h) {
         double on = atTick + h * hitDur;
         for (const auto& nt : s.notes) {
+            // the same note still sounding from an earlier step (they share its end): not played again
+            bool held = false;
+            for (int i = 0; i < stepIx && !held; ++i)
+                for (const auto& m : p.steps[size_t(i)].notes) if (m.note == nt.note && i + m.len >= stepIx) held = true;
+            if (held) continue;
             int note = juce::jlimit(0, 127, nt.note + p.transpose + s.transpose);
             int vel = s.accent ? 127 : nt.vel;
             double len = gate;
@@ -73,7 +79,9 @@ void Sequencer::fireStep(double atTick) {
         recTouched_.fill(false);   // a new pass: the first note on a step replaces it again
         int next = chain[size_t(pat_)];
         int sel = selected.load();
-        if (next < 0 || next >= kPatterns) next = sel != pat_ ? sel : pat_;   // Repeat, unless another pattern was chosen
+        if (next < 0 || next >= kPatterns) { next = sel != pat_ ? sel : pat_; passes_ = 0; }   // Repeat, unless another pattern was chosen
+        else if (++passes_ < cur_.repeats) next = pat_;                                       // a chain: its Repeats first
+        else passes_ = 0;
         startPattern(next, nextStepTick_, false);
     }
 }
@@ -98,7 +106,7 @@ void Sequencer::recordNoteOn(int note, int vel) {
     recTouched_[size_t(step)] = true;
     st.notes.erase(std::remove_if(st.notes.begin(), st.notes.end(), [note](const fm1::seq::Note& n) { return n.note == note; }), st.notes.end());
     if (int(st.notes.size()) < fm1::seq::kMaxNotes) st.notes.push_back({note, vel, 0});
-    recHeld_.push_back({note, vel, step});
+    recHeld_.push_back({note, vel, step, pat_});
 }
 
 void Sequencer::recordNoteOff(int note) {
@@ -110,7 +118,8 @@ void Sequencer::recordNoteOff(int note) {
     int endStep = nearestStep(absTick_);
     const juce::SpinLock::ScopedTryLockType l(lock);
     if (!l.isLocked()) return;
-    auto& p = patterns[size_t(pat_)];
+    auto& p = patterns[size_t(h.pat)];   // (the pattern it was played into, if a chain has moved on)
+    if (h.pat != pat_) endStep = p.length - 1;
     // a note ends on the step nearest to its release (its length: the steps past its own); one
     // held past the pattern's end ends on its last step
     int last = endStep >= h.step ? endStep : p.length - 1;

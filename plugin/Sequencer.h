@@ -63,7 +63,8 @@ public:
 
 private:
     using Pending = Event;
-    struct Held { int note, vel, step; };
+    struct Held { int note, vel, step, pat; };
+    int passes_ = 0;   // the times the playing pattern has played through, for its chain's Repeats
     std::vector<Held> recHeld_;
     std::array<bool, fm1::seq::kSteps> recTouched_{};   // steps replaced in this pass
     double lastStepTick_ = 0.0;

@@ -145,7 +145,7 @@ Pattern normalise(const Pattern& p, bool withLocks) {
     out.chain = p.chain < 0 ? -1 : clamp(p.chain, 0, kPatterns - 1);
     out.repeats = 1;
     for (int r : kRepeats) if (r <= p.repeats) out.repeats = r;
-    if (p.raw.size() == size_t(kSteps * kStepBytes)) out.raw = p.raw;
+    if (withLocks && p.raw.size() == size_t(kSteps * kStepBytes)) out.raw = p.raw;   // (what is sent, not what plays)
     out.chainByte = p.chainByte;
     out.transpose = clamp(p.transpose, -24, 24);
     if (withLocks && p.locks.size() == size_t(kLockBytes)) out.locks = p.locks;   // as the synth's table holds them
@@ -167,15 +167,23 @@ Pattern normalise(const Pattern& p, bool withLocks) {
         o.accent = s.accent;
         out.steps[size_t(i)] = o;
     }
-    // a note sounds until the same note starts again at the latest (the synth finds a note's
-    // end as the first one at or after its step)
-    for (int i = 0; i < kSteps; ++i)
-        for (Note& n : out.steps[size_t(i)].notes)
-            for (int k = i + 1; k <= i + n.len && k < kSteps; ++k)
-                if (std::any_of(out.steps[size_t(k)].notes.begin(), out.steps[size_t(k)].notes.end(), [&](const Note& m) { return m.note == n.note; })) {
-                    n.len = k - i - 1;
-                    break;
-                }
+    // The synth keeps a note's end as its pitch on the step it ends on, and finds a note's end as
+    // the first such step at or after its own: notes of one pitch that overlap share the earliest
+    // end at or after each one's start (as its own entry does, a note played while the same note
+    // still sounds taking that note's end)
+    for (int pitch = 0; pitch < 128; ++pitch) {
+        std::vector<int> ends;
+        for (int i = 0; i < kSteps; ++i)
+            for (const Note& n : out.steps[size_t(i)].notes) if (n.note == pitch) ends.push_back(i + n.len);
+        if (ends.size() < 2) continue;
+        for (int i = 0; i < kSteps; ++i)
+            for (Note& n : out.steps[size_t(i)].notes) {
+                if (n.note != pitch) continue;
+                int e = kSteps;
+                for (int x : ends) if (x >= i && x < e) e = x;
+                n.len = e - i;
+            }
+    }
     return out;
 }
 
@@ -325,9 +333,17 @@ std::vector<uint8_t> stepBytes(const Pattern& pattern) {
     if (p.raw.size() == size_t(kSteps * kStepBytes)) {   // what was read, if the steps are still what it holds
         Pattern was = p;
         stepsFromBytes(was, p.raw);
-        if (sameSteps(was, p)) return p.raw;
+        if (sameSteps(normalise(was), p)) return p.raw;
     }
     return buildSteps(p);
+}
+
+Pattern fitToSynth(const Pattern& pattern) {
+    Pattern p = normalise(pattern);
+    const auto P = stepBytes(p);
+    stepsFromBytes(p, P);
+    p.raw = P;
+    return p;
 }
 
 Bytes encodeStepsPart(const std::array<uint8_t, 5>& set, const uint8_t* steps128, int pat, int part, bool save) {

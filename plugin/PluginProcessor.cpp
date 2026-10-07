@@ -724,6 +724,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             p.length = pt.getProperty("length", 16); p.rate = pt.getProperty("rate", 6); p.tempo = pt.getProperty("tempo", 120);
             p.gate = pt.getProperty("gate", 50); p.swing = pt.getProperty("swing", 50); p.sound = -1;
             p.transpose = pt.getProperty("transpose", 0); sequencer.chain[size_t(i)] = pt.getProperty("chain", -1);
+            p.chain = sequencer.chain[size_t(i)];
             auto steps = juce::StringArray::fromTokens(pt.getProperty("steps").toString(), "|", "");
             for (int k = 0; k < fm1::seq::kSteps && k < steps.size(); ++k) p.steps[size_t(k)] = stepFromString(steps[k]);
             fm1::seq::joinTies(p);   // (an older state's ties)
@@ -857,11 +858,21 @@ void FM1Processor::pullPatterns() {
 
 void FM1Processor::pushPatterns(bool save) {
     if (!link.isOpen()) return;
+    // FM-1_096 takes every step setting (whole steps): the patterns here become what it will hold
+    // (a note end that does not fit on its step moves, as on the synth), so the editor shows that
+    const auto synth = session.lastIdentity();
+    const bool whole = synth && synth->version >= 96 && !synth->isStock();
     std::vector<std::pair<int, fm1::seq::Pattern>> all;
     {
         const juce::SpinLock::ScopedLockType l(sequencer.lock);
-        for (int i = 0; i < Sequencer::kPatterns; ++i) all.emplace_back(i, sequencer.patterns[size_t(i)]);
+        for (int i = 0; i < Sequencer::kPatterns; ++i) {
+            auto& p = sequencer.patterns[size_t(i)];
+            p.chain = sequencer.chain[size_t(i)];   // (the Chain is kept beside the pattern)
+            if (whole) p = fm1::seq::fitToSynth(p);
+            all.emplace_back(i, p);
+        }
     }
+    if (whole) ++patternsVersion;
     session.pushPatterns(all, save);
 }
 

@@ -423,10 +423,12 @@ int main(int argc, char** argv) {
         fm1::seq::Pattern r = got.empty() ? q : got[0].second;
         r.steps[3].notes = {{41, 80}};
         const int pw = fake.patternWrites, sw = fake.stepWrites;
+        r.chain = 5; r.repeats = 3;
         session.pushPatterns({{2, r}}, true);
         waitIdle(session, 20000);
         CHECK(fake.patternWrites == pw && fake.stepWrites - sw == 16 && fake.lockWrites == 8,
               "FM-1_096: 16 whole-step messages (no pattern messages), then all 8 lock messages");
+        CHECK(fake.gset[118 + 2] == (128 | 2 << 4 | 5), "the whole steps carry the Chain and its Repeats");
         bool kept = fake.ram[lockAt(2, 3, 0)] == 40 && fake.ram[lockAt(2, 3, 0) + 1] == 77 && fake.ram[lockAt(2, 32, 1)] == 1 && fake.ram[lockAt(2, 32, 1) + 1] == 5;
         for (int s = 0; s < 64 && kept; ++s) for (int j = 0; j < 4; ++j) if (!((s == 3 && j == 0) || (s == 32 && j == 1))) kept &= fake.ram[lockAt(2, s, j)] == 0xFF;
         CHECK(kept, "the FM-1 holds the same locks after the Send");
