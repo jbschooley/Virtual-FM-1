@@ -21,6 +21,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
     tabs_.addTab("Settings", bg, &settings_, false);
     addAndMakeVisible(tabs_);
     addAndMakeVisible(keyboard_);
+    keyboard_.setOctaveForMiddleC(4);   // (note 60 is C4, as the FM-1 and Felucca name it)
     addAndMakeVisible(library_.connectionBar());
     addAndMakeVisible(firmware_);
    #if JUCE_IOS || JUCE_ANDROID

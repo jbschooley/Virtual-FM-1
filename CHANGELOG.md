@@ -55,6 +55,8 @@ for the code. New work goes under the next version at the top.
   or locks.
 - Writing presets to 0.96 waits 120 ms between them, as its own editor
   does, not 3 s: Push all takes well under a minute.
+- Note 60 is C4 in the FM-1+VA Sequencer and on the on-screen keyboard, as
+  the FM-1 (0.96) and Felucca name it; it was C3.
 - A held note is one note with a length (in steps), as on the FM-1, not a
   note repeated on the steps after it. Projects and JSON files with the old
   ties still load, joined into lengths; a tie into a different note plays

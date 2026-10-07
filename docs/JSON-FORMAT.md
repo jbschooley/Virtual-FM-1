@@ -111,8 +111,8 @@ keeps the value.
 | `steps` | The steps that are not empty, each with `step` (1 to 64) and any of: `notes` (up to nine, each `note` 0 to 127, `velocity` 1 to 127, `hold`: the steps it sounds past its own, 0 when left out), `noteValue`, `ratchet` (1 to 4), `gate` (0 for the pattern's, or 5 to 100), `chance` (5 to 95, or 100 for always), `transpose`, `accent`, `locks` (FM-1_096's parameter locks, up to four `{what, value}` in the firmware's own codes; kept and sent back, not played). Files from before `hold` marked a held note with `tie` on each step that repeated it, and a step's `tieSlide`; they still read, joined into `hold`. |
 
 A pattern in a file replaces the whole pattern: settings left out take the
-defaults in brackets and steps left out are empty. Note 60 is C3 on the
-FM-1.
+defaults in brackets and steps left out are empty. Note 60 is C4 on the
+FM-1 (FM-1+VA 0.96 names it so).
 
 Pushing patterns to an FM-1 running FM-1_096 sends every step setting, held
 notes, Chain and Repeats and the locks. Earlier releases take only the notes,

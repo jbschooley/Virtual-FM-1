@@ -15,7 +15,7 @@ constexpr int kCols = 16;
 
 juce::String noteName(int n) {
     static const char* names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    return juce::String(names[n % 12]) + juce::String(n / 12 - 2);   // (60 is C3 on the FM-1)
+    return juce::String(names[n % 12]) + juce::String(n / 12 - 1);   // (60 is C4, as the FM-1 names it)
 }
 
 const char* const kDrumKeys[12] = {"F0", "F#0", "G0", "G#0", "A0", "A#0", "B0", "C1", "C#1", "D1", "D#1", "E1"};

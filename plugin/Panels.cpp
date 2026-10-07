@@ -6,10 +6,6 @@
 namespace {
 const juce::Colour kAccent(0xffe0a040), kDim(0xff3a3a44), kNoteCol(0xff4a8ad0), kPlaying(0xfff4f4f4), kSelected(0xffffffff);
 
-juce::String noteName(int n) {
-    static const char* names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    return juce::String(names[n % 12]) + juce::String(n / 12 - 2);
-}
 juce::Label* makeLabel(std::vector<std::unique_ptr<juce::Label>>& store, juce::Component& parent, const juce::String& text, float size = 13.0f, bool bold = false) {
     auto l = std::make_unique<juce::Label>(juce::String(), text);
     l->setFont(juce::FontOptions(size, bold ? juce::Font::bold : juce::Font::plain));
