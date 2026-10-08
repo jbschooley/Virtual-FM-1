@@ -50,13 +50,14 @@ void removeNote(felucca::Step& s, int k) {
 class FeluccaSeqPage::Grid : public juce::Component, public juce::SettableTooltipClient {
 public:
     explicit Grid(FeluccaSeqPage& p) : page_(p) {
-        setTooltip("Click to add or take off a note; drag a note sideways to hold it longer or shorter; right-click (or Cmd-click) selects a step");
+        setTooltip("Click to add or take off a note; drag a note sideways to hold it longer or shorter; click a step's number (or the left and right arrow keys) to select it");
     }
     static constexpr int kRows = 25;           // two octaves and a note
 
+    static constexpr float kHead = 18.0f;      // the step numbers: a tap there selects the step, changing nothing
     juce::Rectangle<float> cell(int col, int row) const {
-        const float w = (float(getWidth()) - kLabel) / float(page_.cols_), h = float(getHeight()) / float(rows());
-        return {kLabel + col * w, row * h, w, h};
+        const float w = (float(getWidth()) - kLabel) / float(page_.cols_), h = (float(getHeight()) - kHead) / float(rows());
+        return {kLabel + col * w, kHead + row * h, w, h};
     }
     int rows() const { return page_.drumsView() ? std::max(1, int(page_.lanes_.size())) : kRows; }
 
@@ -91,6 +92,21 @@ public:
             if (step == page_.playhead_) g.setColour(kPlay.withAlpha(0.22f)), g.fillRect(col);
             g.setColour(kLine.withAlpha(step % 4 == 0 ? 1.0f : 0.4f));
             g.drawVerticalLine(int(col.getX()), 0.0f, float(getHeight()));
+        }
+        // the step numbers (narrow columns: every fourth), the selected one marked
+        g.setColour(juce::Colours::black.withAlpha(0.25f));
+        g.fillRect(juce::Rectangle<float>(kLabel, 0.0f, float(getWidth()) - kLabel, kHead));
+        g.setFont(juce::FontOptions(10.0f));
+        for (int c = 0; c < page_.cols_; ++c) {
+            const int step = first + c;
+            auto head = cell(c, 0).withY(0.0f).withHeight(kHead);
+            if (step == page_.sel_) {
+                g.setColour(colour.withAlpha(0.85f));
+                g.fillRoundedRectangle(head.reduced(1.0f, 2.0f), 3.0f);
+            }
+            if (step != page_.sel_ && head.getWidth() < 15.0f && step % 4 != 0) continue;
+            g.setColour(step == page_.sel_ ? juce::Colours::black : step < len ? kDim : kDim.withAlpha(0.35f));
+            g.drawText(juce::String(step + 1), head, juce::Justification::centred, false);
         }
         // the steps
         for (int c = 0; c < page_.cols_; ++c) {
@@ -163,12 +179,13 @@ public:
     }
 
     void mouseDown(const juce::MouseEvent& e) override {
-        const float w = (float(getWidth()) - kLabel) / float(page_.cols_), h = float(getHeight()) / float(rows());
+        const float w = (float(getWidth()) - kLabel) / float(page_.cols_), h = (float(getHeight()) - kHead) / float(rows());
+        page_.grabKeyboardFocus();   // (the arrow keys move the selection)
         if (e.position.x < kLabel) return;
-        const int col = std::clamp(int((e.position.x - kLabel) / w), 0, page_.cols_ - 1), row = std::clamp(int(e.position.y / h), 0, rows() - 1);
+        const int col = std::clamp(int((e.position.x - kLabel) / w), 0, page_.cols_ - 1), row = std::clamp(int((e.position.y - kHead) / h), 0, rows() - 1);
         const int step = page_.firstStep() + col;
         dragNote_ = -1;
-        if (e.mods.isPopupMenu() || e.mods.isCommandDown()) { page_.selectStep(step); return; }   // select only
+        if (e.position.y < kHead || e.mods.isPopupMenu() || e.mods.isCommandDown()) { page_.selectStep(step); return; }   // select only
         if (page_.drumsView()) { page_.toggleLane(step, row, e.mods.isAltDown() || e.mods.isShiftDown()); return; }
         const int note = page_.lowNote_ + kRows - 1 - row;
         // on a note (where it starts or where a TIE holds it): drag to hold it longer or shorter; a
@@ -583,6 +600,7 @@ private:
 
 FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     grid_ = std::make_unique<Grid>(*this);
+    setWantsKeyboardFocus(true);   // (the arrow keys: keyPressed)
     song_ = std::make_unique<SongView>(*this);
     sloopSong_ = std::make_unique<SloopSongView>(*this);
     motion_ = std::make_unique<MotionView>(*this);
@@ -884,8 +902,19 @@ void FeluccaSeqPage::fitNotes() {
 
 void FeluccaSeqPage::selectStep(int step) {
     sel_ = std::clamp(step, 0, felucca::kSteps - 1);
+    if (cols_ > 0 && sel_ / cols_ != page_ && sel_ / cols_ < 4) {   // the page that shows it
+        page_ = sel_ / cols_;
+        for (int i = 0; i < 4; ++i) pageButtons_[i].setToggleState(i == page_, juce::dontSendNotification);
+    }
     loadControls();
     grid_->repaint();
+}
+
+bool FeluccaSeqPage::keyPressed(const juce::KeyPress& k) {   // left and right: the step before or after (within LEN)
+    if (view_ != 0 || (k != juce::KeyPress::leftKey && k != juce::KeyPress::rightKey)) return false;
+    const int len = std::clamp(pat_.len, 1, felucca::kSteps);
+    selectStep(std::clamp(sel_ + (k == juce::KeyPress::leftKey ? -1 : 1), 0, len - 1));
+    return true;
 }
 
 void FeluccaSeqPage::writeStep(int step) {

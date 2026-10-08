@@ -227,6 +227,7 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override {
         dragNote_ = -1;
+        page_.grabKeyboardFocus();   // (the arrow keys move the selection)
         if (e.x < labelW()) {   // a lane's name: open it (or go back to all of them)
             if (page_.opened_ >= 0 || e.y < kHeader) return;
             const int n = page_.laneCount();
@@ -295,6 +296,7 @@ struct Fm1SeqPage::LockRow {
 Fm1SeqPage::Fm1SeqPage(FM1Processor& p) : proc_(p) {
     lanes_ = std::make_unique<Lanes>(*this);
     addAndMakeVisible(*lanes_);
+    setWantsKeyboardFocus(true);   // (the arrow keys: keyPressed)
     auto label = [this](juce::Label& l, const juce::String& t) {
         l.setText(t, juce::dontSendNotification);
         l.setFont(juce::FontOptions(12.0f));
@@ -546,6 +548,13 @@ void Fm1SeqPage::selectStep(int step) {
     if (sel_ / kCols != page_) showPage(sel_ / kCols);
     loadStep();
     lanes_->repaint();
+}
+
+bool Fm1SeqPage::keyPressed(const juce::KeyPress& k) {   // left and right: the step before or after (within the pattern)
+    if (k != juce::KeyPress::leftKey && k != juce::KeyPress::rightKey) return false;
+    const int len = juce::jlimit(1, kSteps, snap_.length);
+    selectStep(juce::jlimit(0, len - 1, sel_ + (k == juce::KeyPress::leftKey ? -1 : 1)));
+    return true;
 }
 
 void Fm1SeqPage::toggleNote(int step, int note) {

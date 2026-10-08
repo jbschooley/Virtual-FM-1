@@ -781,6 +781,15 @@ static int checks() {
             CHECK(Fm1SeqPage::lockName(1) == "Feedback" && Fm1SeqPage::lockRange(1).second == 7 && Fm1SeqPage::lockName(40) == "Delay Feedback"
                   && Fm1SeqPage::lockRange(33).second == 107, "lock names and ranges as the FM-1 has them");
             CHECK(page.laneCount() == 2 && !page.chipLanes(), "FM-1+VA tab: an FM pattern's lanes are Notes and Locks");
+            page.selectStep(4);
+            page.keyPressed(juce::KeyPress(juce::KeyPress::rightKey));
+            const int right = page.selectedStep();
+            page.keyPressed(juce::KeyPress(juce::KeyPress::leftKey));
+            page.keyPressed(juce::KeyPress(juce::KeyPress::leftKey));
+            CHECK(right == 5 && page.selectedStep() == 3, "FM-1+VA tab: the arrow keys move the selection");
+            page.selectStep(0);
+            page.keyPressed(juce::KeyPress(juce::KeyPress::leftKey));
+            CHECK(page.selectedStep() == 0, "FM-1+VA tab: not before the first step");
         }
         // the Sequencer tab: its edits are the device's (both firmwares)
         for (auto id : {"felucca", "sloop"}) {
@@ -795,6 +804,48 @@ static int checks() {
             felucca::VirtualEndpoint e(f);
             page.selectTrack(1);
             CHECK(f->selected() == 1, who + "a track chosen is the device's selected part");
+            {   // the grid by mouse (a finger gives the same events): a step's number selects it; a click adds a note,
+                // a drag on it sets its length; the arrow keys move the selection
+                juce::Component* grid = nullptr;
+                for (auto* c : page.getChildren())
+                    if (auto* t = dynamic_cast<juce::SettableTooltipClient*>(c); t && t->getTooltip().startsWith("Click to add")) grid = c;
+                CHECK(grid != nullptr && grid->getWidth() > 200, who + "the grid");
+                if (grid) {
+                    const float w = (float(grid->getWidth()) - 46.0f) / float(page.columns()), h = (float(grid->getHeight()) - 18.0f) / 25.0f;
+                    auto at = [&](int col, int row) { return juce::Point<float>(46.0f + (float(col) + 0.5f) * w, row < 0 ? 9.0f : 18.0f + (float(row) + 0.5f) * h); };
+                    auto ev = [&](juce::Point<float> pos, juce::Point<float> down, bool dragged) {
+                        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), pos, {}, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, grid, grid,
+                                                juce::Time::getCurrentTime(), down, juce::Time::getCurrentTime(), 1, dragged);
+                    };
+                    auto click = [&](juce::Point<float> pos) { grid->mouseDown(ev(pos, pos, false)); grid->mouseUp(ev(pos, pos, false)); };
+                    const auto before = felucca::readStep(e, 1, 2);
+                    click(at(2, -1));
+                    CHECK(page.selectedStep() == 2 && felucca::readStep(e, 1, 2) == before, who + "a step's number selects it, changing nothing");
+                    click(at(11, 12));
+                    const auto added = felucca::readStep(e, 1, 11);
+                    CHECK(added && added->time == felucca::kNote && added->n == 1, who + "a click adds a note");
+                    const auto from = at(11, 12), to = at(14, 12);
+                    grid->mouseDown(ev(from, from, false));
+                    grid->mouseDrag(ev(to, from, true));
+                    grid->mouseUp(ev(to, from, true));
+                    auto t = [&](int i) { auto st = felucca::readStep(e, 1, i); return st ? st->time : -1; };
+                    CHECK(t(11) == felucca::kNote && t(12) == felucca::kTie && t(14) == felucca::kTie && t(15) != felucca::kTie, who + "dragged: held to step 15");
+                    const auto back = at(12, 12);
+                    grid->mouseDown(ev(to, to, false));   // (from its held end)
+                    grid->mouseDrag(ev(back, to, true));
+                    grid->mouseUp(ev(back, to, true));
+                    CHECK(t(12) == felucca::kTie && t(13) == felucca::kRest, who + "dragged back from where it is held: shorter");
+                    page.selectStep(11);
+                    page.keyPressed(juce::KeyPress(juce::KeyPress::rightKey));
+                    CHECK(page.selectedStep() == 12, who + "right arrow: the next step");
+                    page.keyPressed(juce::KeyPress(juce::KeyPress::leftKey));
+                    page.keyPressed(juce::KeyPress(juce::KeyPress::leftKey));
+                    CHECK(page.selectedStep() == 10, who + "left arrow: the one before");
+                    page.setHold(11, 0);
+                    if (added) page.toggleNote(11, added->note[0]);
+                    CHECK(t(11) == felucca::kRest && t(12) == felucca::kRest, who + "(put back)");
+                }
+            }
             {   // a note's length: TIE steps after it, up to the next note (and the pattern's 16 steps)
                 page.toggleNote(11, 60);
                 CHECK(page.setHold(11, 3) == 3, who + "held 3 steps more");

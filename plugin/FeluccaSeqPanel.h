@@ -23,6 +23,7 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void visibilityChanged() override;
+    bool keyPressed(const juce::KeyPress&) override;
     void refresh();                            // read the device again (after a project loads, say)
 
     // what the grid shows, for the grid and the tests

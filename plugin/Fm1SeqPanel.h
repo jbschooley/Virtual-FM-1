@@ -18,6 +18,7 @@ public:
     explicit Fm1SeqPage(FM1Processor&);
     ~Fm1SeqPage() override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
     void paint(juce::Graphics&) override;
     static constexpr int kNarrow = 1040;         // narrower (a phone, an iPad upright): one column, taller than the screen
     int contentHeight() const { return contentBottom_ + 10; }
