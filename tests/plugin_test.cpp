@@ -544,8 +544,9 @@ static int checks() {
                 CHECK(put && felucca::argsOf(*put).size() >= 3 && felucca::argsOf(*put)[2] == 0 && tone(ea, 0) == edited, "a tone edited on one side");
                 a->setParam(0, a->firstEngineParam() + 2, a->paramDesc(0, a->firstEngineParam() + 2).min + 1);
                 loaded = {};
-                CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && tone(eb, 0) == edited && loaded.nativeEngine == 15
-                      && std::equal(dump(ea, 0).begin() + 3, dump(ea, 0).end(), dump(eb, 0).begin() + 3, dump(eb, 0).end()),
+                const bool copied = felucca::copySound(ea, eb, 0, err, &loaded);
+                const auto da = dump(ea, 0), db = dump(eb, 0);   // (each read once: one vector's begin and end)
+                CHECK(copied && tone(eb, 0) == edited && loaded.nativeEngine == 15 && da.size() > 3 && std::equal(da.begin() + 3, da.end(), db.begin() + 3, db.end()),
                       "copied: the edited tone, then every value (" + err + ")");
                 loaded = {};
                 CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && !loaded.did, "copied again: nothing to load (the same tone, whatever its preset number)");
