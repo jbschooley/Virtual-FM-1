@@ -844,6 +844,16 @@ static int checks() {
                     page.setHold(11, 0);
                     if (added) page.toggleNote(11, added->note[0]);
                     CHECK(t(11) == felucca::kRest && t(12) == felucca::kRest, who + "(put back)");
+                    if (added) {   // a phone: one octave and a note, the roll moved to show the notes
+                        page.toggleNote(11, added->note[0]);
+                        page.setSize(390, 800);
+                        const float ph = (float(grid->getHeight()) - 18.0f) / 13.0f;
+                        CHECK(page.rollRows() == 13 && ph >= 20.0f, who + "a phone: 13 rows, " + juce::String(ph, 1) + " px each");
+                        CHECK(page.lowestNote() <= added->note[0] && added->note[0] < page.lowestNote() + 13, who + "and the roll on the track's note");
+                        page.setSize(1100, 600);
+                        CHECK(page.rollRows() == 25, who + "wider again: two octaves");
+                        page.toggleNote(11, added->note[0]);
+                    }
                 }
             }
             {   // a note's length: TIE steps after it, up to the next note (and the pattern's 16 steps)

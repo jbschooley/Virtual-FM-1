@@ -32,6 +32,8 @@ public:
     bool drumsView() const;
     int columns() const { return cols_; }
     int firstStep() const { return page_ * cols_; }
+    int rollRows() const { return rollRows_; }
+    int lowestNote() const { return lowNote_; }   // the piano roll's bottom row
 
     // edits, as the grid and the controls make them (also used by the tests)
     void toggleNote(int step, int note);
@@ -79,6 +81,7 @@ private:
 
     FM1Processor& proc_;
     juce::uint32 sayUntil_ = 0;
+    int rollRows_ = 25;                        // the piano roll's rows: two octaves and a note, a phone one octave and a note
     int track_ = 0, sel_ = 0, page_ = 0, cols_ = 16, lowNote_ = 48, view_ = 0, playhead_ = -1, tick_ = 0;
     bool loading_ = false, forceDrums_ = false, drumsChoice_ = false;
     unsigned scaleMask_ = 0xFFFu;

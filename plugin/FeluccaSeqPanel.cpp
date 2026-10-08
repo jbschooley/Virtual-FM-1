@@ -52,14 +52,15 @@ public:
     explicit Grid(FeluccaSeqPage& p) : page_(p) {
         setTooltip("Click to add or take off a note; drag a note sideways to hold it longer or shorter; click a step's number (or the left and right arrow keys) to select it");
     }
-    static constexpr int kRows = 25;           // two octaves and a note
+    static constexpr int kRows = 25;           // two octaves and a note (a phone: one, kPhoneRows)
+    static constexpr int kPhoneRows = 13;
 
     static constexpr float kHead = 18.0f;      // the step numbers: a tap there selects the step, changing nothing
     juce::Rectangle<float> cell(int col, int row) const {
         const float w = (float(getWidth()) - kLabel) / float(page_.cols_), h = (float(getHeight()) - kHead) / float(rows());
         return {kLabel + col * w, kHead + row * h, w, h};
     }
-    int rows() const { return page_.drumsView() ? std::max(1, int(page_.lanes_.size())) : kRows; }
+    int rows() const { return page_.drumsView() ? std::max(1, int(page_.lanes_.size())) : page_.rollRows_; }
 
     void paint(juce::Graphics& g) override {
         g.fillAll(page_.sloop() ? juce::Colours::black : kBg);
@@ -73,7 +74,7 @@ public:
             if (drums) {
                 label = juce::String(page_.lanes_[size_t(r)]);
             } else {
-                const int note = page_.lowNote_ + kRows - 1 - r, pc = ((note - page_.root_) % 12 + 12) % 12;
+                const int note = page_.lowNote_ + page_.rollRows_ - 1 - r, pc = ((note - page_.root_) % 12 + 12) % 12;
                 if ((page_.scaleMask_ >> pc) & 1u) g.setColour(colour.withAlpha(pc == 0 ? 0.16f : 0.08f)), g.fillRect(row);
                 label = note % 12 == 0 || r == 0 ? noteName(note) : juce::String();
             }
@@ -151,8 +152,8 @@ public:
             }
             if (sounding == nullptr || sounding->time == felucca::kRest) continue;
             for (int k = 0; k < sounding->n; ++k) {
-                const int r = page_.lowNote_ + kRows - 1 - sounding->note[size_t(k)];
-                if (r < 0 || r >= kRows) continue;
+                const int r = page_.lowNote_ + page_.rollRows_ - 1 - sounding->note[size_t(k)];
+                if (r < 0 || r >= page_.rollRows_) continue;
                 auto box = cell(c, r).reduced(1.0f, 2.0f);
                 if (tieNext) box = box.withRight(cell(c, r).getRight() + 1.0f);
                 float alpha = 1.0f;
@@ -187,7 +188,7 @@ public:
         dragNote_ = -1;
         if (e.position.y < kHead || e.mods.isPopupMenu() || e.mods.isCommandDown()) { page_.selectStep(step); return; }   // select only
         if (page_.drumsView()) { page_.toggleLane(step, row, e.mods.isAltDown() || e.mods.isShiftDown()); return; }
-        const int note = page_.lowNote_ + kRows - 1 - row;
+        const int note = page_.lowNote_ + page_.rollRows_ - 1 - row;
         // on a note (where it starts or where a TIE holds it): drag to hold it longer or shorter; a
         // click without a drag takes it off (or, on a held step, starts a new one there) as before
         const auto& st = page_.pat_.steps;
@@ -659,7 +660,7 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     play_.setTooltip("Start or stop this instance's sequencer (with \"Tempo follows the host\" on, the host's transport does)");
     for (auto* b : {&octDown_, &octUp_}) addAndMakeVisible(b);
     octDown_.onClick = [this] { lowNote_ = std::max(0, lowNote_ - 12); grid_->repaint(); };
-    octUp_.onClick = [this] { lowNote_ = std::min(127 - Grid::kRows + 1, lowNote_ + 12); grid_->repaint(); };
+    octUp_.onClick = [this] { lowNote_ = std::min(127 - rollRows_ + 1, lowNote_ + 12); grid_->repaint(); };
     for (auto* b : std::initializer_list<juce::Component*>{&play_, &pull_, &send_}) addAndMakeVisible(b);
     pull_.setTooltip("Every track's pattern from the connected FM-1 (Felucca: and its song chain and motion)");
     send_.setTooltip("Every track's pattern to the connected FM-1 (Felucca: and its song chain and motion); its RAM, not saved there");
@@ -895,8 +896,8 @@ void FeluccaSeqPage::fitNotes() {
             for (int k = 0; k < s.n; ++k) lo = std::min(lo, int(s.note[size_t(k)])), hi = std::max(hi, int(s.note[size_t(k)]));
     if (hi < 0) return;   // none: where it was
     int low = lo / 12 * 12;
-    if (hi - low >= Grid::kRows) low = std::max(0, (lo + hi) / 2 - Grid::kRows / 2);
-    lowNote_ = std::clamp(low, 0, 127 - Grid::kRows + 1);
+    if (hi - low >= rollRows_) low = std::max(0, (lo + hi) / 2 - rollRows_ / 2);
+    lowNote_ = std::clamp(low, 0, 127 - rollRows_ + 1);
     grid_->repaint();
 }
 
@@ -1250,6 +1251,11 @@ void FeluccaSeqPage::paint(juce::Graphics& g) { g.fillAll(kBg); }
 void FeluccaSeqPage::resized() {
     auto r = getLocalBounds().reduced(6);
     const bool narrow = getWidth() < 760;
+    if (const int rows = narrow ? Grid::kPhoneRows : Grid::kRows; rows != rollRows_) {   // (a phone: one octave, rows tall enough for a finger)
+        rollRows_ = rows;
+        lowNote_ = std::clamp(lowNote_, 0, 127 - rollRows_ + 1);
+        fitNotes();
+    }
     auto bar = [&](int h) { auto b = r.removeFromTop(h); r.removeFromTop(4); return b; };
     {   // tracks, play, views
         auto b = bar(28);
