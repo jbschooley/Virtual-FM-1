@@ -36,7 +36,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
      * stream resets and alternate changes included, not the synth and FX work */
     fm1_irq_off();
     if (usb.up && usb.config && !usb.suspended)
-        ua_audio(out, track_capture, n, song.master_q12);
+        ua_audio(out, track_capture_on ? track_capture : 0, n, song.master_q12);
     fm1_irq_on();
 #endif
     for (i = 0; i < n; i++) {
@@ -44,6 +44,11 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
         out[2u * i] *= 1 << OUT_SHIFT;
         out[2u * i + 1u] *= 1 << OUT_SHIFT;
+#if defined(MELODEE_BENCH_SILENT) && MELODEE_BENCH_SILENT
+        /* Bench builds silence only the physical output. Full engine/FX work,
+         * scope and USB capture still run; never use track mutes for timing. */
+        out[2u * i] = out[2u * i + 1u] = 0;
+#endif
     }
 }
 

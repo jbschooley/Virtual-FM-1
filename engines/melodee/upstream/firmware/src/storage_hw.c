@@ -27,6 +27,10 @@ static void audio_silence(void)                 /* IRQs off: the DMA would loop 
 }
 static int st_erase(uint32_t off)
 {
+#if MELODEE_PROPHET_PROTOTYPE
+    (void)off;
+    return -8; /* measurement firmware must not persist the temporary index-0 renderer */
+#else
     uint32_t took, f;
     int rc;
     if (!FL_STORE_OK(off, 0x1000u))
@@ -36,10 +40,16 @@ static int st_erase(uint32_t off)
     rc = FL_FAR(fl_erase4k_ram)(off, &took);
     irq_restore(f);
     return rc;
+#endif
 }
 static int st_prog(uint32_t off, const void *src, uint32_t n)
 {
+#if MELODEE_PROPHET_PROTOTYPE
+    (void)off; (void)src; (void)n;
+    return -8;
+#else
     if (!FL_STORE_OK(off, n))                   /* only inside the storage areas */
         return -8;
     return fl_write(off, src, n);
+#endif
 }

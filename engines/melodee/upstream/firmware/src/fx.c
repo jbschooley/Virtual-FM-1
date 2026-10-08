@@ -3,14 +3,24 @@
 /* Effects: per-track DIST insert, then chorus and reverb sends.
  * Delay retired; its stored parameter IDs remain inert for compatibility. */
 #define CHO_LEN 2048u
-static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
+static int16_t *cho_buf;
+#define REV_COMB_LEN (1116u + 1188u + 1277u + 1356u)
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
-static int16_t rev_comb[1116 + 1188 + 1277 + 1356] __attribute__((section(".pool")));
-static union {                          /* ROOM's allpasses; SPRING's allpass chain (int32: no clamps) */
+static int16_t *rev_comb;
+typedef union {                          /* ROOM's allpasses; SPRING's allpass chain (int32: no clamps) */
     int16_t ap[556 + 441];
     int32_t sp[(556 + 441) / 2];
-} rev_u __attribute__((section(".pool")));
+} rev_memory_t;
+static rev_memory_t *rev_memory;
+#define rev_u (*rev_memory)
+#define REV_MEMORY_BYTES (((REV_COMB_LEN * 2u + 3u) & ~3u) + sizeof(rev_memory_t))
+static uint32_t cho_idle, rev_scan;
+/* ROOM has small integer DC fixed points. Preserve them in six values when
+ * its delay lines become constant; releasing them must not alter later audio. */
+static int16_t rev_hold_comb[4], rev_hold_ap[2];
+static int32_t rev_hold_dc;
+static int16_t rev_hold_size, rev_hold_damp;
 #define rev_ap (rev_u.ap)
 static struct {
     uint32_t cho_w, cho_ph;
@@ -38,7 +48,28 @@ static struct {
 #define SP_N 10u                         /* allpass stages */
 #define SP_A 2867                        /* their coefficient, Q12 (0.7: Q12 keeps (x - o) * a in 32 bits up to
                                           * |x - o| < 749000, far past any peak the chain reaches) */
-_Static_assert(sizeof rev_comb / 2u >= SP_LEN && sizeof rev_u.sp / 4u >= 4u * (SP_N + 1u), "SPRING in ROOM's buffers");
+_Static_assert(REV_COMB_LEN >= SP_LEN && sizeof rev_u.sp / 4u >= 4u * (SP_N + 1u), "SPRING in ROOM's buffers");
+
+static int chorus_prepare(void)
+{
+    if (!cho_buf) cho_buf = resource_get(RES_CHORUS, CHO_LEN * sizeof(int16_t));
+    return cho_buf != 0;
+}
+static int reverb_prepare(void)
+{
+    if (!rev_comb) {
+        rev_comb = resource_get(RES_REVERB, REV_MEMORY_BYTES);
+        if (rev_comb) rev_memory = (rev_memory_t *)((uint8_t *)rev_comb + ((REV_COMB_LEN * 2u + 3u) & ~3u));
+        if(rev_comb){
+            uint32_t off=0;
+            for(uint32_t k=0;k<4u;k++)for(uint32_t j=0;j<REV_COMB[k];j++)rev_comb[off++]=rev_hold_comb[k];
+            off=0;
+            for(uint32_t k=0;k<2u;k++)for(uint32_t j=0;j<REV_AP[k];j++)rev_ap[off++]=rev_hold_ap[k];
+        }
+        rev_scan = 0;
+    }
+    return rev_comb != 0;
+}
 
 /* DIST: low cut -> drive (1x..8x, exponential) -> asymmetric soft clip
  * (a little bias = even harmonics) -> tone low-pass that closes with drive ->
@@ -176,13 +207,14 @@ static uint32_t seq_div_samples(uint32_t div)
 #include "perform.c"                                 /* the FX hold layer's effects (the master) */
 
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
-static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
+static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n,
+                                               int16_t *restrict comb, int16_t *restrict aps)
 {
     uint32_t i, k;
     int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
     for (i = 0; i < n; i++) {
         int32_t a = 0;
-        int16_t *c = rev_comb;
+        int16_t *c = comb;
         int32_t in = mulq15(rev_in[i], 2580);           /* 1/8 at -4 dB: level as before the allpass fix */
         for (k = 0; k < 4u; k++) {
             int32_t o = c[fx.comb_i[k]];
@@ -193,7 +225,7 @@ static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *o
             a += o;
             c += REV_COMB[k];
         }
-        c = rev_ap;
+        c = aps;
         for (k = 0; k < 2u; k++) {
             int32_t o = c[fx.ap_i[k]];
             int32_t v = a + (o >> 1);
@@ -207,15 +239,16 @@ static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *o
     }
 }
 
+#define rev_room(in,out,n) (rev_room)((in),(out),(n),rev_comb,rev_ap)
+
 /* SPRING (see the top), added to out */
-static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
+static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n,
+                                                 int16_t *restrict ln, int32_t *restrict ap)
 {
     uint32_t i, k, s = (uint32_t)song.g[G_RSIZE];
     int32_t g = 19661 + (int32_t)s * 85;                /* the loop's gain: 0.6 .. 0.93 */
     int32_t kl = 26000 - song.g[G_RDAMP] * 160;         /* its low-pass: ~9 kHz .. ~1.3 kHz */
     int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w;
-    int16_t *ln = rev_comb;
-    int32_t *ap = rev_u.sp;
     if (!fx.sp_size)
         fx.sp_size = len;
     fx.sp_size += clamp(len - fx.sp_size, -256, 256);   /* SIZE glides (a sample a block at most) */
@@ -236,14 +269,15 @@ static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t 
         fx.sp_he = o & 63;                              /* dc_block): no dead band to hold an offset in the loop */
         fx.sp_hp += o >> 6;
         x -= fx.sp_hp;
-        p = ap[j];                                      /* the chain: ap[j + k], stage k's output 4 samples ago */
-        ap[j] = x;
+        int32_t *restrict chain=ap+j;
+        p = chain[0];                                      /* the chain: chain[k], stage k's output 4 samples ago */
+        chain[0] = x;
         for (k = 1; k <= SP_N; k++) {                   /* (lossless: bounded by the loop's input, no clamp) */
-            int32_t v = (x - ap[j + k]) * SP_A;         /* towards 0, as the loop's gain: floors would feed */
-            o = ap[j + k];                              /* the loop a little offset and noise for ever */
+            int32_t v = (x - chain[k]) * SP_A;         /* towards 0, as the loop's gain: floors would feed */
+            o = chain[k];                              /* the loop a little offset and noise for ever */
             x = ((v + ((v >> 31) & 4095)) >> 12) + p;
             p = o;
-            ap[j + k] = x;
+            chain[k] = x;
         }
         ln[wp & SP_MASK] = (int16_t)clamp(x, -32768, 32767);
         fx.sp_w = (uint16_t)(wp + 1u);
@@ -251,17 +285,77 @@ static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t 
     }
 }
 
+#define rev_spring(in,out,n) (rev_spring)((in),(out),(n),rev_comb,rev_u.sp)
+
 /* the reverb's buffers and states to silence (the model changed) */
 static void rev_clear(void)
 {
+    if (!reverb_prepare()) return;
+    rev_scan = 0;rev_hold_dc=0;
+    memset(rev_hold_comb,0,sizeof rev_hold_comb);memset(rev_hold_ap,0,sizeof rev_hold_ap);
     uint32_t i;
-    for (i = 0; i < sizeof rev_comb / 2u; i++)
+    for (i = 0; i < REV_COMB_LEN; i++)
         rev_comb[i] = 0;
     for (i = 0; i < sizeof rev_u.sp / 4u; i++)
         rev_u.sp[i] = 0;
     for (i = 0; i < 4u; i++)
         fx.comb_lp[i] = 0;
     fx.sp_lp = fx.sp_hp = fx.sp_he = 0;
+}
+
+/* At a fixed point these buffers can be represented exactly without delay
+ * lines. ROOM's saved DC stays in the mix; new input restores each constant
+ * line before processing. SPRING is suspended only at exact zero. */
+static int reverb_suspend(uint32_t rt)
+{
+    int16_t comb[4]={0}, ap[2]={0};int32_t dc=0;
+    if(rt){
+        /* -1 is a silent fixed point of the integer low-pass: its update
+         * rounds to zero and its feedback truncates to zero for every SIZE.
+         * Keep that scalar and the high-pass remainder for an exact resume. */
+        if(fx.sp_lp < -1 || fx.sp_lp > 0 || fx.sp_hp)return 0;
+        const uint32_t *words=(const uint32_t *)rev_comb;
+        for(uint32_t j=0;j<REV_MEMORY_BYTES/4u;j++)if(words[j])return 0;
+    }else{
+        uint32_t off=0;int32_t gain=25000+song.g[G_RSIZE]*50;
+        for(uint32_t k=0;k<4u;k++){
+            comb[k]=rev_comb[off];
+            if(fx.comb_lp[k]!=comb[k] || mulq15(comb[k],gain)!=comb[k])return 0;
+            for(uint32_t j=0;j<REV_COMB[k];j++)if(rev_comb[off++]!=comb[k])return 0;
+            dc+=comb[k];
+        }
+        off=0;
+        for(uint32_t k=0;k<2u;k++){
+            ap[k]=rev_ap[off];
+            /* Arithmetic shifts can leave isolated -1 samples circulating
+             * forever after the combs reach zero. At most two output counts:
+             * discard this quantization residue rather than retain a buffer. */
+            if(!dc){
+                uint32_t j=0;
+                for(;j<REV_AP[k] && rev_ap[off+j]>=-1 && rev_ap[off+j]<=1;j++) {}
+                if(j==REV_AP[k]){off+=REV_AP[k];ap[k]=0;continue;}
+            }
+            if(dc+(ap[k]>>1)!=ap[k])return 0;
+            for(uint32_t j=0;j<REV_AP[k];j++)if(rev_ap[off++]!=ap[k])return 0;
+            dc=ap[k]-dc;
+        }
+    }
+    memcpy(rev_hold_comb,comb,sizeof comb);memcpy(rev_hold_ap,ap,sizeof ap);rev_hold_dc=dc;
+    rev_hold_size=song.g[G_RSIZE];rev_hold_damp=song.g[G_RDAMP];
+    resource_release(RES_REVERB);rev_comb=0;rev_memory=0;return 1;
+}
+
+static void reverb_idle_clock(uint32_t rt,uint32_t n)
+{
+    if(rt){
+        int32_t len=(int32_t)(1323u+(((uint32_t)song.g[G_RSIZE]*1323u)>>7))<<8;
+        if(!fx.sp_size)fx.sp_size=len;
+        fx.sp_size+=clamp(len-fx.sp_size,-256,256);
+        fx.sp_ph+=2u*LFO_INC[24];fx.sp_w=(uint16_t)(fx.sp_w+n);
+    }else{
+        for(uint32_t i=0;i<4u;i++)fx.comb_i[i]=(uint16_t)((fx.comb_i[i]+n)%REV_COMB[i]);
+        for(uint32_t i=0;i<2u;i++)fx.ap_i[i]=(uint16_t)((fx.ap_i[i]+n)%REV_AP[i]);
+    }
 }
 
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
@@ -273,7 +367,11 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
     uint32_t i;
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
-    for (i = 0; i < n; i++) {
+    int cin = 0, rin = 0;
+    for (i = 0; i < n; i++) { cin |= cho_in[i]; rin |= rev_in[i]; wet[i] = 0; }
+    if (cin) { cho_idle = 0; chorus_prepare(); }
+    if (!cho_buf) { fx.cho_ph += cinc * n; fx.cho_w += n; }
+    for (i = 0; cho_buf && i < n; i++) {
         int32_t y = 0, r;
         /* chorus: modulated short delay, 5..15 ms */
         cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
@@ -288,7 +386,22 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
         fx.cho_w++;
         wet[i] = y;
     }
+    if (cho_buf && !cin && (cho_idle += n) >= CHO_LEN) {
+        resource_release(RES_CHORUS); cho_buf = 0; cho_idle = 0;
+    }
     rt = song.g[G_RTYPE] == 1;
+    if(!rev_comb && !rin && !rev_hold_dc && rt!=fx.rtype){
+        reverb_idle_clock(fx.rtype,n);fx.rtype=(uint8_t)rt;
+        fx.sp_lp=fx.sp_hp=fx.sp_he=0;
+        for(i=0;i<4u;i++)fx.comb_lp[i]=0;
+        return;
+    }
+    if(!rev_comb && !rin && rt==fx.rtype &&
+       (!rev_hold_dc || (rev_hold_size==song.g[G_RSIZE] && rev_hold_damp==song.g[G_RDAMP]))){
+        for(i=0;i<n;i++)wet[i]+=rev_hold_dc;
+        reverb_idle_clock((uint32_t)rt,n);return;
+    }
+    if (!reverb_prepare()) return;
     if (rt != fx.rtype) {                               /* the model changed: the old one's block fades out, */
         int32_t *t = part_buf, g = 65536, d = 65536 / (int32_t)n;   /* its buffers are cleared, the new */
         for (i = 0; i < n; i++)                                     /* one starts from silence */
@@ -307,6 +420,10 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
         rev_spring(rev_in, wet, n);
     else
         rev_room(rev_in, wet, n);
+    /* A complete audio-owned snapshot once a second avoids a moving-buffer
+     * scan falsely classifying a still ringing tail as silent. */
+    if(rev_comb && !rin){if((rev_scan+=n)>=FS){reverb_suspend((uint32_t)rt);rev_scan=0;}}
+    else rev_scan=0;
 }
 
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
@@ -314,31 +431,51 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
 static void events_block(uint32_t n);                    /* seq.c */
 static int32_t send_c[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 #if MELODEE_USB_AUDIO
+static int ua_capture_active(void);                    /* usb.c; snapshot before rendering */
+static uint8_t track_capture_on;
 static int32_t track_capture[CTL * NTRK];               /* the parts after their level, before pan and sends:
                                                          * Melodee In's four channels (audio.c ua_audio) */
 #endif
 
+/* Keys are the effective values after mod_begin, so automation and matrix
+ * modulation invalidate the same cache as direct edits and preset loads. */
+typedef struct {
+    int16_t level, pan, chor, rev;
+    uint8_t valid;
+    int32_t lvl, gl, gr, c, r, xmax;
+} mix_cache_t;
+static mix_cache_t mix_cache[NTRK];
+static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
+{
+    mc->level=t->p[P_LEVEL];mc->pan=t->p[P_PAN];mc->chor=t->p[P_CHOR];mc->rev=t->p[P_REV];mc->valid=1;
+    mc->lvl=LEVEL_Q12[mc->level & 127];
+    mc->gl=4096-(mc->pan>0?mc->pan*64:0);mc->gr=4096+(mc->pan<0?mc->pan*64:0);
+    mc->c=mc->chor*258;mc->r=mc->rev*258;
+    mc->xmax=0x7FFFFFFF/((mc->c>mc->r?mc->c:mc->r)|1);
+}
+
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
- * the LFO tick and a cleared buffer only (after the DIST tail has run out) */
+ * its control clocks only after DIST and stutter tails have run out. */
 static void mix_part(track_t *t, uint32_t n)
 {
     int32_t *b = part_buf;
     uint32_t i;
+    int active = 1;
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
-    if (track_render(t, b, n))
+    if (track_render_audio(t, b, n, (t->tail && t->p[P_DIST]) || slicer_busy(t)))
         t->tail = 16;                                   /* blocks of DIST state to run out after the last voice */
     else if ((!t->tail || !t->p[P_DIST] || !--t->tail) && !slicer_busy(t)) {
-        slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
-        if (mod.on)
-            mod_end(t);
-        return;
+        active = 0;
     }
-    {
-        int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
-        int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
-        int32_t c = t->p[P_CHOR] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-        int32_t xmax = c;
-        xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
+    if (!active) slicer_track(t, 0, n);                 /* the silent SLICER's clock runs on */
+    else {
+        uint32_t ti = (uint32_t)(t - trk);
+        mix_cache_t *mc = &mix_cache[ti];
+        if (!mc->valid || mc->level != t->p[P_LEVEL] || mc->pan != t->p[P_PAN] ||
+            mc->chor != t->p[P_CHOR] || mc->rev != t->p[P_REV]) {
+            mix_cache_update(t,mc);
+        }
+        int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,c=mc->c,r=mc->r,xmax=mc->xmax,pk=t->peak;
         track_dist(t, b, n);
         slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
         if ((pf.mute >> (t - trk)) & 1u)
@@ -349,7 +486,7 @@ static void mix_part(track_t *t, uint32_t n)
             int32_t x = clamp(((clamp(b[i], -884000, 884000) >> 2) * lvl) >> 10, -524287, 524287), a = x < 0 ? -x : x;
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
 #if MELODEE_USB_AUDIO
-            track_capture[i * NTRK + (uint32_t)(t - trk)] = x;
+            if (track_capture_on) track_capture[i * NTRK + ti] = x;
 #endif
             if (a > pk)
                 pk = a;
@@ -388,8 +525,8 @@ static void mix_block(int32_t *out, uint32_t n)
     uint32_t i;
     int perf;
 #if MELODEE_USB_AUDIO
-    for (i = 0; i < n * NTRK; i++)
-        track_capture[i] = 0;
+    track_capture_on = (uint8_t)ua_capture_active();
+    if (track_capture_on) for (i = 0; i < n * NTRK; i++) track_capture[i] = 0;
 #endif
     for (i = 0; i < n; i++)
         send_c[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;

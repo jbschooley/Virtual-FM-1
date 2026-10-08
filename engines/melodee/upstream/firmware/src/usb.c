@@ -353,6 +353,10 @@ static void e0_send(const uint8_t *p, uint16_t len, uint16_t wlen)
 
 #if MELODEE_USB_AUDIO
 #include "usb_audio.c"
+static int ua_capture_active(void)
+{
+    return usb.up && usb.config && !usb.suspended && ua.cap_alt;
+}
 #endif
 
 static void ep0_service(void)
@@ -615,6 +619,9 @@ static void midi_in_event(uint32_t pkt)
         return;
     }
     if (st >= 0x80u && st < 0xF8u) {
+#ifdef FM6_RX
+        fm6_sx_byte((uint8_t)st);                       /* abort DX7 assembly across USB packets too */
+#endif
         usb.sx_on = 0;                                 /* channel/system common also ends SysEx */
 #if MELODEE_OTA
         sx_collect = 0;
@@ -861,6 +868,9 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
         usb.suspended = 0;
         mo_r = mo_w;                                    /* nothing stale for the next host */
         usb.sx_on = 0;
+#ifdef FM6_RX
+        fm6_rx_on = 0;
+#endif
 #if MELODEE_OTA
         so_r = so_w;
         sx_collect = 0;

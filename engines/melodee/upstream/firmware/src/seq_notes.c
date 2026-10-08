@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* NOTES uses the original onset interval, not the rounded STEP overview.
  * Selection is ordered by onset, pitch, then storage index: repeated pitches
- * and independent chord notes are individually reachable. No audio mutation. */
+ * and independent chord notes are individually reachable. Selection never edits note data. */
 static int notes_in_step(const track_t *t, uint32_t i)
 {
     return i < RECORD_MAX && recording_active(t, i) && (recording[i].step & 63u) == ui.cursor;
@@ -91,4 +91,66 @@ static void notes_rebuild(track_t *t, uint32_t view)
     if (!count) step_delete(t, view);
     else if (st->vel > 110u) st->flags |= SF_ACCENT;
     else st->flags &= (uint8_t)~SF_ACCENT;
+}
+
+/* One editor handles both ordinary step notes and precise performance events. */
+static int notes_have_recording(const track_t *t)
+{
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (recording_active(t, i)) return 1;
+    return 0;
+}
+static uint32_t notes_manual_start(const track_t *t)
+{
+    uint32_t at = step_note_start(t, ui.cursor);
+    return at < NSTEP && !(t->step[at].flags & SF_RECORDED) ? at : NSTEP;
+}
+static uint32_t notes_manual_slot(const step_t *st)
+{
+    return st->n ? (ui.note_slot < st->n ? ui.note_slot : st->n - 1u) : 0u;
+}
+/* Jog through every note within an interval, then into the next interval.
+ * Empty intervals remain reachable for entry. Cursor movement never edits. */
+static void notes_last(void)
+{
+    uint32_t chosen = RECORD_MAX;
+    for (uint32_t i = recording_head[recording_owner(TSEL)]; i < RECORD_MAX; i = recording_next[i])
+        if (notes_in_step(TSEL, i) && (chosen == RECORD_MAX || notes_before(chosen, i))) chosen = i;
+    ui.note_pick = chosen < RECORD_MAX ? (uint16_t)(chosen + 1u) : 0;
+}
+static void notes_next_interval(int dir)
+{
+    uint32_t first = ui.cursor, len = step_pattern_len(TSEL);
+    for (uint32_t n = 0; n < len; n++) {
+        cursor_set(ui.cursor + dir);
+        uint32_t at = notes_manual_start(TSEL);
+        if (notes_selected(TSEL) < RECORD_MAX || (at == ui.cursor && at < NSTEP && TSEL->step[at].n)) {
+            if (dir < 0) {
+                notes_last();
+                if (at < NSTEP && TSEL->step[at].n) ui.note_slot = TSEL->step[at].n - 1u;
+            }
+            return;
+        }
+    }
+    cursor_set((int32_t)first + dir);
+}
+static void notes_jog(int32_t delta)
+{
+    delta = clamp(delta, -64, 64);
+    while (delta) {
+        int dir = delta > 0 ? 1 : -1;
+        uint32_t chosen = notes_selected(TSEL), at = notes_manual_start(TSEL);
+        if (chosen < RECORD_MAX) {
+            notes_cycle(dir);
+            if (notes_selected(TSEL) == chosen) {
+                notes_next_interval(dir);
+            }
+        } else if (at < NSTEP && TSEL->step[at].n &&
+                   (dir > 0 ? ui.note_slot + 1u < TSEL->step[at].n : ui.note_slot > 0u)) {
+            ui.note_slot = (uint8_t)(ui.note_slot + dir);
+        } else {
+            notes_next_interval(dir);
+        }
+        delta -= dir;
+    }
 }

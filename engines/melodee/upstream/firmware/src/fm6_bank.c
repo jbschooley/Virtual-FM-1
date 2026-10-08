@@ -17,7 +17,7 @@ typedef struct {
     uint8_t pk[FM6_BANK_N][FM6_BANK_PK];
 } fm6_bank_t;
 _Static_assert(sizeof(fm6_bank_t) == 3612u && sizeof(fm6_bank_t) <= 3840u, "FM6 bank layout (a backup object)");
-static fm6_bank_t fm6_bank __attribute__((section(".pool"))); /* boot/restore migration scratch */
+
 
 /* eight 7-bit bytes <-> seven: the eighth rides in the top bits of the other seven */
 static void fm6_pack7(uint8_t *d, const uint8_t *s, uint32_t n)
@@ -51,38 +51,38 @@ static int fm6_bank_valid(const fm6_bank_t *b)
     return 1;
 }
 
-static void fm6_bank_empty(void)
+static void fm6_bank_empty(fm6_bank_t *bank)
 {
-    memset(&fm6_bank, 0, sizeof fm6_bank);
-    fm6_bank.magic = FM6_BANK_MAGIC;
-    fm6_bank.ver = FM6_BANK_VER;
-    fm6_bank.nslot = FM6_BANK_N;
-    memcpy(fm6_bank.fn, FM6_FNDEF, FM6_NFN);
+    memset(bank, 0, sizeof *bank);
+    bank->magic = FM6_BANK_MAGIC;
+    bank->ver = FM6_BANK_VER;
+    bank->nslot = FM6_BANK_N;
+    memcpy(bank->fn, FM6_FNDEF, FM6_NFN);
 }
 
 /* a bank of earlier firmware (n bytes at b) -> the mirror. 0 = it was one */
-static int fm6_bank_import(const uint8_t *b, int n)
+static int fm6_bank_import(fm6_bank_t *bank, const uint8_t *b, int n)
 {
     uint32_t magic = b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24, k;
     if (magic != FM6_BANK_MAGIC)
         return 1;
     if (n == 4 + (int)(FM6_BANK_N * FM6_BANK_PK)) {      /* Melodee before: 32 packed voices, all of them used */
-        fm6_bank_empty();
-        memcpy(fm6_bank.pk, b + 4, FM6_BANK_N * FM6_BANK_PK);
-        fm6_bank.used = 0xFFFFFFFFu;
+        fm6_bank_empty(bank);
+        memcpy(bank->pk, b + 4, FM6_BANK_N * FM6_BANK_PK);
+        bank->used = 0xFFFFFFFFu;
         return 0;
     }
     if (n == 16 + 27 * 128 && b[4] == 1u && b[6] == 27u) {   /* Felucca 1.0: 27 records, a used mask */
         uint32_t used = b[8] | (uint32_t)b[9] << 8 | (uint32_t)b[10] << 16 | (uint32_t)b[11] << 24;
         uint8_t v[FP_SIZE + 1u], pk[FM6_PACKED];
-        fm6_bank_empty();
+        fm6_bank_empty(bank);
         for (k = 0; k < 27u; k++)
             if ((used >> k) & 1u) {
                 fm6_unpack(b + 16 + k * 128u, v);           /* (every value into its range) */
                 memset(pk, 0, sizeof pk);
                 fm6_pack(v, pk);
-                fm6_pack7(fm6_bank.pk[k], pk, FM6_PACKED);
-                fm6_bank.used |= 1u << k;
+                fm6_pack7(bank->pk[k], pk, FM6_PACKED);
+                bank->used |= 1u << k;
             }
         return 0;
     }

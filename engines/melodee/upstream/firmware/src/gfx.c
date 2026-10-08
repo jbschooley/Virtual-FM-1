@@ -39,7 +39,14 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #endif
 
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
-static uint16_t cv_px[CV_MAX] __attribute__((section(".pool")));
+/* Most regions (cards, header, footer) fit the small second canvas. Draw
+ * there while SPI reads the first; large graphs reuse the full canvas only
+ * after its transfer finishes. No second full-screen-sized allocation. */
+#define CV_ALT_MAX (240u * 32u)
+static uint16_t cv_primary[CV_MAX] __attribute__((section(".pool")));
+static uint16_t cv_alt[CV_ALT_MAX] __attribute__((section(".pool")));
+static uint16_t *cv_px = cv_primary;
+static const uint16_t *cv_flight;
 static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
 static uint8_t cv_scroll;        /* 1: drawing a scrolled view (its text may run past the canvas) */
@@ -133,7 +140,12 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
     uint16_t s = swap16(bg);
     if (w * h > CV_MAX)
         h = CV_MAX / w;
-    lcd_sync();                     /* the last blit may still read cv_px */
+    n = w * h;
+    cv_px = cv_flight != cv_primary ? cv_primary : n <= CV_ALT_MAX ? cv_alt : cv_primary;
+    if (cv_px == cv_flight) {
+        lcd_sync();                 /* never overwrite a buffer still on SPI */
+        cv_flight = 0;
+    }
     GFX_HOOK_BEGIN();
     cv_w = w;
     cv_h = h;
@@ -149,14 +161,17 @@ static void cv_blit(uint32_t x, uint32_t y)
 {
     GFX_HOOK_BLIT(x, y, 0u);
     lcd_blit(x, y, cv_w, cv_h, cv_px);
+    cv_flight = cv_px;
 }
 
 /* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
     GFX_HOOK_BLIT(x, y, r0);
-    if (r0 < cv_h)
+    if (r0 < cv_h) {
         lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
+        cv_flight = cv_px;
+    }
 }
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)

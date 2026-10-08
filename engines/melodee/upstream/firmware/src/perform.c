@@ -142,11 +142,18 @@ static uint32_t perf_pick(uint32_t a)
     return best;
 }
 
+static int16_t *perf_audio;
+
 static void perf_buf_start(uint32_t e)
 {
     if (!sl_lent) {
         sl_lent = 1;
         perf_drop_slicer();
+        for (uint32_t k = 0; k < NTRK; k++) {
+            resource_release(RES_SLICER0 + k); sl_buf[k] = 0;
+        }
+        perf_audio = resource_get(RES_PERFORM, NTRK * SL_LEN * sizeof(int16_t));
+        if (!perf_audio) { sl_lent = 0; pf.src = pf.next = PF_N; pf.mode = BM_NONE; return; }
     }
     pf.src = (uint8_t)e;
     pf.next = PF_N;
@@ -314,7 +321,7 @@ static inline int32_t pf_mix(int32_t x, int32_t y, int32_t w)
 /* the loop: frame f of it, both channels (Q15) */
 static inline void pb_put(uint32_t f, int32_t l, int32_t r)
 {
-    int16_t *p = &sl_buf[0][0] + 2u * (f & (PB_FRAMES - 1u));
+    int16_t *p = perf_audio + 2u * (f & (PB_FRAMES - 1u));
     p[0] = (int16_t)clamp(l, -32768, 32767);
     p[1] = (int16_t)clamp(r, -32768, 32767);
 }
@@ -322,7 +329,7 @@ static inline void pb_put(uint32_t f, int32_t l, int32_t r)
 static inline void pb_at(uint32_t s, uint32_t n, int32_t *l, int32_t *r)
 {
     uint32_t f = s >> 1 < n ? s >> 1 : n - 1u;    /* (an odd loop's last sample: the frame before) */
-    const int16_t *p = &sl_buf[0][0] + 2u * (f & (PB_FRAMES - 1u));
+    const int16_t *p = perf_audio + 2u * (f & (PB_FRAMES - 1u));
     const int16_t *q;                               /* a frame is the mean of samples 2f, 2f + 1: sample s */
     if (s & 1u)                                     /* lies a quarter frame from it, towards f + 1 or f - 1 */
         q = f + 1u < n ? p + 2 : p;
@@ -382,8 +389,8 @@ static inline void hb_tap(uint32_t ph, int32_t *l, int32_t *r)
         *l = *r = 0;
         return;
     }
-    p = &sl_buf[0][0] + 2u * ((pf.wr - di) & HB_MASK);
-    q = &sl_buf[0][0] + 2u * ((pf.wr - di - 1u) & HB_MASK);
+    p = perf_audio + 2u * ((pf.wr - di) & HB_MASK);
+    q = perf_audio + 2u * ((pf.wr - di - 1u) & HB_MASK);
     *l = p[0] + (((q[0] - p[0]) * f) >> 15);
     *r = p[1] + (((q[1] - p[1]) * f) >> 15);
 }
@@ -428,6 +435,7 @@ static __attribute__((noinline)) void perf_buf_done(void)
         pf.mode = BM_NONE;
         if (sl_lent) {
             sl_lent = 0;
+            resource_release(RES_PERFORM); perf_audio = 0;
             perf_drop_slicer();
         }
     }
@@ -464,8 +472,8 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
         if (pf.wr >= 2u) {                          /* read behind the writing, slower and slower */
             uint32_t f = pf.tpos >> 16;
             int32_t fr = (int32_t)((pf.tpos >> 1) & 0x7FFFu), a, b, env;
-            const int16_t *p = &sl_buf[0][0] + 2u * (f & (PB_FRAMES - 1u));
-            const int16_t *s = &sl_buf[0][0] + 2u * ((f + 1u) & (PB_FRAMES - 1u));
+            const int16_t *p = perf_audio + 2u * (f & (PB_FRAMES - 1u));
+            const int16_t *s = perf_audio + 2u * ((f + 1u) & (PB_FRAMES - 1u));
             a = p[0];
             b = s[0];
             yl = (a + (((b - a) * fr) >> 15)) << 1;

@@ -50,16 +50,14 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(a + 2, v);                          /* (every value into its range) */
             fm6_set_patch(a[1], v);
-            fm6_adopt(a[1]);                               /* the track's own patch now: SLOT OWN (F n if it is that
-                                                            * factory patch unchanged); fm6_poll keeps it */
             ui.force = 1;
         } else if (!rc && a[0] == ED_FM6_BANK) {
             rc = ED_FM6_NOBANK;
         } else if (!rc && a[0] == ED_FM6_USER && a[1] < UP_SLOTS && upf_fm6(a[1])) {
             int r = 2;
             if (!ed_flash_stop()) {
-                upf_set(a[1], a + 2);
-                r = native_fm_active()?native_put(ENGI_FM6,a[1],a+2):upf_save_bank(a[1] / UPF_SLOTS);
+                if(native_fm_active())r=native_put(ENGI_FM6,a[1],a+2);
+                else {upf_set(a[1], a + 2);r=upf_save_bank(a[1] / UPF_SLOTS);}
             }
             rc = r == 2 ? 2u : 0u;                         /* (3, no flash: kept in RAM) */
         } else {

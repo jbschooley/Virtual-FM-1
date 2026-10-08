@@ -10,7 +10,7 @@
  * in the web editor (EDITOR_PROTOCOL.md FM6_*) and over USB-MIDI as DX7 SysEx (fm6_store.c), loaded from the
  * PATCH slots and saved inside projects. The FM6 function settings (bend, portamento, the controllers, ENGINE:
  * fm6_core.c fm6_fn) are the track's, as each Dexed instance has its own, saved with the project and the
- * template (project.c), edited on the FM pages and by DX7 function SysEx. On the device the eight EDIT
+ * template (project.c), edited on the FM pages and by DX7 function SysEx. On the device the seven EDIT
  * values are macros on top of the patch, neutral at 0 (then the track renders as Dexed does):
  *   ALG   PAT = the patch's algorithm, 1..32 another one
  *   FB    added to the patch's feedback (0..7)
@@ -19,8 +19,7 @@
  *   MEG   the modulators' envelope times: + slower (rates down to 40 steps), - faster
  *   VMOD  added to the modulators' velocity sensitivity (0..7)
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
- *   SLOT  F1..F24 load factory voices; OWN keeps the track's imported or edited voice.
- *         User presets and projects retain the whole voice. Factory audition preserves OWN.
+ * User presets and projects retain the whole voice; the preset browser loads factory voices.
  * The operator envelopes are the voice's amplitude and end it (engine_t.ownenv / done): the track's ADSR, ENV
  * DEST and the matrix's ENV do nothing here. The track's FLT moves MLVL (ENV / LFO -> FLT, the matrix's CUT), SHP
  * the feedback, PIT the pitch (glide, LFO and ENV pitch, unison detune, the matrix's: vmod_t.plog).
@@ -43,17 +42,12 @@ typedef struct {
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_NFAC (FM6_NFACTORY + FM6_NROM)        /* F1..F24: the factory patches */
 #define FM6_BANK_N 32u           /* patch bank slots (fm6_bank.c): a DX7 cartridge */
-#define FM6_OWN FM6_NFAC
-#define FM6_NSLOT (FM6_OWN + 1u) /* F1..F24, OWN */
 #define FM6_PACKED 128u
 #define FM6_ON_ALL 0x3Fu
 
 static uint8_t fm6_patch[NTRK][FP_SIZE + 1u];   /* the tracks' patches (main loop writes, then fm6_pgen) */
 static volatile uint8_t fm6_pgen[NTRK];          /* +1 after each write of fm6_patch[t] */
 static volatile uint8_t fm6_lgen[NTRK];          /* +1 when the write was a new voice (a load): the notes stop */
-static uint8_t fm6_slot[NTRK];                   /* the PTCH value last loaded (main loop); 0xFF = none */
-static uint8_t fm6_own[NTRK][FM6_PACKED];
-static uint8_t fm6_own_ok;
 static uint8_t fm6_on[NTRK];                     /* the operator switches (bit k: the sixth first), all on at a load */
 static struct {                                  /* the patch through the macros: the audio ISR's copy */
     uint8_t p[FP_SIZE + 1u];
@@ -227,52 +221,15 @@ static void fm6_set_patch(uint32_t tr, const uint8_t *v)
     fm6_put_patch(tr, v, memcmp(o + FP_NAME, v + FP_NAME, 10) || o[FP_TRNSP] != v[FP_TRNSP]);
 }
 
-/* SLOT value s < FM6_NFAC: that factory patch into track tr */
-static void fm6_load_slot(uint32_t tr, uint32_t s)
-{
-    uint8_t v[FP_SIZE + 1u];
-    uint8_t pk[FM6_PACKED];
-    fm6_factory(s % FM6_NFAC, pk);
-    fm6_unpack(pk, v);
-    fm6_put_patch(tr, v, 1);
-    fm6_slot[tr % NTRK] = (uint8_t)(s % FM6_NFAC);
-}
-
-/* track tr's patch was just put in as its own (a project, a user preset, the editor, a conversion): an FM6 track's
- * SLOT shows the factory patch it equals unchanged (F n; the SLOT it had first), else OWN; nothing reloads over it
- * (fm6_poll) */
-static void fm6_adopt(uint32_t tr)
-{
-    track_t *t = &trk[tr % NTRK];
-    int32_t s = t->p[P_E7];
-    tr %= NTRK;
-    fm6_own_ok &= (uint8_t)~(1u << tr);
-    if (t->eng_req == ENGI_FM6) {
-        uint8_t v[FP_SIZE + 1u];
-        uint32_t k, f = s >= 0 && s < (int32_t)FM6_NFAC ? (uint32_t)s : 0u;
-        for (k = 0; k < FM6_NFAC; k++) {
-            uint8_t pk[FM6_PACKED];
-            fm6_factory((f + k) % FM6_NFAC, pk);
-            fm6_unpack(pk, v);
-            if (!memcmp(v, fm6_patch[tr], FP_SIZE))
-                break;
-        }
-        s = k < FM6_NFAC ? (int32_t)((f + k) % FM6_NFAC) : (int32_t)FM6_OWN;
-        t->p[P_E7] = (int16_t)s;
-    }
-    fm6_slot[tr] = (uint8_t)s;
-}
-
-/* a factory sound load put a SLOT value in (a preset, an engine change): its patch (OWN: the patch stays) */
+/* A factory preset loads its corresponding voice directly. */
 static void fm6_track_loaded(const track_t *t)
 {
     uint32_t tr = (uint32_t)(t - trk);
     if (tr < NTRK && t->eng_req == ENGI_FM6) {
-        fm6_own_ok &= (uint8_t)~(1u << tr);
-        if (t->p[P_E7] >= 0 && t->p[P_E7] < (int32_t)FM6_NFAC)
-            fm6_load_slot(tr, (uint32_t)t->p[P_E7]);
-        else
-            fm6_adopt(tr);
+        uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
+        fm6_factory(t->preset % FM6_NFAC, pk);
+        fm6_unpack(pk, v);
+        fm6_put_patch(tr, v, 1);
     }
 }
 
@@ -282,42 +239,10 @@ static void fm6_init(void)
 {
     uint8_t v[FP_SIZE + 1u];
     uint32_t tr;
-    fm6_own_ok = 0;
     fm6_fn_reset();
     fm6_unpack(FM6_INIT, v);
     for (tr = 0; tr < NTRK; tr++) {
         fm6_put_patch(tr, v, 1);
-        fm6_slot[tr] = 0xFFu;
-    }
-}
-
-/* main loop: SLOT turned (a knob, the editor, MIDI, motion) -> that factory patch; from OWN the own patch is kept
- * aside (fm6_own), and turning back to OWN brings it back */
-static void fm6_poll(void)
-{
-    uint32_t tr, bit;
-    for (tr = 0; tr < NTRK; tr++) {
-        int32_t s = trk[tr].p[P_E7];
-        if (trk[tr].eng_req != ENGI_FM6 || s == fm6_slot[tr])
-            continue;
-        bit = 1u << tr;
-        if (s < 0 || s >= (int32_t)FM6_NFAC) {           /* OWN */
-            if (fm6_own_ok & bit) {
-                uint8_t v[FP_SIZE + 1u];
-                fm6_unpack(fm6_own[tr], v);
-                fm6_put_patch(tr, v, 1);
-            }
-            fm6_own_ok &= (uint8_t)~bit;
-            fm6_slot[tr] = FM6_OWN;
-            if (s != FM6_OWN)
-                trk[tr].p[P_E7] = FM6_OWN;
-            continue;
-        }
-        if (fm6_slot[tr] == FM6_OWN && !(fm6_own_ok & bit)) {
-            fm6_pack(fm6_patch[tr], fm6_own[tr]);
-            fm6_own_ok |= (uint8_t)bit;
-        }
-        fm6_load_slot(tr, (uint32_t)s);
     }
 }
 
@@ -1003,6 +928,10 @@ static void fm6_sx_byte(uint8_t b)
     }
     if (!fm6_rx_on || b >= 0xF8u)
         return;                                          /* (realtime may occur anywhere in SysEx) */
+    if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
+        fm6_rx_on = 0;                                  /* a channel/system status cancels the frame */
+        return;
+    }
     if (fm6_rx_n >= FM6_RX || (fm6_rx_n == 1u && b != 0x43)) {
         fm6_rx_on = 0;                                   /* too long, or not Yamaha */
         return;
@@ -1019,40 +948,33 @@ static void fm6_sx_byte(uint8_t b)
 static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
-static const char *const N_FM6_PATCH[] = {
-    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17",
-    "F18", "F19", "F20", "F21", "F22", "F23", "F24",
-    "OWN", 0};
-_Static_assert(NELEM(N_FM6_PATCH) == FM6_NSLOT + 1u, "a PTCH name per slot");
-
-/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, PTCH}: F1..F8 (Felucca's) as they are, DTUN on the pad; F9..F24
- * (Melodee's) as they are */
-#define FM6_PR(name, ptch, mono, fx) {name, {0, 0, 0, 0, 0, 0, 0, ptch}, {0, 0, 127, 0}, 0, mono, fx}
+/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, unused}: neutral macros, DTUN on the pad. */
+#define FM6_PR(name, mono, fx) {name, {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, mono, fx}
 static const preset_t FM6_PRESETS[] = {
     {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 45, 25, 35), PAT(6)},
-    {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70), PAT(7)},
-    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 2}, {0, 0, 127, 0}, 0, 1, FX(0, 0, 10, 10), PAT(2)},
-    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 3}, {0, 0, 127, 0}, 0, 0, FX(0, 25, 20, 40), PAT(4)},
-    {"PAD", {0, 0, 0, 0, 0, 0, 30, 4}, {0, 0, 127, 0}, 0, 0, FX(0, 60, 30, 70), PAT(5)},
-    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 5}, {0, 0, 127, 0}, 0, 0, FX(0, 0, 25, 40), PAT(3)},
-    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 6}, {0, 0, 127, 0}, 0, 0, FX(10, 40, 0, 30), PAT(6)},
-    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 7}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 35, 30), PAT(13)},
-    FM6_PR("DX TINE", 8, 0, FX(0, 50, 25, 35)),
-    FM6_PR("BRASS SECT", 9, 0, FX(0, 20, 20, 40)),
-    FM6_PR("SOLID BASS", 10, 1, FX(0, 0, 10, 10)),
-    FM6_PR("BELLS", 11, 0, FX(0, 0, 30, 70)),
-    FM6_PR("DX MARIMBA", 12, 0, FX(0, 0, 25, 40)),
-    FM6_PR("CLAVINET", 13, 0, FX(10, 20, 30, 20)),
-    FM6_PR("DRAWBARS", 14, 0, FX(10, 40, 0, 30)),
-    FM6_PR("STRINGS", 15, 0, FX(0, 60, 30, 70)),
-    FM6_PR("GLASS PAD", 16, 0, FX(0, 60, 40, 80)),
-    FM6_PR("SYNC LEAD", 17, 1, FX(10, 20, 40, 30)),
-    FM6_PR("HARP", 18, 0, FX(0, 30, 30, 60)),
-    FM6_PR("KALIMBA", 19, 0, FX(0, 0, 35, 45)),
-    FM6_PR("FLUTE", 20, 1, FX(0, 20, 30, 50)),
-    FM6_PR("STEEL DRUM", 21, 0, FX(0, 0, 30, 40)),
-    FM6_PR("SAW BASS", 22, 1, FX(20, 0, 10, 10)),
-    FM6_PR("TUBULAR", 23, 0, FX(0, 0, 30, 80)),
+    {"BELL", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70), PAT(7)},
+    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 1, FX(0, 0, 10, 10), PAT(2)},
+    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 25, 20, 40), PAT(4)},
+    {"PAD", {0, 0, 0, 0, 0, 0, 30, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 60, 30, 70), PAT(5)},
+    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 0, 25, 40), PAT(3)},
+    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(10, 40, 0, 30), PAT(6)},
+    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 35, 30), PAT(13)},
+    FM6_PR("DX TINE", 0, FX(0, 50, 25, 35)),
+    FM6_PR("BRASS SECT", 0, FX(0, 20, 20, 40)),
+    FM6_PR("SOLID BASS", 1, FX(0, 0, 10, 10)),
+    FM6_PR("BELLS", 0, FX(0, 0, 30, 70)),
+    FM6_PR("DX MARIMBA", 0, FX(0, 0, 25, 40)),
+    FM6_PR("CLAVINET", 0, FX(10, 20, 30, 20)),
+    FM6_PR("DRAWBARS", 0, FX(10, 40, 0, 30)),
+    FM6_PR("STRINGS", 0, FX(0, 60, 30, 70)),
+    FM6_PR("GLASS PAD", 0, FX(0, 60, 40, 80)),
+    FM6_PR("SYNC LEAD", 1, FX(10, 20, 40, 30)),
+    FM6_PR("HARP", 0, FX(0, 30, 30, 60)),
+    FM6_PR("KALIMBA", 0, FX(0, 0, 35, 45)),
+    FM6_PR("FLUTE", 1, FX(0, 20, 30, 50)),
+    FM6_PR("STEEL DRUM", 0, FX(0, 0, 30, 40)),
+    FM6_PR("SAW BASS", 1, FX(20, 0, 10, 10)),
+    FM6_PR("TUBULAR", 0, FX(0, 0, 30, 80)),
 };
 #undef FM6_PR
 _Static_assert(FM6_NROM == 16u, "FM6: the presets name F9..F24");
@@ -1068,13 +990,13 @@ static const engine_t ENG_FM6 = {
         {"MEG", F_BIPCT, -64, 63, 0, 0, 0},
         {"VMOD", F_INT, -7, 7, 0, 0, 0},
         {"DTUN", F_PCT, 0, 127, 0, 0, 0},
-        {"SLOT", F_INT, 0, FM6_OWN, 0, N_FM6_PATCH, 0},
+        {"-", F_INT, 0, 0, 0, 0, 0},
     },
     .presets = FM6_PRESETS,
     .npresets = NELEM(FM6_PRESETS),
     .note_on = fm6_note_on,
     .render = fm6_render,
-    .knob = {P_E2, P_E3, P_E4, P_E7},
+    .knob = {P_E2, P_E3, P_E4, P_E6},
     .poly = NVOICE,                                      /* Dexed's 16: a voice takes one budget unit */
     .block = fm6_block,
     .ownenv = 1,

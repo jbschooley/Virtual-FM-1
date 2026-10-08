@@ -104,6 +104,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     cz_factory_loaded(t);
+    if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_patch_init(&p5_patch[k]);p5_ready[k]=1;p5_track_accept(t);}
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
@@ -117,7 +118,6 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         t->preset = (uint8_t)fm4_convert(t->p, v);
         t->eng_req = ENGI_FM6;
         fm6_set_patch(tr, v);
-        fm6_slot[tr] = (uint8_t)t->p[P_E7];
         return;
     }
 #endif

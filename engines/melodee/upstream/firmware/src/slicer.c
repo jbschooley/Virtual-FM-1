@@ -45,7 +45,7 @@ static const uint16_t SL_PAT[SL_NPAT] = {
 };
 static const uint8_t SL_DEN[6] = {2, 4, 8, 3, 6, 12};   /* P_SLRATE (N_SLDIV): a step = 1 / DEN beats */
 
-static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
+static int16_t *sl_buf[NTRK];
 typedef struct {
     uint32_t pos, len;           /* samples into the step, its length */
     uint32_t base;               /* the step without swing */
@@ -149,6 +149,9 @@ static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk), i = 0;
     sl_t *s = &sl[k];
+    if (!sl_lent && t->p[P_SLCR] == SL_STUT && !sl_buf[k])
+        sl_buf[k] = resource_get(RES_SLICER0 + k, SL_LEN * sizeof(int16_t));
+    if (!sl_buf[k]) s->rec = s->loop = s->rec_on = 0;
     int act = b && (t->p[P_SLCR] != SL_OFF || s->gc || s->w);
     while (i < n) {
         uint32_t m;
@@ -157,10 +160,15 @@ static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
         m = s->len - s->pos;
         if (m > n - i)
             m = n - i;
+        if (!sl_buf[k]) s->rec = s->loop = s->rec_on = 0;
         if (act)
             sl_seg(t, s, sl_buf[k], b + i, m);
         s->pos += m;
         i += m;
+    }
+    if (t->p[P_SLCR] != SL_STUT && !s->w && sl_buf[k]) {
+        resource_release(RES_SLICER0 + k); sl_buf[k] = 0;
+        s->rec = s->loop = s->rec_on = 0;
     }
 }
 

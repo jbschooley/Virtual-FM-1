@@ -352,52 +352,46 @@ static void grid_keys(uint32_t pressed)
     }
 }
 
+static int live_rec_sel(void);
+static void notes_event_edit(uint32_t slot, int32_t delta);
 static void step_edit(uint32_t slot, int32_t steps)
 {
-    if (cur_page()->graph == GR_NOTES) {
-        if (slot == 0u) cursor_set(ui.cursor + steps);
-        else if (slot == 1u) notes_cycle(steps);
-        else if (slot == 3u) ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + steps, 0, 4);
-        ui.force = 1;
+    if (slot == 0u) {
+        if (!ui.entry_open) cursor_set(ui.cursor + steps);
         return;
     }
-    step_t *st = &TSEL->step[ui.cursor];
-    uint32_t i;
-    if (drum_track(TSEL)) {
-        grid_edit(slot, steps);
+    if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
+    if (notes_selected(TSEL) < RECORD_MAX) {
+        uint32_t fine = slot == 2u ? ui.step_mods & (1u << panel.btn[B_ENV]) : 0u;
+        ui.step_used |= (uint16_t)fine;
+        notes_event_edit(fine ? 4u : slot, steps);
         return;
     }
-    switch (slot) {
-    case 0:                                               /* STEP cursor; SELECT shapes a held note */
-        if (!ui.entry_open)
-            cursor_set(ui.cursor + steps);
-        break;
-    case 1:                                               /* NOTE: transpose the step */
-        st->flags &= (uint8_t)~SF_RECORDED;
+    if (grid_on()) { grid_edit(slot, steps); return; }
+    fm1_irq_off();
+    uint32_t at = notes_manual_start(TSEL);
+    if (at >= NSTEP && (slot != 1u || (TSEL->step[ui.cursor].flags & SF_RECORDED))) { fm1_irq_on(); ui_message("SELECT A NOTE"); return; }
+    step_t *st = &TSEL->step[at < NSTEP ? at : ui.cursor];
+    if (slot == 1u) {
         if (!st->n) {
-            st->note[0] = last_note;
-            st->n = 1;
-            st->time = ST_NOTE;
-            break;
+            if (st->flags & SF_RECORDED) { fm1_irq_on(); ui_message("SELECT A NOTE"); return; }
+            st->note[0] = last_note; st->n = 1; st->time = ST_NOTE;
+        } else {
+            uint32_t j = notes_manual_slot(st);
+            st->note[j] = (uint8_t)clamp((int32_t)st->note[j] + steps, 1, 127);
         }
-        for (i = 0; i < st->n; i++)
-            st->note[i] = (uint8_t)clamp(st->note[i] + steps, 1, 127);
-        st->time = ST_NOTE;
-        last_note = st->note[0];
-        break;
-    case 2:                                               /* TIME: NOTE / TIE / REST (length: PRESETS) */
-        st->flags &= (uint8_t)~SF_RECORDED;
-        st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
-        if (!st->hit && st->time == ST_REST) st->acc = 0;
-        break;
-    default: {                                            /* FLAG: - / ACC / SLD / A+S */
-        st->flags &= (uint8_t)~SF_RECORDED;
-        uint32_t f = (st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u);
-        f = (uint32_t)clamp((int32_t)f + (steps > 0 ? 1 : -1), 0, 3);
-        st->flags = (uint8_t)((st->flags & ~(SF_ACCENT | SF_SLIDE)) | (f & 1u ? SF_ACCENT : 0u) | (f & 2u ? SF_SLIDE : 0u));
-        break;
+        last_note = st->note[notes_manual_slot(st)];
+    } else if (slot == 2u) {
+        ui.step_used |= (uint16_t)(ui.step_mods & (1u << panel.btn[B_ENV]));
+        step_note_resize(TSEL, at, (int32_t)step_note_length(TSEL, at) + steps);
+    } else if (ui.step_mods & (1u << panel.btn[B_ENV])) {
+        ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);
+        if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE;
+    } else {
+        st->vel = (uint8_t)clamp((int32_t)(st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96) + steps, 1, 127);
+        st->flags &= (uint8_t)~SF_ACCENT;
     }
-    }
+    fm1_irq_on();
 }
 
 static void edit_param(uint32_t slot, int32_t steps)
@@ -510,6 +504,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
+    if(pg->scope==SC_P5){fm1_irq_off();p5_edit_value(TSEL,pg->id[slot],v-(pg->id[slot]==P5_BEND?1:0));fm1_irq_on();return;}
+    if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
     if (pg->scope == SC_CZ1) {                           /* (a copy of the tone's value: written back there) */
         uint8_t raw[CZ_BYTES];
         uint32_t tr = song.sel % NTRK;
@@ -579,6 +575,13 @@ static void act_do(void)
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
+    if(cur_page()->scope==SC_P5STORE){
+        uint32_t slot=(uint32_t)p5_store_slot-1u;
+        if(c==1u){if(transport_busy())ui_message("STOP TO SAVE");else if(native_used(ENGI_PROPHET,slot))confirm_open(CF_OVR_USER,slot);else name_open(NK_USER_SAVE,slot);}
+        else if(c==2u)p5_send(song.sel);
+        else {load_begin(TSEL,UNDO_SOUND);panic_req|=1u<<song.sel;fm1_irq_off();p5_patch_init(p5_patch_of(TSEL));p5_track_accept(TSEL);fm1_irq_on();load_end(TSEL);ui_message("PROPHET INIT");}
+        ui.act=0;return;
+    }
     if (cur_page()->graph == GR_CZTOOLS) {               /* CZ-1: NAME, copy a line over the other, COMPARE */
         uint32_t tr = song.sel % NTRK;
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
@@ -720,14 +723,14 @@ static int step_page(void) { return !ui.home && cur_page()->scope == SC_STEP; } 
  * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
 static int step_modifier_context(void)
 {
-    return step_page() && (!drum_track(TSEL) || cur_page()->graph == GR_NOTES) &&
+    return step_page() && (!drum_track(TSEL) || !grid_on() || (cur_page()->graph == GR_ROLL && live_rec_sel())) &&
            !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
 /* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
 static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
 static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
 {
-    if (cur_page()->graph == GR_NOTES) return 1u << panel.btn[B_EDIT];
+    if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
            (cur_page()->graph == GR_ROLL ? 1u << panel.btn[B_EDIT] : 0u);
 }
@@ -741,9 +744,10 @@ static void step_edit_combo(void)
 
 static void step_length_edit(int32_t delta)
 {
+    if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_event_edit(4, delta); return; }
     uint32_t at, n = 0;
     fm1_irq_off();
-    at = step_note_start(TSEL, ui.cursor);
+    at = cur_page()->graph == GR_ROLL ? notes_manual_start(TSEL) : step_note_start(TSEL, ui.cursor);
     if (at < NSTEP)
         n = step_note_resize(TSEL, at, (int32_t)step_note_length(TSEL, at) + delta);
     fm1_irq_on();
@@ -759,9 +763,10 @@ static void step_length_edit(int32_t delta)
 
 static void step_move_edit(int32_t delta)
 {
+    if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_event_edit(0, delta); return; }
     uint32_t at, to;
     fm1_irq_off();
-    at = step_note_start(TSEL, ui.cursor);
+    at = cur_page()->graph == GR_ROLL ? notes_manual_start(TSEL) : step_note_start(TSEL, ui.cursor);
     to = step_note_move(TSEL, at, delta);
     fm1_irq_on();
     if (to < NSTEP) {
@@ -773,6 +778,52 @@ static void step_move_edit(int32_t delta)
         ui_message("SELECT A NOTE");
     }
     ui.force = 1;
+}
+
+/* Edit one event atomically; neighbours and original fractional timing survive. */
+static void notes_event_edit(uint32_t slot, int32_t delta)
+{
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
+    step_history_end(); step_history_finish();
+    fm1_irq_off();
+    step_history_sync_locked();
+    uint32_t i = notes_selected(TSEL);
+    if (i >= RECORD_MAX) { fm1_irq_on(); return; }
+    recorded_note_t before = recording_snapshot(i), after = before;
+    uint32_t oldview = recording_view(TSEL, &before);
+    if (slot == 0u) {
+        uint32_t len = step_pattern_len(TSEL);
+        int32_t actual = ((int32_t)(before.step & 63u) + delta) % (int32_t)len;
+        if (actual < 0) actual += len;
+        uint32_t view = (actual + ((before.step & 64u) != 0u)) % len;
+        if ((step_on(&TSEL->step[view]) || TSEL->step[view].time == ST_TIE) && !(TSEL->step[view].flags & SF_RECORDED)) {
+            fm1_irq_on(); ui_message("STEP OCCUPIED"); return;
+        }
+        after.step = (uint8_t)(actual | (before.step & 64u) | (!view && actual ? 128u : 0u));
+    } else if (slot == 1u) after.note = (uint8_t)clamp((int32_t)before.note + delta, 1, 127);
+    else if (slot == 2u || slot == 4u) {
+        int32_t duration = (int32_t)before.duration * (1u << (before.owner >> 5));
+        duration = clamp(duration + clamp(delta, -128, 128) * (int32_t)(slot == 4u ? RECORD_UNIT / 16u : RECORD_UNIT), 1, 128 * RECORD_UNIT);
+        uint32_t exp = 0;
+        while (duration > 65535 && exp < 7u) { duration >>= 1; exp++; }
+        after.duration = (uint16_t)duration; after.owner = (before.owner & 31u) | (exp << 5);
+    } else after.vel = (uint8_t)clamp((int32_t)before.vel + delta, 1, 127);
+    if (!memcmp(&before, &after, sizeof before)) { fm1_irq_on(); return; }
+    step_history.state[step_history_index()].selection = ui.note_pick;
+    step_history.state[step_history_index()].cursor = ui.cursor;
+    step_history.removed = before; step_history.replacement = after;
+    step_history.removed_index = (uint16_t)i; step_history.has_removed = 1;
+    recording_remove(TSEL, i); recording_restore_note(TSEL, i, after);
+    uint32_t view = recording_view(TSEL, &after);
+    TSEL->step[view].time = ST_NOTE; TSEL->step[view].flags |= SF_RECORDED;
+    notes_rebuild(TSEL, oldview);
+    if (view != oldview) notes_rebuild(TSEL, view);
+    step_history.recording_gen = recording_generation;
+    if (slot == 0u) cursor_set(after.step & 63u);
+    ui.note_pick = (uint16_t)(i + 1u); ui.note_identity = after;
+    ui.note_generation = recording_generation;
+    fm1_irq_on(); ui.force = 1;
 }
 
 static void notes_delete_edit(void)
@@ -796,6 +847,7 @@ static void notes_delete_edit(void)
     step_history.removed = recording_snapshot(i);
     step_history.removed_index = (uint16_t)i;
     step_history.has_removed = 1;
+    memset(&step_history.replacement, 0, sizeof step_history.replacement);
     uint32_t view = recording_view(TSEL, &recording[i]);
     notes_cycle(1);
     recording_remove(TSEL, i);
@@ -811,7 +863,18 @@ static void notes_delete_edit(void)
 
 static void step_delete_edit(void)
 {
-    if (cur_page()->graph == GR_NOTES) { notes_delete_edit(); return; }
+    if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
+    if (cur_page()->graph == GR_ROLL) {
+        uint32_t start = notes_manual_start(TSEL);
+        if (start < NSTEP && TSEL->step[start].n > 1u) {
+            fm1_irq_off();
+            step_t *st = &TSEL->step[start];
+            uint32_t j = notes_manual_slot(st);
+            for (; j + 1u < st->n; j++) st->note[j] = st->note[j + 1u];
+            st->n--; ui.note_slot = 0; fm1_irq_on(); ui_message("NOTE DELETED"); return;
+        }
+        if (TSEL->step[ui.cursor].flags & SF_RECORDED) { ui_message("SELECT A NOTE"); return; }
+    }
     uint32_t at;
     step_history_end();                              /* deletion is separate from a held entry */
     step_history_finish();
@@ -970,6 +1033,7 @@ static uint32_t ly_bit(uint32_t l);
 static void page_tap(uint32_t b)
 {
     uint32_t f;
+    if (b == B_EDIT && ui.erase_gesture) return;
     if (b == B_GLO) {
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
         return;
@@ -977,6 +1041,7 @@ static void page_tap(uint32_t b)
     if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* the DRUM grid: EDIT clears
                                                          * the step (synth STEP: a step modifier, ui_input) */
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+        if (live_rec_sel() && notes_have_recording(TSEL)) { ui_message("STOP RECORDING"); return; }
         fm1_irq_off();
         if (drum_track(TSEL))
             step_clear(&TSEL->step[ui.cursor]);
@@ -1039,6 +1104,36 @@ static int step_gesture(int32_t s)
     return 1;
 }
 
+/* Capture one erase gesture and publish its scope to the audio sequencer. */
+static void seq_erase_update(uint32_t pressed)
+{
+    uint32_t ed = 1u << panel.btn[B_EDIT], rec = 1u << panel.btn[B_REC];
+    int context = !ui.home && cur_page()->graph == GR_ROLL && !ui.menu && !ui.confirm &&
+                  !name_on() && !ui.ly && live_rec_sel() && !chain_busy();
+    if ((pressed & ed) && context) {
+        ui.erase_gesture = 1;
+        ui.erase_owner = (uint8_t)(recording_owner(TSEL) + 1u);
+        ui.erase_generation = TSEL->pattern_gen;
+        ui.erase_transport = seq_erase_transport;
+        fm1_irq_off();
+        seq_erase_seen[song.sel] = 0;
+        fm1_irq_on();
+    }
+    if (ui.erase_gesture) {
+        ui.step_used |= (uint16_t)ed; /* release is never an additional delete tap */
+        if (!context || ui.erase_owner != recording_owner(TSEL) + 1u || ui.erase_generation != TSEL->pattern_gen || ui.erase_transport != seq_erase_transport)
+            ui.erase_owner = 0;
+    }
+    uint32_t request = ui.erase_owner && context && (fm1_in.buttons & ed) ?
+        0x80000000u | ((ed | rec) << 16) | (ui.erase_owner - 1u) : 0u;
+    fm1_irq_off();
+    seq_erase_button = (uint16_t)ed;
+    seq_erase_generation = ui.erase_generation;
+    seq_erase_request = request;
+    fm1_irq_on();
+    if (!(fm1_in.buttons & ed)) { ui.erase_gesture = ui.erase_owner = 0; }
+}
+
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
@@ -1050,6 +1145,7 @@ static void ui_input(void)
     uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_oct_context());
     uint32_t lay, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
+    seq_erase_update(pressed);
     if (step_modifier_context()) {
         ui.step_mods |= (uint16_t)(pressed & step_modifier_mask());
         uint32_t ed = 1u << panel.btn[B_EDIT];
@@ -1057,7 +1153,6 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
-    fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
@@ -1223,7 +1318,7 @@ static void ui_input(void)
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
-    if (step_page() && cur_page()->graph != GR_NOTES && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
+    if (step_page() && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
                                                          * (not while ENV / SCL / FX are held: a note edit) */
         uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
@@ -1315,12 +1410,13 @@ static void ui_input(void)
     if (pattern_keys_on() || ui.pat_key) {
         seq_midi_events(0);
     } else if (song.grid) {
-        grid_keys(notes);
+        if (!seq_erase_active(TSEL)) grid_keys(notes);
+        else seq_midi_events(0);
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP (not CHANCE: its knobs only) */
         if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
             seq_midi_events(0);
-        } else if (!chain_busy()) {
+        } else if (!chain_busy() && notes_selected(TSEL) >= RECORD_MAX && !(TSEL->step[ui.cursor].flags & SF_RECORDED)) {
             seq_entry(notes);
         } else {
             seq_midi_events(0);
@@ -1340,6 +1436,9 @@ static void ui_input(void)
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
         preset_step(s);                                  /* past the factory ones: user presets */
+    } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
+        ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
+        ui.force = 1;
     } else if (s && !ui.home && cur_page()->scope == SC_FMOP) {   /* FM6's operator pages: the operator */
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;
@@ -1356,6 +1455,8 @@ static void ui_input(void)
             if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
             ui.force = 1;
         } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
+        } else if (!ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
+            notes_jog(s);
         } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the STEP cursor:
                                                          * KNOB 1) */
             page_scroll(s);
@@ -1422,6 +1523,7 @@ static void ui_input(void)
         }
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
+    seq_erase_update(0);
     if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }
     step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();

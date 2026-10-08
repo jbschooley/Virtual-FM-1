@@ -291,6 +291,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
         v->env = 0;
         v->env_out = 0;
     }                                                   /* sounding: the attack starts from the current level */
+    if (!eng_state_prepare(t)) { v->active = v->gate = 0; return; }
     e->note_on(t, v);
     if (sounding && !e->sampled) {                     /* retrigger / steal: keep phases and filter */
         v->ph[0] = ph0;                                 /* states (resetting them clicks) */
@@ -549,15 +550,28 @@ static int32_t env_tick(track_t *t, voice_t *v)
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
-static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+static __attribute__((noinline)) void p5_update_bend(track_t *t)
+{
+    uint32_t ti=(uint32_t)(t-trk);int32_t range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
+    midi_bend_target[ti]=t->bend_raw*range/(t->bend_raw<0?8192:8191);
+}
+static struct { int16_t cents; uint8_t valid; int32_t pitch, fine; } tune_cache;
+static __attribute__((noinline)) void tune_cache_update(void)
+{
+    tune_cache.cents=song.g[G_TUNE];tune_cache.valid=1;
+    /* TUNE in cents: whole 1/16 semitones plus the exact residual. */
+    tune_cache.pitch=song.g[G_TUNE]>=0?song.g[G_TUNE]*16/100:-((-song.g[G_TUNE]*16+99)/100);
+    tune_cache.fine=(song.g[G_TUNE]*16-tune_cache.pitch*100)*2367/16000;
+}
+/* Keep the per-voice renderer separate from the bus/ISR loops. This bounds
+ * the ISR's code footprint and permits an independent target cost check. */
+static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
 {
     const engine_t *e = ENGINES[t->engine];
     const int16_t *p = t->p;
     uint32_t i;
     int32_t lfo = mulq15(t->lfo_val, t->lfo_fade);
-    /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
-    int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
-    int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
+    int32_t tune, tune_fine;
     int32_t bend, bend16, bend_fine;
     uint32_t ti = (uint32_t)(t - trk);
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
@@ -567,13 +581,12 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         /* ~6 ms smoothing, with an exact landing (no permanent small offset). */
         midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
     }
-    bend = midi_bend_q8[ti];
-    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
-    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     uint32_t nr = 0, fade = t->xf_on && t->xf;
+    uint32_t live=0;
+    for (i=0;i<NVOICE;i++) if(t->v[i].active){live=1;break;}
     int16_t pe_new[8];
-    for (i = 0; i < n; i++)
-        out[i] = 0;
+    if(live || clear_idle)for (i = 0; i < n; i++)out[i] = 0;
+    if ((live || e->block || e->post) && !eng_state_prepare(t)) return 0;
     if (fade)                                           /* engine switch: the old engine, its own values */
         for (i = 0; i < 8u; i++) {
             pe_new[i] = t->p[P_E0 + i];
@@ -582,6 +595,17 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     track_lfo_tick(t);
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
+    if(!live){
+        /* FM6's block keeps ghost envelopes running; its post resets the DC
+         * filter. LFO, bend and switch fades also continue on silent tracks. */
+        if(e->post)e->post(t,out,n,0);
+        goto track_render_done;
+    }
+    if(!tune_cache.valid || tune_cache.cents!=song.g[G_TUNE])tune_cache_update();
+    tune=tune_cache.pitch;tune_fine=tune_cache.fine;
+    bend = midi_bend_q8[ti];
+    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
+    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     for (i = 0; i < NVOICE; i++) {
         voice_t *v = &t->v[i];
         vmod_t m;
@@ -633,6 +657,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (e == &ENG_PHASE || e == &ENG_CZ)                            /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
+        if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
         if (mod.on)                                     /* the modulation matrix (mod.c) */
             mod_voice(t, v, &m, m.fine);
         /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */
@@ -642,10 +667,17 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     }
     if (e->post)
         e->post(t, out, n, nr);
+track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
             t->p[P_E0 + i] = pe_new[i];
         t->xf--;
     }
     return nr;
+}
+/* Direct callers receive a cleared buffer even for silence. The mixer can
+ * omit that write when neither a DIST tail nor a stutter needs the zeros. */
+static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+{
+    return track_render_audio(t,out,n,1);
 }

@@ -217,6 +217,11 @@ static void arp_remove(track_t *t, uint32_t note)
 
 static void rec_note(track_t *t, uint32_t note, uint32_t vel);
 static void rec_release(track_t *t, uint32_t note);
+static volatile uint32_t seq_erase_request, seq_erase_generation;
+static uint32_t seq_erase_transport;
+static uint8_t seq_erase_seen[NTRK];
+static volatile uint16_t seq_erase_button;
+static int seq_erase_active(const track_t *t);
 static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) && song.playing && !chain.running; }
 
 #include "motion.c"
@@ -331,6 +336,7 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 static void rec_finish(track_t *t);
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
+    if (seq_erase_active(t)) return;
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, k;
     uint32_t next = t->seq_pos == 0x7FFFFFFFu;      /* Start and the note in one block: step 0 fires after it */
     uint32_t idx = next ? 0u : t->seq_idx % len;
@@ -637,6 +643,9 @@ static void keyboard_block(void)
 static void seq_start(void)
 {
     uint32_t i;
+    seq_erase_request = 0;
+    seq_erase_transport++;
+    memset(seq_erase_seen, 0, sizeof seq_erase_seen);
     motion_begin();
     chain_start();
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
@@ -665,9 +674,13 @@ static void seq_release(track_t *t)
     t->slide_glide = 0;                             /* live MONO / LEG keys must not glide after it */
 }
 
+#include "seq_erase.c"
+
 static void seq_stop(void)
 {
     uint32_t i;
+    seq_erase_request = 0;
+    seq_erase_transport++;
     song.playing = 0;
     if (song.g[G_CLOCK])                           /* external clock: the arp stops with the transport, */
         for (i = 0; i < NPART; i++)                /* its sounding note too (HOLD keeps the latched chord) */
@@ -780,7 +793,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             len = (uint32_t)t->p[P_SLEN];
         }
         motion_step(t, t->seq_idx, &motion);
-        rec_hold(t, t->seq_idx, len ? len : 1u);
+        seq_erase_pass(t, t->seq_idx, 1);
+        if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);
         {
             const step_t *s = &seq_steps(t)[t->seq_idx];
             uint32_t skip = 0, i, k;
@@ -804,6 +818,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
  * loop zero once. MIDI batches may cross several boundaries in one call. */
 static void seq_tick(track_t *t, uint32_t n)
 {
+    seq_erase_pass(t, t->seq_idx, 0);
     if (!(recording_tracks & (1u << trk_index(t)))) { seq_grid_tick(t, n); return; }
     if (!song.playing) { seq_grid_tick(t, n); return; }
     if (t->seq_pos >= 0x7FFFFFFFu) {

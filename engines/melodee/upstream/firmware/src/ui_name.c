@@ -39,14 +39,14 @@ static struct {
     uint8_t rep;                                       /* the key (+ 1) of a held arrow / DELETE, 0 none */
     uint32_t t, rep_t;                                 /* fm1_ms of the last tap; of the next repeat */
     uint32_t sig;                                      /* drawn-state cache */
-    char s[CZ_NAME_LEN + 1u];
-    char ph[CZ_NAME_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
+    char s[P5_NAME_LEN + 1u];
+    char ph[P5_NAME_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
 } nm __attribute__((section(".pool")));                /* (zero-initialised; main loop only: off the audio code's .bss) */
 
 static uint32_t name_limit(void)
 {
     if(nm.kind==NK_CZ_NAME)return CZ_NAME_LEN;
-    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(TSEL->eng_req))return TSEL->eng_req==ENGI_FM6?10u:CZ_NAME_LEN;
+    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(TSEL->eng_req))return TSEL->eng_req==ENGI_PROPHET?P5_NAME_LEN:TSEL->eng_req==ENGI_FM6?10u:CZ_NAME_LEN;
     return NM_LEN;
 }
 static int name_on(void) { return nm.kind != NK_NONE; }
@@ -81,7 +81,7 @@ static uint32_t nm_black(uint32_t k)                   /* black key k's function
 
 static void name_open(uint32_t kind, uint32_t slot)
 {
-    char b[CZ_NAME_LEN+1u];
+    char b[P5_NAME_LEN+1u];
     nm.kind = (uint8_t)kind;
     nm.slot = (uint8_t)slot;
     nm.num = nm.key = nm.rep = 0;
@@ -96,7 +96,7 @@ static void name_open(uint32_t kind, uint32_t slot)
         up_auto_name(nm.ph, e, slot);
         uint32_t origin=kind==NK_USER_RENAME?slot:user_of(TSEL);
         if(origin<USER_NONE && (kind==NK_USER_RENAME || TSEL->user_native) && native_limit(e)){
-            uint32_t len=e==ENGI_FM6?10u:16u,off=e==ENGI_FM6?118u:128u;
+            uint32_t len=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u,off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u;
             memcpy(b,native_raw(e,origin)+off,len);b[len]=0;
             for(uint32_t i=0;i<len;i++)if(b[i]<' ' || b[i]>'~')b[i]=' ';
             for(uint32_t i=len;i && b[i-1]==' ';i--)b[i-1]=0;
@@ -104,7 +104,7 @@ static void name_open(uint32_t kind, uint32_t slot)
         else if (origin < UP_SLOTS)
             up_name(origin, b);
         else if(native_limit(e)){
-            if(e==ENGI_FM6)fm6_name(b,fm6_patch[song.sel]);else {memcpy(b,cz_patch[song.sel].raw+128,16);b[16]=0;}
+            if(e==ENGI_PROPHET)p5_patch_name(b,p5_patch_of(TSEL));else if(e==ENGI_FM6)fm6_name(b,fm6_patch[song.sel]);else {memcpy(b,cz_patch[song.sel].raw+128,16);b[16]=0;}
         }
         else
             str_cpy(b, nm.ph, sizeof b);
@@ -227,7 +227,7 @@ static void nm_knob(uint32_t k, int32_t s)             /* KNOB 1 the cursor, KNO
 /* OCT+: the name (spaces at its ends dropped) is written; the screen stays while that is refused (playing) */
 static void name_ok(void)
 {
-    char b[CZ_NAME_LEN + 1u];
+    char b[P5_NAME_LEN + 1u];
     uint32_t a = 0, z;
     nm_commit();
     for (z = nm.len; z && nm.s[z - 1u] == ' '; z--)
@@ -334,9 +334,9 @@ static void nm_draw_field(void)
     nm_title(b);
     cv_text_on(9, 2, &AF_S, b, T_MID, T_SURF);
     fmt_int(b, nm.len);
-    str_cpy(b + str_len(b), nm.kind==NK_CZ_NAME?"/16":"/12", 4);
+    str_cpy(b + str_len(b), "/", 2);fmt_int(b+str_len(b),name_limit());
     cv_text_r(231, 2, &AF_S, b, nm.len >= name_limit() ? T_ACCENT : T_DIM, T_SURF);
-    uint32_t first=nm.kind==NK_CZ_NAME && nm.cur>=NM_LEN ? nm.cur-NM_LEN+1u:0u;
+    uint32_t first=name_limit()>NM_LEN && nm.cur>=NM_LEN ? nm.cur-NM_LEN+1u:0u;
     for (i = 0; i < NM_LEN; i++) {
         uint32_t at=first+i;
         int32_t x = NM_CX(i);

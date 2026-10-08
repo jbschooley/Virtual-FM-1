@@ -27,12 +27,22 @@
 #define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-#define NENGINES 16               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
-#define USER_NATIVE_FM (NENGINES + 1u)
-#define USER_NATIVE_CZ (NENGINES + 2u)
+#ifndef P5_OVERSAMPLE
+#define P5_OVERSAMPLE 1 /* prototype: benchmark base rate before enabling optional 2x */
+#endif
+#ifndef MELODEE_LEGACY_EXTRAS
+#define MELODEE_LEGACY_EXTRAS 0 /* reference tests only: retired TRIO, WHEEL and PHYS */
+#endif
+#define MELODEE_PROPHET 1
+#define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
+#define USER_GENERAL 16u
+#define USER_NATIVE_P5 20u
+#define NENGINES 20               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
+#define USER_NATIVE_FM 17u
+#define USER_NATIVE_CZ 18u
 #define USER_NONE 256u
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - 3u - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 7u - !MELODEE_FM4 - !MELODEE_SLICE - 3u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

@@ -970,7 +970,7 @@ static void slug(char *d, const char *s, size_t n)
 }
 
 /* ------------------------------------------------------------- main --- */
-#define MAXJ 512
+#define MAXJ 1024
 static job_t J[MAXJ];
 static uint32_t nj;
 static job_t *add(uint32_t kind, const char *name)
@@ -996,7 +996,7 @@ int main(int argc, char **argv)
     static kv_t gold[MAXJ], cpu[MAXJ];
     uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, ncpu = 0;
     uint32_t g_changed = 0, g_new = 0, g_gone = 0, h_fail = 0, c_fail = 0, c_warn = 0, k_fail = 0, crash = 0;
-    double heavy[NENGINES] = {0}, heavy_ns[NENGINES] = {0}, idle_now, idle_base;
+    double heavy[NENGINES] = {0}, heavy_ns[NENGINES] = {0}, idle_base;
     uint32_t heavy_p[NENGINES] = {0};
     uint64_t t_start = now_ns();
     char name[64], s[64];
@@ -1190,16 +1190,18 @@ int main(int argc, char **argv)
     }
 
     /* ---- CPU ---- */
-    /* a preset's own cost: its count less the idle mix's (the mix alone is half of a light preset's),
-     * so +25 % means 25 % more engine work; the mixes as they are */
+    /* Subtract the recorded idle overhead from both measurements. Idle buses
+     * can now skip their DSP, while active sends still process it: subtracting
+     * today's cheaper idle from only today's preset falsely reports a cost
+     * increase. The recorded overhead keeps each existing absolute limit
+     * unchanged and still credits improvements in the active mix. */
     nc = load_kv(cpath, cpu, MAXJ);
-    idle_now = J[c1 - 3u].r.ipc;
     idle_base = kv_get(cpu, nc, J[c1 - 3u].name) ? atof(kv_get(cpu, nc, J[c1 - 3u].name)) : 0;
     for (i = c0; i < c1; i++) {
         const job_t *j = &J[i];
         const char *want = kv_get(cpu, nc, j->name);
         int own = j->e < NENGINES && idle_base > 0;
-        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = j->r.ipc - (own ? idle_now : 0);
+        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = fmax(0, j->r.ipc - (own ? idle_base : 0));
         if (j->crashed) {
             printf("regress: CRASH  %s\n", j->name);
             crash++;

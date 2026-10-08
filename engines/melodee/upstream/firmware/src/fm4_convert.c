@@ -344,7 +344,7 @@ static uint32_t fm4_convert(int16_t *p, uint8_t *v)
     fm6_sanitize(v);
     for (k = 0; k < 7u; k++)                           /* FM6's macros: the patch as it is */
         p[P_E0 + k] = 0;
-    p[P_E7] = FM6_OWN;
+    p[P_E7] = 0;
     for (k = P_FM1_ATK; k <= P_FM4_LEVEL; k++)
         p[k] = (k - P_FM1_ATK) % 5u == 2u || (k - P_FM1_ATK) % 5u == 4u ? 127 : 0;
     return FM4_TO_FM6[near];

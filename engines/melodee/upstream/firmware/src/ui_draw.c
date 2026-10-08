@@ -149,7 +149,7 @@ static void draw_head(void)
 {
     char b[16];
     uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
-    uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
+    uint32_t sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
                    (ui.msg_t ? str_hash(7u, ui.msg) : ui.layer * 7919u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
                    TSEL->pattern_gen * 7919u + TSEL->pattern_next * 40503u + (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u + (chain.running ? (chain.row + 1u) * 104729u : 0u);
     if (song.g[G_BPM] != ui.roll_bpm) {
@@ -181,7 +181,11 @@ static void draw_head(void)
     draw_rec_mark(28, T_BG);
     if (MELODEE_ICONS) cv_icon_mid(54, H_HEAD / 2, 16, ICON_TEMPO, T_MID, T_BG);
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
-    if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
+    if (seq_erase_active(TSEL)) {
+        cv_text_on(106, 6, &AF_S, "ERASING", T_REC, T_BG);
+        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_ACCENT, T_BG);
+        draw_battery(214);
+    } else if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
         cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
     } else {
         {                                             /* song row, octave or active pattern */         /* the song row playing, else the octave */
@@ -338,7 +342,8 @@ static void sound_name(const track_t *t, char *b)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     b[0] = 0;
-    if(t->user_native && user_of(t)<USER_NONE)native_name(t->eng_req,user_of(t),b);
+    if(t->eng_req==ENGI_PROPHET)p5_short_name(t,b,16);
+    else if(t->user_native && user_of(t)<USER_NONE)native_name(t->eng_req,user_of(t),b);
     else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
@@ -425,7 +430,7 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    if (pg->graph == GR_NOTES) sig += recording_generation * 7919u + ui.note_pick * 40503u;
+    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u;
     if (pg->graph == GR_SCALE_PICKER) sig += ui.scale_family * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
@@ -448,17 +453,12 @@ static void draw_foot(void)
     } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
         cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
         cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
-    } else if (pg->graph == GR_NOTES && !ui.home) {
-        uint32_t chosen = notes_selected(t), count;
-        notes_rank(t, chosen, &count);
+    } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
-        fmt_int(detail, (int32_t)count); str_cpy(detail + str_len(detail), " HITS", 6);
-        if (chosen < RECORD_MAX) {
-            str_cpy(detail + str_len(detail), " +", 3);
-            fmt_int(detail + str_len(detail), (int32_t)((uint32_t)recording[chosen].on * 100u / RECORD_UNIT));
-            str_cpy(detail + str_len(detail), "%", 2);
-        }
-        cv_key_hint(8, 2, KC_EDIT, "DELETE HIT", 1, T_BG);
+        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "SEL NOTE  PRE ZOOM", sizeof detail);
+        cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
+        fmt_int(detail, (int32_t)notes_span());
+        str_cpy(detail + str_len(detail), " ST", 4);
         cv_text_r(232, 2, &AF_S, detail, T_MID, T_BG);
     } else if (grid_on()) {                           /* row 1: the page, and what the keys do */
         char b[16];
@@ -489,6 +489,19 @@ static void draw_foot(void)
             else if (song.playing && si == t->seq_idx)
                 cv_rect(sx, 14, 9, 2, T_TEXT);          /* the step sounding */
         }
+    }
+    if (!ui.home && pg->graph == GR_ROLL && live_rec_sel()) {
+        cv_key_hint(8, 19, KC_EDIT, seq_erase_active(t) ? "RELEASE TO STOP" : "HOLD TO ERASE", 1, T_BG);
+        cv_blit(0, Y_FOOT);
+        return;
+    }
+    if (!ui.home && pg->graph == GR_ROLL && !grid_on()) {
+        uint32_t start = notes_manual_start(t);
+        int selected = notes_selected(t) < RECORD_MAX || (start < NSTEP && t->step[start].n);
+        khint_t hints[2] = {{selected ? KC_SCL : KC_KEYS, selected ? "MOVE" : "ADD"}, {KC_EDIT, "DELETE"}};
+        cv_key_row(8, 232, 19, hints, 2, 3u, T_BG);
+        cv_blit(0, Y_FOOT);
+        return;
     }
     x = 8;
     if (MELODEE_ICONS)                                /* row 2: engine icon + name, sound, page */
@@ -598,7 +611,7 @@ static void draw_columns(void)
         str_cpy(u, "/", 8);
         fmt_int(u + 1, (int32_t)total);
         draw_column(0, "No.", val, u, VAL(0u), -1, ICON_NONE);
-        draw_column(1, "ENG", ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
+        draw_column(1, "ENG", TSEL->eng_req==ENGI_PROPHET?"P5":ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
         draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
         draw_column(3, "LIST", favorites.filter ? "FAV" : "ALL", "", VAL(3u), -1, ICON_X_FOLDER);
         return;
@@ -655,20 +668,38 @@ static void draw_columns(void)
         draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
         return;
     }
-    if (cur_page()->graph == GR_NOTES) {
-        uint32_t chosen = notes_selected(TSEL), count, rank = notes_rank(TSEL, chosen, &count);
-        char sn[12], unit[12];
-        fmt_int(sn, (int32_t)ui.cursor + 1);
-        unit[0] = '/'; fmt_int(unit + 1, TSEL->p[P_SLEN]);
-        draw_column(0, "STEP", sn, unit, VAL(0u), -1, ICON_AUTO);
-        if (rank) fmt_int(sn, (int32_t)rank); else str_cpy(sn, "--", sizeof sn);
-        draw_column(1, "HIT", sn, "", rank ? VAL(1u) : T_DIM, -1, ICON_AUTO);
+    if (cur_page()->graph == GR_ROLL && !grid_on()) {
+        uint32_t chosen = notes_selected(TSEL), start = notes_manual_start(TSEL);
+        const step_t *st = start < NSTEP ? &TSEL->step[start] : 0;
+        int selected = chosen < RECORD_MAX || (st && st->n);
+        char sn[12], u[12];
+        fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
+        draw_column(0, "STEP", sn, u, VAL(0u), -1, ICON_AUTO);
+        uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
+        note_name(sn, pitch);
+        draw_column(1, "PITCH", sn, "", selected ? VAL(1u) : T_DIM, -1, ICON_PITCH);
         if (chosen < RECORD_MAX) {
-            note_name(sn, recording[chosen].note);
-        } else { str_cpy(sn, "--", sizeof sn); }
-        draw_column(2, "NOTE", sn, "", rank ? T_TEXT : T_DIM, -1, ICON_AUTO);
-        fmt_int(sn, (int32_t)(1u << ui.note_zoom)); str_cpy(sn + str_len(sn), "x", 2);
-        draw_column(3, "ZOOM", sn, "", VAL(3u), -1, ICON_AUTO);
+            uint32_t hundredths = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
+            if (!hundredths) str_cpy(sn, "<.01", sizeof sn);
+            else {
+                fmt_int(sn, (int32_t)(hundredths / 100u));
+                if (hundredths % 100u) {
+                    str_cpy(sn + str_len(sn), ".", 2);
+                    uint32_t fraction = hundredths % 100u;
+                    if (fraction < 10u) str_cpy(sn + str_len(sn), "0", 2);
+                    fmt_int(sn + str_len(sn), (int32_t)fraction);
+                }
+            }
+        } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
+        else str_cpy(sn, "--", sizeof sn);
+        draw_column(2, "LENGTH", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? VAL(2u) : T_DIM, -1, ICON_GATE);
+        if (chosen >= RECORD_MAX && st && (ui.step_mods & (1u << panel.btn[B_ENV]))) {
+            draw_column(3, "SLIDE", st->flags & SF_SLIDE ? "ON" : "OFF", "", VAL(3u), -1, ICON_SLIDE);
+            return;
+        }
+        if (selected) fmt_int(sn, chosen < RECORD_MAX ? recording[chosen].vel : st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96);
+        else str_cpy(sn, "--", sizeof sn);
+        draw_column(3, "VEL", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? VAL(3u) : T_DIM, -1, ICON_ACCENT);
         return;
     }
     if (cur_page()->scope == SC_STEP && drum_track(TSEL)) {   /* the grid: STEP LANE HIT ACC */

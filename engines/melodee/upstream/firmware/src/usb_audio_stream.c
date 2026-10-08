@@ -154,10 +154,12 @@ static uint32_t ua_transmit(uint8_t *p)
 }
 
 /* Stereo Q15 monitor plus four pre-master mono stems; playback follows MASTER.
- * Call in blocks of CTL (32), with USB service excluded during this copy. */
+ * Call in blocks of CTL (32), with USB service excluded during this copy.
+ * A null stem pointer skips capture for a block collected while capture was
+ * disabled; playback still runs, and a newly opened stream sees no stale data. */
 static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t master_q12)
 {
-    uint32_t i, capture = ua.cap_alt, playback = 0;
+    uint32_t i, capture = ua.cap_alt && tracks, playback = 0;
     if (capture && ua.cw - ua.cr + n > UA_RING) {
         ua.cap_overruns++;
         ua_cap_reset();
