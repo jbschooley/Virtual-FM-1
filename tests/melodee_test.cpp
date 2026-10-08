@@ -73,8 +73,9 @@ static std::map<std::string, std::string> frozenFacts() {
         out["global " + d.label + "#" + std::to_string(++seen[d.label])] = describe(d);
     }
     std::vector<float> l(64), r(64);
-    for (int e : f.enginesShown()) {
+    for (int e = 0; e < f.engines(); ++e) {   // (every engine that plays: 0.13 no longer offers ANALOG, still part 1's)
         const std::string en = f.engineName(e);
+        if (en.empty() || en == "-") continue;   // (reserved or retired)
         f.setEngine(0, e);
         for (int k = 0; k < 8; ++k) out["engine " + en + " E" + std::to_string(k + 1)] = f.paramDesc(0, f.firstEngineParam() + k).label + " " + describe(f.paramDesc(0, f.firstEngineParam() + k));
         const auto names = f.presetNames(e);
