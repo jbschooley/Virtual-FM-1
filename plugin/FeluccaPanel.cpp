@@ -493,7 +493,14 @@ void FeluccaSoundPage::build() {
     engineBox_.setEnabled(!drums);
     presetBox_.setEnabled(!drums);
     if (!drums) {
-        for (int e : f->enginesShown()) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
+        const auto shown = f->enginesShown();
+        for (int e : shown) engineBox_.addItem(f->engineName(e), e + 1);   // Felucca's order
+        // a part on an engine no longer offered (Melodee 0.13: ANALOG, kept for older sounds and part 1
+        // at power-on; PHYS, TRIO and WHEEL retired and silent) shows it too, last
+        if (const int e = f->engineOf(track_); std::find(shown.begin(), shown.end(), e) == shown.end()) {
+            const auto name = f->engineName(e);
+            engineBox_.addItem(name.empty() || name == "-" ? juce::String("Retired engine (silent)") : juce::String(name) + " (not offered)", e + 1);
+        }
         engineBox_.setSelectedId(f->engineOf(track_) + 1, juce::dontSendNotification);
         auto presets = f->presetNames(f->engineOf(track_));
         for (size_t i = 0; i < presets.size(); ++i)

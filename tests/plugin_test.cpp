@@ -442,6 +442,12 @@ static int checks() {
                 p.processBlock(buf, m);
             }
             CHECK(p.felucca()->param(0, 0) == level && p.feluccaParam(0, 0) == nullptr, "Felucca's host parameters do not reach Melodee");
+            {   // the Sound page names part 1's engine though 0.13 no longer offers it (ANALOG at power-on)
+                FeluccaSoundPage sp(p);
+                sp.setSize(900, 700);
+                sp.refresh();
+                CHECK(sp.engineText() == "ANALOG (not offered)", "the Sound page shows part 1's ANALOG: " + sp.engineText());
+            }
             p.felucca()->setEngine(1, 15);
             p.felucca()->setParam(1, 0, 55);
             p.setFirmware("sloop");

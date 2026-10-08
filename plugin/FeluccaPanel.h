@@ -52,6 +52,7 @@ public:
     void refresh();   // the engine, presets and values again (after a project or user preset loads, say)
     std::function<void()> onPartChanged;   // another part selected (here or on the device)
     void setStatus(const juce::String& s);   // in the info line for a while (the sync's progress and outcome)
+    juce::String engineText() const { return engineBox_.getText(); }   // (for the tests)
 
 private:
     juce::String infoText() const;            // the hint for Felucca or SLOOP
