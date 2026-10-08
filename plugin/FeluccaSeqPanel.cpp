@@ -47,9 +47,11 @@ void removeNote(felucca::Step& s, int k) {
 
 // ---- the grid: a piano roll, or drum lanes ---------------------------------------------------------
 
-class FeluccaSeqPage::Grid : public juce::Component {
+class FeluccaSeqPage::Grid : public juce::Component, public juce::SettableTooltipClient {
 public:
-    explicit Grid(FeluccaSeqPage& p) : page_(p) {}
+    explicit Grid(FeluccaSeqPage& p) : page_(p) {
+        setTooltip("Click to add or take off a note; drag a note sideways to hold it longer or shorter; right-click (or Cmd-click) selects a step");
+    }
     static constexpr int kRows = 25;           // two octaves and a note
 
     juce::Rectangle<float> cell(int col, int row) const {
@@ -165,14 +167,40 @@ public:
         if (e.position.x < kLabel) return;
         const int col = std::clamp(int((e.position.x - kLabel) / w), 0, page_.cols_ - 1), row = std::clamp(int(e.position.y / h), 0, rows() - 1);
         const int step = page_.firstStep() + col;
+        dragNote_ = -1;
         if (e.mods.isPopupMenu() || e.mods.isCommandDown()) { page_.selectStep(step); return; }   // select only
-        if (page_.drumsView()) page_.toggleLane(step, row, e.mods.isAltDown() || e.mods.isShiftDown());
-        else page_.toggleNote(step, page_.lowNote_ + kRows - 1 - row);
+        if (page_.drumsView()) { page_.toggleLane(step, row, e.mods.isAltDown() || e.mods.isShiftDown()); return; }
+        const int note = page_.lowNote_ + kRows - 1 - row;
+        // on a note (where it starts or where a TIE holds it): drag to hold it longer or shorter; a
+        // click without a drag takes it off (or, on a held step, starts a new one there) as before
+        const auto& st = page_.pat_.steps;
+        int from = step;
+        while (from > 0 && size_t(from) < st.size() && st[size_t(from)].time == felucca::kTie) --from;
+        bool there = false;
+        if (size_t(from) < st.size() && st[size_t(from)].time == felucca::kNote)
+            for (int k = 0; k < st[size_t(from)].n; ++k) there = there || st[size_t(from)].note[size_t(k)] == note;
+        if (there) { dragNote_ = note; dragStep_ = from; clicked_ = step; dragged_ = false; lastAt_ = -1; page_.selectStep(from); return; }
+        page_.toggleNote(step, note);
+    }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if (dragNote_ < 0) return;
+        const float w = (float(getWidth()) - kLabel) / float(page_.cols_);
+        const int at = page_.firstStep() + std::clamp(int((e.position.x - kLabel) / w), 0, page_.cols_ - 1);
+        if ((!dragged_ && at == clicked_) || at == lastAt_) return;
+        dragged_ = true;
+        lastAt_ = at;
+        page_.setHold(dragStep_, std::max(0, at - dragStep_));
+    }
+    void mouseUp(const juce::MouseEvent&) override {
+        if (dragNote_ >= 0 && !dragged_) page_.toggleNote(clicked_, dragNote_);
+        dragNote_ = -1;
     }
 
 private:
     static constexpr float kLabel = 46.0f;
     FeluccaSeqPage& page_;
+    int dragNote_ = -1, dragStep_ = 0, clicked_ = 0, lastAt_ = -1;
+    bool dragged_ = false;
 };
 
 // ---- Felucca's song chain: rows of a project slot and its repeats ----------------------------------
@@ -911,6 +939,21 @@ void FeluccaSeqPage::toggleLane(int step, int lane, bool accent) {
     }
     loadControls();
     grid_->repaint();
+}
+
+// The NOTE step's notes held for `steps` more: TIE steps after it, up to the next NOTE step (never
+// over another note) and the pattern's end; a TIE past the new end goes back to REST.
+int FeluccaSeqPage::setHold(int step, int steps) {
+    const int len = std::clamp(pat_.len, 1, int(pat_.steps.size()));
+    if (step < 0 || step >= len || pat_.steps[size_t(step)].time != felucca::kNote) return 0;
+    int held = 0;
+    for (int i = step + 1; i < len && held < steps && pat_.steps[size_t(i)].time != felucca::kNote; ++i, ++held)
+        if (pat_.steps[size_t(i)].time != felucca::kTie) { pat_.steps[size_t(i)].time = felucca::kTie; writeStep(i); }
+    for (int i = step + 1 + held; i < len && pat_.steps[size_t(i)].time == felucca::kTie; ++i) { pat_.steps[size_t(i)].time = felucca::kRest; writeStep(i); }
+    if (held < steps && step + 1 + held < len) say("Held up to the next note: a hold stops where another note starts");
+    loadControls();
+    grid_->repaint();
+    return held;
 }
 
 void FeluccaSeqPage::setStepTime(int time) {

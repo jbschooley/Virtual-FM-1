@@ -38,6 +38,7 @@ public:
     void selectTrack(int t);
     void selectStep(int step);
     void setStepTime(int time);
+    int setHold(int step, int steps);          // a NOTE step's notes held `steps` more (TIEs); what it could hold
     void setStepFlag(int flag, bool on);
     void setStepVelocity(int v);
     void setStepChance(int c);

@@ -795,6 +795,20 @@ static int checks() {
             felucca::VirtualEndpoint e(f);
             page.selectTrack(1);
             CHECK(f->selected() == 1, who + "a track chosen is the device's selected part");
+            {   // a note's length: TIE steps after it, up to the next note (and the pattern's 16 steps)
+                page.toggleNote(11, 60);
+                CHECK(page.setHold(11, 3) == 3, who + "held 3 steps more");
+                auto tie = [&](int i) { auto s = felucca::readStep(e, 1, i); return s ? s->time : -1; };
+                CHECK(tie(12) == felucca::kTie && tie(14) == felucca::kTie && tie(15) != felucca::kTie, who + "as TIEs on the device");
+                CHECK(page.setHold(11, 1) == 1 && tie(12) == felucca::kTie && tie(13) == felucca::kRest && tie(14) == felucca::kRest, who + "shorter: the TIEs past it rest");
+                page.toggleNote(14, 64);
+                CHECK(page.setHold(11, 6) == 2 && tie(13) == felucca::kTie && tie(14) == felucca::kNote, who + "a hold stops at the next note");
+                CHECK(page.setHold(12, 2) == 0, who + "only a NOTE step holds");
+                page.toggleNote(14, 64);   // (off again)
+                CHECK(page.setHold(11, 10) == 4 && tie(15) == felucca::kTie, who + "and at the pattern's end (16 steps)");
+                page.setHold(11, 0);
+                page.toggleNote(11, 60);
+            }
             page.toggleNote(4, 62);
             page.toggleNote(4, 65);
             auto s4 = felucca::readStep(e, 1, 4);
