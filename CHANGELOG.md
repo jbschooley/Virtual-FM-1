@@ -26,6 +26,13 @@ for the code. New work goes under the next version at the top.
   plays nudged steps where SLOOP plays them.
 - An FM-1 on SLOOP 2.4 is recognised and synced as 2.4.1 (the same projects);
   the update to 2.4.1 fixes imported FM6 patches that use AMS playing noise.
+- Felucca's and SLOOP's sequencer: **drag a note sideways** to hold it longer
+  or shorter (it stops at the next note), as the FM-1+VA sequencer already
+  did. A row of **step numbers** above the grid selects a step without
+  changing it, so a touchscreen can reach a step's settings. On a phone the
+  piano roll shows one octave, with rows big enough to touch.
+- In every sequencer tab, the **left and right arrow keys** move the selected
+  step.
 
 ## [0.5.1] - 2026-10-07
 
