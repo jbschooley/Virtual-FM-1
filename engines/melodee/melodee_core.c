@@ -181,11 +181,11 @@ static void fel_panel_setup(void) { ui_message("PANEL: ON THE FM-1"); }
 #include "../upstream/firmware/src/ui_layer.c"
 
 /* the flash: the storage objects' sectors in RAM, as the 1 MiB part the firmware expects. Melodee
- * keeps more than Felucca (storage.c: settings, four bank projects of five sectors and a two-sector
- * extension per copy, eight CZ banks, user preset banks, FM6 and native tone pools; two copies of
- * each, 98 sectors when all are used): a sector takes RAM when first written; one never written
- * reads erased */
-#define FEL_NSECT 98u
+ * keeps more than Felucca (storage.c: settings, the legacy project slots, four bank projects of five
+ * sectors and a two-sector extension per copy, eight CZ banks, user preset banks, the FM6 bank and
+ * extension, two native tone pools, 0.13's five PROPHET banks; two copies of each: 108 sectors in
+ * its map): a sector takes RAM when first written; one never written reads erased */
+#define FEL_NSECT 108u
 static uint32_t sect_addr[FEL_NSECT];    /* address + 1; 0: free */
 static uint8_t sect_data[FEL_NSECT][4096];
 static uint8_t *sect_find(uint32_t off)

@@ -353,6 +353,25 @@ int main() {
         CHECK(leds.size() == 14u + 27u + 1u && std::count_if(leds.begin(), leds.end(), [](uint8_t v) { return v != 0; }) > 0, "the LEDs: some lit or glowing");
     }
 
+    // ---- its flash: every object written into both of its copies (each write alternates them) ----
+    {
+        Mel m{kMel};
+        std::vector<uint8_t> music;
+        m.object(0, music);
+        int fails = 0;
+        for (int round = 0; round < 3; ++round) {
+            for (int id = 0; id <= 27; ++id) {
+                if (id == 8) continue;   // (retired)
+                std::vector<uint8_t> b;
+                if (id >= 2 && id <= 5) b = music;
+                else if (!m.object(id, b)) continue;
+                if (m.putObject(id, b) != 0) { ++fails; std::printf("  round %d: object %d refused\n", round, id); }
+            }
+            m.setGlobal(21, 430 + round);   // (the settings saved again)
+        }
+        CHECK(fails == 0, "every object stored three times over (both copies of each, PROPHET banks too): the RAM flash holds them all");
+    }
+
     // ---- a copy given back is as good as new ----
     {
         {
