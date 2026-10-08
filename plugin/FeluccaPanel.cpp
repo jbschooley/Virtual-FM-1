@@ -72,6 +72,7 @@ const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 2
 const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
+const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
 const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10; GLO) the drums, any other the selected part.";
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
@@ -412,7 +413,10 @@ FeluccaSoundPage::FeluccaSoundPage(FM1Processor& p) : proc_(p) {
     startTimerHz(10);   // automation shows as it plays
 }
 
-juce::String FeluccaSoundPage::infoText() const { return isSloop(engine().get()) ? kSloopInfoText : kInfoText; }
+juce::String FeluccaSoundPage::infoText() const {
+    const auto f = engine();
+    return isSloop(f.get()) ? kSloopInfoText : isMelodee(f.get()) ? kMelodeeInfoText : kInfoText;
+}
 
 void FeluccaSoundPage::setStatus(const juce::String& s) {
     info_.setText(s.isNotEmpty() ? s : infoText(), juce::dontSendNotification);
