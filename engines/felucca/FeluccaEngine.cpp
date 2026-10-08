@@ -3,13 +3,14 @@
 #include <algorithm>
 #include <memory>
 
-// The compiled copies of each firmware (felucca_copies.inc and sloop_copies.inc, written by
-// CMake: FELUCCA_COPIES and SLOOP_COPIES of them): first their declarations, then tables of
-// their functions.
+// The compiled copies of each firmware (felucca_copies.inc, sloop_copies.inc and
+// melodee_copies.inc, written by CMake: FELUCCA_COPIES, SLOOP_COPIES and MELODEE_COPIES of them):
+// first their declarations, then tables of their functions.
 extern "C" {
 #define FELUCCA_COPIES_DECLARE
 #include "felucca_copies.inc"
 #include "sloop_copies.inc"
+#include "melodee_copies.inc"
 #undef FELUCCA_COPIES_DECLARE
 }
 
@@ -24,6 +25,11 @@ const FeluccaCopy kFeluccaCopies[] = {
 const FeluccaCopy kSloopCopies[] = {
 #define FELUCCA_COPIES_TABLE
 #include "sloop_copies.inc"
+#undef FELUCCA_COPIES_TABLE
+};
+const FeluccaCopy kMelodeeCopies[] = {
+#define FELUCCA_COPIES_TABLE
+#include "melodee_copies.inc"
 #undef FELUCCA_COPIES_TABLE
 };
 #undef FEL_ENTRY
@@ -50,7 +56,8 @@ struct Pool {
 Pool& pool(FeluccaEngine::Flavor f) {
     static Pool felucca{kFeluccaCopies, int(sizeof kFeluccaCopies / sizeof kFeluccaCopies[0])};
     static Pool sloop{kSloopCopies, int(sizeof kSloopCopies / sizeof kSloopCopies[0])};
-    return f == FeluccaEngine::Flavor::Sloop ? sloop : felucca;
+    static Pool melodee{kMelodeeCopies, int(sizeof kMelodeeCopies / sizeof kMelodeeCopies[0])};
+    return f == FeluccaEngine::Flavor::Sloop ? sloop : f == FeluccaEngine::Flavor::Melodee ? melodee : felucca;
 }
 
 }  // namespace

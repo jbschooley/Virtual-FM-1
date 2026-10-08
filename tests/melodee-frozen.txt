@@ -1,0 +1,333 @@
+engine ANALOG E1	WAVE 0..4 def 0 fmt 8 SAW SQR TRI SIN PWM
+engine ANALOG E2	DTN 0..127 def 10 fmt 0
+engine ANALOG E3	MIX 0..127 def 64 fmt 1
+engine ANALOG E4	NOIS 0..127 def 0 fmt 1
+engine ANALOG E5	CUT 0..127 def 90 fmt 5
+engine ANALOG E6	RES 0..127 def 30 fmt 1
+engine ANALOG E7	DRV 0..127 def 0 fmt 1
+engine ANALOG E8	KTR 0..127 def 64 fmt 1
+engine CZ-1 E1	- 0..7 def 0 fmt 0
+engine CZ-1 E2	- 0..16 def 0 fmt 0
+engine CZ-1 E3	- 0..0 def 0 fmt 0
+engine CZ-1 E4	- 0..0 def 0 fmt 0
+engine CZ-1 E5	- 0..0 def 0 fmt 0
+engine CZ-1 E6	- 0..0 def 0 fmt 0
+engine CZ-1 E7	- 0..0 def 0 fmt 0
+engine CZ-1 E8	TONE 2..2 def 2 fmt 0
+engine DRUM E1	KIT 4..4 def 4 fmt 8 808
+engine DRUM E2	TUNE 0..127 def 64 fmt 1
+engine DRUM E3	TONE 0..127 def 64 fmt 1
+engine DRUM E4	DECY 0..127 def 64 fmt 1
+engine DRUM E5	SNAP 0..127 def 64 fmt 1
+engine DRUM E6	ACC 0..127 def 100 fmt 1
+engine DRUM E7	KICK 0..1 def 0 fmt 8 PUNCH ROUND
+engine DRUM E8	DRV 0..127 def 0 fmt 1
+engine FM6 E1	ALG 0..32 def 0 fmt 0
+engine FM6 E2	FB -7..7 def 0 fmt 0
+engine FM6 E3	MLVL -64..63 def 0 fmt 2
+engine FM6 E4	MRAT -16..16 def 0 fmt 0
+engine FM6 E5	MEG -64..63 def 0 fmt 2
+engine FM6 E6	VMOD -7..7 def 0 fmt 0
+engine FM6 E7	DTUN 0..127 def 0 fmt 1
+engine FM6 E8	SLOT 0..24 def 0 fmt 0
+engine LOFI E1	CHIP 0..4 def 0 fmt 8 4BIT 4B/2 8BIT 1BIT STEP
+engine LOFI E2	WAVE 0..4 def 0 fmt 8 PLS TRI SAW NOIS WRAM
+engine LOFI E3	DUTY 0..127 def 64 fmt 0
+engine LOFI E4	CRSH 0..127 def 0 fmt 1
+engine LOFI E5	SWP 0..127 def 0 fmt 1
+engine LOFI E6	VIB 0..127 def 0 fmt 1
+engine LOFI E7	ARP 0..3 def 0 fmt 8 OFF OCT MAJ MIN
+engine LOFI E8	TONE 0..127 def 127 fmt 1
+engine NOISE E1	MODE 0..3 def 0 fmt 8 ANLG DUST LFSR META
+engine NOISE E2	COLR 0..127 def 64 fmt 1
+engine NOISE E3	FREQ 0..127 def 80 fmt 5
+engine NOISE E4	RES 0..127 def 30 fmt 1
+engine NOISE E5	TRK 0..127 def 64 fmt 1
+engine NOISE E6	DENS 0..127 def 0 fmt 1
+engine NOISE E7	DRFT 0..127 def 0 fmt 1
+engine NOISE E8	CRSH 0..127 def 0 fmt 1
+engine PHASE E1	WAVE 0..7 def 0 fmt 8 SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
+engine PHASE E2	WAVE2 0..8 def 0 fmt 8 - SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
+engine PHASE E3	DCW 0..127 def 60 fmt 1
+engine PHASE E4	ENV 0..127 def 64 fmt 1
+engine PHASE E5	DTN 0..127 def 0 fmt 0
+engine PHASE E6	LINE 0..1 def 0 fmt 8 MIX RING
+engine PHASE E7	SUB 0..127 def 0 fmt 1
+engine PHASE E8	EG 0..1 def 0 fmt 8 LINK SPLIT
+engine PHYS E1	MODEL 0..3 def 0 fmt 8 MODAL STRNG MEMB SYMP
+engine PHYS E2	STRC 0..127 def 64 fmt 1
+engine PHYS E3	BRIT 0..127 def 80 fmt 1
+engine PHYS E4	DAMP 0..127 def 80 fmt 1
+engine PHYS E5	POS 0..127 def 20 fmt 1
+engine PHYS E6	ACC 0..127 def 90 fmt 1
+engine PHYS E7	BOW 0..127 def 0 fmt 1
+engine PHYS E8	EXC 0..127 def 0 fmt 1
+engine TRIO E1	WAVE 0..15 def 0 fmt 8 SAW3 PLS3 PPT SST TRI3 S&T P&S P+N NOIS SYNC SYNCP SYNC3 RING RING3 R+S R+SP
+engine TRIO E2	INT2 -24..24 def 0 fmt 7
+engine TRIO E3	INT3 -24..24 def -12 fmt 7
+engine TRIO E4	DTN 0..50 def 6 fmt 0
+engine TRIO E5	MODE 0..3 def 0 fmt 8 LP BP HP NOT
+engine TRIO E6	CUT 0..127 def 80 fmt 5
+engine TRIO E7	RES 0..127 def 40 fmt 1
+engine TRIO E8	PW 0..127 def 64 fmt 1
+engine VOICE E1	VOWL 0..127 def 0 fmt 0
+engine VOICE E2	VOWL2 0..127 def 64 fmt 0
+engine VOICE E3	TALK 0..127 def 0 fmt 3
+engine VOICE E4	SHIFT -12..12 def 0 fmt 7
+engine VOICE E5	BUZZ 0..127 def 64 fmt 1
+engine VOICE E6	BRTH 0..127 def 10 fmt 1
+engine VOICE E7	Q 0..127 def 64 fmt 1
+engine VOICE E8	RAND 0..127 def 0 fmt 1
+engine WHEEL E1	REG 0..15 def 4 fmt 8 FLUTE MELLO HOLLW SMOOT 3BAR BLUES GOSPL ROCK TOPS CLARI REED STRNG CHAPL BRITE BASS FULL
+engine WHEEL E2	SUB -8..8 def 0 fmt 0
+engine WHEEL E3	BODY -8..8 def 0 fmt 0
+engine WHEEL E4	TOP -8..8 def 0 fmt 0
+engine WHEEL E5	PERC 0..6 def 0 fmt 8 OFF 2ND 3RD 2SOFT 3SOFT 2SLOW 3SLOW
+engine WHEEL E6	CLICK 0..127 def 40 fmt 1
+engine WHEEL E7	DRV 0..127 def 0 fmt 1
+engine WHEEL E8	ROTR 0..2 def 1 fmt 8 OFF SLOW FAST
+global A4#1	400..480 def 440 fmt 0
+global BOOT#1	0..4 def 0 fmt 8 OFF A B C D
+global BPM#1	40..240 def 120 fmt 9
+global CDP#1	0..127 def 60 fmt 1
+global CLK#1	0..2 def 0 fmt 8 INT USB TRS
+global CLRSQ#1	0..1 def 0 fmt 8 -- GO
+global CPU#1	0..0 def 0 fmt 0
+global CRT#1	0..127 def 40 fmt 4
+global DAMP#1	0..127 def 60 fmt 1
+global DRUM#1	0..16 def 10 fmt 8 OFF 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+global ENG#1	0..15 def 0 fmt 8 ANALOG - PHASE LOFI - VOICE TRIO WHEEL - PHYS DRUM NOISE FM6 - - CZ-1
+global INIT#1	0..1 def 0 fmt 8 -- GO
+global LOAD#1	0..1 def 0 fmt 8 -- GO
+global MIDI#1	0..1 def 0 fmt 8 USB TRS
+global ROUT#1	0..1 def 0 fmt 8 CH1-4 SEL
+global SAVE#1	0..1 def 0 fmt 8 -- GO
+global SIZE#1	0..127 def 90 fmt 1
+global SLOT#1	1..5 def 1 fmt 0
+global SWG#1	0..100 def 0 fmt 1
+global TUNE#1	-50..50 def 0 fmt 0
+global TYPE#1	0..1 def 0 fmt 8 ROOM SPRING
+param -#1	0..127 def 0 fmt 1
+param ALLOC#1	0..1 def 0 fmt 8 ROT REUSE
+param AMP#1	0..127 def 0 fmt 1
+param AMT1#1	-64..63 def 0 fmt 2
+param AMT2#1	-64..63 def 0 fmt 2
+param AMT3#1	-64..63 def 0 fmt 2
+param AMT4#1	-64..63 def 0 fmt 2
+param ATK#1	0..127 def 10 fmt 3
+param ATK#2	0..127 def 0 fmt 3
+param ATK#3	0..127 def 0 fmt 3
+param ATK#4	0..127 def 0 fmt 3
+param ATK#5	0..127 def 0 fmt 3
+param CHO#1	0..127 def 0 fmt 1
+param CHRD#1	0..9 def 0 fmt 8 OFF DIA3 DIA7 MAJ MIN DOM7 MAJ7 MIN7 SUS4 POW
+param DEC#1	0..127 def 70 fmt 3
+param DEC#2	0..127 def 0 fmt 3
+param DEC#3	0..127 def 0 fmt 3
+param DEC#4	0..127 def 0 fmt 3
+param DEC#5	0..127 def 0 fmt 3
+param DEG#1	1..12 def 1 fmt 0
+param DEPTH#1	0..127 def 127 fmt 1
+param DIV#1	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
+param DST#1	0..127 def 0 fmt 1
+param DST1#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
+param DST2#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
+param DST3#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
+param DST4#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
+param DTUNE#1	0..127 def 40 fmt 0
+param FADE#1	0..127 def 0 fmt 3
+param FLT#1	-64..63 def 0 fmt 2
+param FLT#2	-64..63 def 0 fmt 2
+param GATE#1	1..127 def 64 fmt 1
+param GATE#2	1..127 def 64 fmt 1
+param GLD#1	0..127 def 0 fmt 3
+param GLMOD#1	0..1 def 0 fmt 8 RATE TIME
+param HOLD#1	0..1 def 0 fmt 8 OFF ON
+param LEN#1	1..64 def 16 fmt 13
+param LVL#1	0..127 def 104 fmt 6
+param LVL#2	0..127 def 127 fmt 1
+param LVL#3	0..127 def 127 fmt 1
+param LVL#4	0..127 def 127 fmt 1
+param LVL#5	0..127 def 127 fmt 1
+param MODE#1	0..6 def 0 fmt 8 OFF UP DN UPDN RND ORD REPEAT
+param MUTE#1	0..1 def 0 fmt 8 OFF ON
+param OCT#1	1..4 def 1 fmt 0
+param ORD#1	0..1 def 0 fmt 8 NOTE PLAY
+param PAN#1	-64..63 def 0 fmt 2
+param PAT#1	1..16 def 1 fmt 0
+param PHS#1	0..127 def 0 fmt 0
+param PIT#1	-64..63 def 0 fmt 2
+param PIT#2	-64..63 def 0 fmt 2
+param PRIO#1	0..2 def 0 fmt 8 LAST LOW HIGH
+param PROB#1	0..127 def 127 fmt 1
+param QNT#1	0..10 def 0 fmt 8 OFF 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
+param QNT#2	0..4 def 0 fmt 8 OFF SNAP WHITE ALL MPC
+param RATE#1	0..127 def 60 fmt 4
+param RATE#2	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
+param RATE#3	0..5 def 1 fmt 8 1/8 1/16 1/32 8T 16T 32T
+param REL#1	0..127 def 60 fmt 3
+param REL#2	0..127 def 0 fmt 3
+param REL#3	0..127 def 0 fmt 3
+param REL#4	0..127 def 0 fmt 3
+param REL#5	0..127 def 0 fmt 3
+param REV#1	0..127 def 0 fmt 1
+param ROOT#1	0..11 def 0 fmt 10
+param SCL#1	0..69 def 0 fmt 8 CHR MAJ MIN DOR MIX PEN MPEN HARM PHRY LYD LOC MEL BLUES WHOLE DIMHW DIMWH 5EDO 7EDO 9EDO 10EDO 13EDO 14EDO 15EDO 16EDO 17EDO 18EDO 19EDO 20EDO 21EDO 22EDO 23EDO 24EDO 26EDO 27EDO 29EDO 31EDO 34EDO 36EDO 41EDO 53EDO JI-MAJ JI-MIN JI-12 JI-7L JI-7 HARM8 HARM16 PARTCH HARRIS PYTH MT-1/4 MT-1/3 MT-1/6 WERCK3 KIRN3 VALLOT YOUNG2 RAST-J SABA-J SHRUTI SLENDR PELOG BP-ET BP-JI RAST BAYATI HIJAZ SABA HUSAYN SIKAH
+param SHP#1	-64..63 def 0 fmt 2
+param SHP#2	-64..63 def 0 fmt 2
+param SLCR#1	0..2 def 0 fmt 8 OFF GATE STUT
+param SRC1#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
+param SRC2#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
+param SRC3#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
+param SRC4#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
+param SUS#1	0..127 def 90 fmt 1
+param SUS#2	0..127 def 127 fmt 1
+param SUS#3	0..127 def 127 fmt 1
+param SUS#4	0..127 def 127 fmt 1
+param SUS#5	0..127 def 127 fmt 1
+param SWG#1	0..100 def 0 fmt 1
+param SWG#2	0..100 def 0 fmt 1
+param TRN#1	-24..24 def 0 fmt 7
+param VCE#1	0..3 def 0 fmt 8 POLY MONO LEG UNI
+param VOIC#1	0..4 def 0 fmt 8 CLOSE OPEN INV1 INV2 +OCT
+param WAVE#1	0..4 def 0 fmt 8 SIN TRI SAW SQR S&H
+preset ANALOG 0	SAW LEAD 37f6718b99aca216
+preset ANALOG 1	SOFT PAD b2d75e086a8b885c
+preset ANALOG 10	WIND 24d69f5c54a09639
+preset ANALOG 11	STRINGS d7dba54d6ba92828
+preset ANALOG 2	SQR BASS e6d74067d6b1e1ed
+preset ANALOG 3	PWM STR 773d0a409010b03f
+preset ANALOG 4	ACID 1f6fb93b4bdd00d1
+preset ANALOG 5	SINE KEY 7e95b49825e920f2
+preset ANALOG 6	RAVE 838b9eb17d123c6c
+preset ANALOG 7	SUB BASS a1534e30eb18b922
+preset ANALOG 8	PLUCK f89289d687ac07a0
+preset ANALOG 9	BRASS 61e3710de12c3ab0
+preset CZ-1 0	INIT TONE f75d44c2db995620
+preset CZ-1 1	BRASS 1 bcafc04d2d6d28fb
+preset CZ-1 10	JAZZ GUITAR 974c2e00c6904e0e
+preset CZ-1 11	ELEC.GUITAR 5c9ea98b186420e9
+preset CZ-1 12	SLAP BASS 373b0f3eb1873864
+preset CZ-1 13	SYNTH.BASS fc8d8ac9035b0b3f
+preset CZ-1 14	ELEC.BASS 1 ac961c2a0ddf997a
+preset CZ-1 15	ELEC.BASS 2 71e897b45fb36c55
+preset CZ-1 16	HARP a2358c1dbe5c2870
+preset CZ-1 17	BRASS 4 5105944194b4d432
+preset CZ-1 18	SAXOPHONE a0fd02e08a3045f7
+preset CZ-1 19	CELLO dbaa8756385c731c
+preset CZ-1 2	BRASS 2 6cb851ae37f1b736
+preset CZ-1 20	FLUTE 10e21a29f395ba1
+preset CZ-1 21	WHISTLE 3bbba6184d6588c6
+preset CZ-1 22	HARMONICA 8bb314b742e0fa8b
+preset CZ-1 23	RECORDER c660992cf10d27b0
+preset CZ-1 24	KOTO 40ebec1e75273de5
+preset CZ-1 25	PIANO 1 7b99709423536b0a
+preset CZ-1 26	PIANO 2 cb90df3318cedccf
+preset CZ-1 27	PIANO 3 63e63a8c6fb09f4
+preset CZ-1 28	ELEC.PIANO 2ba1fdf52dd7f279
+preset CZ-1 29	HONKY-TONK 664f826adc041f9e
+preset CZ-1 3	BRASS 3 320acd3889c58a11
+preset CZ-1 30	FUNKY CLAV 1 b646f109d17f9163
+preset CZ-1 31	FUNKY CLAV 2 f0f4757f7fabbe88
+preset CZ-1 32	HARPSICHORD 6b7fc87103c5d4bd
+preset CZ-1 33	JAZZ ORGAN 1 7eba363b178e9b85
+preset CZ-1 34	JAZZ ORGAN 2 440cadc569626794
+preset CZ-1 35	PIPE ORGAN 1 95f294fbb363a6f
+preset CZ-1 36	PIPE ORGAN 2 a41dcc877e6b7d3e
+preset CZ-1 37	ACCORDION 69704811d03f5019
+preset CZ-1 38	VOICE 1 2ec2bf9c22131c28
+preset CZ-1 39	VOICE 2 f4153b2673e6ef03
+preset CZ-1 4	STRINGS 1 ca732ec22e8a18c
+preset CZ-1 40	VOICE 3 8ed3de5e371c31d2
+preset CZ-1 41	MUSIC BOX 542659e888f004ad
+preset CZ-1 42	VIBRAPHONE 1978d172dac3d0bc
+preset CZ-1 43	XYLOPHONE decb4cfd2c97a397
+preset CZ-1 44	MARIMBA 7989f034efcce666
+preset CZ-1 45	MALLET LOG 3edc6bbf41a0b941
+preset CZ-1 46	AFRO PERC 42ee34993748550
+preset CZ-1 47	BELLS c9815ed3e548582b
+preset CZ-1 48	METALLIC e8f7355e2f7f65a
+preset CZ-1 49	SYN STRINGS 1310022f7ed63924
+preset CZ-1 5	STRINGS 2 d1f9ae7674bc7467
+preset CZ-1 50	FAT ENSEMBLE 4dbd8aa52d026d15
+preset CZ-1 51	SITAR 886b0f1adb2e9a3a
+preset CZ-1 52	SYNTH.LEAD 1 c3188f90895ac093
+preset CZ-1 53	SYNTH.LEAD 2 fdc614063786edb8
+preset CZ-1 54	SYNTH.LEAD 3 38739c7be5b321a9
+preset CZ-1 55	SYNTH.LEAD 4 732120f193df4ece
+preset CZ-1 56	SWEEP 1 adcea167420b7527
+preset CZ-1 57	SYN DRUMS 1 e87c25dcf037a24c
+preset CZ-1 58	SYN DRUMS 2 2329ae529e63d63d
+preset CZ-1 59	CONGA 5dd732c84c900362
+preset CZ-1 6	STRINGS 3 82023fd77f4102a2
+preset CZ-1 60	STEEL DRUM 9884b33dfabc29bb
+preset CZ-1 61	SWEEP 2 d33237b3a8e856e0
+preset CZ-1 62	JET ROAR ddfc02957148ad1
+preset CZ-1 63	MOTORCYCLE 488d449f0540b7f6
+preset CZ-1 64	TYPHOON 833ac514b36cde4f
+preset CZ-1 7	STRINGS 4 4754bb61d114d57d
+preset CZ-1 8	ORCHESTRA 21f121156a37ecf8
+preset CZ-1 9	ACO.GUITAR e7439c9fbc0bbfd3
+preset DRUM 0	808 KIT 98047e5cadd8b6b0
+preset FM6 0	TINE EP 180ec8c70d0ce979
+preset FM6 1	BELL 501d74d79affb885
+preset FM6 10	SOLID BASS 92b5d5f4d3e63960
+preset FM6 11	BELLS a7ce40af6e3d7a59
+preset FM6 12	DX MARIMBA 3864c31a72a98c77
+preset FM6 13	CLAVINET 964c3f6f4b5fb3ef
+preset FM6 14	DRAWBARS ce953acb70c77236
+preset FM6 15	STRINGS 6c5c62bc9b588551
+preset FM6 16	GLASS PAD 44d86b2a6a3a30f0
+preset FM6 17	SYNC LEAD 2695df963e082de9
+preset FM6 18	HARP 2a1e68d7af576d4a
+preset FM6 19	KALIMBA 851291e8cc58b5ed
+preset FM6 2	FM BASS 92b5ddf4d3e646f8
+preset FM6 20	FLUTE d8da766e5f1b8da2
+preset FM6 21	STEEL DRUM 5bff5e5726fcbbf5
+preset FM6 22	SAW BASS 85715c67f5cb41c8
+preset FM6 23	TUBULAR 6f688939fa5322f7
+preset FM6 3	BRASS 3ee1a5886f811fb8
+preset FM6 4	PAD 6c70bbbc9b69c596
+preset FM6 5	MARIMBA 3864ba1a72a97d2c
+preset FM6 6	ORGAN ce9542cb70c77fce
+preset FM6 7	PLUCK 9727235ed6f24a8a
+preset FM6 8	DX TINE 2ed95e8e05c9af06
+preset FM6 9	BRASS SECT 5569340c80fadf07
+preset LOFI 0	PULSE LD b6983826772f9292
+preset LOFI 1	WAVE BASS fc82642bc40f5781
+preset LOFI 2	ARP 8BIT 18c9fc604c022f19
+preset LOFI 3	WAVE LEAD 35d9ec4a53b9499c
+preset LOFI 4	STEP LEAD 6747d1cc5335552
+preset NOISE 0	WIND ae4a555c6cf5d4a4
+preset NOISE 1	RAIN 70291864ca651200
+preset NOISE 2	ARCADE df3a29fe80a02307
+preset NOISE 3	METAL 3c58ffa523f82f0c
+preset PHASE 0	BRASS 74e25f2874dc7901
+preset PHASE 1	ORGAN 9ee5b750ce044d90
+preset PHASE 2	STRING 54abaebf86f39ec1
+preset PHASE 3	RESO 85c9a620c54ac120
+preset PHASE 4	BELL e0734b8e14b5dcbc
+preset PHASE 5	WIRE d70d15ad726be666
+preset PHYS 0	BELL TREE 36cb27dbf8d764b0
+preset PHYS 1	MARIMBA 892eb70b6a19a4ff
+preset PHYS 2	PLUCK 8e0e03028afc4635
+preset PHYS 3	BOWED METAL 47a33df2595a053e
+preset PHYS 4	KALIMBA d907c16b72e595b6
+preset PHYS 5	HAND DRUM 42471809f3b81c90
+preset PHYS 6	TOMS 3ae8bc715485250c
+preset PHYS 7	DRONE STRING 3c03cbdd9622285c
+preset PHYS 8	HARP 830921484f1b666d
+preset TRIO 0	FAT BASS f58239523138196e
+preset TRIO 1	ARP LEAD afb022dea92f1bf3
+preset TRIO 2	SYNC LEAD e53b28d13fd4f040
+preset TRIO 3	RING BELL f62f3c5ff17ae7d1
+preset TRIO 4	CHIP CHOIR 6d7c38daf9f7dfdf
+preset VOICE 0	CHOIR AAH 77467f8cf65d8b9
+preset VOICE 1	VOX LEAD ed719eb1cda72814
+preset VOICE 2	WOW BASS ecb0130061c387f4
+preset VOICE 3	WHISPER d33f5541e7c57f51
+preset WHEEL 0	FULL ORGAN c48775c96175aec6
+preset WHEEL 1	JAZZ PERC c036bd7fa56b727e
+preset WHEEL 2	GOSPEL acc55904641ac9d0
+preset WHEEL 3	SOFT FLUTE 14ba33dfc0cffcdf
+preset WHEEL 4	ROCK DRIVE 680164f239cb7a7d

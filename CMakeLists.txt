@@ -76,13 +76,14 @@ if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
 endif()
 set(FELUCCA_COPIES 16 CACHE STRING "How many Felucca instances play without sharing a copy (more share one, at some CPU cost)")
 set(SLOOP_COPIES 16 CACHE STRING "How many Sloop instances play without sharing a copy (more share one, at some CPU cost)")
+set(MELODEE_COPIES 16 CACHE STRING "How many Melodee instances play without sharing a copy (more share one, at some CPU cost)")
 # Sloop (engines/sloop: SLOOP 2.4.1, a fork of Felucca, GPL-3.0-only) is built the same way, from
 # sloop_core.c, behind the same API (felucca_core.h), into the same library.
 
 # fm1_core_copies(<kind> <tag> <copies>): engines/<kind>/<kind>_core.c compiled <copies> times, copy i
 # with the prefix <tag><i>_ and its own sections; <kind>_copies.inc declares them and lists their
 # functions (FeluccaEngine.cpp). What every copy reads and none writes is compiled once: the sample
-# sets (SMP_DATA) and the empty user sample slots, in <kind>_shared.c (<tag>_smp_data,
+# sets (SMP_DATA) and the empty user sample slots, if it has them, in <kind>_shared.c (<tag>_smp_data,
 # <tag>_no_samples); the copies include a felucca_samples.h written here from the vendored one, with
 # SMP_DATA declared, not defined (its contents left as an unused array the compiler drops).
 # Sets <kind>Objects in the caller.
@@ -92,28 +93,33 @@ function(fm1_core_copies kind tag copies)
     set(table "")
     set(objects "")
     set(samplesIn ${CMAKE_SOURCE_DIR}/engines/${kind}/generated/felucca_samples.h)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${samplesIn})
-    file(READ ${samplesIn} smp)
-    set(smpDecl "static const uint8_t SMP_DATA[")
-    string(FIND "${smp}" "${smpDecl}" at)
-    if(at LESS 0)
-        message(FATAL_ERROR "${kind}: felucca_samples.h has no SMP_DATA array (a new generator? see CMakeLists.txt)")
-    endif()
-    string(SUBSTRING "${smp}" ${at} -1 tail)
-    string(FIND "${tail}" "};" arrEnd)
-    math(EXPR arrEnd "${arrEnd} + 2")
-    string(SUBSTRING "${tail}" 0 ${arrEnd} array)
-    string(REPLACE "${smpDecl}" "const uint8_t ${tag}_smp_data[" array "${array}")
-    if(kind STREQUAL "sloop")
-        set(userSlots 4)   # (SLOOP 2.4: USR1-4; Felucca: 3)
+    if(NOT EXISTS ${samplesIn})   # (Melodee: no samples, no user sample slots)
+        file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
+             "/* written by CMakeLists.txt: ${kind} has no sample sets */\nconst int ${tag}_shared_none = 0;\n")
     else()
-        set(userSlots 3)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${samplesIn})
+        file(READ ${samplesIn} smp)
+        set(smpDecl "static const uint8_t SMP_DATA[")
+        string(FIND "${smp}" "${smpDecl}" at)
+        if(at LESS 0)
+            message(FATAL_ERROR "${kind}: felucca_samples.h has no SMP_DATA array (a new generator? see CMakeLists.txt)")
+        endif()
+        string(SUBSTRING "${smp}" ${at} -1 tail)
+        string(FIND "${tail}" "};" arrEnd)
+        math(EXPR arrEnd "${arrEnd} + 2")
+        string(SUBSTRING "${tail}" 0 ${arrEnd} array)
+        string(REPLACE "${smpDecl}" "const uint8_t ${tag}_smp_data[" array "${array}")
+        if(kind STREQUAL "sloop")
+            set(userSlots 4)   # (SLOOP 2.4: USR1-4; Felucca: 3)
+        else()
+            set(userSlots 3)
+        endif()
+        file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
+             "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
+             "const uint8_t ${tag}_no_samples[${userSlots}][0x14000] = {{0}};\n${array}\n")
+        string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
+        file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
     endif()
-    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
-         "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
-         "const uint8_t ${tag}_no_samples[${userSlots}][0x14000] = {{0}};\n${array}\n")
-    string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
-    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
     set(includes ${CMAKE_BINARY_DIR}/${kind}/shared ${CMAKE_SOURCE_DIR}/engines/${kind}/generated
                  ${CMAKE_SOURCE_DIR}/engines/felucca ${CMAKE_SOURCE_DIR}/engines/${kind})
     foreach(i RANGE 0 ${last})
@@ -206,8 +212,9 @@ if(FM1_BUILD_FELUCCA)
     endif()
     fm1_core_copies(felucca fel ${FELUCCA_COPIES})
     fm1_core_copies(sloop slp ${SLOOP_COPIES})
-    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects})
-    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop)
+    fm1_core_copies(melodee mel ${MELODEE_COPIES})
+    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects})
+    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
 
@@ -231,13 +238,19 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(felucca_regress PRIVATE -w -O2)
         target_link_libraries(felucca_regress PRIVATE m)
         add_test(NAME felucca_regress COMMAND felucca_regress ${CMAKE_SOURCE_DIR}/engines/felucca/upstream/tests/golden.txt no-cpu-budget)
-        # Sloop's (engines/sloop: Sloop 2.3, a fork of Felucca): 97 golden renders. Its CPU
+        # Sloop's (engines/sloop: Sloop 2.4.1, a fork of Felucca): its golden renders. Its CPU
         # budget is measured per host, so it is given no baseline (a missing file: notes only)
         add_executable(sloop_regress engines/sloop/upstream/tests/regress.c)
         target_include_directories(sloop_regress PRIVATE engines/sloop/generated engines/sloop/upstream/firmware/src)
         target_compile_options(sloop_regress PRIVATE -w -O2)
         target_link_libraries(sloop_regress PRIVATE m)
         add_test(NAME sloop_regress COMMAND sloop_regress ${CMAKE_SOURCE_DIR}/engines/sloop/upstream/tests/golden.txt no-cpu-budget)
+        # Melodee's (engines/melodee: Melodee 0.12, from Felucca 1.0): 158 golden renders, no CPU baseline
+        add_executable(melodee_regress engines/melodee/upstream/tests/regress.c)
+        target_include_directories(melodee_regress PRIVATE engines/melodee/generated engines/melodee/upstream/firmware/src)
+        target_compile_options(melodee_regress PRIVATE -w -O2)
+        target_link_libraries(melodee_regress PRIVATE m)
+        add_test(NAME melodee_regress COMMAND melodee_regress ${CMAKE_SOURCE_DIR}/engines/melodee/upstream/tests/golden.txt no-cpu-budget)
     endif()
     # the copies: independent, and playing
     add_executable(felucca_test tests/felucca_test.cpp)
@@ -248,6 +261,10 @@ if(FM1_BUILD_FELUCCA)
     target_link_libraries(sloop_test PRIVATE fm1_felucca)
     target_compile_definitions(sloop_test PRIVATE SLOOP_FROZEN="${CMAKE_SOURCE_DIR}/tests/sloop-frozen.txt")
     add_test(NAME sloop_test COMMAND sloop_test)
+    add_executable(melodee_test tests/melodee_test.cpp)
+    target_link_libraries(melodee_test PRIVATE fm1_felucca)
+    target_compile_definitions(melodee_test PRIVATE MELODEE_FROZEN="${CMAKE_SOURCE_DIR}/tests/melodee-frozen.txt")
+    add_test(NAME melodee_test COMMAND melodee_test)
 endif()
 endif()
 

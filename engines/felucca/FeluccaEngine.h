@@ -37,7 +37,7 @@ class FeluccaEngine {
 public:
     // Which firmware: Felucca, or SLOOP (engines/sloop, a fork of Felucca behind the same API,
     // with its own copies: SLOOP_COPIES)
-    enum class Flavor { Felucca, Sloop };
+    enum class Flavor { Felucca, Sloop, Melodee };
     static int copies(Flavor f = Flavor::Felucca);       // the compiled copies (instances beyond them share)
     static int copiesInUse(Flavor f = Flavor::Felucca);  // copies with at least one instance
     static int instances(Flavor f = Flavor::Felucca);    // instances, in all copies
