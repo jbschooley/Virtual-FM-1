@@ -546,10 +546,24 @@ static int checks() {
             CHECK(all && felucca::restore(eb, *all, {}, err), "restored into the other (" + err + ")");
             std::vector<uint8_t> slotC;
             CHECK(b->object(4, slotC) && slotC == music && b->engineOf(0) == 15 && tone(eb, 0) == edited, "its project, its music (the edited tone too)");
-            // live: values, an engine change and A4 carried; the tone-put's RELOAD is not carried back
+            // live: values, an engine change, a CZ-1 tone put and A4 carried, and a pattern bank switch;
+            // what a load on the other side pushes back (its RELOAD) is not carried back. A part's sound
+            // carried from A reads A's TRACK_DUMP, then B's; one carried back (a bounce) reads B's, then A's
+            struct Logging : felucca::Endpoint {
+                felucca::Endpoint& e;
+                std::string& log;
+                char me;
+                Logging(felucca::Endpoint& x, std::string& l, char c) : e(x), log(l), me(c) {}
+                const felucca::Dialect& dialect() const override { return e.dialect(); }
+                std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { if (felucca::commandOf(q) == felucca::kTrackDump) log += me; return e.ask(q, t); }
+                std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+            };
+            std::string dumps;
+            Logging ca(ea, dumps, 'a'), cb(eb, dumps, 'b');
+            auto bounces = [&] { int n = 0; for (size_t i = 0; i + 1 < dumps.size(); ++i) n += dumps[i] == 'b' && dumps[i + 1] == 'a'; return n; };
             std::vector<float> l(256), r(256);
             auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };
-            felucca::Mirror mirror(ea, eb);
+            felucca::Mirror mirror(ca, cb);
             CHECK(mirror.start(err), "live: both watched (" + err + ")");
             auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };
             a->select(2);   // (the device pushes its selected part's values, as the knobs edit it)
@@ -558,13 +572,51 @@ static int checks() {
             a->setGlobal(21, 430);
             settle(10);
             CHECK(b->param(2, 9) == 77 && b->global(21) == 430, "a value and A4 reach the other side");
+            dumps.clear();
             a->setEngine(2, 9);
             settle(20);
-            CHECK(b->engineOf(2) == 9, "an engine change on one side loads it on the other");
-            const int presetA = a->presetOf(2);
-            settle(20);
-            CHECK(a->engineOf(2) == 9 && a->presetOf(2) == presetA && err.isEmpty(), "no load bounces back (" + err + ")");
+            CHECK(b->engineOf(2) == 9 && dumps.find("ab") != std::string::npos, "an engine change on one side loads it on the other");
+            CHECK(bounces() == 0 && err.isEmpty(), "and the load does not bounce back (" + juce::String(dumps) + ", " + err + ")");
+            {   // a CZ-1 tone put on the device's part 3 (as its editor would): the other side gets it whole
+                auto t = tone(ea, 0);
+                std::vector<uint8_t> q = {0, 2};
+                t[2 * 129] = 'Z' & 15; t[2 * 129 + 1] = 'Z' >> 4;
+                q.insert(q.end(), t.begin(), t.end());
+                dumps.clear();
+                ea.ask(felucca::frame(felucca::kCzPut, q), 400);
+                settle(20);
+                CHECK(b->engineOf(2) == 15 && tone(eb, 2) == t, "a CZ-1 tone put on one side reaches the other");
+                CHECK(bounces() == 0 && err.isEmpty(), "and the tone put does not bounce back (" + juce::String(dumps) + ")");
+                juce::Thread::sleep(2100);   // (what the first put left expected lapses: 2 s)
+                settle(1);
+                q[2 + 2 * 130] = 'Y' & 15; q[2 + 2 * 130 + 1] = 'Y' >> 4;   // edited again: on preset 0 both sides, only the tone is put
+                dumps.clear();
+                ea.ask(felucca::frame(felucca::kCzPut, q), 400);
+                const std::vector<uint8_t> t2(q.begin() + 2, q.end());
+                settle(20);
+                CHECK(tone(eb, 2) == t2 && bounces() == 0 && err.isEmpty(), "edited again: carried, and that put does not bounce back either (" + juce::String(dumps) + ")");
+            }
+            {   // part 3 switched to pattern 6 on the device: the other side too, with that pattern's steps
+                felucca::Step st6;
+                st6.n = 1; st6.note = {72, 0, 0, 0}; st6.time = felucca::kNote; st6.vel = 80;
+                CHECK(felucca::selectPatternBank(ea, 2, 5), "part 3 on pattern 6");
+                ea.ask(felucca::stepWrite(ea.dialect(), 2, 9, st6), 400);
+                for (int i = 0; i < 40 && felucca::readPatternBank(eb, 2) != 5; ++i) settle(1);
+                const auto s9 = felucca::readStep(eb, 2, 9);
+                CHECK(felucca::readPatternBank(eb, 2) == 5 && s9 && s9->note[0] == 72, "a pattern bank switch reaches the other side, with that pattern");
+            }
             mirror.stop();
+        }
+        {   // a bank switch refused while the other side plays is not left queued there (it would switch at the bar)
+            auto c = std::make_shared<FeluccaEngine>(Fl::Melodee);
+            felucca::VirtualEndpoint ec(c);
+            std::vector<float> l(256), r(256);
+            c->transport(true);
+            for (int k = 0; k < 4; ++k) c->render(l.data(), r.data(), 256);
+            CHECK(c->playing() && !felucca::selectPatternBank(ec, 1, 3), "playing: a switch is not at once");
+            c->transport(false);
+            for (int k = 0; k < 8; ++k) c->render(l.data(), r.data(), 256);
+            CHECK(felucca::readPatternBank(ec, 1) == 0, "and stopped, the part is still on its pattern (the queued switch taken back)");
         }
         {   // host automation of SLOOP's own parameters ("slp_..."), and Felucca's left alone meanwhile
             FM1Processor au;
@@ -704,7 +756,7 @@ static int checks() {
             CHECK(b->engineOf(0) == 7, "an engine change on one side loads it on the other");
             const int presetA = a->presetOf(0), presetB = b->presetOf(0);
             settle(20);
-            CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB, "no load bounces back");
+            CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB, "both keep the loaded engine and presets");
             CHECK(err.isEmpty(), "no side stopped answering: " + err);
             mirror.stop();
         }
@@ -1691,7 +1743,7 @@ static int checks() {
             const int presetA = a->presetOf(0), presetB = b->presetOf(0);
             settle(20);   // nothing left to carry: the load's own echo is dropped, no ping-pong
             CHECK(a->engineOf(0) == 7 && a->presetOf(0) == presetA && b->presetOf(0) == presetB && a->param(0, 1) == 77,
-                  "no load bounces back");
+                  "both keep the loaded engine, presets and values");
             // 4 s of audio (Felucca's clock) with no request: watching lapsed; the mirror starts it again
             for (int k = 0; k < 700; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); }
             juce::Thread::sleep(2100);
@@ -2516,6 +2568,7 @@ static int migrate(const juce::File& source) {
 }
 
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);   // (unbuffered: a crash under ctest keeps what was printed)
     juce::ScopedJuceInitialiser_GUI init;
     setEnv("FM1_NO_DEVICE", "1");
     juce::String cmd = argc > 1 ? argv[1] : "";

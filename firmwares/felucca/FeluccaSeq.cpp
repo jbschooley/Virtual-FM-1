@@ -292,10 +292,14 @@ std::optional<int> readPatternBank(Endpoint& e, int track) {
     if (a.size() < 6 || a[0] != track) return std::nullopt;
     return int(a[3]);
 }
-bool selectPatternBank(Endpoint& e, int track, int bank) {
+bool selectPatternBank(Endpoint& e, int track, int bank, bool keepQueued) {
     auto r = e.ask(frame(kPatternCmd, {uint8_t(track), 1, uint8_t(bank)}), kAsk);
     const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
-    return a.size() >= 6 && a[0] == track && a[2] == 0 && a[3] == bank;
+    if (a.size() >= 6 && a[0] == track && a[2] == 0 && a[3] == bank) return true;
+    // playing: queued for the next bar. Not wanted then, it is taken back (a request for the bank
+    // playing clears the queued one)
+    if (!keepQueued && a.size() >= 6 && a[0] == track && a[4] == bank) e.ask(frame(kPatternCmd, {uint8_t(track), 1, a[3]}), kAsk);
+    return false;
 }
 
 // BANK_SONG: op (0 ask, 1 set, 2 play, 3 stop) [, count, count x (4 banks, repeat)] -> op, rc,

@@ -556,6 +556,20 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         // undo and section switches: the patterns again (up to each track's length; only what
         // differs is written)
         if (same && isSloop(from.ep.dialect())) return copyPatterns(from.ep, to.ep, 4, error, true);
+        // Melodee pushes RELOAD when the selected track switches pattern bank (its PATTERN key, a queued
+        // switch at the bar): the other side to the same bank, and that pattern (its LEN..GATE too: no
+        // CHANGED follows). The other side's RELOAD for it finds the banks alike. (A playing bank song
+        // switches banks itself: not carried, as its step pushes are not.)
+        if (isMelodee(from.ep.dialect()) && !chainPlays(from)) {
+            const auto bank = readPatternBank(from.ep, a[2]), there = readPatternBank(to.ep, a[2]);
+            if (!bank || !there) { error = "no answer to PATTERN"; return false; }
+            if (*bank != *there) {
+                if (!selectPatternBank(to.ep, a[2], *bank, true)) return true;   // (playing: it follows at the bar, queued)
+                auto p = readPattern(from.ep, a[2], error), known = readPattern(to.ep, a[2], error);
+                if (!p || !known) return false;
+                return writePattern(to.ep, a[2], *p, error, &*known);
+            }
+        }
         return true;
     }
     return true;

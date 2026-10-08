@@ -113,7 +113,9 @@ Bytes chainWrite(const std::vector<std::pair<int, int>>& rows);
 // (BANK_SONG, 74); SONG's rows set every track to one bank
 constexpr int kPatternBanks = 8, kPatternCmd = 73, kBankSong = 74;
 std::optional<int> readPatternBank(Endpoint& e, int track);         // the bank the track plays
-bool selectPatternBank(Endpoint& e, int track, int bank);           // now (stopped), else false
+// now (stopped), else false; playing, the switch is queued for the next bar: kept if keepQueued,
+// else taken back
+bool selectPatternBank(Endpoint& e, int track, int bank, bool keepQueued = false);
 struct BankRow {
     std::array<int, 4> banks{};   // per track
     int repeat = 1;               // 1..16
