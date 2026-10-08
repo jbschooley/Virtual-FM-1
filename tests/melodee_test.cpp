@@ -295,6 +295,29 @@ int main() {
         std::vector<uint8_t> none;
         CHECK(g.object(8, none) && none.empty() && !g.object(23, none), "object 8 retired (empty); none past 22");
 
+        {   // A4 is the device's setting (tuning_a4), not the song's: the API, the editor and the sound agree
+            f.setGlobal(21, 415);
+            auto get = request({2, 1, 21});
+            const int a4 = get.size() >= 9 ? (int(get[7]) | int(get[8]) << 7) - 8192 : -1;
+            CHECK(f.global(21) == 415 && a4 == 415, "A4 set through the API is the editor's A4 too");
+            request({3, 1, 21, uint8_t((432 + 8192) & 127), uint8_t((432 + 8192) >> 7)});
+            CHECK(f.global(21) == 432, "and the editor's A4 is the API's");
+            Mel x{kMel}, y{kMel};
+            y.setGlobal(21, 400);
+            CHECK(play(x, 1, 256, 60) != play(y, 1, 256, 60), "A4 changes the pitch");
+            f.setGlobal(21, 440);
+        }
+        {   // the kept globals (CLK TUNE MIDI ROUT) of a settings object put back are applied, as at power-on,
+            // and the settings stay as put (the instance's own are not saved back over them)
+            Mel src{kMel}, dst{kMel};
+            src.setGlobal(3, -5);
+            settle(4);
+            for (int k = 0; k < 120; ++k) src.render(l.data(), r.data(), 256);   // (its kept values saved: 1.5 s)
+            std::vector<uint8_t> set1, after;
+            CHECK(src.object(1, set1) && dst.putObject(1, set1) == 0 && dst.global(3) == -5, "TUNE comes with the settings object");
+            for (int k = 0; k < 500; ++k) dst.render(l.data(), r.data(), 256);
+            CHECK(dst.object(1, after) && after == set1, "and the settings stay as they were put");
+        }
         const auto names = f.buttonNames();
         const int play = int(std::find(names.begin(), names.end(), std::string("PLAY")) - names.begin());
         CHECK(play < int(names.size()) && !f.playing(), "a PLAY button; stopped at power-on");

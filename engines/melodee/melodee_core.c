@@ -487,11 +487,34 @@ void FEL(param_set)(uint32_t track, uint32_t id, int32_t v)
     if (d && d->max > d->min)
         trk[track].p[id] = (int16_t)clamp(v, d->min, d->max);
 }
-int32_t FEL(global_get)(uint32_t id) { return id < G_COUNT ? song.g[id] : 0; }
+/* three globals are the device's settings, not the song's (params.c's global page): A4 (tuning_a4),
+ * BOOT and the DRUM channel; set, they are saved as its GLO page saves them (ui_input.c) */
+int32_t FEL(global_get)(uint32_t id)
+{
+    if (id == G_A4)
+        return tuning_a4;
+    if (id == G_BOOT)
+        return settings_boot;
+    if (id == G_DRUMCH)
+        return settings_drumch;
+    return id < G_COUNT ? song.g[id] : 0;
+}
 void FEL(global_set)(uint32_t id, int32_t v)
 {
-    if (id < G_COUNT && GP[id].max > GP[id].min)
-        song.g[id] = (int16_t)clamp(v, GP[id].min, GP[id].max);
+    if (id >= G_COUNT || GP[id].max <= GP[id].min)
+        return;
+    v = clamp(v, GP[id].min, GP[id].max);
+    if (id == G_A4 || id == G_BOOT || id == G_DRUMCH) {
+        if (id == G_A4)
+            tuning_a4 = (int16_t)v;
+        else if (id == G_BOOT)
+            settings_boot = (uint8_t)v;
+        else
+            settings_drumch = (uint8_t)v;
+        settings_save();
+        return;
+    }
+    song.g[id] = (int16_t)v;
 }
 
 uint32_t FEL(engine_of)(uint32_t track) { return track < NTRK ? trk[track].eng_req : 0u; }
@@ -734,5 +757,8 @@ uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
     ed_bk_put = 0;
     ed_bk_valid = 0;
     ++proj_wire_gen;
+    if (id == 1u && rc == 0u)
+        glo_restore();                   /* the kept CLK TUNE MIDI ROUT, as the device applies them at power-on
+                                          * (else glo_poll would save the instance's own back over them) */
     return rc;
 }
