@@ -29,7 +29,7 @@
   `engines/sloop/UPSTREAM.md`, which also says how its icon atlas is taken.
 - **Melodee** (`engines/melodee/upstream`, generated tables, fonts, icons, FM6
   patches and CZ-1 tones in `engines/melodee/generated`): Kerem Kilic's FM-1
-  firmware, v0.12, built from Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita
+  firmware, v0.13, built from Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita
   (@kurogedelic), Hügelton Instruments, with modifications copyright 2026 Kerem
   Kilic. Parts of it come from others under their own licences, listed in its
   `LICENSING.md` with their texts in `upstream/LICENSES/`: msfa (Apache-2.0) and
@@ -43,6 +43,12 @@
   sound data for CZ-1 compatibility. As Melodee says, no licence is granted for
   them and the rights stay with Casio; they are carried here the same way. See
   `upstream/assets/cz1-factory/README.md` for where they come from.
+- **Sequential Prophet-5/10 factory programs v1.03** (`engines/melodee/upstream/assets/prophet5-factory/prophet5-v1.03.syx`,
+  compiled into `engines/melodee/generated/melodee_prophet_factory.h`): the 200
+  programs of Sequential's factory bank (Sequential, 2025), included with Melodee
+  as PROPHET's presets, as sound data for Prophet-5 compatibility. As Melodee
+  says, no licence is granted for them and the rights stay with Sequential; they
+  are carried here the same way. See `upstream/assets/prophet5-factory/README.md`.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.

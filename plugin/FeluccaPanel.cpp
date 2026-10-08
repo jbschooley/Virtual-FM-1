@@ -46,7 +46,7 @@ const GroupDef kSloopGroups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
-// Melodee 0.12's: Felucca 1.0's numbering, with the MPC pad's scale degree (DEG, 83) before the
+// Melodee 0.13's: Felucca 1.0's numbering, with the MPC pad's scale degree (DEG, 83) before the
 // engine's eight (84) and P_ED_FX (8) now the sequencer's playback quantize (QNT)
 const GroupDef kMelodeeGroups[] = {
     {"Engine", -1, -1},

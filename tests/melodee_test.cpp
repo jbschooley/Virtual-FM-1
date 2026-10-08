@@ -132,7 +132,7 @@ int main() {
     CHECK(FeluccaEngine::copies(kMel) >= 2, "there are Melodee copies to play");
     {
         const int copies = FeluccaEngine::copies(kMel), n = copies + 3;
-        const int engines[3] = {0, 15, 6};                            // ANALOG, CZ-1, TRIO
+        const int engines[3] = {19, 15, 3};                           // PROPHET, CZ-1, LOFI
         uint64_t alone[3];
         for (int e = 0; e < 3; ++e) { Mel x{kMel}; x.setEngine(0, engines[e]); alone[e] = play(x, 1, 256, 120); }
         std::vector<std::unique_ptr<FeluccaEngine>> all;
@@ -171,15 +171,17 @@ int main() {
     CHECK(FeluccaEngine::copiesInUse(kMel) == 0 && FeluccaEngine::instances(kMel) == 0, "every copy is given back");
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.4.1" && mel.version() == "v0.12" && fel.engines() == 14 && mel.engines() == 16,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.4.1" && mel.version() == "v0.13" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
     }
 
     // ---- what it is ----
     Mel a{kMel};
     CHECK(a.tracks() == 4 && a.parts() == 4, "four parts, each with any engine");
-    CHECK(a.engines() == 16 && a.enginesShown().size() == 11, "16 engine numbers (five retired), eleven to pick");
-    CHECK(a.engineName(0) == "ANALOG" && a.engineName(12) == "FM6" && a.engineName(15) == "CZ-1" && a.fm6Engine() == 12, "engines by name");
+    CHECK(a.engines() == 20 && a.enginesShown().size() == 8 && a.enginesShown()[0] == 19,
+          "20 engine numbers (0.13: PROPHET 19 first in the list; PHYS, TRIO, WHEEL retired), eight to pick");
+    CHECK(a.engineName(0) == "ANALOG" && a.engineName(12) == "FM6" && a.engineName(15) == "CZ-1" && a.engineName(19) == "PROPHET" && a.fm6Engine() == 12,
+          "engines by name");
     std::printf("  engines:");
     for (int e : a.enginesShown()) std::printf(" %s(%zu)", a.engineName(e).c_str(), a.presetNames(e).size());
     std::printf("\n");
@@ -187,6 +189,9 @@ int main() {
         const auto cz = a.presetNames(15);
         CHECK(cz.size() == 65 && std::count_if(cz.begin(), cz.end(), [](const std::string& n) { return !n.empty(); }) >= 64,
               "CZ-1: Casio's 64 factory tones (and its init tone)");
+        const auto p5 = a.presetNames(19);
+        CHECK(p5.size() == 201 && std::count_if(p5.begin(), p5.end(), [](const std::string& n) { return !n.empty(); }) >= 200,
+              "PROPHET: Sequential's 200 factory programs (and its init program)");
     }
     CHECK(a.engineName(a.engineOf(0)) == "ANALOG" && a.engineName(a.engineOf(1)) == "FM6" && a.engineName(a.engineOf(2)) == "LOFI"
           && a.engineName(a.engineOf(3)) == "DRUM", "power-on: ANALOG, FM6, LOFI, DRUM");
@@ -204,6 +209,13 @@ int main() {
         play(c, 1, 256, 200, &czRms);
         std::printf("  CZ-1 %s: rms %.4f\n", c.presetNames(15)[1].c_str(), czRms);
         CHECK(czRms > 0.001, "a CZ-1 factory tone sounds");
+        Mel p{kMel};
+        p.setEngine(0, 19);
+        p.applyPreset(0, 1);
+        double p5Rms = 0;
+        play(p, 1, 256, 200, &p5Rms);
+        std::printf("  PROPHET %s: rms %.4f\n", p.presetNames(19)[1].c_str(), p5Rms);
+        CHECK(p5Rms > 0.001, "a PROPHET factory program sounds");
     }
     a.reset();
     double silent = 0;
@@ -264,8 +276,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v0.12" && info[at] == 16 && info[at + 1] == 92 && info[at + 2] == 27 && info[at + 4] == 84,
-              "INFO answers, as Melodee 0.12 (16 engines, 92 parameters, 27 globals, P_E0 84)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v0.13" && info[at] == 20 && info[at + 1] == 92 && info[at + 2] == 27 && info[at + 4] == 84,
+              "INFO answers, as Melodee 0.13 (20 engines, 92 parameters, 27 globals, P_E0 84)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {
@@ -293,7 +305,9 @@ int main() {
         std::vector<uint8_t> cz, cz2;
         CHECK(g.object(9, cz) && cz.size() == 2332 && h.putObject(10, cz) == 0 && h.object(10, cz2) && cz2 == cz, "a CZ bank, kept and put back");
         std::vector<uint8_t> none;
-        CHECK(g.object(8, none) && none.empty() && !g.object(23, none), "object 8 retired (empty); none past 22");
+        std::vector<uint8_t> p5, p52;
+        CHECK(g.object(23, p5) && p5.size() == 3600 && h.putObject(24, p5) == 0 && h.object(24, p52) && p52 == p5, "a PROPHET user bank (0.13), kept and put back");
+        CHECK(g.object(8, none) && none.empty() && !g.object(28, none), "object 8 retired (empty); none past 27");
 
         {   // A4 is the device's setting (tuning_a4), not the song's: the API, the editor and the sound agree
             f.setGlobal(21, 415);

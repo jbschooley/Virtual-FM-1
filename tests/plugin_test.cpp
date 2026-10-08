@@ -221,13 +221,16 @@ static int checks() {
                 const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
                 CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
                       && fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is a choice");
+                const auto m13c = fm1::checkVersion(fm1::Identity{"FM-1", 9013, "MELODEE v0.13"});
+                CHECK(m13c.support == fm1::Support::Current && m13c.known && m13c.text == "FM-1_9013: Melodee 0.13", "0.13: the current one: " + m13c.text);
                 const auto mc = fm1::checkVersion(m12);
-                CHECK(mc.support == fm1::Support::Current && mc.known && mc.text == "FM-1_9012: Melodee 0.12", "0.12: the current one: " + mc.text);
-                const auto m13 = fm1::checkVersion(fm1::Identity{"FM-1", 9013, "MELODEE v0.13"});
+                CHECK(mc.support == fm1::Support::Older && mc.known && mc.text.find("update it to 0.13") != std::string::npos,
+                      "0.12: known, older, told to update for Send: " + mc.text);
+                const auto m14 = fm1::checkVersion(fm1::Identity{"FM-1", 9014, "MELODEE v0.14"});
                 const auto m11 = fm1::checkVersion(fm1::Identity{"FM-1", 9011, "MELODEE v0.11.1"});
-                CHECK(m13.newer && m13.support == fm1::Support::Current && m13.text.find("newer than the plugin's 0.12") != std::string::npos
-                      && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 0.12") != std::string::npos,
-                      "a newer one synced as 0.12, untried; an older one said to be older");
+                CHECK(m14.newer && m14.support == fm1::Support::Current && m14.text.find("newer than the plugin's 0.13") != std::string::npos
+                      && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 0.13") != std::string::npos,
+                      "a newer one synced as 0.13, untried; an older one said to be older");
                 auto prof = fm1::firmwareFor(m12);
                 CHECK(prof->name() == "Melodee" && prof->summary().contains("Pull, Send and Live") && !prof->has(fm1::Firmware::Feature::ReadPresets),
                       "its profile: Pull, Send and Live in its editor, as Felucca's");
@@ -418,9 +421,9 @@ static int checks() {
             p.setPlayConfigDetails(0, 2, 44100.0, 256);
             p.prepareToPlay(44100.0, 256);
             p.setFirmware("melodee");
-            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v0.12"
-                  && FeluccaEngine::copiesInUse(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 0.12, in a Melodee copy");
-            CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 0.12" && fm1::isFeluccaFamily("melodee"), "a firmware choice: Melodee 0.12");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v0.13"
+                  && FeluccaEngine::copiesInUse(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 0.13, in a Melodee copy");
+            CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 0.13" && fm1::isFeluccaFamily("melodee"), "a firmware choice: Melodee 0.13");
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0;
             for (int k = 0; k < 60; ++k) {
@@ -464,9 +467,9 @@ static int checks() {
                 felucca::Objects o;
                 juce::String err;
                 const auto json = juce::JSON::parse(file);
-                CHECK(json.getProperty("format", {}).toString() == "felucca-backup" && json.getProperty("firmware", {}).toString().startsWith("MELODEE v0.12")
-                      && felucca::readBackup(file, o, err, felucca::melodeeDialect()) && o.size() == 23 && o[3] == music && music.size() > 20000,
-                      "as Melodee's editor writes one: 23 objects, a whole project in its slot (" + err + ")");
+                CHECK(json.getProperty("format", {}).toString() == "felucca-backup" && json.getProperty("firmware", {}).toString().startsWith("MELODEE v0.13")
+                      && felucca::readBackup(file, o, err, felucca::melodeeDialect()) && o.size() == 28 && o[3] == music && music.size() > 20000,
+                      "as Melodee's editor writes one: 28 objects, a whole project in its slot (" + err + ")");
                 CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
                 auto e2 = std::make_shared<FeluccaEngine>(Fl::Melodee);
                 felucca::DeviceStore store2(file, felucca::melodeeDialect());
@@ -499,6 +502,14 @@ static int checks() {
             felucca::Loaded loaded;
             CHECK(felucca::copySound(ea, eb, 1, err, &loaded) && b->engineOf(1) == 15 && b->presetOf(1) == 5 && tone(eb, 1) == tone(ea, 1)
                   && !loaded.czTone, "a CZ-1 factory tone: its preset loaded on the other side (" + err + ")");
+            // a PROPHET program past 127 (0.13: its preset number's high bits too)
+            a->setEngine(3, 19);
+            a->applyPreset(3, 150);
+            loaded = {};
+            CHECK(a->presetOf(3) == 150 && felucca::copySound(ea, eb, 3, err, &loaded) && b->engineOf(3) == 19 && b->presetOf(3) == 150 && loaded.preset == 150,
+                  "a PROPHET program past 127 loaded on the other side as itself (" + err + ")");
+            loaded = {};
+            CHECK(felucca::copySound(ea, eb, 3, err, &loaded) && !loaded.did, "and again: nothing to load");
             // an edited tone (here its name): put whole, then every engine value, and nothing loaded again after
             auto edited = tone(ea, 0);
             a->setEngine(0, 15);
@@ -541,7 +552,7 @@ static int checks() {
             a->object(0, music);
             CHECK(a->putObject(4, music) == 0, "a project in slot C");
             auto all = felucca::backup(ea, {}, err);
-            CHECK(all && all->size() == 23 && (*all)[4] == music && (*all)[9].size() == 2332, "a full backup: 23 objects (" + err + ")");
+            CHECK(all && all->size() == 28 && (*all)[4] == music && (*all)[9].size() == 2332 && (*all)[23].size() == 3600, "a full backup: 28 objects (" + err + ")");
             all->erase(1);
             CHECK(all && felucca::restore(eb, *all, {}, err), "restored into the other (" + err + ")");
             std::vector<uint8_t> slotC;
@@ -573,10 +584,14 @@ static int checks() {
             settle(10);
             CHECK(b->param(2, 9) == 77 && b->global(21) == 430, "a value and A4 reach the other side");
             dumps.clear();
-            a->setEngine(2, 9);
+            a->setEngine(2, 19);   // (PROPHET)
             settle(20);
-            CHECK(b->engineOf(2) == 9 && dumps.find("ab") != std::string::npos, "an engine change on one side loads it on the other");
+            CHECK(b->engineOf(2) == 19 && dumps.find("ab") != std::string::npos, "an engine change on one side loads it on the other");
             CHECK(bounces() == 0 && err.isEmpty(), "and the load does not bounce back (" + juce::String(dumps) + ", " + err + ")");
+            dumps.clear();
+            a->applyPreset(2, 170);
+            settle(20);
+            CHECK(b->presetOf(2) == 170 && bounces() == 0 && err.isEmpty(), "a PROPHET program past 127 too, not bounced back (" + juce::String(dumps) + ")");
             {   // a CZ-1 tone put on the device's part 3 (as its editor would): the other side gets it whole
                 auto t = tone(ea, 0);
                 std::vector<uint8_t> q = {0, 2};

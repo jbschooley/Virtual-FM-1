@@ -245,7 +245,7 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(sloop_regress PRIVATE -w -O2)
         target_link_libraries(sloop_regress PRIVATE m)
         add_test(NAME sloop_regress COMMAND sloop_regress ${CMAKE_SOURCE_DIR}/engines/sloop/upstream/tests/golden.txt no-cpu-budget)
-        # Melodee's (engines/melodee: Melodee 0.12, from Felucca 1.0): 158 golden renders, no CPU baseline
+        # Melodee's (engines/melodee: Melodee 0.13, from Felucca 1.0): 340 golden renders, no CPU baseline
         add_executable(melodee_regress engines/melodee/upstream/tests/regress.c)
         target_include_directories(melodee_regress PRIVATE engines/melodee/generated engines/melodee/upstream/firmware/src)
         target_compile_options(melodee_regress PRIVATE -w -O2)

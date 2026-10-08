@@ -73,20 +73,39 @@ const Dialect& sloopDialect() {
     return d;
 }
 
-// Melodee 0.12 (keremimo/melodee, from Felucca 1.0): Felucca's backup commands and file format
-// ("felucca-backup", its INFO in "firmware"), with objects 0..22 (web/fm1backup.js BACKUP_IDS_NATIVE:
+// Melodee 0.13 (keremimo/melodee, from Felucca 1.0): Felucca's backup commands and file format
+// ("felucca-backup", its INFO in "firmware"), with objects 0..27 (web/fm1backup.js BACKUP_IDS_P5:
 // 0 the music, 1 the settings, 2..5 the projects, 6, 7, 17, 18 the user preset banks, 8 retired,
-// 9..16 the CZ banks, 19..22 the FM6 and native tone pools; no user samples). Its web editor restores
-// 2..22, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page); Live
+// 9..16 the CZ banks, 19..22 the FM6 and native tone pools, 23..27 the PROPHET user banks; no user
+// samples). Its web editor restores 2..27, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page); Live
 // carries its A4 (21) with the tempo, swing, tuning and effects.
 const Dialect& melodeeDialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22},
-                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 1, 0}, 22, true, "felucca-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
                            {0, 1, 3, 8, 9, 10, 11, 21, 24}};
     return d;
 }
 bool isMelodee(const Dialect& d) { return &d == &melodeeDialect(); }
+
+// Melodee 0.13: a preset number past 127 (PROPHET has 201) is its low 7 bits where the protocol
+// says "preset", and its high bits last (TRACK_DUMP, RELOAD; PRESET takes them as a third byte).
+// TRACK_DUMP: track, engine, preset, P_COUNT x v14 [, preset >> 7]
+static int dumpPreset(const std::vector<uint8_t>& a) {
+    return a.size() < 3 ? 0 : int(a[2]) | ((a.size() - 3) % 2 == 1 ? int(a.back()) << 7 : 0);
+}
+// RELOAD: engine, preset, track [, preset >> 7] (Melodee 0.12 and Felucca send no high bits)
+static Bytes reloadFrame(const Dialect& d, int engine, int preset, int track) {
+    std::vector<uint8_t> a = {uint8_t(engine), uint8_t(preset & 127), uint8_t(track)};
+    if (isMelodee(d)) a.push_back(uint8_t(preset >> 7));
+    return frame(kReload, a);
+}
+// two RELOADs naming the same: their high bits too if both carry them
+static bool sameReload(const Bytes& x, const Bytes& y) {
+    const auto a = argsOf(x), b = argsOf(y);
+    if (a.size() < 3 || b.size() < 3 || !std::equal(a.begin(), a.begin() + 3, b.begin())) return false;
+    return a.size() < 4 || b.size() < 4 || a[3] == b[3];
+}
 
 static bool mirroredGlobal(const Dialect& d, int id) {
     return std::find(d.mirroredGlobals.begin(), d.mirroredGlobals.end(), id) != d.mirroredGlobals.end();
@@ -121,12 +140,12 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     const bool sloop = isSloop(d);
     // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
-    // (Melodee's editor writes every object it has: 23 from 0.12, 21, 17 or 9 before)
+    // (Melodee's editor writes every object it has: 28 from 0.13, 23, 21, 17 or 9 before)
     const bool melodee = isMelodee(d);
-    const bool complete = objs && (sloop || (melodee ? objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
+    const bool complete = objs && (sloop || (melodee ? objs->size() == 28 || objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
                                                      : objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
     // Melodee's editor writes "felucca-backup" files too, with its own objects inside: told apart by
-    // the INFO it names ("MELODEE v0.12"), never restored into the other
+    // the INFO it names ("MELODEE v0.13"), never restored into the other
     if (v.getProperty("firmware", {}).toString().containsIgnoreCase("MELODEE") != melodee) {
         error = melodee ? "not a Melodee backup (a Felucca one)" : "a Melodee backup, not a Felucca one";
         return false;
@@ -139,8 +158,9 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         const int id = o.getProperty("id", -1), size = o.getProperty(sloop ? "len" : "size", -1);
         const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
         juce::MemoryOutputStream data;
-        // (as each editor allows: a sample 80 KB; Melodee's music and projects 27200 bytes; the rest 3840)
-        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? 27200 : 3840;
+        // (as each editor allows: a sample 80 KB; Melodee's music and projects 27752 bytes (0.13), its
+        // PROPHET banks 3600; the rest 3840)
+        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? 27752 : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
         if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
             error = "object " + juce::String(id) + " is damaged";
@@ -413,7 +433,7 @@ bool Mirror::start(juce::String& error) {
         if (ta.empty()) { error = "a synth did not say which track is selected"; return false; }
         s->sel = ta[0];
         if (auto d = s->ep.ask(frame(kTrackDump, {uint8_t(s->sel)}), kAsk); d && argsOf(*d).size() >= 3)   // (engine, preset)
-            s->lastReload = frame(kReload, {argsOf(*d)[1], argsOf(*d)[2], uint8_t(s->sel)});
+            s->lastReload = reloadFrame(s->ep.dialect(), argsOf(*d)[1], dumpPreset(argsOf(*d)), s->sel);
         s->pinged = juce::Time::getMillisecondCounter();
         s->ep.pushes();   // what was pending before: not ours to carry
     }
@@ -543,8 +563,8 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
     if (cmd == kReload && a.size() >= 3) {   // engine, preset, the selected track: a load or a new selection
         auto& echoes = from.echoes;
         for (auto it = echoes.begin(); it != echoes.end(); ++it)
-            if (it->first == push) { echoes.erase(it); from.lastReload = push; return true; }   // our own load, coming back
-        const bool same = push == from.lastReload;   // nothing it names changed: steps did (SLOOP)
+            if (sameReload(it->first, push)) { echoes.erase(it); from.lastReload = push; return true; }   // our own load, coming back
+        const bool same = sameReload(push, from.lastReload);   // nothing it names changed: steps did (SLOOP; Melodee: a bank)
         from.lastReload = push;
         from.sel = a[2];
         if (to.sel != a[2]) {
@@ -580,9 +600,9 @@ bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error
     const bool ok = copySound(from.ep, to.ep, track, error, &loaded);
     if (loaded.did && !(to.caps & kCapNoEcho)) {   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
         if (loaded.presetLoad)
-            to.echoes.push_back({frame(kReload, {loaded.engine, loaded.preset, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+            to.echoes.push_back({reloadFrame(to.ep.dialect(), loaded.engine, loaded.preset, track), juce::Time::getMillisecondCounter()});
         if (loaded.czTone)   // (Melodee: a CZ-1 tone put leaves the part on preset 0)
-            to.echoes.push_back({frame(kReload, {uint8_t(kMelodeeCz), 0, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+            to.echoes.push_back({reloadFrame(to.ep.dialect(), kMelodeeCz, 0, track), juce::Time::getMillisecondCounter()});
     }
     return ok;
 }
@@ -608,11 +628,14 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     // (a CZ-1 part with the same tone is the same sound whatever its preset number: an edited tone
     // put arrives as preset 0)
     const bool sameTone = cz && dst[1] == kMelodeeCz && tone(to) == srcTone;
-    if ((dst[1] != src[1] || dst[2] != src[2]) && !sameTone) {
+    const int srcPreset = dumpPreset(src);
+    if ((dst[1] != src[1] || dumpPreset(dst) != srcPreset) && !sameTone) {
         // PRESET loads into the selected part: that track is selected first
         if (!askAgain(to, frame(kTrack, {uint8_t(track)}))) { error = "no answer to TRACK"; return false; }
-        if (!to.ask(frame(kPreset, {src[1], src[2]}), kFlash)) { error = "no answer to PRESET"; return false; }
-        if (loaded) *loaded = {true, src[1], src[2], true, false};
+        std::vector<uint8_t> q = {src[1], uint8_t(srcPreset & 127)};
+        if (isMelodee(to.dialect()) && srcPreset > 127) q.push_back(uint8_t(srcPreset >> 7));   // (PROPHET: 201 presets)
+        if (!to.ask(frame(kPreset, q), kFlash)) { error = "no answer to PRESET"; return false; }
+        if (loaded) *loaded = {true, src[1], srcPreset, true, false};
         dst = dump(to);
     }
     if (cz && !sameTone && tone(to) != srcTone) {   // an edited tone: CZ_PUT 0, track, the nibbles (it resets the part's

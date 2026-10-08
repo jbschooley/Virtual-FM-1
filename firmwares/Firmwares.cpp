@@ -66,10 +66,12 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {900, "2.4", Support::Older, "synced as 2.4.1 (the same projects and protocol): update it to 2.4.1 with SLOOP's installer, which fixes imported FM6 patches with AMS playing noise"},
         {900, "2.4.1", Support::Current, ""},
     };
-    // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.12 FM-1_9012); its INFO
-    // names the release ("MELODEE v0.12")
+    // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
+    // names the release ("MELODEE v0.13")
     static const std::vector<KnownVersion> melodee = {
-        {9012, "0.12", Support::Current, ""},
+        // 0.12 has no PROPHET, and its projects are smaller than 0.13's (Send refuses them up front)
+        {9012, "0.12", Support::Older, "no PROPHET, and it cannot take 0.13's projects: update it to 0.13 with Melodee's installer to send to it"},
+        {9013, "0.13", Support::Current, ""},
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -110,7 +112,7 @@ std::string writesRefused(const Identity& id) {
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
-    if (c.firmwareId == "melodee") {   // its release from its INFO ("MELODEE v0.12"): Melodee changes often
+    if (c.firmwareId == "melodee") {   // its release from its INFO ("MELODEE v0.13"): Melodee changes often
         const auto& current = currentVersion("melodee");
         const auto at = id.editor.find("MELODEE v");
         const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 9);
@@ -120,6 +122,13 @@ VersionCheck checkVersion(const Identity& id) {
             c.text = id.name() + ": Melodee " + std::string(current.label);
             return c;
         }
+        for (const auto& v : knownVersions("melodee"))   // a release the plugin knows, other than the current one
+            if (release == v.label && &v != &current) {
+                c.known = &v;
+                c.support = v.support;
+                c.text = id.name() + ": Melodee " + release + ", " + v.note;
+                return c;
+            }
         // another release: projects and parameters may differ (Live compares the parameter counts
         // and refuses another numbering; Pull and Send go by Melodee's own objects, which it converts)
         c.known = nullptr;

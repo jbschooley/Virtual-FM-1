@@ -140,7 +140,7 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     all[0] = b;
     file_.getParentDirectory().createDirectory();
     juce::TemporaryFile tmp(file_);
-    // (Melodee's files name it as its INFO does, "MELODEE v0.12": its editor and readBackup tell them by that)
+    // (Melodee's files name it as its INFO does, "MELODEE v0.13": its editor and readBackup tell them by that)
     const juce::String made = (isMelodee(dialect_) ? "MELODEE " : "") + juce::String(f.version()) + " (Virtual FM-1)";
     if (!tmp.getFile().replaceWithText(backupJson(all, made, dialect_), false, false, "\n")
         || !tmp.overwriteTargetFileWithTemporary())
