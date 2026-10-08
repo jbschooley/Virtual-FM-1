@@ -662,8 +662,10 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     octDown_.onClick = [this] { lowNote_ = std::max(0, lowNote_ - 12); grid_->repaint(); };
     octUp_.onClick = [this] { lowNote_ = std::min(127 - rollRows_ + 1, lowNote_ + 12); grid_->repaint(); };
     for (auto* b : std::initializer_list<juce::Component*>{&play_, &pull_, &send_}) addAndMakeVisible(b);
-    pull_.setTooltip("Every track's pattern from the connected FM-1 (Felucca: and its song chain and motion)");
-    send_.setTooltip("Every track's pattern to the connected FM-1 (Felucca: and its song chain and motion); its RAM, not saved there");
+    pull_.setTooltip("Every track's pattern from the connected FM-1 (Felucca: and its song chain and motion; Melodee: the pattern bank "
+                     "each part plays, with its motion, and the song; not the other banks, which Pull on the Sync page brings)");
+    send_.setTooltip("Every track's pattern to the connected FM-1 (Felucca: and its song chain and motion; Melodee: the pattern bank "
+                     "each part plays, with its motion, and the song; not the other banks); its RAM, not saved there");
     pull_.onClick = [this] { proc_.feluccaPullPatterns(); };
     for (auto* b : {&importMidi_, &exportMidi_}) addAndMakeVisible(b);
     exportMidi_.setTooltip("Every track's pattern as a MIDI file: one pass of each, as the sequencer plays it (drum lanes on channel 10)");
