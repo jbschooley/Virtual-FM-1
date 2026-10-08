@@ -601,8 +601,8 @@ bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error
     if (loaded.did && !(to.caps & kCapNoEcho)) {   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
         if (loaded.presetLoad)
             to.echoes.push_back({reloadFrame(to.ep.dialect(), loaded.engine, loaded.preset, track), juce::Time::getMillisecondCounter()});
-        if (loaded.czTone)   // (Melodee: a CZ-1 tone put leaves the part on preset 0)
-            to.echoes.push_back({reloadFrame(to.ep.dialect(), kMelodeeCz, 0, track), juce::Time::getMillisecondCounter()});
+        if (loaded.nativeEngine >= 0)   // (Melodee: a CZ-1 tone or PROPHET patch put leaves the part on preset 0)
+            to.echoes.push_back({reloadFrame(to.ep.dialect(), loaded.nativeEngine, 0, track), juce::Time::getMillisecondCounter()});
     }
     return ok;
 }
@@ -611,40 +611,51 @@ bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error
 // tone, then every value that differs, then its FM6 patch.
 bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded) {
     auto dump = [&](Endpoint& s) { auto r = s.ask(frame(kTrackDump, {uint8_t(track)}), kAsk); return r ? argsOf(*r) : std::vector<uint8_t>{}; };
-    // Melodee: a CZ-1 part's tone (CZ_GET 0, track -> 0, track, rc, 144 bytes as nibbles, low first)
-    auto tone = [&](Endpoint& s) {
-        auto r = s.ask(frame(kCzGet, {0, uint8_t(track)}), kAsk);
-        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
-        return a.size() == 3 + 2 * size_t(kCzBytes) && a[0] == 0 && a[1] == track && a[2] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end())
-                                                                                                : std::vector<uint8_t>{};
-    };
     const auto src = dump(from);
     if (src.size() < 5) { error = "no answer to TRACK_DUMP"; return false; }
     auto dst = dump(to);
     if (dst.size() < 3) { error = "no answer to TRACK_DUMP"; return false; }
-    const bool cz = isMelodee(from.dialect()) && isMelodee(to.dialect()) && src[1] == kMelodeeCz;
-    const auto srcTone = cz ? tone(from) : std::vector<uint8_t>{};
-    if (cz && srcTone.empty()) { error = "no answer to CZ_GET"; return false; }
-    // (a CZ-1 part with the same tone is the same sound whatever its preset number: an edited tone
-    // put arrives as preset 0)
-    const bool sameTone = cz && dst[1] == kMelodeeCz && tone(to) == srcTone;
+    // Melodee: a CZ-1 or PROPHET part's own sound, beyond its parameters: CZ_GET 0, track -> 0, track,
+    // rc, 144 bytes as nibbles (low first); PROPHET (0.13) 95 0, track -> 1, rc, track, its patch as a
+    // Sequential dump without F0/F7. Each is put back whole (CZ_PUT 0, track, nibbles; 95 1, track,
+    // dump), which leaves the part on preset 0 with its engine values reset (copied below)
+    const int native = isMelodee(from.dialect()) && isMelodee(to.dialect()) && (src[1] == kMelodeeCz || src[1] == kMelodeeProphet) ? src[1] : -1;
+    auto own = [&](Endpoint& s) {
+        const bool cz = native == kMelodeeCz;
+        auto r = s.ask(cz ? frame(kCzGet, {0, uint8_t(track)}) : frame(kProphetCmd, {0, uint8_t(track)}), kAsk);
+        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+        if (cz) return a.size() == 3 + 2 * size_t(kCzBytes) && a[0] == 0 && a[1] == track && a[2] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end())
+                                                                                                         : std::vector<uint8_t>{};
+        return a.size() > 3 && a[0] == 1 && a[1] == 0 && a[2] == track ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{};
+    };
+    const auto srcOwn = native >= 0 ? own(from) : std::vector<uint8_t>{};
+    if (native >= 0 && srcOwn.empty()) { error = native == kMelodeeCz ? "no answer to CZ_GET" : "no answer to the PROPHET patch request"; return false; }
+    // (a part with the same tone or patch is the same sound whatever its preset number: one put
+    // arrives as preset 0)
+    const bool sameOwn = native >= 0 && dst[1] == native && own(to) == srcOwn;
     const int srcPreset = dumpPreset(src);
-    if ((dst[1] != src[1] || dumpPreset(dst) != srcPreset) && !sameTone) {
+    if ((dst[1] != src[1] || dumpPreset(dst) != srcPreset) && !sameOwn) {
         // PRESET loads into the selected part: that track is selected first
         if (!askAgain(to, frame(kTrack, {uint8_t(track)}))) { error = "no answer to TRACK"; return false; }
         std::vector<uint8_t> q = {src[1], uint8_t(srcPreset & 127)};
         if (isMelodee(to.dialect()) && srcPreset > 127) q.push_back(uint8_t(srcPreset >> 7));   // (PROPHET: 201 presets)
         if (!to.ask(frame(kPreset, q), kFlash)) { error = "no answer to PRESET"; return false; }
-        if (loaded) *loaded = {true, src[1], srcPreset, true, false};
+        if (loaded) *loaded = {true, src[1], srcPreset, true, -1};
         dst = dump(to);
     }
-    if (cz && !sameTone && tone(to) != srcTone) {   // an edited tone: CZ_PUT 0, track, the nibbles (it resets the part's
-        std::vector<uint8_t> q = {0, uint8_t(track)};   // engine values: they are copied below)
-        q.insert(q.end(), srcTone.begin(), srcTone.end());
-        auto r = to.ask(frame(kCzPut, q), kFlash);
+    if (native >= 0 && !sameOwn && own(to) != srcOwn) {   // edited, or a user slot's: put whole
+        const bool cz = native == kMelodeeCz;
+        std::vector<uint8_t> q = {uint8_t(cz ? 0 : 1), uint8_t(track)};
+        q.insert(q.end(), srcOwn.begin(), srcOwn.end());
+        auto r = to.ask(frame(cz ? kCzPut : kProphetCmd, q), kFlash);
         const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
-        if (a.size() < 3 || a[2] != 0) { error = a.size() < 3 ? "no answer to CZ_PUT" : "the CZ-1 tone was refused (rc " + juce::String(a[2]) + ")"; return false; }
-        if (loaded) { loaded->did = true; loaded->czTone = true; }
+        const int rc = a.size() >= 3 ? (cz ? a[2] : a[1]) : -1;
+        if (rc != 0) {
+            const juce::String what = cz ? "the CZ-1 tone" : "the PROPHET patch";
+            error = rc < 0 ? "no answer to " + what : what + " was refused (rc " + juce::String(rc) + ")";
+            return false;
+        }
+        if (loaded) { loaded->did = true; loaded->nativeEngine = native; }
         dst = dump(to);
     }
     // a release that added parameters adds them just before the engine's eight (core.h; SLOOP 2.3's

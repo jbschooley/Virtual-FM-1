@@ -113,10 +113,11 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 constexpr uint8_t kCapWatchKeeps = 1, kCapNoEcho = 2;
 uint8_t liveCaps(const std::vector<uint8_t>& infoArgs);
 
-// what copySound loaded on the other side: a preset, and (Melodee) a CZ-1 tone, which leaves the part
-// on preset 0 (each has the other side push a RELOAD)
-struct Loaded { bool did = false; uint8_t engine = 0; int preset = 0; bool presetLoad = false, czTone = false; };
+// what copySound loaded on the other side: a preset, and (Melodee) a part's own CZ-1 tone or PROPHET
+// patch, which leaves it on preset 0 (each has the other side push a RELOAD)
+struct Loaded { bool did = false; uint8_t engine = 0; int preset = 0; bool presetLoad = false; int nativeEngine = -1; };
 constexpr int kMelodeeCz = 15, kCzGet = 75, kCzPut = 76, kCzBytes = 144;   // Melodee's CZ-1 (core.h ENGI_CZ; editor_cz.c)
+constexpr int kMelodeeProphet = 19, kProphetCmd = 95;                       // Melodee 0.13's PROPHET (editor_prophet.c)
 bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded = nullptr);
 
 class Mirror {

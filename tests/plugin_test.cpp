@@ -501,7 +501,7 @@ static int checks() {
             a->applyPreset(1, 5);
             felucca::Loaded loaded;
             CHECK(felucca::copySound(ea, eb, 1, err, &loaded) && b->engineOf(1) == 15 && b->presetOf(1) == 5 && tone(eb, 1) == tone(ea, 1)
-                  && !loaded.czTone, "a CZ-1 factory tone: its preset loaded on the other side (" + err + ")");
+                  && loaded.nativeEngine < 0, "a CZ-1 factory tone: its preset loaded on the other side (" + err + ")");
             // a PROPHET program past 127 (0.13: its preset number's high bits too)
             a->setEngine(3, 19);
             a->applyPreset(3, 150);
@@ -510,6 +510,20 @@ static int checks() {
                   "a PROPHET program past 127 loaded on the other side as itself (" + err + ")");
             loaded = {};
             CHECK(felucca::copySound(ea, eb, 3, err, &loaded) && !loaded.did, "and again: nothing to load");
+            // a PROPHET part's own patch (here renamed: 95 op 3): put whole on the other side
+            auto patch = [](felucca::Endpoint& e, int track) {
+                auto r = e.ask(felucca::frame(felucca::kProphetCmd, {0, uint8_t(track)}), 400);
+                const auto x = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                return x.size() > 3 && x[1] == 0 ? std::vector<uint8_t>(x.begin() + 3, x.end()) : std::vector<uint8_t>{};
+            };
+            auto rn = ea.ask(felucca::frame(felucca::kProphetCmd, {3, 3, 'M', 'Y', ' ', 'P', 'R', 'O', 'G'}), 400);
+            CHECK(rn && felucca::argsOf(*rn).size() >= 2 && felucca::argsOf(*rn)[1] == 0 && !patch(ea, 3).empty() && patch(ea, 3) != patch(eb, 3),
+                  "a PROPHET part's patch renamed on one side");
+            loaded = {};
+            CHECK(felucca::copySound(ea, eb, 3, err, &loaded) && patch(eb, 3) == patch(ea, 3) && loaded.nativeEngine == 19 && b->engineOf(3) == 19,
+                  "copied: its patch whole (" + err + ")");
+            loaded = {};
+            CHECK(felucca::copySound(ea, eb, 3, err, &loaded) && !loaded.did, "copied again: nothing to load");
             // an edited tone (here its name): put whole, then every engine value, and nothing loaded again after
             auto edited = tone(ea, 0);
             a->setEngine(0, 15);
@@ -524,7 +538,7 @@ static int checks() {
                 CHECK(put && felucca::argsOf(*put).size() >= 3 && felucca::argsOf(*put)[2] == 0 && tone(ea, 0) == edited, "a tone edited on one side");
                 a->setParam(0, a->firstEngineParam() + 2, a->paramDesc(0, a->firstEngineParam() + 2).min + 1);
                 loaded = {};
-                CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && tone(eb, 0) == edited && loaded.czTone
+                CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && tone(eb, 0) == edited && loaded.nativeEngine == 15
                       && std::equal(dump(ea, 0).begin() + 3, dump(ea, 0).end(), dump(eb, 0).begin() + 3, dump(eb, 0).end()),
                       "copied: the edited tone, then every value (" + err + ")");
                 loaded = {};
@@ -610,6 +624,24 @@ static int checks() {
                 const std::vector<uint8_t> t2(q.begin() + 2, q.end());
                 settle(20);
                 CHECK(tone(eb, 2) == t2 && bounces() == 0 && err.isEmpty(), "edited again: carried, and that put does not bounce back either (" + juce::String(dumps) + ")");
+            }
+            {   // a PROPHET patch put on the device's part 3 (as a Sequential dump arrives): the other side gets it whole
+                auto get = [](felucca::Endpoint& e, int track) {
+                    auto r = e.ask(felucca::frame(felucca::kProphetCmd, {0, uint8_t(track)}), 400);
+                    const auto x = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                    return x.size() > 3 && x[1] == 0 ? std::vector<uint8_t>(x.begin() + 3, x.end()) : std::vector<uint8_t>{};
+                };
+                const auto mine = get(ea, 3);   // (part 4's renamed program, from above)
+                std::vector<uint8_t> q = {1, 2};
+                q.insert(q.end(), mine.begin(), mine.end());
+                juce::Thread::sleep(2100);   // (what the tone puts left expected lapses)
+                settle(1);
+                dumps.clear();
+                auto put = ea.ask(felucca::frame(felucca::kProphetCmd, q), 400);
+                settle(20);
+                CHECK(put && felucca::argsOf(*put).size() >= 2 && felucca::argsOf(*put)[1] == 0 && b->engineOf(2) == 19 && get(eb, 2) == mine,
+                      "a PROPHET patch put on one side reaches the other");
+                CHECK(bounces() == 0 && err.isEmpty(), "and it does not bounce back (" + juce::String(dumps) + ")");
             }
             {   // part 3 switched to pattern 6 on the device: the other side too, with that pattern's steps
                 felucca::Step st6;
