@@ -284,6 +284,45 @@ Bytes chainWrite(const std::vector<std::pair<int, int>>& rows) {
 
 Bytes chainPlay(bool play) { return frame(kSong, {uint8_t(play ? 2 : 3)}); }
 
+// PATTERN: track, op (0 ask, 1 switch to a bank, 2 copy one to another) [, bank [, to]] ->
+// track, op, rc, bank, the bank queued (127 none), NPAT. A switch while playing is queued.
+std::optional<int> readPatternBank(Endpoint& e, int track) {
+    auto r = e.ask(frame(kPatternCmd, {uint8_t(track), 0}), kAsk);
+    const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+    if (a.size() < 6 || a[0] != track) return std::nullopt;
+    return int(a[3]);
+}
+bool selectPatternBank(Endpoint& e, int track, int bank) {
+    auto r = e.ask(frame(kPatternCmd, {uint8_t(track), 1, uint8_t(bank)}), kAsk);
+    const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+    return a.size() >= 6 && a[0] == track && a[2] == 0 && a[3] == bank;
+}
+
+// BANK_SONG: op (0 ask, 1 set, 2 play, 3 stop) [, count, count x (4 banks, repeat)] -> op, rc,
+// count, running, row, remaining, count x (4 banks, repeat)
+std::optional<BankChain> readBankChain(Endpoint& e) {
+    auto r = e.ask(frame(kBankSong, {0}), kAsk);
+    const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+    if (a.size() < 6 || a[0] != 0) return std::nullopt;
+    BankChain c;
+    c.running = a[3] != 0;
+    for (size_t i = 0; i < a[2] && 6 + 5 * i + 4 < a.size(); ++i) {
+        BankRow row;
+        for (int k = 0; k < 4; ++k) row.banks[size_t(k)] = a[6 + 5 * i + size_t(k)];
+        row.repeat = a[6 + 5 * i + 4];
+        c.rows.push_back(row);
+    }
+    return c;
+}
+Bytes bankChainWrite(const std::vector<BankRow>& rows) {
+    std::vector<uint8_t> a = {1, uint8_t(rows.size())};
+    for (const auto& row : rows) {
+        for (int b : row.banks) a.push_back(uint8_t(b));
+        a.push_back(uint8_t(row.repeat));
+    }
+    return frame(kBankSong, a);
+}
+
 std::optional<Motion> readMotion(Endpoint& e, int track) {
     auto r = e.ask(frame(kMotion, {uint8_t(track)}), kAsk);
     if (!r) return std::nullopt;
@@ -309,6 +348,57 @@ Bytes motionDelete(int track, int step, int param) { return frame(kMotion, {uint
 bool motionParam(int id) {
     return id >= 0 && id < 91 && (id <= 4 || (id >= 5 && id <= 16) || (id >= 33 && id <= 36) || id == 38 || id == 39
                                   || id == 44 || (id >= 61 && id <= 80) || id >= 83);
+}
+
+// Copies the patterns (Felucca: and its chain and motion) between the two, from -> to
+bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, const Progress& progress) {
+    const bool sloop = isSloop(from.dialect());
+    std::optional<Chain> chain;
+    if (!sloop) {   // Felucca: while a song chain plays, its steps are the chain's and a write is not taken
+        chain = readChain(from);
+        auto there = readChain(to);
+        if (!chain || !there) { err = "no answer to SONG"; return false; }
+        if (chain->running || there->running) { err = "a song chain is playing: stop it first"; return false; }
+    }
+    const bool melodee = isMelodee(from.dialect());
+    if (melodee)   // Melodee: each track plays one of its 8 pattern banks; the other side's goes to the same first
+        for (int t = 0; t < tracks; ++t) {
+            const auto bank = readPatternBank(from, t), there = readPatternBank(to, t);
+            if (!bank || !there) { err = "no answer to PATTERN"; return false; }
+            if (*there != *bank && !selectPatternBank(to, t, *bank)) {
+                err = "part " + juce::String(t + 1) + " could not switch to pattern " + juce::String(*bank + 1) + " (stop the transport first)";
+                return false;
+            }
+        }
+    if (!copyPatterns(from, to, tracks, err, false, progress)) return false;
+    if (sloop) return true;   // (SLOOP's chain is in its settings: not carried)
+    auto rc = [](const std::optional<fm1::Bytes>& r) { auto a = r ? argsOf(*r) : std::vector<uint8_t>{}; return a.size() >= 2 ? int(a[1]) : -1; };
+    if (melodee) {   // its song: a bank for each track on each row (SONG would set every track to one)
+        auto song = readBankChain(from);
+        if (!song) { err = "no answer to BANK_SONG"; return false; }
+        if (int c = rc(to.ask(bankChainWrite(song->rows), 4000)); c != 0) { err = c < 0 ? "no answer to BANK_SONG" : "the song was refused (rc " + juce::String(c) + ")"; return false; }
+    } else if (int c = rc(to.ask(chainWrite(chain->rows), 4000)); c != 0) {
+        err = c < 0 ? "no answer to SONG" : "the song chain was refused (rc " + juce::String(c) + ")";
+        return false;
+    }
+    for (int t = 0; t < tracks; ++t) {
+        auto src = readMotion(from, t), dst = readMotion(to, t);
+        if (!src || !dst) { err = "no answer to MOTION"; return false; }
+        if (src->events.size() == dst->events.size() && src->on == dst->on
+            && std::equal(src->events.begin(), src->events.end(), dst->events.begin(),
+                          [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value; }))
+            continue;
+        auto motion = [&](const fm1::Bytes& q) {
+            const int c = rc(to.ask(q, 4000));
+            if (c != 0) err = c < 0 ? juce::String("no answer to MOTION") : "motion was refused (rc " + juce::String(c) + (c == 2 ? ": its 64 events are taken" : "") + ")";
+            return c == 0;
+        };
+        if (!motion(motionClear(t))) return false;
+        for (auto& e : src->events)
+            if (!motion(motionSet(t, e.step, e.param, e.value))) return false;
+        if (!motion(motionOn(t, src->on))) return false;
+    }
+    return true;
 }
 
 }  // namespace felucca

@@ -110,9 +110,23 @@ std::string writesRefused(const Identity& id) {
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
-    if (c.firmwareId == "melodee") {   // recognised; an instance plays Melodee, but does not sync with one yet
-        c.support = Support::Deprecated;
-        c.text = id.name() + ": " + id.editor + ", which the plugin does not sync with yet";
+    if (c.firmwareId == "melodee") {   // its release from its INFO ("MELODEE v0.12"): Melodee changes often
+        const auto& current = currentVersion("melodee");
+        const auto at = id.editor.find("MELODEE v");
+        const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 9);
+        c.known = &current;
+        c.support = current.support;
+        if (release.empty() || release == current.label) {
+            c.text = id.name() + ": Melodee " + std::string(current.label);
+            return c;
+        }
+        // another release: projects and parameters may differ (Live compares the parameter counts
+        // and refuses another numbering; Pull and Send go by Melodee's own objects, which it converts)
+        c.known = nullptr;
+        c.newer = sloopNewer(release, current.label);
+        c.text = id.name() + ": Melodee " + release + (c.newer ? ", newer than the plugin's " : ", older than the plugin's ") + current.label
+               + "; synced as " + current.label + " (not tried). Update both to the same release for the same sounds";
+        if (!c.newer) c.support = Support::Older;
         return c;
     }
     if (c.firmwareId == "sloop") {   // its release from its INFO ("FELUCCA SLOOP 2.3")
@@ -233,7 +247,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     if (which == "fm1_stock") f = makeStockFirmware();
     else if (which == "felucca") f = makeFeluccaFirmware();
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
-    else if (which == "melodee") f = makeUnsupportedFirmware("Melodee");
+    else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

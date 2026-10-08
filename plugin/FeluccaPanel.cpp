@@ -689,8 +689,10 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     // in the firmware's own terms: Felucca's music and user presets with their FM6 patches, SLOOP's working project
     auto held = proc_.felucca();
     const juce::String name = held ? juce::String(felucca::dialectOf(*held).name) : juce::String("Felucca");
-    const bool fm6 = !held || !felucca::isSloop(felucca::dialectOf(*held));   // (Felucca's wording)
-    const juce::String all = fm6 ? "the music, its four projects and the user presets (with their FM6 patches)" : "the working project, projects A-D, user presets and FM6 bank";
+    const auto* dl = held ? &felucca::dialectOf(*held) : &felucca::feluccaDialect();
+    const juce::String all = felucca::isSloop(*dl) ? "the working project, projects A-D, user presets and FM6 bank"
+                           : felucca::isMelodee(*dl) ? "the music (all its pattern banks), its four projects, the user presets, CZ banks and FM6 tones"
+                                                     : "the music, its four projects and the user presets (with their FM6 patches)";
     about_.setText("An FM-1 running " + name + ", connected with Find FM-1 (or the MIDI menus): pull everything from it, "
                    "send everything to it, or follow it live.", juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);

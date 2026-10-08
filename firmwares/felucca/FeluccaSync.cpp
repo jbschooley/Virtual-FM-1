@@ -77,12 +77,13 @@ const Dialect& sloopDialect() {
 // ("felucca-backup", its INFO in "firmware"), with objects 0..22 (web/fm1backup.js BACKUP_IDS_NATIVE:
 // 0 the music, 1 the settings, 2..5 the projects, 6, 7, 17, 18 the user preset banks, 8 retired,
 // 9..16 the CZ banks, 19..22 the FM6 and native tone pools; no user samples). Its web editor restores
-// 2..22, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page).
+// 2..22, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page); Live
+// carries its A4 (21) with the tempo, swing, tuning and effects.
 const Dialect& melodeeDialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22},
                            {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 1, 0}, 22, true, "felucca-backup",
-                           {0, 1, 3, 8, 9, 10, 11, 24}};
+                           {0, 1, 3, 8, 9, 10, 11, 21, 24}};
     return d;
 }
 bool isMelodee(const Dialect& d) { return &d == &melodeeDialect(); }
@@ -563,24 +564,50 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
 bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error) {
     Loaded loaded;
     const bool ok = copySound(from.ep, to.ep, track, error, &loaded);
-    if (loaded.did && !(to.caps & kCapNoEcho))   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
-        to.echoes.push_back({frame(kReload, {loaded.engine, loaded.preset, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+    if (loaded.did && !(to.caps & kCapNoEcho)) {   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
+        if (loaded.presetLoad)
+            to.echoes.push_back({frame(kReload, {loaded.engine, loaded.preset, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+        if (loaded.czTone)   // (Melodee: a CZ-1 tone put leaves the part on preset 0)
+            to.echoes.push_back({frame(kReload, {uint8_t(kMelodeeCz), 0, uint8_t(track)}), juce::Time::getMillisecondCounter()});
+    }
     return ok;
 }
 
-// A track's sound from one side to the other: its engine and preset (a load), then every value
-// that differs, then its FM6 patch.
+// A track's sound from one side to the other: its engine and preset (a load), (Melodee) its CZ-1
+// tone, then every value that differs, then its FM6 patch.
 bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded) {
     auto dump = [&](Endpoint& s) { auto r = s.ask(frame(kTrackDump, {uint8_t(track)}), kAsk); return r ? argsOf(*r) : std::vector<uint8_t>{}; };
+    // Melodee: a CZ-1 part's tone (CZ_GET 0, track -> 0, track, rc, 144 bytes as nibbles, low first)
+    auto tone = [&](Endpoint& s) {
+        auto r = s.ask(frame(kCzGet, {0, uint8_t(track)}), kAsk);
+        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+        return a.size() == 3 + 2 * size_t(kCzBytes) && a[0] == 0 && a[1] == track && a[2] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end())
+                                                                                                : std::vector<uint8_t>{};
+    };
     const auto src = dump(from);
     if (src.size() < 5) { error = "no answer to TRACK_DUMP"; return false; }
     auto dst = dump(to);
     if (dst.size() < 3) { error = "no answer to TRACK_DUMP"; return false; }
-    if (dst[1] != src[1] || dst[2] != src[2]) {
+    const bool cz = isMelodee(from.dialect()) && isMelodee(to.dialect()) && src[1] == kMelodeeCz;
+    const auto srcTone = cz ? tone(from) : std::vector<uint8_t>{};
+    if (cz && srcTone.empty()) { error = "no answer to CZ_GET"; return false; }
+    // (a CZ-1 part with the same tone is the same sound whatever its preset number: an edited tone
+    // put arrives as preset 0)
+    const bool sameTone = cz && dst[1] == kMelodeeCz && tone(to) == srcTone;
+    if ((dst[1] != src[1] || dst[2] != src[2]) && !sameTone) {
         // PRESET loads into the selected part: that track is selected first
         if (!askAgain(to, frame(kTrack, {uint8_t(track)}))) { error = "no answer to TRACK"; return false; }
         if (!to.ask(frame(kPreset, {src[1], src[2]}), kFlash)) { error = "no answer to PRESET"; return false; }
-        if (loaded) *loaded = {true, src[1], src[2]};
+        if (loaded) *loaded = {true, src[1], src[2], true, false};
+        dst = dump(to);
+    }
+    if (cz && !sameTone && tone(to) != srcTone) {   // an edited tone: CZ_PUT 0, track, the nibbles (it resets the part's
+        std::vector<uint8_t> q = {0, uint8_t(track)};   // engine values: they are copied below)
+        q.insert(q.end(), srcTone.begin(), srcTone.end());
+        auto r = to.ask(frame(kCzPut, q), kFlash);
+        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+        if (a.size() < 3 || a[2] != 0) { error = a.size() < 3 ? "no answer to CZ_PUT" : "the CZ-1 tone was refused (rc " + juce::String(a[2]) + ")"; return false; }
+        if (loaded) { loaded->did = true; loaded->czTone = true; }
         dst = dump(to);
     }
     // a release that added parameters adds them just before the engine's eight (core.h; SLOOP 2.3's

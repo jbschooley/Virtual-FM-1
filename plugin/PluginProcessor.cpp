@@ -1157,7 +1157,11 @@ static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Di
 }
 
 // what a full Pull or Send moves, said in the firmware's terms
-static juce::String everything(const felucca::Dialect& d) { return !felucca::isSloop(d) ? "music, projects and user presets (with their FM6 patches)" : "working project, projects A-D, user presets and FM6 bank"; }
+static juce::String everything(const felucca::Dialect& d) {
+    return felucca::isSloop(d) ? "working project, projects A-D, user presets and FM6 bank"
+         : felucca::isMelodee(d) ? "music, projects, user presets, CZ banks and FM6 tones"
+                                 : "music, projects and user presets (with their FM6 patches)";
+}
 
 bool FM1Processor::feluccaPull() {
     auto f = felucca();
@@ -1286,40 +1290,6 @@ std::optional<fm1::Bytes> FM1Processor::feluccaEdit(const fm1::Bytes& request) {
     return reply;
 }
 
-// Copies the patterns (Felucca: and its chain and motion) between the two, from -> to
-static bool copySequencer(felucca::Endpoint& from, felucca::Endpoint& to, int tracks, juce::String& err, const felucca::Progress& progress) {
-    const bool sloop = felucca::isSloop(from.dialect());
-    std::optional<felucca::Chain> chain;
-    if (!sloop) {   // Felucca: while a song chain plays, its steps are the chain's and a write is not taken
-        chain = felucca::readChain(from);
-        auto there = felucca::readChain(to);
-        if (!chain || !there) { err = "no answer to SONG"; return false; }
-        if (chain->running || there->running) { err = "a song chain is playing: stop it first"; return false; }
-    }
-    if (!felucca::copyPatterns(from, to, tracks, err, false, progress)) return false;
-    if (sloop) return true;   // (SLOOP's chain is in its settings: not carried)
-    auto rc = [](const std::optional<fm1::Bytes>& r) { auto a = r ? felucca::argsOf(*r) : std::vector<uint8_t>{}; return a.size() >= 2 ? int(a[1]) : -1; };
-    if (int c = rc(to.ask(felucca::chainWrite(chain->rows), 4000)); c != 0) { err = c < 0 ? "no answer to SONG" : "the song chain was refused (rc " + juce::String(c) + ")"; return false; }
-    for (int t = 0; t < tracks; ++t) {
-        auto src = felucca::readMotion(from, t), dst = felucca::readMotion(to, t);
-        if (!src || !dst) { err = "no answer to MOTION"; return false; }
-        if (src->events.size() == dst->events.size() && src->on == dst->on
-            && std::equal(src->events.begin(), src->events.end(), dst->events.begin(),
-                          [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value; }))
-            continue;
-        auto motion = [&](const fm1::Bytes& q) {
-            const int c = rc(to.ask(q, 4000));
-            if (c != 0) err = c < 0 ? juce::String("no answer to MOTION") : "motion was refused (rc " + juce::String(c) + (c == 2 ? ": its 64 events are taken" : "") + ")";
-            return c == 0;
-        };
-        if (!motion(felucca::motionClear(t))) return false;
-        for (auto& e : src->events)
-            if (!motion(felucca::motionSet(t, e.step, e.param, e.value))) return false;
-        if (!motion(felucca::motionOn(t, src->on))) return false;
-    }
-    return true;
-}
-
 bool FM1Processor::feluccaPullPatterns() {
     auto f = felucca();
     if (!f || !feluccaSynth()) return false;
@@ -1328,7 +1298,7 @@ bool FM1Processor::feluccaPullPatterns() {
         felucca::VirtualEndpoint mine(f);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
-        if (!copySequencer(synth, mine, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Could not read the patterns: " + err + "."};
+        if (!felucca::copySequencer(synth, mine, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Could not read the patterns: " + err + "."};
         felResync_ = true;
         return Fm1Session::JobResult{true, "Pulled the FM-1's patterns."};
     });
@@ -1342,7 +1312,7 @@ bool FM1Processor::feluccaSendPatterns() {
         felucca::VirtualEndpoint mine(f);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
-        if (!copySequencer(mine, synth, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Sending the patterns stopped: " + err + "."};
+        if (!felucca::copySequencer(mine, synth, f->tracks(), err, progress)) return Fm1Session::JobResult{false, "Sending the patterns stopped: " + err + "."};
         return Fm1Session::JobResult{true, "Sent the patterns to the FM-1 (not saved there)."};
     });
 }

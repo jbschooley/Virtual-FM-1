@@ -108,6 +108,25 @@ struct Chain {
 };
 std::optional<Chain> readChain(Endpoint& e);
 Bytes chainWrite(const std::vector<std::pair<int, int>>& rows);
+
+// Melodee: each track has 8 pattern banks (PATTERN, 73), and its song's rows name a bank per track
+// (BANK_SONG, 74); SONG's rows set every track to one bank
+constexpr int kPatternBanks = 8, kPatternCmd = 73, kBankSong = 74;
+std::optional<int> readPatternBank(Endpoint& e, int track);         // the bank the track plays
+bool selectPatternBank(Endpoint& e, int track, int bank);           // now (stopped), else false
+struct BankRow {
+    std::array<int, 4> banks{};   // per track
+    int repeat = 1;               // 1..16
+    bool operator==(const BankRow&) const = default;
+};
+struct BankChain { bool running = false; std::vector<BankRow> rows; };
+std::optional<BankChain> readBankChain(Endpoint& e);
+Bytes bankChainWrite(const std::vector<BankRow>& rows);
+
+// Pull or Send of the patterns, from -> to: every track's pattern (Melodee: the pattern bank it
+// plays, the other side switched to it first), and Felucca's song chain or Melodee's bank song, and
+// each track's motion (SLOOP: its patterns only)
+bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, const Progress& progress = {});
 Bytes chainPlay(bool play);
 
 // Felucca's motion (MOTION, 64): a track's recorded parameter events

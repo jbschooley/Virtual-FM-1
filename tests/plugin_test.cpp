@@ -217,17 +217,20 @@ static int checks() {
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
                   && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.4.1",
                   "an FM-1 running SLOOP is SLOOP, a choice (2.4.1) played like Felucca");
-            {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): recognised; an instance plays
-                // it, but an FM-1 running it is not synced with yet
+            {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): told apart, played and synced
                 const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
                 CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
                       && fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is a choice");
                 const auto mc = fm1::checkVersion(m12);
-                CHECK(mc.support == fm1::Support::Deprecated && mc.text.find("MELODEE v0.12, which the plugin does not sync with yet") != std::string::npos,
-                      "and an FM-1 running it is not synced with: " + mc.text);
+                CHECK(mc.support == fm1::Support::Current && mc.known && mc.text == "FM-1_9012: Melodee 0.12", "0.12: the current one: " + mc.text);
+                const auto m13 = fm1::checkVersion(fm1::Identity{"FM-1", 9013, "MELODEE v0.13"});
+                const auto m11 = fm1::checkVersion(fm1::Identity{"FM-1", 9011, "MELODEE v0.11.1"});
+                CHECK(m13.newer && m13.support == fm1::Support::Current && m13.text.find("newer than the plugin's 0.12") != std::string::npos
+                      && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 0.12") != std::string::npos,
+                      "a newer one synced as 0.12, untried; an older one said to be older");
                 auto prof = fm1::firmwareFor(m12);
-                CHECK(prof->name() == "Melodee" && !prof->has(fm1::Firmware::Feature::ReadPresets) && !prof->has(fm1::Firmware::Feature::WritePatterns),
-                      "its profile does nothing");
+                CHECK(prof->name() == "Melodee" && prof->summary().contains("Pull, Send and Live") && !prof->has(fm1::Firmware::Feature::ReadPresets),
+                      "its profile: Pull, Send and Live in its editor, as Felucca's");
                 const auto f = juce::File::createTempFile(".json");
                 f.replaceWithText(R"({"format": "felucca-backup", "version": 1, "firmware": "MELODEE v0.12", "objects": []})");
                 felucca::Objects o;
@@ -476,6 +479,92 @@ static int checks() {
                 file.deleteFile();
                 felFile.deleteFile();
             }
+        }
+        {   // syncing two Melodee devices through its editor protocol (as with an FM-1 running it)
+            auto a = std::make_shared<FeluccaEngine>(Fl::Melodee), b = std::make_shared<FeluccaEngine>(Fl::Melodee);
+            felucca::VirtualEndpoint ea(a), eb(b);
+            juce::String err;
+            auto tone = [](felucca::Endpoint& e, int track) {
+                auto r = e.ask(felucca::frame(felucca::kCzGet, {0, uint8_t(track)}), 400);
+                const auto x = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                return x.size() > 3 ? std::vector<uint8_t>(x.begin() + 3, x.end()) : std::vector<uint8_t>{};
+            };
+            auto dump = [](felucca::Endpoint& e, int track) {
+                auto r = e.ask(felucca::frame(felucca::kTrackDump, {uint8_t(track)}), 400);
+                return r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+            };
+            // a factory CZ-1 tone: loaded by its preset, which stays
+            a->setEngine(1, 15);
+            a->applyPreset(1, 5);
+            felucca::Loaded loaded;
+            CHECK(felucca::copySound(ea, eb, 1, err, &loaded) && b->engineOf(1) == 15 && b->presetOf(1) == 5 && tone(eb, 1) == tone(ea, 1)
+                  && !loaded.czTone, "a CZ-1 factory tone: its preset loaded on the other side (" + err + ")");
+            // an edited tone (here its name): put whole, then every engine value, and nothing loaded again after
+            auto edited = tone(ea, 0);
+            a->setEngine(0, 15);
+            a->applyPreset(0, 3);
+            edited = tone(ea, 0);
+            CHECK(edited.size() == 288, "CZ_GET gives a part's tone (144 bytes as nibbles)");
+            if (edited.size() == 288) {
+                edited[2 * 128] = 'Q' & 15; edited[2 * 128 + 1] = 'Q' >> 4;   // the first letter of its name
+                std::vector<uint8_t> q = {0, 0};
+                q.insert(q.end(), edited.begin(), edited.end());
+                auto put = ea.ask(felucca::frame(felucca::kCzPut, q), 400);
+                CHECK(put && felucca::argsOf(*put).size() >= 3 && felucca::argsOf(*put)[2] == 0 && tone(ea, 0) == edited, "a tone edited on one side");
+                a->setParam(0, a->firstEngineParam() + 2, a->paramDesc(0, a->firstEngineParam() + 2).min + 1);
+                loaded = {};
+                CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && tone(eb, 0) == edited && loaded.czTone
+                      && std::equal(dump(ea, 0).begin() + 3, dump(ea, 0).end(), dump(eb, 0).begin() + 3, dump(eb, 0).end()),
+                      "copied: the edited tone, then every value (" + err + ")");
+                loaded = {};
+                CHECK(felucca::copySound(ea, eb, 0, err, &loaded) && !loaded.did, "copied again: nothing to load (the same tone, whatever its preset number)");
+            }
+            // the patterns: each track's bank, its steps, and the bank song
+            CHECK(felucca::selectPatternBank(ea, 0, 3) && felucca::readPatternBank(ea, 0) == 3, "part 1 on pattern 4 (stopped: at once)");
+            felucca::Step st;
+            st.n = 1; st.note = {67, 0, 0, 0}; st.time = felucca::kNote; st.vel = 90;
+            CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 0, 5, st), 400).has_value(), "a step written in it");
+            felucca::BankRow r1, r2;
+            r1.banks = {3, 0, 1, 0}; r1.repeat = 2;
+            r2.banks = {0, 2, 0, 1}; r2.repeat = 1;
+            auto sw = ea.ask(felucca::bankChainWrite({r1, r2}), 400);
+            CHECK(sw && felucca::argsOf(*sw).size() >= 2 && felucca::argsOf(*sw)[1] == 0, "a bank song set: a bank per part per row");
+            CHECK(felucca::copySequencer(ea, eb, 4, err), "the patterns copied (" + err + ")");
+            const auto song = felucca::readBankChain(eb);
+            const std::vector<felucca::BankRow> want = {r1, r2};
+            auto bs = felucca::readStep(eb, 0, 5);
+            CHECK(felucca::readPatternBank(eb, 0) == 3 && bs && *bs == *felucca::readStep(ea, 0, 5) && bs->note[0] == 67,
+                  "the other side on the same pattern bank, with its steps");
+            CHECK(song && song->rows == want, "and the bank song, a bank per part (SONG would have set one for all)");
+            // the full backup, through the protocol: every object, the CZ banks and the projects too
+            std::vector<uint8_t> music;
+            a->object(0, music);
+            CHECK(a->putObject(4, music) == 0, "a project in slot C");
+            auto all = felucca::backup(ea, {}, err);
+            CHECK(all && all->size() == 23 && (*all)[4] == music && (*all)[9].size() == 2332, "a full backup: 23 objects (" + err + ")");
+            all->erase(1);
+            CHECK(all && felucca::restore(eb, *all, {}, err), "restored into the other (" + err + ")");
+            std::vector<uint8_t> slotC;
+            CHECK(b->object(4, slotC) && slotC == music && b->engineOf(0) == 15 && tone(eb, 0) == edited, "its project, its music (the edited tone too)");
+            // live: values, an engine change and A4 carried; the tone-put's RELOAD is not carried back
+            std::vector<float> l(256), r(256);
+            auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };
+            felucca::Mirror mirror(ea, eb);
+            CHECK(mirror.start(err), "live: both watched (" + err + ")");
+            auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };
+            a->select(2);   // (the device pushes its selected part's values, as the knobs edit it)
+            settle(10);
+            a->setParam(2, 9, 77);
+            a->setGlobal(21, 430);
+            settle(10);
+            CHECK(b->param(2, 9) == 77 && b->global(21) == 430, "a value and A4 reach the other side");
+            a->setEngine(2, 9);
+            settle(20);
+            CHECK(b->engineOf(2) == 9, "an engine change on one side loads it on the other");
+            const int presetA = a->presetOf(2);
+            settle(20);
+            CHECK(a->engineOf(2) == 9 && a->presetOf(2) == presetA && err.isEmpty(), "no load bounces back (" + err + ")");
+            mirror.stop();
         }
         {   // host automation of SLOOP's own parameters ("slp_..."), and Felucca's left alone meanwhile
             FM1Processor au;
