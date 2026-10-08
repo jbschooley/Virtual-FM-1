@@ -10,6 +10,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"baudgirl_fm1va", "FM-1+VA (baud girl)", true, true},
         {"felucca", "Felucca", false, false},
         {"sloop", "SLOOP", false, false},
+        {"melodee", "Melodee", false, false},
     };
     return choices;
 }
@@ -65,8 +66,14 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {900, "2.4", Support::Older, "synced as 2.4.1 (the same projects and protocol): update it to 2.4.1 with SLOOP's installer, which fixes imported FM6 patches with AMS playing noise"},
         {900, "2.4.1", Support::Current, ""},
     };
+    // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.12 FM-1_9012); its INFO
+    // names the release ("MELODEE v0.12")
+    static const std::vector<KnownVersion> melodee = {
+        {9012, "0.12", Support::Current, ""},
+    };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
+    if (firmwareId == "melodee") return melodee;
     return fmva;
 }
 
@@ -103,9 +110,9 @@ std::string writesRefused(const Identity& id) {
 VersionCheck checkVersion(const Identity& id) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
-    if (c.firmwareId == "melodee") {   // recognised, not supported (not a firmware choice)
+    if (c.firmwareId == "melodee") {   // recognised; an instance plays Melodee, but does not sync with one yet
         c.support = Support::Deprecated;
-        c.text = id.name() + ": " + id.editor + ", which the plugin does not support yet";
+        c.text = id.name() + ": " + id.editor + ", which the plugin does not sync with yet";
         return c;
     }
     if (c.firmwareId == "sloop") {   // its release from its INFO ("FELUCCA SLOOP 2.3")

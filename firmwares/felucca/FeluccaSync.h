@@ -55,6 +55,8 @@ struct Dialect {
 };
 const Dialect& feluccaDialect();
 const Dialect& sloopDialect();
+const Dialect& melodeeDialect();
+bool isMelodee(const Dialect& d);
 
 Bytes frame(int cmd, const std::vector<uint8_t>& args = {});
 int commandOf(const Bytes& frame);             // -1: not an editor-protocol frame

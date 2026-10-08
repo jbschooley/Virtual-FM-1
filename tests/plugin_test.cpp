@@ -217,13 +217,14 @@ static int checks() {
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
                   && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.4.1",
                   "an FM-1 running SLOOP is SLOOP, a choice (2.4.1) played like Felucca");
-            {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): recognised, not synced
+            {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): recognised; an instance plays
+                // it, but an FM-1 running it is not synced with yet
                 const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
-                CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && !fm1::isFirmwareChoice("melodee")
-                      && !fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is no choice");
+                CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
+                      && fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is a choice");
                 const auto mc = fm1::checkVersion(m12);
-                CHECK(mc.support == fm1::Support::Deprecated && mc.text.find("MELODEE v0.12, which the plugin does not support yet") != std::string::npos,
-                      "and says it is not supported: " + mc.text);
+                CHECK(mc.support == fm1::Support::Deprecated && mc.text.find("MELODEE v0.12, which the plugin does not sync with yet") != std::string::npos,
+                      "and an FM-1 running it is not synced with: " + mc.text);
                 auto prof = fm1::firmwareFor(m12);
                 CHECK(prof->name() == "Melodee" && !prof->has(fm1::Firmware::Feature::ReadPresets) && !prof->has(fm1::Firmware::Feature::WritePatterns),
                       "its profile does nothing");
@@ -407,6 +408,74 @@ static int checks() {
             CHECK(tree.getChildWithName("Felucca").isValid() && tree.getChildWithName("Sloop").isValid()
                   && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.4.1",
                   "a project keeps both, apart");
+        }
+        {   // an instance set to Melodee plays Melodee 0.12 in its own copies; no host parameters of its own yet
+            const int melBefore = FeluccaEngine::copiesInUse(Fl::Melodee);
+            FM1Processor p;
+            p.setPlayConfigDetails(0, 2, 44100.0, 256);
+            p.prepareToPlay(44100.0, 256);
+            p.setFirmware("melodee");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v0.12"
+                  && FeluccaEngine::copiesInUse(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 0.12, in a Melodee copy");
+            CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 0.12" && fm1::isFeluccaFamily("melodee"), "a firmware choice: Melodee 0.12");
+            juce::AudioBuffer<float> buf(2, 256);
+            float peak = 0;
+            for (int k = 0; k < 60; ++k) {
+                juce::MidiBuffer m;
+                if (k == 0) m.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8(110)), 3);
+                if (k == 30) m.addEvent(juce::MidiMessage::noteOff(1, 60), 3);
+                buf.clear();
+                p.processBlock(buf, m);
+                peak = std::max(peak, buf.getMagnitude(0, 256));
+            }
+            CHECK(peak > 0.01f, "channel 1 plays part 1");
+            const int level = p.felucca()->param(0, 0);
+            if (auto* felLevel = p.apvts.getParameter("fel_t1_level")) {
+                felLevel->setValueNotifyingHost(felLevel->getValue() > 0.5f ? 0.1f : 0.9f);
+                juce::MidiBuffer m;
+                p.processBlock(buf, m);
+            }
+            CHECK(p.felucca()->param(0, 0) == level && p.feluccaParam(0, 0) == nullptr, "Felucca's host parameters do not reach Melodee");
+            p.felucca()->setEngine(1, 15);
+            p.felucca()->setParam(1, 0, 55);
+            p.setFirmware("sloop");
+            p.setFirmware("melodee");
+            CHECK(p.felucca()->flavor() == Fl::Melodee && p.felucca()->engineOf(1) == 15 && p.felucca()->param(1, 0) == 55,
+                  "switched away and back: Melodee's sound as it was (CZ-1 on part 2)");
+            juce::MemoryBlock all;
+            p.getStateInformation(all);
+            auto tree = juce::ValueTree::readFromData(all.getData(), all.getSize());
+            CHECK(tree.getChildWithName("Melodee").isValid() && tree.getChildWithName("Sloop").isValid(), "a project keeps Melodee's apart");
+            FM1Processor q;
+            q.setStateInformation(all.getData(), int(all.getSize()));
+            CHECK(q.felucca() && q.felucca()->flavor() == Fl::Melodee && q.felucca()->engineOf(1) == 15 && q.felucca()->param(1, 0) == 55,
+                  "and a project brings it back");
+            {   // the device file, as Melodee's editor writes a backup ("felucca-backup", firmware "MELODEE ..."), apart from Felucca's
+                const auto file = juce::File::createTempFile(".json");
+                auto e = std::make_shared<FeluccaEngine>(Fl::Melodee);
+                felucca::DeviceStore store(file, felucca::melodeeDialect());
+                store.load(*e);
+                std::vector<uint8_t> music;
+                e->object(0, music);
+                CHECK(e->putObject(3, music) == 0 && store.tick(*e).isEmpty() && file.existsAsFile(), "a Melodee project slot saved to the device file");
+                felucca::Objects o;
+                juce::String err;
+                const auto json = juce::JSON::parse(file);
+                CHECK(json.getProperty("format", {}).toString() == "felucca-backup" && json.getProperty("firmware", {}).toString().startsWith("MELODEE v0.12")
+                      && felucca::readBackup(file, o, err, felucca::melodeeDialect()) && o.size() == 23 && o[3] == music && music.size() > 20000,
+                      "as Melodee's editor writes one: 23 objects, a whole project in its slot (" + err + ")");
+                CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
+                auto e2 = std::make_shared<FeluccaEngine>(Fl::Melodee);
+                felucca::DeviceStore store2(file, felucca::melodeeDialect());
+                std::vector<uint8_t> slot;
+                CHECK(store2.load(*e2).isEmpty() && e2->object(3, slot) && slot == music, "another Melodee instance loads it");
+                const auto felFile = juce::File::createTempFile(".json");
+                FeluccaEngine fel;
+                felFile.replaceWithText(felucca::backupJson(felucca::objectsOf(fel), "v1.0.3 (Virtual FM-1)", felucca::feluccaDialect()));
+                CHECK(!felucca::readBackup(felFile, o, err, felucca::melodeeDialect()), "a Felucca backup is not taken for a Melodee one");
+                file.deleteFile();
+                felFile.deleteFile();
+            }
         }
         {   // host automation of SLOOP's own parameters ("slp_..."), and Felucca's left alone meanwhile
             FM1Processor au;

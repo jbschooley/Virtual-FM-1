@@ -143,7 +143,8 @@ public:
     // null: for change gestures.
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
         auto f = felucca();
-        const int e = felparams::entryFor(track, index, f && f->flavor() == FeluccaEngine::Flavor::Sloop);
+        if (!f || f->flavor() == FeluccaEngine::Flavor::Melodee) return nullptr;   // (Melodee: no host parameters yet)
+        const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop);
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
     }
    #endif
@@ -203,13 +204,16 @@ private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
-    juce::ValueTree feluccaSaved_[2];                 // Felucca's and SLOOP's state while they have no engine: kept, saved
+    juce::ValueTree feluccaSaved_[3];                 // Felucca's, SLOOP's and Melodee's state while they have no engine: kept, saved
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
     felucca::DeviceStore felDevice_{felucca::feluccaDialect()};   // the device's stored objects, in the library
     felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
-    felucca::DeviceStore& deviceFor(const FeluccaEngine& f) { return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : felDevice_; }
+    felucca::DeviceStore melDevice_{felucca::melodeeDialect()};   // (Melodee's, apart)
+    felucca::DeviceStore& deviceFor(const FeluccaEngine& f) {
+        return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : f.flavor() == FeluccaEngine::Flavor::Melodee ? melDevice_ : felDevice_;
+    }
     std::atomic<bool> felLive_{false};                // a live mirror job is running
     std::mutex felEditsLock_;
     std::vector<fm1::Bytes> felEdits_;                // the tab's edits for the live job to carry to the FM-1

@@ -33,8 +33,9 @@ const std::vector<FirmwareChoice>& firmwareChoices();
 const FirmwareChoice& firmwareChoice(const std::string& id);   // the default (FM-1+VA) for an unknown id
 std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs
 bool isFirmwareChoice(const std::string& id);                 // a choice an instance can be set to
-// Felucca or SLOOP: played by FeluccaEngine (engines/felucca, engines/sloop), synced through FeluccaSync
-inline bool isFeluccaFamily(const std::string& id) { return id == "felucca" || id == "sloop"; }
+// Felucca, SLOOP or Melodee: played by FeluccaEngine (engines/felucca, engines/sloop, engines/melodee),
+// synced through FeluccaSync
+inline bool isFeluccaFamily(const std::string& id) { return id == "felucca" || id == "sloop" || id == "melodee"; }
 constexpr const char* kDefaultFirmwareId = "baudgirl_fm1va";
 
 // ---- versions -----------------------------------------------------------------------------

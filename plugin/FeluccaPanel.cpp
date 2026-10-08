@@ -9,7 +9,7 @@ namespace {
 // Felucca 1.0's per-track parameters (core.h P_*), in its own order, grouped as its
 // pages group them. Ids beyond what a version has are skipped. Not here: P_ED_FX and the
 // DIGITAL engine's operator envelopes (61-80), which 1.0 neither builds nor shows.
-struct GroupDef { const char* title; int first, last; };
+struct GroupDef { const char* title; int first, last, also = -1; };   // also: one more parameter after them
 const GroupDef kTrackGroups[] = {
     {"Engine", -1, -1},   // the engine's eight: from firstEngineParam()
     {"Envelope", 1, 4},
@@ -46,14 +46,35 @@ const GroupDef kSloopGroups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
+// Melodee 0.12's: Felucca 1.0's numbering, with the MPC pad's scale degree (DEG, 83) before the
+// engine's eight (84) and P_ED_FX (8) now the sequencer's playback quantize (QNT)
+const GroupDef kMelodeeGroups[] = {
+    {"Engine", -1, -1},
+    {"Envelope", 1, 4},
+    {"Envelope to", 5, 7},
+    {"LFO", 9, 12},
+    {"LFO to", 13, 16},
+    {"Modulation", 49, 60},
+    {"Voice", 37, 44},
+    {"Chord", 81, 82},
+    {"Arpeggiator", 17, 24},
+    {"Scale", 25, 28, 83},
+    {"Sequencer", 29, 32, 8},
+    {"Sends", 33, 36},
+    {"Slicer", 45, 48},
+    {"Mix", 0, 0},
+};
 // the global settings worth editing here (the rest are the device's own pages and actions)
 const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 // SLOOP's: the same up to the chorus, then its drum level and reverb and master bus (DUST, DUCK, FILT)
 const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29};
+// Melodee's: no shared delay (4..7), its A4 reference (21)
+const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10; GLO) the drums, any other the selected part.";
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
+bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
@@ -476,7 +497,7 @@ void FeluccaSoundPage::build() {
         presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
     }
     auto addControl = [&](Group& g, int id, const FeluccaEngine::Desc& d) {
-        if (d.label.empty() || d.max <= d.min) return;   // fixed or unused
+        if (d.label.empty() || d.label == "-" || d.max <= d.min) return;   // fixed or unused ("-": no page on the device)
         Control c;
         c.id = id;
         c.global = g.global;
@@ -530,7 +551,8 @@ void FeluccaSoundPage::build() {
         content_.addAndMakeVisible(*g.header);
     };
     const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
-                                             : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
+                                     : isMelodee(f) ? std::vector<GroupDef>(std::begin(kMelodeeGroups), std::end(kMelodeeGroups))
+                                                    : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
     for (const auto& def : defs) {
         // SLOOP's drum track: its kit, pattern, slicer and filter (its level and reverb are globals, DRLVL
         // and DRREV; the device shows it no other track page, and its drums read nothing else)
@@ -546,6 +568,7 @@ void FeluccaSoundPage::build() {
         const int first = def.first >= 0 ? def.first : f->firstEngineParam();
         const int last = def.first >= 0 ? def.last : f->firstEngineParam() + (drums ? 0 : 7);
         for (int id = first; id <= last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
+        if (def.also >= 0 && def.also < f->paramCount()) addControl(g, def.also, f->paramDesc(track_, def.also));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
     {
@@ -553,7 +576,7 @@ void FeluccaSoundPage::build() {
         g.title = "Global";
         g.global = true;
         addHeader(g);
-        for (int id : sloop ? kSloopGlobals : kGlobals) if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
+        for (int id : sloop ? kSloopGlobals : isMelodee(f) ? kMelodeeGlobals : kGlobals) if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
     loading_ = false;

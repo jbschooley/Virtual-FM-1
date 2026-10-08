@@ -73,6 +73,20 @@ const Dialect& sloopDialect() {
     return d;
 }
 
+// Melodee 0.12 (keremimo/melodee, from Felucca 1.0): Felucca's backup commands and file format
+// ("felucca-backup", its INFO in "firmware"), with objects 0..22 (web/fm1backup.js BACKUP_IDS_NATIVE:
+// 0 the music, 1 the settings, 2..5 the projects, 6, 7, 17, 18 the user preset banks, 8 retired,
+// 9..16 the CZ banks, 19..22 the FM6 and native tone pools; no user samples). Its web editor restores
+// 2..22, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page).
+const Dialect& melodeeDialect() {
+    static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22},
+                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 1, 0}, 22, true, "felucca-backup",
+                           {0, 1, 3, 8, 9, 10, 11, 24}};
+    return d;
+}
+bool isMelodee(const Dialect& d) { return &d == &melodeeDialect(); }
+
 static bool mirroredGlobal(const Dialect& d, int id) {
     return std::find(d.mirroredGlobals.begin(), d.mirroredGlobals.end(), id) != d.mirroredGlobals.end();
 }
@@ -106,10 +120,14 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     const bool sloop = isSloop(d);
     // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
-    const bool complete = objs && (sloop || (objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
-    // Melodee's editor writes "felucca-backup" files too, with its own objects inside: never restored here
-    if (v.getProperty("firmware", {}).toString().containsIgnoreCase("MELODEE")) {
-        error = "a Melodee backup, which the plugin does not support yet";
+    // (Melodee's editor writes every object it has: 23 from 0.12, 21, 17 or 9 before)
+    const bool melodee = isMelodee(d);
+    const bool complete = objs && (sloop || (melodee ? objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
+                                                     : objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
+    // Melodee's editor writes "felucca-backup" files too, with its own objects inside: told apart by
+    // the INFO it names ("MELODEE v0.12"), never restored into the other
+    if (v.getProperty("firmware", {}).toString().containsIgnoreCase("MELODEE") != melodee) {
+        error = melodee ? "not a Melodee backup (a Felucca one)" : "a Melodee backup, not a Felucca one";
         return false;
     }
     if (v.getProperty("format", {}).toString() != d.fileFormat || int(v.getProperty("version", 0)) != 1 || !complete) {
@@ -120,7 +138,9 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         const int id = o.getProperty("id", -1), size = o.getProperty(sloop ? "len" : "size", -1);
         const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
         juce::MemoryOutputStream data;
-        if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > (id >= 32 ? 81920 : 3840)
+        // (as each editor allows: a sample 80 KB; Melodee's music and projects 27200 bytes; the rest 3840)
+        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? 27200 : 3840;
+        if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
             error = "object " + juce::String(id) + " is damaged";
             return false;

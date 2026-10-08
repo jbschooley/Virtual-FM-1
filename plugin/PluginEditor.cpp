@@ -97,7 +97,7 @@ void FM1Editor::showFirmware() {
     for (size_t i = 0; i < choices.size(); ++i)
         if (&choices[i] == &f) firmware_.setSelectedItemIndex(int(i), juce::dontSendNotification);
     library_.setFirmware(f);
-    const bool isFelucca = fm1::isFeluccaFamily(f.id);   // Felucca or SLOOP: the same panels
+    const bool isFelucca = fm1::isFeluccaFamily(f.id);   // Felucca, SLOOP or Melodee: the same panels
     const bool plays = proc_.emulates();
    #if FM1_FELUCCA
     if (isFelucca && plays) {

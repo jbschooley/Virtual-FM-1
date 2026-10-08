@@ -6,6 +6,14 @@
 #include "SeqMidi.h"
 #include "PluginEditor.h"
 
+#if FM1_FELUCCA
+// Whether a host parameter is one of the firmware the engine plays: Felucca's or SLOOP's (Melodee
+// has none yet: Felucca's numbers are not its own)
+static bool playsOn(const felparams::Entry& e, const FeluccaEngine& f) {
+    return f.flavor() != FeluccaEngine::Flavor::Melodee && e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop);
+}
+#endif
+
 FM1Processor::FM1Processor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "params", Params::layout(felText_)),
@@ -84,7 +92,7 @@ FM1Processor::FM1Processor()
     felText_->text = [this](int entry, float v) -> juce::String {
         auto f = felucca();
         const auto& e = felparams::entries()[size_t(entry)];
-        if (!f || e.sloop != (f->flavor() == FeluccaEngine::Flavor::Sloop)) return juce::String(v, 3);   // (the other firmware's)
+        if (!f || !playsOn(e, *f)) return juce::String(v, 3);   // (the other firmware's)
         auto d = e.track < 0 ? f->globalDesc(e.index) : f->paramDesc(e.track, e.index);
         if (d.max <= d.min) return {};
         const int value = d.min + int(std::lround(v * float(d.max - d.min)));
@@ -590,7 +598,7 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
     // the release it was made for: a later plugin playing a newer one can say so
     v.setProperty("firmwareVersion", juce::String(fm1::currentVersion(firmwareId().toStdString()).label), nullptr);
    #if FM1_FELUCCA
-    for (auto flavor : {FeluccaEngine::Flavor::Felucca, FeluccaEngine::Flavor::Sloop})
+    for (auto flavor : {FeluccaEngine::Flavor::Felucca, FeluccaEngine::Flavor::Sloop, FeluccaEngine::Flavor::Melodee})
         if (auto fs = feluccaState(flavor); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
    #endif
     v.setProperty("fxChannel", channels.fx, nullptr);
@@ -767,6 +775,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
    #if FM1_FELUCCA
     setFeluccaState(v.getChildWithName("Felucca"), FeluccaEngine::Flavor::Felucca);
     setFeluccaState(v.getChildWithName("Sloop"), FeluccaEngine::Flavor::Sloop);
+    setFeluccaState(v.getChildWithName("Melodee"), FeluccaEngine::Flavor::Melodee);
     feluccaChanged();
    #endif
     // the ports it was connected to: the app connects to them again; a plugin only when asked
@@ -1047,8 +1056,10 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 // Felucca's part of a project: the music now playing as Felucca saves it, a FUN8 project
 // (every part's sound, steps, FM6 patch, the song chain, the motion and the globals).
 // Felucca reads its own older formats, so a later version converts it as the device does.
-static const char* stateName(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : "Felucca"; }
-static int flavorIndex(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : 0; }
+static const char* stateName(FeluccaEngine::Flavor f) {
+    return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : f == FeluccaEngine::Flavor::Melodee ? "Melodee" : "Felucca";
+}
+static int flavorIndex(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
 
 juce::ValueTree FM1Processor::feluccaState(FeluccaEngine::Flavor flavor) const {
     auto engine = felucca();
@@ -1340,7 +1351,6 @@ bool FM1Processor::feluccaSendPatterns() {
 // over the parameter's range in Felucca now.
 void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
     const auto& all = felparams::entries();
-    const bool sloop = f.flavor() == FeluccaEngine::Flavor::Sloop;   // (each firmware its own parameters)
     // just after a project loaded or an engine arrived, Felucca's own sound is the truth
     // (feluccaChanged gives it to the host): what the host holds now counts as given
     if (felResync_.exchange(false)) {
@@ -1352,7 +1362,7 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
         if (v == felApplied_[i]) continue;
         felApplied_[i] = v;
         const auto& e = all[i];
-        if (e.sloop != sloop) continue;   // (the other firmware's: not applied; when it plays, its own state is the truth)
+        if (!playsOn(e, f)) continue;   // (the other firmware's: not applied; when it plays, its own state is the truth)
         if (e.track < 0 && e.index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
         int min = 0, max = 0;
         if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
@@ -1364,11 +1374,10 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
 void FM1Processor::feluccaChanged(int track) {
     auto f = felucca();
     if (!f) return;
-    const bool sloop = f->flavor() == FeluccaEngine::Flavor::Sloop;
     const auto& all = felparams::entries();
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
-        if (e.sloop != sloop || (track >= 0 && e.track != track)) continue;
+        if (!playsOn(e, *f) || (track >= 0 && e.track != track)) continue;
         int min = 0, max = 0;
         if (!(e.track < 0 ? f->globalRange(e.index, min, max) : f->paramRange(e.track, e.index, min, max)) || max <= min) continue;
         const int value = e.track < 0 ? f->global(e.index) : f->param(e.track, e.index);
@@ -1412,7 +1421,7 @@ void FM1Processor::setFirmware(const juce::String& id) {
         // kept meanwhile (and saved), and comes back with the next engine of that firmware
         const juce::String id = choices[size_t(index)].id;
         const bool want = fm1::isFeluccaFamily(id.toStdString());
-        const auto flavor = id == "sloop" ? FeluccaEngine::Flavor::Sloop : FeluccaEngine::Flavor::Felucca;
+        const auto flavor = id == "sloop" ? FeluccaEngine::Flavor::Sloop : id == "melodee" ? FeluccaEngine::Flavor::Melodee : FeluccaEngine::Flavor::Felucca;
         const bool away = felucca_ && (!want || felucca_->flavor() != flavor);
         std::shared_ptr<FeluccaEngine> next;
         if (away) {

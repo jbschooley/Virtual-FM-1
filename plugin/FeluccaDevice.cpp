@@ -8,7 +8,7 @@
 namespace felucca {
 
 const Dialect& dialectOf(const FeluccaEngine& f) {
-    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect() : feluccaDialect();
+    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect() : f.flavor() == FeluccaEngine::Flavor::Melodee ? melodeeDialect() : feluccaDialect();
 }
 
 VirtualEndpoint::VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)), dialect_(&dialectOf(*f_)) {}
@@ -140,7 +140,9 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     all[0] = b;
     file_.getParentDirectory().createDirectory();
     juce::TemporaryFile tmp(file_);
-    if (!tmp.getFile().replaceWithText(backupJson(all, juce::String(f.version()) + " (Virtual FM-1)", dialect_), false, false, "\n")
+    // (Melodee's files name it as its INFO does, "MELODEE v0.12": its editor and readBackup tell them by that)
+    const juce::String made = (isMelodee(dialect_) ? "MELODEE " : "") + juce::String(f.version()) + " (Virtual FM-1)";
+    if (!tmp.getFile().replaceWithText(backupJson(all, made, dialect_), false, false, "\n")
         || !tmp.overwriteTargetFileWithTemporary())
         return report("Could not save the " + juce::String(dialect_.name) + " device to " + file_.getFullPathName() + ".");
     known_ = now;
