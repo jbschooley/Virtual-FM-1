@@ -594,6 +594,27 @@ static int checks() {
             auto bounces = [&] { int n = 0; for (size_t i = 0; i + 1 < dumps.size(); ++i) n += dumps[i] == 'b' && dumps[i + 1] == 'a'; return n; };
             std::vector<float> l(256), r(256);
             auto run = [&](int blocks) { for (int k = 0; k < blocks; ++k) { a->render(l.data(), r.data(), 256); b->render(l.data(), r.data(), 256); } };
+            {   // an FM-1 on another release with other engine numbers (0.12: 16, no PROPHET): Live does not start
+                struct Older : felucca::Endpoint {
+                    felucca::Endpoint& e;
+                    explicit Older(felucca::Endpoint& x) : e(x) {}
+                    const felucca::Dialect& dialect() const override { return e.dialect(); }
+                    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
+                        auto r = e.ask(q, t);
+                        if (!r || felucca::commandOf(*r) != felucca::kInfo) return r;
+                        auto x = felucca::argsOf(*r);   // the version string, then NENGINES
+                        size_t at = 0;
+                        while (at < x.size() && x[at] != 0) ++at;
+                        if (at + 1 < x.size()) x[at + 1] = 16;
+                        return felucca::frame(felucca::kInfo, x);
+                    }
+                    std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+                } older(ea);
+                felucca::Mirror m012(older, eb);
+                juce::String why;
+                CHECK(!m012.start(why) && why.contains("16 engines"), "Live refused with another engine count: " + why);
+                m012.stop();
+            }
             felucca::Mirror mirror(ca, cb);
             CHECK(mirror.start(err), "live: both watched (" + err + ")");
             auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { run(4); if (!mirror.tick(err)) break; } };

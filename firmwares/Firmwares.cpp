@@ -70,7 +70,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // names the release ("MELODEE v0.13")
     static const std::vector<KnownVersion> melodee = {
         // 0.12 has no PROPHET, and its projects are smaller than 0.13's (Send refuses them up front)
-        {9012, "0.12", Support::Older, "no PROPHET, and it cannot take 0.13's projects: update it to 0.13 with Melodee's installer to send to it"},
+        {9012, "0.12", Support::Older, "no PROPHET, and it cannot take 0.13's projects: update it to 0.13 with Melodee's installer to send to it or go Live"},
         {9013, "0.13", Support::Current, ""},
     };
     if (firmwareId == "felucca") return felucca;

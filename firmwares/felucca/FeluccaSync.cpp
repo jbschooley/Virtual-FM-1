@@ -424,6 +424,13 @@ bool Mirror::start(juce::String& error) {
                 "the plugin's " + juce::String((*lb)[1]) + "); pull or send still work";
         return false;
     }
+    // engines go by number too: one the other side does not have (Melodee 0.12 has no PROPHET, 19)
+    // would not load there, and Live would end on it
+    if ((*la)[0] != (*lb)[0]) {
+        error = "the FM-1 runs another version of " + juce::String(a_.ep.dialect().name) + " than the plugin (" + juce::String((*la)[0]) + " engines, "
+                "the plugin's " + juce::String((*lb)[0]) + "): update it to the plugin's release to go Live";
+        return false;
+    }
     for (Side* s : {&a_, &b_}) {
         auto w = s->ep.ask(frame(kWatch, {3}), kAsk);
         auto g = w ? argsOf(*w) : std::vector<uint8_t>{};
