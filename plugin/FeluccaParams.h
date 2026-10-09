@@ -27,12 +27,15 @@ struct Entry {
     float def = 0.0f;     // its default, 0..1 (0 for an engine's own eight)
     bool sloop = false;   // SLOOP's ("slp_..."), not Felucca's
     int hint = 0;         // its version hint (0: Felucca's 2, SLOOP's 3); AU orders by it, so an added one has a higher one
+    bool melodee = false; // Melodee's ("mel_...")
 };
 
-// Felucca's, then SLOOP's (added after them: a project's earlier parameters keep their places)
+// Felucca's, then SLOOP's, then Melodee's (each added after the others: a project's earlier
+// parameters keep their places)
 const std::vector<Entry>& entries();
 int indexOf(const juce::String& id);   // -1 if not one of these
-int entryFor(int track, int index, bool sloop = false);   // the entry for the parameter (track -1: global), or -1
+// the entry for the parameter (track -1: global) of Felucca, SLOOP or Melodee, or -1
+int entryFor(int track, int index, bool sloop = false, bool melodee = false);
 
 // What the host shows for an entry at a 0..1 value: set by the instance once it exists.
 struct TextSource { std::function<juce::String(int entry, float value01)> text; };

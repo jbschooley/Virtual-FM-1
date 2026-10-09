@@ -143,8 +143,8 @@ public:
     // null: for change gestures.
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
         auto f = felucca();
-        if (!f || f->flavor() == FeluccaEngine::Flavor::Melodee) return nullptr;   // (Melodee: no host parameters yet)
-        const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop);
+        if (!f) return nullptr;
+        const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop, f->flavor() == FeluccaEngine::Flavor::Melodee);
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
     }
    #endif

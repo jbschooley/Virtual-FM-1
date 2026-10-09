@@ -7,10 +7,9 @@
 #include "PluginEditor.h"
 
 #if FM1_FELUCCA
-// Whether a host parameter is one of the firmware the engine plays: Felucca's or SLOOP's (Melodee
-// has none yet: Felucca's numbers are not its own)
+// Whether a host parameter is one of the firmware the engine plays: Felucca's, SLOOP's or Melodee's
 static bool playsOn(const felparams::Entry& e, const FeluccaEngine& f) {
-    return f.flavor() != FeluccaEngine::Flavor::Melodee && e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop);
+    return e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop) && e.melodee == (f.flavor() == FeluccaEngine::Flavor::Melodee);
 }
 #endif
 

@@ -435,13 +435,36 @@ static int checks() {
                 peak = std::max(peak, buf.getMagnitude(0, 256));
             }
             CHECK(peak > 0.01f, "channel 1 plays part 1");
-            const int level = p.felucca()->param(0, 0);
-            if (auto* felLevel = p.apvts.getParameter("fel_t1_level")) {
-                felLevel->setValueNotifyingHost(felLevel->getValue() > 0.5f ? 0.1f : 0.9f);
-                juce::MidiBuffer m;
-                p.processBlock(buf, m);
+            {   // its own host parameters ("mel_..."); Felucca's do not reach it
+                int perTrack[4] = {}, globals = 0;
+                for (const auto& en : felparams::entries()) if (en.melodee) { if (en.track >= 0) ++perTrack[en.track]; else ++globals; }
+                CHECK(perTrack[0] == 71 && perTrack[3] == 71 && globals == 8 && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_t4_mpcdeg")
+                      && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype") && !p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4"),
+                      "Melodee's host parameters: 71 a part (its QNT and DEG, no delay send), eight globals (not A4)");
+                auto* level = p.apvts.getParameter("mel_t1_level");
+                auto* felLevel = p.apvts.getParameter("fel_t1_level");
+                auto* scale = p.apvts.getParameter("mel_t2_scale");
+                const auto ld = p.felucca()->paramDesc(0, 0);
+                CHECK(level && felLevel && scale && p.feluccaParam(0, 0) == level
+                      && std::abs(level->getValue() - float(p.felucca()->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
+                      "the host sees Melodee's values");
+                if (level && felLevel && scale) {
+                    juce::MidiBuffer m;
+                    level->setValueNotifyingHost(0.25f);
+                    p.processBlock(buf, m);
+                    CHECK(p.felucca()->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches Melodee");
+                    scale->setValueNotifyingHost(1.0f);
+                    p.processBlock(buf, m);
+                    CHECK(p.felucca()->param(1, 26) == 69, "its 70 scales (the last at 1.0)");
+                    const int held = p.felucca()->param(0, 0);
+                    felLevel->setValueNotifyingHost(felLevel->getValue() > 0.5f ? 0.1f : 0.9f);
+                    p.processBlock(buf, m);
+                    CHECK(p.felucca()->param(0, 0) == held, "Felucca's host parameters do not reach Melodee");
+                    p.felucca()->setParam(0, 0, 90);
+                    p.feluccaChanged(0);
+                    CHECK(std::abs(level->getValue() - float(90 - ld.min) / float(ld.max - ld.min)) < 1e-5f, "and a change in Melodee reaches the host");
+                }
             }
-            CHECK(p.felucca()->param(0, 0) == level && p.feluccaParam(0, 0) == nullptr, "Felucca's host parameters do not reach Melodee");
             {   // the Sound page names part 1's engine though 0.13 no longer offers it (ANALOG at power-on)
                 FeluccaSoundPage sp(p);
                 sp.setSize(900, 700);
@@ -1532,7 +1555,7 @@ static int checks() {
                     // defaults are Felucca's own; four parts alike; nothing for what the device never reads
                     CHECK(std::abs(bpm->getDefaultValue() - (120.0f - 40.0f) / 200.0f) < 1e-6f, "fel_bpm's default is Felucca's 120");
                     int perPart[4] = {};
-                    for (const auto& en : felparams::entries()) if (en.track >= 0 && !en.sloop) ++perPart[en.track];
+                    for (const auto& en : felparams::entries()) if (en.track >= 0 && !en.sloop && !en.melodee) ++perPart[en.track];
                     CHECK(perPart[0] == 70 && perPart[1] == 70 && perPart[2] == 70 && perPart[3] == 70
                           && au.apvts.getParameter("fel_t4_atk") && au.apvts.getParameter("fel_t3_m2dst") && au.apvts.getParameter("fel_rtype"),
                           "four parts, each with the same parameters (1.0's modulation and chords too)");

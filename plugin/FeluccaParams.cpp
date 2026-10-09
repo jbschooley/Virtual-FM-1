@@ -81,6 +81,19 @@ const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
     {"drlvl", 25, {0, 127, 100}}, {"drrev", 26, {0, 127, 16}}, {"dust", 27, {0, 127, 0}},
     {"duck", 28, {0, 127, 0}}, {"filt", 29, {-64, 63, 0}}};
 
+// Melodee 0.13's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's numbering, with
+// P_ED_FX (8) now the sequencer's playback quantize (QNT), the delay send (35) unused (its shared delay
+// is gone), 70 scales (26), QNT's fifth mode (27), and DEG (83, the MPC pad's scale degree) before the
+// engine's eight (84). Its globals: Felucca's without the delay; not A4, BOOT or the DRUM channel,
+// which are the device's settings (saved on each change).
+constexpr int kMelodeeEngineFirst = 84;
+const struct { int index; const char* name; int range[3]; } kMelodeeChanged[] = {
+    {8, "pqnt", {0, 10, 0}}, {26, "scale", {0, 69, 0}}, {27, "quant", {0, 4, 0}}};
+const struct { const char* name; int index; int range[3]; } kMelodeeGlobal[] = {
+    {"bpm", 0, {40, 240, 120}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"rsize", 8, {0, 127, 90}},
+    {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}}, {"rtype", 24, {0, 1, 0}}};
+constexpr int kMelodeeHint = 5;
+
 float defaultOf(const int r[3]) { return r[1] > r[0] ? float(r[2] - r[0]) / float(r[1] - r[0]) : 0.0f; }
 std::vector<Entry> build() {
     std::vector<Entry> out;
@@ -105,6 +118,20 @@ std::vector<Entry> build() {
         for (int k = 0; k < 3; ++k)
             out.push_back({"slp_t" + juce::String(t + 1) + "_" + kSloop24[k].name, t, kSloopCommon + k, defaultOf(kSloop24[k].range), true, 4});
     out.push_back({"slp_dr_filt", 3, kSloopCommon, defaultOf(kSloop24[0].range), true, 4});
+    // Melodee's
+    for (int t = 0; t < kParts; ++t) {
+        const juce::String p = "mel_t" + juce::String(t + 1) + "_";
+        for (int i = 0; i < kEngineFirst; ++i) {
+            if (i == 35) continue;   // (the delay send: no delay)
+            const auto* changed = std::find_if(std::begin(kMelodeeChanged), std::end(kMelodeeChanged), [i](const auto& c) { return c.index == i; });
+            if (changed != std::end(kMelodeeChanged)) { out.push_back({p + changed->name, t, i, defaultOf(changed->range), false, kMelodeeHint, true}); continue; }
+            if (kTrack[i] != nullptr) out.push_back({p + kTrack[i], t, i, defaultOf(kTrackRange[i]), false, kMelodeeHint, true});
+        }
+        const int deg[3] = {1, 12, 1};
+        out.push_back({p + "mpcdeg", t, 83, defaultOf(deg), false, kMelodeeHint, true});
+        for (int e = 0; e < 8; ++e) out.push_back({p + "e" + juce::String(e), t, kMelodeeEngineFirst + e, 0.0f, false, kMelodeeHint, true});
+    }
+    for (const auto& g : kMelodeeGlobal) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kMelodeeHint, true});
     return out;
 }
 
@@ -121,31 +148,35 @@ int indexOf(const juce::String& id) {
     return -1;
 }
 
-int entryFor(int track, int index, bool sloop) {
+int entryFor(int track, int index, bool sloop, bool melodee) {
     const auto& all = entries();
-    for (size_t i = 0; i < all.size(); ++i) if (all[i].sloop == sloop && all[i].track == track && all[i].index == index) return int(i);
+    for (size_t i = 0; i < all.size(); ++i)
+        if (all[i].sloop == sloop && all[i].melodee == melodee && all[i].track == track && all[i].index == index) return int(i);
     return -1;
 }
 
 void addTo(juce::AudioProcessorValueTreeState::ParameterLayout& layout, std::shared_ptr<TextSource> text) {
     const auto& all = entries();
-    std::unique_ptr<juce::AudioProcessorParameterGroup> groups[10];
-    const char* titles[10] = {"Felucca part 1", "Felucca part 2", "Felucca part 3", "Felucca part 4", "Felucca global",
-                              "SLOOP part 1", "SLOOP part 2", "SLOOP part 3", "SLOOP drums", "SLOOP global"};
-    const char* ids[10] = {"felucca0", "felucca1", "felucca2", "felucca3", "felucca4", "sloop0", "sloop1", "sloop2", "sloop3", "sloop4"};
-    for (int g = 0; g < 10; ++g) groups[g] = std::make_unique<juce::AudioProcessorParameterGroup>(ids[g], titles[g], " | ");
+    std::unique_ptr<juce::AudioProcessorParameterGroup> groups[15];
+    const char* titles[15] = {"Felucca part 1", "Felucca part 2", "Felucca part 3", "Felucca part 4", "Felucca global",
+                              "SLOOP part 1", "SLOOP part 2", "SLOOP part 3", "SLOOP drums", "SLOOP global",
+                              "Melodee part 1", "Melodee part 2", "Melodee part 3", "Melodee part 4", "Melodee global"};
+    const char* ids[15] = {"felucca0", "felucca1", "felucca2", "felucca3", "felucca4", "sloop0", "sloop1", "sloop2", "sloop3", "sloop4",
+                           "melodee0", "melodee1", "melodee2", "melodee3", "melodee4"};
+    for (int g = 0; g < 15; ++g) groups[g] = std::make_unique<juce::AudioProcessorParameterGroup>(ids[g], titles[g], " | ");
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
         // the host's name: which firmware, where it is and the firmware's name for it
         const juce::String where = e.track < 0 ? juce::String() : e.sloop && e.track == 3 ? juce::String("DRUMS ") : "P" + juce::String(e.track + 1) + " ";
-        const juce::String what = e.id.substring(e.track < 0 ? 4 : 7).toUpperCase();   // after "fel_" / "fel_tN_" ("slp_", "slp_tN_", "slp_dr_")
-        const juce::String name = juce::String(e.sloop ? "SLOOP " : "Felucca ") + where + what;
+        const juce::String what = e.id.substring(e.track < 0 ? 4 : 7).toUpperCase();   // after "fel_" / "fel_tN_" ("slp_", "slp_tN_", "slp_dr_", "mel_" ...)
+        const juce::String firmware = e.melodee ? "Melodee" : e.sloop ? "SLOOP" : "Felucca";
+        const juce::String name = firmware + " " + where + what;
         const int entry = int(i);
-        auto attrs = juce::AudioParameterFloatAttributes().withStringFromValueFunction([text, entry, sloop = e.sloop](float v, int) {
+        auto attrs = juce::AudioParameterFloatAttributes().withStringFromValueFunction([text, entry, firmware](float v, int) {
             if (text && text->text) return text->text(entry, v);
-            return juce::String(sloop ? "(SLOOP)" : "(Felucca)");
+            return "(" + firmware + ")";
         });
-        const int g = (e.sloop ? 5 : 0) + (e.track < 0 ? 4 : e.track);
+        const int g = (e.melodee ? 10 : e.sloop ? 5 : 0) + (e.track < 0 ? 4 : e.track);
         groups[g]->addChild(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{e.id, e.hint ? e.hint : e.sloop ? 3 : 2}, name, juce::NormalisableRange<float>(0.0f, 1.0f), e.def, attrs));
     }
