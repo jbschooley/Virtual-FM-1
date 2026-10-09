@@ -106,10 +106,11 @@ int main(int argc, char** argv) {
     if (!session.lastIdentity()) return 1;
     if (cmd == "identify") return 0;
    #if FM1_FELUCCA
-    // an FM-1 running SLOOP: its dialect, and a SLOOP of the plugin's own on the other side
-    const bool slp = fm1::firmwareIdFor(*session.lastIdentity()) == "sloop";
-    const felucca::Dialect& dl = slp ? felucca::sloopDialect() : felucca::feluccaDialect();
-    const auto flavor = slp ? FeluccaEngine::Flavor::Sloop : FeluccaEngine::Flavor::Felucca;
+    // an FM-1 running SLOOP or Melodee: its dialect, and one of the plugin's own on the other side
+    const auto fw = fm1::firmwareIdFor(*session.lastIdentity());
+    const bool slp = fw == "sloop", mel = fw == "melodee";
+    const felucca::Dialect& dl = slp ? felucca::sloopDialect() : mel ? felucca::melodeeDialect() : felucca::feluccaDialect();
+    const auto flavor = slp ? FeluccaEngine::Flavor::Sloop : mel ? FeluccaEngine::Flavor::Melodee : FeluccaEngine::Flavor::Felucca;
    #else
     const felucca::Dialect& dl = felucca::feluccaDialect();
    #endif
@@ -262,6 +263,126 @@ int main(int argc, char** argv) {
         check(now && felucca::writePattern(synth, t, *orig, err, &*now), "put back");
         auto back = extrasOf(synth);
         check(back && same(*back, *orig), "the FM-1's part 2 as before");
+        std::printf("%s\n", fails ? "FAILED" : "all ok");
+        return fails ? 1 : 0;
+    }
+    if (cmd == "melodee-sync" && mel) {   // Pull, Send, sound copies, pattern banks and Live with an FM-1 on Melodee (writes its flash)
+        struct Mine : felucca::Endpoint {
+            const felucca::Dialect& dialect() const override { return felucca::melodeeDialect(); }
+            std::shared_ptr<FeluccaEngine> f;
+            std::vector<fm1::Bytes> got;
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override {
+                std::optional<fm1::Bytes> r;
+                for (auto& m : f->request(q)) { if (felucca::isPush(felucca::commandOf(m))) got.push_back(m); else if (felucca::commandOf(m) == felucca::commandOf(q) && !r) r = m; }
+                return r;
+            }
+            std::vector<fm1::Bytes> pushes() override {
+                for (auto& m : f->takeSysex()) if (felucca::isPush(felucca::commandOf(m))) got.push_back(m);
+                std::vector<fm1::Bytes> out; out.swap(got); return out;
+            }
+        } mine;
+        mine.f = std::make_shared<FeluccaEngine>(flavor);
+        felucca::LinkEndpoint synth(link, dl);
+        juce::String err;
+        int fails = 0;
+        auto check = [&](bool ok, const juce::String& what) { std::printf("%s: %s\n", what.toRawUTF8(), ok ? "ok" : "FAILED"); std::fflush(stdout); if (!ok) ++fails; };
+        auto progress = [](int done, int total, const juce::String&) { std::printf("\r  %d / %d", done, total); std::fflush(stdout); return true; };
+        auto args = [](const std::optional<fm1::Bytes>& r) { return r ? felucca::argsOf(*r) : std::vector<uint8_t>{}; };
+        auto tone = [&](felucca::Endpoint& e, int t) { auto a = args(e.ask(felucca::frame(felucca::kCzGet, {0, uint8_t(t)}), 1000)); return a.size() > 3 ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{}; };
+        auto patch = [&](felucca::Endpoint& e, int t) { auto a = args(e.ask(felucca::frame(felucca::kProphetCmd, {0, uint8_t(t)}), 1000)); return a.size() > 3 && a[1] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{}; };
+        auto dumpOf = [&](felucca::Endpoint& e, int t) { return args(e.ask(felucca::frame(felucca::kTrackDump, {uint8_t(t)}), 1000)); };
+        auto info = args(synth.ask(felucca::frame(felucca::kInfo), 1000));
+        std::printf("INFO: %s\n", info.empty() ? "(none)" : reinterpret_cast<const char*>(info.data()));
+        // 1. Pull: the FM-1's whole backup, kept, then into the plugin's Melodee (settings left its own)
+        auto theirs = felucca::backup(synth, progress, err);
+        std::printf("\n");
+        check(theirs.has_value() && theirs->size() == 28, "pull: the FM-1's 28 objects (" + err + ")");
+        if (!theirs) return 1;
+        const auto keep = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Virtual FM-1/FM-1 backups")
+                              .getChildFile("melodee-0.13-" + juce::Time::getCurrentTime().formatted("%Y%m%d-%H%M%S") + "-before-sync-test.json");
+        keep.replaceWithText(felucca::backupJson(*theirs, juce::String(info.empty() ? "MELODEE" : reinterpret_cast<const char*>(info.data())), dl));
+        std::printf("its backup: %s\n", keep.getFullPathName().toRawUTF8());
+        auto pulled = *theirs;
+        pulled.erase(1);
+        int rcs = 0;
+        for (int id : dl.restoreOrder) if (pulled.count(id)) rcs += mine.f->putObject(id, pulled[id]) != 0;
+        std::vector<uint8_t> m0;
+        check(rcs == 0 && mine.f->object(0, m0) && !m0.empty(), "pull: into the plugin's Melodee");
+        // 2. sound copies, both ways: a PROPHET program past 127, an edited CZ-1 tone, a renamed PROPHET patch
+        mine.f->setEngine(1, 19);
+        mine.f->applyPreset(1, 150);
+        check(felucca::copySound(mine, synth, 1, err) && dumpOf(synth, 1).size() > 3 && dumpOf(synth, 1)[1] == 19 && patch(synth, 1) == patch(mine, 1),
+              "send sound: PROPHET program 150 (" + err + ")");
+        mine.f->setEngine(2, 15);
+        mine.f->applyPreset(2, 7);
+        auto t = tone(mine, 2);
+        if (t.size() == 288) {
+            t[2 * 128] = 'V' & 15; t[2 * 128 + 1] = 'V' >> 4;
+            std::vector<uint8_t> q = {0, 2};
+            q.insert(q.end(), t.begin(), t.end());
+            mine.ask(felucca::frame(felucca::kCzPut, q), 1000);
+        }
+        check(felucca::copySound(mine, synth, 2, err) && tone(synth, 2) == tone(mine, 2) && !tone(synth, 2).empty(), "send sound: an edited CZ-1 tone (" + err + ")");
+        synth.ask(felucca::frame(felucca::kProphetCmd, {3, 1, 'P', 'R', 'O', 'B', 'E'}), 1000);   // renamed on the FM-1
+        check(felucca::copySound(synth, mine, 1, err) && patch(mine, 1) == patch(synth, 1), "pull sound: a PROPHET patch renamed on the FM-1 (" + err + ")");
+        // 3. the patterns: part 1 on bank 4 with a step, a bank song; to the FM-1 and back
+        felucca::Step st;
+        st.n = 1; st.note = {64, 0, 0, 0}; st.time = felucca::kNote; st.vel = 100;
+        felucca::selectPatternBank(mine, 0, 3);
+        mine.ask(felucca::stepWrite(dl, 0, 6, st), 1000);
+        felucca::BankRow r1, r2;
+        r1.banks = {3, 0, 0, 0}; r1.repeat = 2;
+        r2.banks = {0, 1, 0, 0}; r2.repeat = 1;
+        mine.ask(felucca::bankChainWrite({r1, r2}), 1000);
+        check(felucca::copySequencer(mine, synth, 4, err, progress), "send patterns (" + err + ")");
+        std::printf("\n");
+        const auto song = felucca::readBankChain(synth);
+        const auto s6 = felucca::readStep(synth, 0, 6);
+        check(felucca::readPatternBank(synth, 0) == 3 && s6 && s6->note[0] == 64 && song && song->rows == std::vector<felucca::BankRow>{r1, r2},
+              "the FM-1: part 1 on pattern 4 with the step, and the bank song");
+        // 4. Send: everything (its settings left), then read back and compared
+        auto ours = std::optional<felucca::Objects>(felucca::Objects{});
+        for (int id = 0; id <= dl.lastObject; ++id) { std::vector<uint8_t> b; if (mine.f->object(id, b)) (*ours)[id] = b; }
+        ours->erase(1);
+        if (auto it = ours->find(8); it != ours->end() && it->second.empty()) ours->erase(it);
+        check(felucca::restore(synth, *ours, progress, err), "\nsend: everything (" + err + ")");
+        auto after = felucca::backup(synth, progress, err);
+        std::printf("\n");
+        int same = 0, differ = 0;
+        if (after) for (auto& [id, b] : *ours) { if (after->count(id) && (*after)[id] == b) ++same; else { ++differ; std::printf("  object %d differs\n", id); } }
+        check(after && differ == 0, "send: read back, " + juce::String(same) + " objects the same");
+        // 5. Live: the plugin's changes reach the FM-1, the FM-1's loads reach the plugin, nothing bounces
+        felucca::Mirror mirror(synth, mine);
+        check(mirror.start(err), "live: started (" + err + ")");
+        std::vector<float> l(256), r(256);
+        auto settle = [&](int ms) {
+            const auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
+            while (juce::Time::getMillisecondCounter() < end) {
+                for (int k = 0; k < 4; ++k) mine.f->render(l.data(), r.data(), 256);
+                if (!mirror.tick(err)) return false;
+                pump(20);
+            }
+            return true;
+        };
+        const int sel = mine.f->selected();
+        mine.f->setParam(sel, 9, (mine.f->param(sel, 9) + 23) % 128);
+        settle(1500);
+        auto d = dumpOf(synth, sel);
+        check(d.size() > 3 + 2 * 9 + 1 && ((int(d[3 + 18]) | int(d[4 + 18]) << 7) - 8192) == mine.f->param(sel, 9), "live: a value to the FM-1");
+        mine.f->setEngine(sel, 19);
+        mine.f->applyPreset(sel, 170);
+        settle(2500);
+        d = dumpOf(synth, sel);
+        check(d.size() > 3 && d[1] == 19 && (int(d[2]) | ((d.size() - 3) % 2 ? int(d.back()) << 7 : 0)) == 170 && mine.f->presetOf(sel) == 170,
+              "live: PROPHET program 170 loaded on the FM-1, not bounced back");
+        synth.ask(felucca::frame(felucca::kPreset, {15, 9}), 4000);   // a load on the FM-1 (its RELOAD carried)
+        settle(2500);
+        check(mine.f->engineOf(sel) == 15 && mine.f->presetOf(sel) == 9, "live: a CZ-1 preset loaded on the FM-1 reaches the plugin");
+        felucca::selectPatternBank(synth, sel, 5);
+        settle(2500);
+        check(felucca::readPatternBank(mine, sel) == 5, "live: a pattern bank switch on the FM-1 reaches the plugin");
+        check(err.isEmpty(), "live: nothing stopped (" + err + ")");
+        mirror.stop();
         std::printf("%s\n", fails ? "FAILED" : "all ok");
         return fails ? 1 : 0;
     }
