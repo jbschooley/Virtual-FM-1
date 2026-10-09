@@ -391,6 +391,8 @@ int main() {
         // a new instance after it plays the phrase exactly as the first one did
         auto again = make();
         CHECK(play(*again, 1, 128, 300) == fresh, "a new instance after a used one plays exactly as the first one did");
+        std::vector<uint8_t> stored;
+        CHECK(again->object(3, stored) && stored.empty(), "and has no stored project of the other's (its flash is its own)");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

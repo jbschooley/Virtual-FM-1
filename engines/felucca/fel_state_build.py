@@ -76,7 +76,7 @@ def main():
         ll, rewritten, obj = (os.path.join(args.work, f'core-{tag}{ext}') for ext in ('.ll', '.state.ll', '.o'))
         target = (['--target=' + triple] if triple else []) + (['-arch', arch] if arch else [])
         common = target + roots + (['-fPIC'] if args.pic else []) + args.flag
-        front = [args.cc, '-std=c11', '-O2', '-w', '-S', '-emit-llvm', '-Xclang', '-disable-llvm-passes'] + common + defines_includes
+        front = [args.cc, '-std=gnu11', '-O2', '-w', '-S', '-emit-llvm', '-Xclang', '-disable-llvm-passes'] + common + defines_includes
         if args.depfile and n == 0:
             front += ['-MD', '-MF', args.depfile, '-MT', args.out]
         run(front + ['-o', ll, args.src])

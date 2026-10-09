@@ -72,6 +72,18 @@ def type_end(body):
     return len(body)
 
 
+STRING = re.compile(r'(?<!@)"(?:[^"\\]|\\.)*"')   # a quoted string that is not a @"name" (inline asm text ...)
+
+
+def outside_strings(line, fn):
+    """fn applied to the parts of line outside quoted strings"""
+    out, i = '', 0
+    for m in STRING.finditer(line):
+        out += fn(line[i:m.start()]) + m.group(0)
+        i = m.end()
+    return out + fn(line[i:])
+
+
 def find_paren(s, i):
     """s[i] == '(' -> the index of its ')'"""
     depth = 0
@@ -148,6 +160,8 @@ def main():
             if t not in types:
                 fail('unknown type ' + t)
             return size_align(types[t])
+        if not (t.startswith('{') and t.endswith('}')) and not (t.startswith('<{') and t.endswith('}>')):
+            fail('a type this does not size: ' + t[:80])
         packed = t.startswith('<{')
         inner = t[2:-2] if packed else t[1:-1]
         off, al = 0, 1
@@ -209,6 +223,10 @@ def main():
         kept.append(l)
     lines = kept
 
+    for n, g in state.items():   # (each instance's block is 16-aligned: a field cannot need more)
+        if g['align'] > 16:
+            fail(f'{n} needs alignment {g["align"]}: the state is only 16-aligned')
+
     # ---- the state struct: fields by falling alignment, padding where one needs more ---------
     order = sorted(state, key=lambda n: (-state[n]['align'], n))
     fields, off, index = [], 0, {}
@@ -230,7 +248,7 @@ def main():
 
     # ---- functions: each state reference through the base pointer ---------------------------
     counter = [0]
-    cexpr = re.compile(r'(getelementptr inbounds|getelementptr|ptrtoint|bitcast|inttoptr) \(')
+    cexpr = re.compile(r'(getelementptr(?: inbounds| nuw| nusw)*|ptrtoint|bitcast|inttoptr) \(')
 
     def rewrite_function(body):
         used = sorted({t.group(1) for l in body[1:] for t in tok.finditer(l) if t.group(1) in state})
@@ -289,7 +307,7 @@ def main():
             # before every block)
             if re.search(r'\b(switch|indirectbr|blockaddress)\b', l) and any(t.group(1) in state for t in tok.finditer(out)):
                 fail('a state reference the rewrite does not handle: ' + l.strip()[:120])
-            return tok.sub(lambda t: gname[t.group(1)] if t.group(1) in state else t.group(0), out)
+            return outside_strings(out, lambda part: tok.sub(lambda t: gname[t.group(1)] if t.group(1) in state else t.group(0), part))
 
         rest = [rewrite_line(l) for l in body[1:]]
         new = [body[0]]
@@ -317,8 +335,7 @@ def main():
             fail('a state reference outside a function: ' + l[:160])
 
     # ---- the API ------------------------------------------------------------------------------
-    init = [f'define i32 @{prefix}state_init(ptr %p) {{',
-            f'  call void @llvm.memset.p0.i64(ptr align 16 %p, i8 0, i64 {size}, i1 false)']
+    init = []   # (the "ok" block's instructions: after the layout check below passes)
     consts = []
     for n in order:
         g = state[n]
@@ -339,13 +356,13 @@ def main():
             if m and m.group(1) in state:
                 init.append(f'  %a.{tag} = getelementptr inbounds %fel.state, ptr %p, i32 0, i32 {index[m.group(1)]}')
                 return f'%a.{tag}'
-            gm = re.fullmatch(r'getelementptr (inbounds )?\((.*)\)', val)
+            gm = re.fullmatch(r'getelementptr((?: inbounds| nuw| nusw)*) \((.*)\)', val)
             if gm:
                 parts = split_top(gm.group(2))
                 base = re.fullmatch(r'ptr @([\w.$]+|"[^"]*")', parts[1].strip())
                 if base and base.group(1) in state:
                     init.append(f'  %b.{tag} = getelementptr inbounds %fel.state, ptr %p, i32 0, i32 {index[base.group(1)]}')
-                    init.append(f'  %a.{tag} = getelementptr {gm.group(1) or ""}{parts[0]}, ptr %b.{tag}, {", ".join(parts[2:])}')
+                    init.append(f'  %a.{tag} = getelementptr{gm.group(1)} {parts[0]}, ptr %b.{tag}, {", ".join(parts[2:])}')
                     return f'%a.{tag}'
             if any(t.group(1) in state for t in tok.finditer(val)):
                 fail(f'an initializer of {n} the rewrite does not handle: {val[:120]}')
@@ -362,25 +379,26 @@ def main():
             v = address(el, f'{ident(n)}.{k}')
             init.append(f'  %e.{ident(n)}.{k} = getelementptr inbounds [{am.group(1)} x ptr], ptr {f}, i32 0, i32 {k}')
             init.append(f'  store ptr {v}, ptr %e.{ident(n)}.{k}, align {ptr_align}')
-    # each field where its alignment needs it (the sizes above are this tool's reading of the
-    # data layout: LLVM's own offsets are the check)
-    ok = '1'
+    # each field where its alignment needs it, and the size, as LLVM lays the struct out (the sizes
+    # above are this tool's reading of the data layout): checked first, so a block of the wrong size
+    # is never written
+    check, ok = [], 'true'
     for n in order:
         a = state[n]['align']
         if a <= 1:
             continue
         counter[0] += 1
         c = counter[0]
-        init.append(f'  %o{c} = ptrtoint ptr getelementptr (%fel.state, ptr null, i32 0, i32 {index[n]}) to i64')
-        init.append(f'  %r{c} = urem i64 %o{c}, {a}')
-        init.append(f'  %z{c} = icmp eq i64 %r{c}, 0')
-        init.append(f'  %k{c} = and i1 {ok if ok != "1" else "true"}, %z{c}')
+        check.append(f'  %o{c} = ptrtoint ptr getelementptr (%fel.state, ptr null, i32 0, i32 {index[n]}) to i64')
+        check.append(f'  %r{c} = urem i64 %o{c}, {a}')
+        check.append(f'  %z{c} = icmp eq i64 %r{c}, 0')
+        check.append(f'  %k{c} = and i1 {ok}, %z{c}')
         ok = f'%k{c}'
-    init.append('  %sz = ptrtoint ptr getelementptr (%fel.state, ptr null, i32 1) to i64')
-    init.append(f'  %szok = icmp eq i64 %sz, {size}')
-    init.append(f'  %all = and i1 {ok if ok != "1" else "true"}, %szok')
-    init.append('  %ret = zext i1 %all to i32')
-    init += ['  ret i32 %ret', '}']
+    check.append('  %sz = ptrtoint ptr getelementptr (%fel.state, ptr null, i32 1) to i64')
+    check.append(f'  %szok = icmp eq i64 %sz, {size}')
+    check.append(f'  %all = and i1 {ok}, %szok')
+    init = ([f'define i32 @{prefix}state_init(ptr %p) {{'] + check + ['  br i1 %all, label %ok, label %bad', 'bad:', '  ret i32 0', 'ok:',
+             f'  call void @llvm.memset.p0.i64(ptr align 16 %p, i8 0, i64 {size}, i1 false)'] + init + ['  ret i32 1', '}'])
 
     api = ['%fel.state = type { ' + ', '.join(fields) + ' }',
            f'@fel_state_base = internal thread_local global ptr null, align {ptr_align}'] + consts + [
