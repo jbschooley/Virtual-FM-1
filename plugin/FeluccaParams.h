@@ -28,6 +28,7 @@ struct Entry {
     bool sloop = false;   // SLOOP's ("slp_..."), not Felucca's
     int hint = 0;         // its version hint (0: Felucca's 2, SLOOP's 3); AU orders by it, so an added one has a higher one
     bool melodee = false; // Melodee's ("mel_...")
+    bool song = false;    // the same value on every part (Melodee's SCL, QNT, DEG: held on part 1's entry)
 };
 
 // Felucca's, then SLOOP's, then Melodee's (each added after the others: a project's earlier

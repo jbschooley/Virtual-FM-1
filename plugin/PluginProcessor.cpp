@@ -1362,7 +1362,7 @@ void FM1Processor::feluccaChanged(int track) {
     const auto& all = felparams::entries();
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
-        if (!playsOn(e, *f) || (track >= 0 && e.track != track)) continue;
+        if (!playsOn(e, *f) || (track >= 0 && e.track != track && !e.song)) continue;   // (a song-wide one: any part's change is its)
         int min = 0, max = 0;
         if (!(e.track < 0 ? f->globalRange(e.index, min, max) : f->paramRange(e.track, e.index, min, max)) || max <= min) continue;
         const int value = e.track < 0 ? f->global(e.index) : f->param(e.track, e.index);

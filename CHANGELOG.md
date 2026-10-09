@@ -21,8 +21,9 @@ for the code. New work goes under the next version at the top.
   FM-1 still on Melodee 0.12 is not sent to or followed live: update it with
   Melodee's installer (pulling from it has not been tried).
 - **Melodee's host parameters** ("Melodee P1 LEVEL" ...): each part's
-  parameters and the engine's eight, its playback quantize and scale degree,
-  and the tempo, swing, tuning and effects, for automation. Not its A4, boot
+  parameters and the engine's eight and its playback quantize; the song's
+  scale, quantize and scale degree (one for every part, as on the device); and
+  the tempo, swing and effects, for automation. Not its tuning, A4, boot
   project or drum channel, which are the device's settings.
 - Melodee's Sequencer tab works on the pattern bank each part plays.
 

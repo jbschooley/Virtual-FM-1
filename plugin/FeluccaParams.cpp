@@ -84,13 +84,16 @@ const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
 // Melodee 0.13's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's numbering, with
 // P_ED_FX (8) now the sequencer's playback quantize (QNT), the delay send (35) unused (its shared delay
 // is gone), 70 scales (26), QNT's fifth mode (27), and DEG (83, the MPC pad's scale degree) before the
-// engine's eight (84). Its globals: Felucca's without the delay; not A4, BOOT or the DRUM channel,
-// which are the device's settings (saved on each change).
+// engine's eight (84). SCL, QNT and DEG are the song's (one scale for every part: the device copies
+// them to all, ui.c scale_share): one host parameter each ("mel_scale", ...), on part 1. Its globals:
+// Felucca's without the delay; not TUNE, A4, BOOT or the DRUM channel, which are the device's
+// settings (saved when they change: TUNE by glo_poll, the others at once).
 constexpr int kMelodeeEngineFirst = 84;
-const struct { int index; const char* name; int range[3]; } kMelodeeChanged[] = {
-    {8, "pqnt", {0, 10, 0}}, {26, "scale", {0, 69, 0}}, {27, "quant", {0, 4, 0}}};
+const struct { int index; const char* name; int range[3]; } kMelodeeChanged[] = {{8, "pqnt", {0, 10, 0}}};
+const struct { int index; const char* name; int range[3]; } kMelodeeSong[] = {
+    {26, "scale", {0, 69, 0}}, {27, "quant", {0, 4, 0}}, {83, "mpcdeg", {1, 12, 1}}};
 const struct { const char* name; int index; int range[3]; } kMelodeeGlobal[] = {
-    {"bpm", 0, {40, 240, 120}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"rsize", 8, {0, 127, 90}},
+    {"bpm", 0, {40, 240, 120}}, {"swing", 1, {0, 100, 0}}, {"rsize", 8, {0, 127, 90}},
     {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}}, {"rtype", 24, {0, 1, 0}}};
 constexpr int kMelodeeHint = 5;
 
@@ -122,15 +125,14 @@ std::vector<Entry> build() {
     for (int t = 0; t < kParts; ++t) {
         const juce::String p = "mel_t" + juce::String(t + 1) + "_";
         for (int i = 0; i < kEngineFirst; ++i) {
-            if (i == 35) continue;   // (the delay send: no delay)
+            if (i == 35 || i == 26 || i == 27) continue;   // (the delay send: no delay; the song's scale: below)
             const auto* changed = std::find_if(std::begin(kMelodeeChanged), std::end(kMelodeeChanged), [i](const auto& c) { return c.index == i; });
             if (changed != std::end(kMelodeeChanged)) { out.push_back({p + changed->name, t, i, defaultOf(changed->range), false, kMelodeeHint, true}); continue; }
             if (kTrack[i] != nullptr) out.push_back({p + kTrack[i], t, i, defaultOf(kTrackRange[i]), false, kMelodeeHint, true});
         }
-        const int deg[3] = {1, 12, 1};
-        out.push_back({p + "mpcdeg", t, 83, defaultOf(deg), false, kMelodeeHint, true});
         for (int e = 0; e < 8; ++e) out.push_back({p + "e" + juce::String(e), t, kMelodeeEngineFirst + e, 0.0f, false, kMelodeeHint, true});
     }
+    for (const auto& c : kMelodeeSong) out.push_back({"mel_" + juce::String(c.name), 0, c.index, defaultOf(c.range), false, kMelodeeHint, true, true});
     for (const auto& g : kMelodeeGlobal) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kMelodeeHint, true});
     return out;
 }
@@ -151,7 +153,8 @@ int indexOf(const juce::String& id) {
 int entryFor(int track, int index, bool sloop, bool melodee) {
     const auto& all = entries();
     for (size_t i = 0; i < all.size(); ++i)
-        if (all[i].sloop == sloop && all[i].melodee == melodee && all[i].track == track && all[i].index == index) return int(i);
+        if (all[i].sloop == sloop && all[i].melodee == melodee && all[i].index == index && (all[i].track == track || (all[i].song && track >= 0)))
+            return int(i);   // (a song-wide one is every part's)
     return -1;
 }
 
@@ -167,8 +170,11 @@ void addTo(juce::AudioProcessorValueTreeState::ParameterLayout& layout, std::sha
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
         // the host's name: which firmware, where it is and the firmware's name for it
-        const juce::String where = e.track < 0 ? juce::String() : e.sloop && e.track == 3 ? juce::String("DRUMS ") : "P" + juce::String(e.track + 1) + " ";
-        const juce::String what = e.id.substring(e.track < 0 ? 4 : 7).toUpperCase();   // after "fel_" / "fel_tN_" ("slp_", "slp_tN_", "slp_dr_", "mel_" ...)
+        // (ids: "fel_tN_x" / "slp_dr_x" a part's, "fel_x" a global's or, Melodee's scale, the song's)
+        const juce::String rest = e.id.fromFirstOccurrenceOf("_", false, false);
+        const bool part = rest.startsWith("dr_") || (rest.length() > 3 && rest[0] == 't' && juce::CharacterFunctions::isDigit(rest[1]) && rest[2] == '_');
+        const juce::String where = !part ? juce::String() : e.sloop && e.track == 3 ? juce::String("DRUMS ") : "P" + juce::String(e.track + 1) + " ";
+        const juce::String what = (part ? rest.fromFirstOccurrenceOf("_", false, false) : rest).toUpperCase();
         const juce::String firmware = e.melodee ? "Melodee" : e.sloop ? "SLOOP" : "Felucca";
         const juce::String name = firmware + " " + where + what;
         const int entry = int(i);

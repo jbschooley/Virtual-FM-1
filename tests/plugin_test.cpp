@@ -438,12 +438,13 @@ static int checks() {
             {   // its own host parameters ("mel_..."); Felucca's do not reach it
                 int perTrack[4] = {}, globals = 0;
                 for (const auto& en : felparams::entries()) if (en.melodee) { if (en.track >= 0) ++perTrack[en.track]; else ++globals; }
-                CHECK(perTrack[0] == 71 && perTrack[3] == 71 && globals == 8 && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_t4_mpcdeg")
-                      && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype") && !p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4"),
-                      "Melodee's host parameters: 71 a part (its QNT and DEG, no delay send), eight globals (not A4)");
+                CHECK(perTrack[0] == 71 && perTrack[1] == 68 && perTrack[3] == 68 && globals == 7 && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_mpcdeg")
+                      && !p.apvts.getParameter("mel_t2_scale") && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype")
+                      && !p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4") && !p.apvts.getParameter("mel_tune"),
+                      "Melodee's host parameters: 68 a part (its playback QNT, no delay send), the song's SCALE, QUANT and MPCDEG once, seven globals (not TUNE or A4)");
                 auto* level = p.apvts.getParameter("mel_t1_level");
                 auto* felLevel = p.apvts.getParameter("fel_t1_level");
-                auto* scale = p.apvts.getParameter("mel_t2_scale");
+                auto* scale = p.apvts.getParameter("mel_scale");
                 const auto ld = p.felucca()->paramDesc(0, 0);
                 CHECK(level && felLevel && scale && p.feluccaParam(0, 0) == level
                       && std::abs(level->getValue() - float(p.felucca()->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
@@ -455,7 +456,12 @@ static int checks() {
                     CHECK(p.felucca()->param(0, 0) == ld.min + int(std::lround(0.25f * float(ld.max - ld.min))), "automation reaches Melodee");
                     scale->setValueNotifyingHost(1.0f);
                     p.processBlock(buf, m);
-                    CHECK(p.felucca()->param(1, 26) == 69, "its 70 scales (the last at 1.0)");
+                    CHECK(p.felucca()->param(0, 26) == 69 && p.felucca()->param(1, 26) == 69 && p.felucca()->param(3, 26) == 69,
+                          "its 70 scales (the last at 1.0), the song's: every part's");
+                    p.felucca()->setParam(2, 26, 5);   // (as the Sound page on part 3)
+                    p.feluccaChanged(2);
+                    CHECK(p.felucca()->param(0, 26) == 5 && std::abs(scale->getValue() - 5.0f / 69.0f) < 1e-5f && p.feluccaParam(2, 26) == scale,
+                          "set on part 3: every part's, and the host's one SCALE follows");
                     const int held = p.felucca()->param(0, 0);
                     felLevel->setValueNotifyingHost(felLevel->getValue() > 0.5f ? 0.1f : 0.9f);
                     p.processBlock(buf, m);
