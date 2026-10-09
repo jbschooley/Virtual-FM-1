@@ -11,8 +11,8 @@ for the code. New work goes under the next version at the top.
 - **Much smaller downloads**: Felucca, SLOOP and Melodee were each built in
   sixteen times so that instances could play apart; each is now built in once,
   and every instance keeps its own copy of the firmware's state. The macOS
-  installer goes from 127 MB to 31 MB, Linux from 73 MB to 24 MB, the Android
-  app from 22 MB to 6 MB. Any number of instances now play at once without
+  installer goes from 128 MB to 31 MB, Linux from 74 MB to 24 MB, Windows from
+  16 MB to 12 MB, the Android app from 40 MB to 13 MB. Any number of instances now play at once without
   costing extra CPU the way the 17th and later did before, and they sound as
   before, bit for bit.
 - **SLOOP 2.5** is built in (it was 2.4.1): its PHYS (physical models) and
