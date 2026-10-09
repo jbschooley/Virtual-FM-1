@@ -20,8 +20,11 @@ for the code. New work goes under the next version at the top.
   part plays with Melodee's song, and Live, pattern bank switches included. An
   FM-1 still on Melodee 0.12 is not sent to or followed live: update it with
   Melodee's installer (pulling from it has not been tried).
-- Melodee has no host parameters yet, and its Sequencer tab works on the
-  pattern bank each part plays.
+- **Melodee's host parameters** ("Melodee P1 LEVEL" ...): each part's
+  parameters and the engine's eight, its playback quantize and scale degree,
+  and the tempo, swing, tuning and effects, for automation. Not its A4, boot
+  project or drum channel, which are the device's settings.
+- Melodee's Sequencer tab works on the pattern bank each part plays.
 
 ## [0.6.0] - 2026-10-07
 

@@ -140,8 +140,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   live, as with Felucca; one still on 2.3 is pulled from only.
 - **Melodee 0.13**, built from its source the same way: its engines on four
   parts, PROPHET (with Sequential's Prophet-5 factory programs) and CZ-1 (with
-  Casio's CZ-1 tones) among them, its 32 pattern banks, in the same editor,
-  Library and Device tabs. Its projects, user presets and CZ, FM6 and PROPHET
+  Casio's CZ-1 tones) among them, its 32 pattern banks, in the same editor and
+  as host parameters, Library and Device tabs. Its projects, user presets and CZ, FM6 and PROPHET
   banks are kept in the library as the file Melodee's web editor uses for
   backups (`Melodee/Melodee device.json`). With an FM-1 running Melodee 0.13:
   pull, send and live, a part's own CZ-1 tone or PROPHET patch included.
@@ -160,9 +160,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca** and **SLOOP**: their user sample slots are empty.
-- **Melodee**: no host parameters yet (automation does not reach it), and its
-  Sequencer tab edits, pulls and sends the pattern bank each part plays (the
-  Sync page's Pull and Send carry all of them).
+- **Melodee**: its Sequencer tab edits, pulls and sends the pattern bank each
+  part plays (the Sync page's Pull and Send carry all of them).
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
