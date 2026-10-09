@@ -4,6 +4,24 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **Much smaller downloads**: Felucca, SLOOP and Melodee were each built in
+  sixteen times so that instances could play apart; each is now built in once,
+  and every instance keeps its own copy of the firmware's state. The macOS
+  installer goes from 127 MB to 31 MB, Linux from 73 MB to 24 MB, the Android
+  app from 22 MB to 6 MB. Any number of instances now play at once without
+  costing extra CPU the way the 17th and later did before, and they sound as
+  before, bit for bit.
+- **SLOOP 2.5** is built in (it was 2.4.1): its PHYS (physical models) and
+  NOISE engines, 153 factory sounds, the SYN drum kits (kept with its projects
+  and synced with an FM-1), and the drums' delay send (GLO > DRUMS > DLY, also a
+  host parameter, "SLOOP DRDLY"). An FM-1 on SLOOP 2.4 is pulled from and sent
+  to, without the SYN kits it does not have; Live needs 2.5 on both. Not tried on
+  an FM-1 yet.
+
 ## [0.7.0] - 2026-10-08
 
 ### Added
