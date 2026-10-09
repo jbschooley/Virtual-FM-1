@@ -447,16 +447,19 @@ bool Mirror::start(juce::String& error) {
     // values go by parameter number: both must number them alike (the same Felucca version)
     auto la = layout(a_.ep, &a_.caps), lb = layout(b_.ep, &b_.caps);
     if (!la || !lb) { error = "a synth did not say what it is"; return false; }
-    if ((*la)[1] != (*lb)[1] || (*la)[2] != (*lb)[2] || (*la)[4] != (*lb)[4]) {
-        error = "the FM-1 runs another version of " + juce::String(a_.ep.dialect().name) + " than the plugin (" + juce::String((*la)[1]) + " parameters, "
-                "the plugin's " + juce::String((*lb)[1]) + "); pull or send still work";
-        return false;
-    }
-    // engines go by number too: one the other side does not have (Melodee 0.12 has no PROPHET, 19)
-    // would not load there, and Live would end on it
+    // engines go by number too: one the other side does not have (Melodee 0.12 has no PROPHET, 19;
+    // SLOOP 2.4 no PHYS or NOISE) would not load there, and Live would end on it. Checked first: a
+    // release with other engines usually has other parameters too, and this says what to do
     if ((*la)[0] != (*lb)[0]) {
         error = "the FM-1 runs another version of " + juce::String(a_.ep.dialect().name) + " than the plugin (" + juce::String((*la)[0]) + " engines, "
                 "the plugin's " + juce::String((*lb)[0]) + "): update it to the plugin's release to go Live";
+        return false;
+    }
+    static const std::pair<int, const char*> parts[] = {{1, "parameters"}, {2, "global settings"}, {4, "engine parameters from"}};
+    for (auto [k, what] : parts) {
+        if ((*la)[size_t(k)] == (*lb)[size_t(k)]) continue;
+        error = "the FM-1 runs another version of " + juce::String(a_.ep.dialect().name) + " than the plugin (" + juce::String(what) + " "
+                + juce::String((*la)[size_t(k)]) + ", the plugin's " + juce::String((*lb)[size_t(k)]) + "); pull or send still work";
         return false;
     }
     for (Side* s : {&a_, &b_}) {

@@ -892,6 +892,30 @@ static int checks() {
             CHECK(err.isEmpty(), "no side stopped answering: " + err);
             mirror.stop();
         }
+        {   // an FM-1 on SLOOP 2.4 (10 engines, 32 globals): Live does not start, and says to update
+            struct Older : felucca::Endpoint {
+                felucca::Endpoint& e;
+                explicit Older(felucca::Endpoint& x) : e(x) {}
+                const felucca::Dialect& dialect() const override { return e.dialect(); }
+                std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
+                    auto r = e.ask(q, t);
+                    if (!r || felucca::commandOf(*r) != felucca::kInfo) return r;
+                    auto x = felucca::argsOf(*r);   // the version string, then NENGINES, P_COUNT, G_COUNT
+                    size_t at = 0;
+                    while (at < x.size() && x[at] != 0) ++at;
+                    if (at + 3 < x.size()) { x[at + 1] = 10; x[at + 3] = 32; }
+                    return felucca::frame(felucca::kInfo, x);
+                }
+                std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+            };
+            auto a = std::make_shared<FeluccaEngine>(Fl::Sloop), b = std::make_shared<FeluccaEngine>(Fl::Sloop);
+            felucca::VirtualEndpoint ea(a), eb(b);
+            Older older(ea);
+            felucca::Mirror m24(older, eb);
+            juce::String why;
+            CHECK(!m24.start(why) && why.contains("10 engines") && why.contains("update it"), "Live refused for SLOOP 2.4: " + why);
+            m24.stop();
+        }
         {   // the drum track's lanes, whole. A lane edit on the device pushes STEP_CHANGED for the drum
             // track; an editor's write does not (it knows it), so the push is put in here, as the
             // device would send it after its own edit
