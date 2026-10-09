@@ -66,10 +66,11 @@ const Dialect& feluccaDialect() {
 // (33: index -> index, lanes 3, levels 5, ratchets 5; the same args write them) carries it whole.
 const Dialect& sloopDialect() {
     // 2.4: object 8, its FM6 patch bank (restored before the projects that name its slots), and a
-    // fourth user sample slot (35)
+    // fourth user sample slot (35); 2.5: object 9, its SYN drum kits (editor.html BK.RESTORE 6, 7, 8,
+    // 9, 2..5, 0, 1), and the drums' delay send (global 32), carried live with the other drum mix
     static const Dialect d{"SLOOP", 34, 35, 36, false,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34, 35}, {6, 7, 8, 2, 3, 4, 5, 0, 1}, 8, true, "sloop-backup",
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30}, 3, 33};
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34, 35}, {6, 7, 8, 9, 2, 3, 4, 5, 0, 1}, 9, true, "sloop-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30, 32}, 3, 33};
     return d;
 }
 
@@ -179,6 +180,33 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         return false;
     }
     return true;
+}
+
+juce::String fitToSynth(Objects& ours, const Objects& theirs, const Dialect& d) {
+    // Felucca: never an empty FM6 bank (8: 1.0.3's is always empty; sent to 1.0.2 it would empty the
+    // synth's bank), and no 9 for a synth that does not list it (before 1.0.3; SLOOP 2.4: no SYN kits)
+    if (auto it = ours.find(8); it != ours.end() && it->second.empty()) ours.erase(it);
+    if (!theirs.count(9)) ours.erase(9);
+    if (isSloop(d))   // an older SLOOP lists fewer objects (2.4: no SYN kits, 9): those are left out (it reads 2.5's projects)
+        for (auto it = ours.begin(); it != ours.end();)
+            it = theirs.count(it->first) ? std::next(it) : ours.erase(it);
+    if (isMelodee(d)) {
+        // as Melodee's editor checks before its restore (fm1backup.js): an object the synth does not list
+        // is left out if empty, else nothing is sent; nor a project larger than its music object (an
+        // older release with less recording room)
+        for (auto it = ours.begin(); it != ours.end();) {
+            if (theirs.count(it->first)) { ++it; continue; }
+            if (!it->second.empty()) return "this FM-1's Melodee has no object " + juce::String(it->first) + " (another release?)";
+            it = ours.erase(it);
+        }
+        const auto music = theirs.find(0);
+        const size_t room = music != theirs.end() ? music->second.size() : 0;
+        for (int id : {0, 2, 3, 4, 5})
+            if (auto it = ours.find(id); it != ours.end() && it->second.size() > room)
+                return "this FM-1's Melodee keeps smaller projects (" + juce::String(int(room)) + " bytes, the plugin's "
+                       + juce::String(int(it->second.size())) + "): update it to the plugin's release";
+    }
+    return {};
 }
 
 juce::String backupJson(const Objects& objects, const juce::String& firmware, const Dialect& d) {

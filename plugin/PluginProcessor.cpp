@@ -1198,26 +1198,8 @@ bool FM1Processor::feluccaSend() {
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
         if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
-        // Felucca: never an empty FM6 bank (8: 1.0.3's is always empty; sent to 1.0.2 it would
-        // empty the synth's bank), and no 9 for a synth that does not list it (before 1.0.3)
-        if (auto it = ours->find(8); it != ours->end() && it->second.empty()) ours->erase(it);
-        if (!theirs->count(9)) ours->erase(9);
-        if (felucca::isMelodee(d)) {
-            // as Melodee's editor checks before its restore (fm1backup.js): an object the synth does not list
-            // is left out if empty, else nothing is sent; nor a project larger than its music object (an
-            // older release with less recording room). Nothing is written before these pass.
-            for (auto it = ours->begin(); it != ours->end();) {
-                if (theirs->count(it->first)) { ++it; continue; }
-                if (!it->second.empty())
-                    return Fm1Session::JobResult{false, "Nothing sent: this FM-1's Melodee has no object " + juce::String(it->first) + " (another release?). Its backup: " + kept};
-                it = ours->erase(it);
-            }
-            const size_t room = (*theirs)[0].size();
-            for (int id : {0, 2, 3, 4, 5})
-                if (auto it = ours->find(id); it != ours->end() && it->second.size() > room)
-                    return Fm1Session::JobResult{false, "Nothing sent: this FM-1's Melodee keeps smaller projects (" + juce::String(int(room)) + " bytes, "
-                                                        "the plugin's " + juce::String(int(it->second.size())) + "): update it to the plugin's release. Its backup: " + kept};
-        }
+        if (const auto why = felucca::fitToSynth(*ours, *theirs, d); why.isNotEmpty())
+            return Fm1Session::JobResult{false, "Nothing sent: " + why + ". Its backup: " + kept};
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
         return Fm1Session::JobResult{true, "Sent the " + everything(d) + " to the FM-1. Its backup from before: " + kept};

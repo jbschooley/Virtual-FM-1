@@ -62,9 +62,12 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
     static const std::vector<KnownVersion> sloop = {
         // 2.3 does not read 2.4's projects (FUN5) and its engine parameters sit 3 lower: pulled from only
-        {900, "2.3", Support::Older, "pulled from only: update it to 2.4.1 with SLOOP's installer to send to it or go Live"},
-        {900, "2.4", Support::Older, "synced as 2.4.1 (the same projects and protocol): update it to 2.4.1 with SLOOP's installer, which fixes imported FM6 patches with AMS playing noise"},
-        {900, "2.4.1", Support::Current, ""},
+        {900, "2.3", Support::Older, "pulled from only: update it to 2.5 with SLOOP's installer to send to it or go Live"},
+        // 2.4 and 2.4.1 read 2.5's projects (a PHYS or NOISE track opens with another engine), but have
+        // two engines fewer (Live refuses) and no SYN drum kits (object 9: Send leaves it out)
+        {900, "2.4", Support::Older, "no PHYS, NOISE or SYN drum kits: update it to 2.5 with SLOOP's installer to go Live (Send leaves the kits out)"},
+        {900, "2.4.1", Support::Older, "no PHYS, NOISE or SYN drum kits: update it to 2.5 with SLOOP's installer to go Live (Send leaves the kits out)"},
+        {900, "2.5", Support::Current, ""},
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")

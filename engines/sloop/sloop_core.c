@@ -649,7 +649,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
         proj_capture((project_t *)ED_BK_RAW);
     else if (id == 1u)
         persist_fill(&ed_bk_set);
-    else if (id > 8u)
+    else if (id > 9u)                    /* (9, 2.5: the SYN drum kits) */
         return -1;
     p = ed_bk_obj(id, &len);
     if (!p || len > max)
@@ -662,7 +662,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
-    if (id > 8u || len > sizeof proj_tmp)
+    if (id > 9u || len > sizeof proj_tmp)
         return 1;
     if (transport_req == 2u) {           /* a stop asked for (a project loaded just before): as the next */
         seq_stop();                      /* audio block would, before Sloop refuses this as busy (rc 3) */

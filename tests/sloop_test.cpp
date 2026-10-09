@@ -173,14 +173,15 @@ int main() {
     }
     {   // a Felucca and a Sloop side by side: each its own
         FeluccaEngine fel, slp{kSloop};
-        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.4.1" && fel.engines() == 14 && slp.engines() == 10,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.5" && fel.engines() == 14 && slp.engines() == 12,
               "a Felucca instance and a Sloop instance at once, each its own firmware");
     }
 
     // ---- what it is ----
     Sloop a{kSloop};
     CHECK(a.tracks() == 4 && a.parts() == 3, "three synth parts and the drum track");
-    CHECK(a.engines() == 10 && a.enginesShown().size() == 10, "ten engines (2.4: FM6), all to pick");
+    CHECK(a.engines() == 12 && a.enginesShown().size() == 12 && a.engineName(10) == "PHYS" && a.engineName(11) == "NOISE",
+          "twelve engines (2.4: FM6; 2.5: PHYS and NOISE, last), all to pick");
     CHECK(a.engineName(0) == "ANALOG" && a.engineName(8) == "GRAIN" && a.engineName(9) == "FM6" && a.fm6Engine() == 9, "engines by name; FM6 last");
     std::printf("  engines:");
     for (int e : a.enginesShown()) std::printf(" %s(%zu)", a.engineName(e).c_str(), a.presetNames(e).size());
@@ -233,8 +234,8 @@ int main() {
     // ---- parameters ----
     {
         Sloop f{kSloop};
-        CHECK(f.paramCount() == 61 && f.firstEngineParam() == 53 && f.globalCount() == 32,
-              "61 parameters per track (2.4: FILT, STRUM, VLEAD before the engine's 8); 32 globals");
+        CHECK(f.paramCount() == 61 && f.firstEngineParam() == 53 && f.globalCount() == 33 && f.globalDesc(32).label == "DLY",
+              "61 parameters per track (2.4: FILT, STRUM, VLEAD before the engine's 8); 33 globals (2.5: the drums' DLY)");
         const auto lvl = f.paramDesc(0, 0);
         f.setParam(0, 0, lvl.max + 50);
         CHECK(f.param(0, 0) == lvl.max, "values are kept in range");
@@ -267,8 +268,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.4.1" && info[at] == 10 && info[at + 1] == 61 && info[at + 4] == 53,
-              "INFO answers, as SLOOP 2.4.1 (10 engines, 61 parameters, P_E0 53)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.5" && info[at] == 12 && info[at + 1] == 61 && info[at + 4] == 53,
+              "INFO answers, as SLOOP 2.5 (12 engines, 61 parameters, P_E0 53)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {
@@ -290,7 +291,10 @@ int main() {
               "a project slot takes a project, right after the working project was put (its stop done first)");
         std::vector<uint8_t> settingsObj;
         CHECK(g.object(1, settingsObj) && !settingsObj.empty(), "the settings object");
-        CHECK(g.object(8, empty) && empty.empty() && !g.object(9, empty), "object 8: its FM6 patch bank (2.4), empty at first; no 9");
+        CHECK(g.object(8, empty) && empty.empty(), "object 8: its FM6 patch bank (2.4), empty at first");
+        std::vector<uint8_t> syn, syn2;
+        CHECK(g.object(9, syn) && !syn.empty() && f.putObject(9, syn) == 0 && f.object(9, syn2) && syn2 == syn && !g.object(10, empty),
+              "object 9 (2.5): its SYN drum kits, kept and put back; nothing past 9");
 
         const auto names = f.buttonNames();
         const int play = int(std::find(names.begin(), names.end(), std::string("PLAY")) - names.begin());

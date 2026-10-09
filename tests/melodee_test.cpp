@@ -174,7 +174,7 @@ int main() {
     }
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.4.1" && mel.version() == "v0.13" && fel.engines() == 14 && mel.engines() == 20,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.5" && mel.version() == "v0.13" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
     }
 

@@ -94,6 +94,10 @@ private:
 // version 1, objects with id, size, crc, data; SLOOP: "sloop-backup" version 1, with id, len,
 // crc, data): every object's size and CRC checked.
 bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Dialect& d = feluccaDialect());
+// What a Send writes, fitted to what the synth has (theirs: its own objects, just read): objects it
+// does not list or cannot take are left out (an older release), or the Send is refused. Empty if it
+// may go ahead, else why not; nothing is written before this.
+juce::String fitToSynth(Objects& ours, const Objects& theirs, const Dialect& d);
 juce::String backupJson(const Objects& objects, const juce::String& firmware, const Dialect& d = feluccaDialect());
 
 // done, total, what: false to stop

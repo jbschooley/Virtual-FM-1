@@ -134,6 +134,9 @@ std::vector<Entry> build() {
     }
     for (const auto& c : kMelodeeSong) out.push_back({"mel_" + juce::String(c.name), 0, c.index, defaultOf(c.range), false, kMelodeeHint, true, true});
     for (const auto& g : kMelodeeGlobal) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kMelodeeHint, true});
+    // SLOOP 2.5's: the drums' delay send (GLO > DRUMS > DLY, global 32), after everything before it
+    const int drdly[3] = {0, 127, 0};
+    out.push_back({"slp_drdly", -1, 32, defaultOf(drdly), true, 6});
     return out;
 }
 

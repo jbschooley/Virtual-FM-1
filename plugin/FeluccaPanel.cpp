@@ -66,8 +66,9 @@ const GroupDef kMelodeeGroups[] = {
 };
 // the global settings worth editing here (the rest are the device's own pages and actions)
 const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
-// SLOOP's: the same up to the chorus, then its drum level and reverb and master bus (DUST, DUCK, FILT)
-const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29};
+// SLOOP's: the same up to the chorus, then its drum level, reverb and (2.5) delay sends and master bus
+// (DUST, DUCK, FILT)
+const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 32, 27, 28, 29};
 // Melodee's: no shared delay (4..7), its A4 reference (21)
 const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 
