@@ -21,8 +21,8 @@ for the code. New work goes under the next version at the top.
   host parameter, "SLOOP DRDLY"). An FM-1 on SLOOP 2.4 is pulled from and sent
   to, without the SYN kits it does not have (it has no PHYS or NOISE either:
   user presets on them read as empty there, and tracks on them open with
-  another engine); Live needs 2.5 on both, and says so. Not tried on
-  an FM-1 yet.
+  another engine); Live needs 2.5 on both, and says so. Tried
+  with an FM-1 on 2.5: pull, send (the SYN kits too) and Live.
 
 ## [0.7.0] - 2026-10-08
 
