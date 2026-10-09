@@ -1,136 +1,92 @@
 #include "FeluccaEngine.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
 #include <memory>
 
-// The compiled copies of each firmware (felucca_copies.inc, sloop_copies.inc and
-// melodee_copies.inc, written by CMake: FELUCCA_COPIES, SLOOP_COPIES and MELODEE_COPIES of them):
-// first their declarations, then tables of their functions.
+// Each firmware's functions (felucca_core.inc, sloop_core.inc and melodee_core.inc, written by
+// CMake): their declarations, then a table of them.
 extern "C" {
-#define FELUCCA_COPIES_DECLARE
-#include "felucca_copies.inc"
-#include "sloop_copies.inc"
-#include "melodee_copies.inc"
-#undef FELUCCA_COPIES_DECLARE
+#define FELUCCA_CORE_DECLARE
+#include "felucca_core.inc"
+#include "sloop_core.inc"
+#include "melodee_core.inc"
+#undef FELUCCA_CORE_DECLARE
 }
 
 namespace {
 
 #define FEL_ENTRY(ret, name, params) &FEL(name),
-const FeluccaCopy kFeluccaCopies[] = {
-#define FELUCCA_COPIES_TABLE
-#include "felucca_copies.inc"
-#undef FELUCCA_COPIES_TABLE
-};
-const FeluccaCopy kSloopCopies[] = {
-#define FELUCCA_COPIES_TABLE
-#include "sloop_copies.inc"
-#undef FELUCCA_COPIES_TABLE
-};
-const FeluccaCopy kMelodeeCopies[] = {
-#define FELUCCA_COPIES_TABLE
-#include "melodee_copies.inc"
-#undef FELUCCA_COPIES_TABLE
-};
+const FeluccaCopy kFelucca =
+#define FELUCCA_CORE_TABLE
+#include "felucca_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
+const FeluccaCopy kSloop =
+#define FELUCCA_CORE_TABLE
+#include "sloop_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
+const FeluccaCopy kMelodee =
+#define FELUCCA_CORE_TABLE
+#include "melodee_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
 #undef FEL_ENTRY
 
-std::mutex& poolLock() { static std::mutex m; return m; }
-
-// A compiled copy and the instances that play in it. One instance per copy until there are
-// more instances than copies; then instances share one, and the one that plays next has its
-// state put back first (an instance always plays in the copy it started in: its state holds
-// pointers into that copy).
-struct Slot {
-    std::mutex m;                          // held while one of its instances runs in it
-    const FeluccaEngine* resident = nullptr;   // whose state is in the copy now
-    int instances = 0;                     // how many have it as theirs (poolLock)
-};
-// One firmware's copies and their slots (never freed: an engine let go during static
-// destruction still finds its slot)
-struct Pool {
-    const FeluccaCopy* copies;
-    int count;
-    Slot* slots;
-    Pool(const FeluccaCopy* c, int n) : copies{c}, count{n}, slots{new Slot[size_t(n)]} {}
-};
-Pool& pool(FeluccaEngine::Flavor f) {
-    static Pool felucca{kFeluccaCopies, int(sizeof kFeluccaCopies / sizeof kFeluccaCopies[0])};
-    static Pool sloop{kSloopCopies, int(sizeof kSloopCopies / sizeof kSloopCopies[0])};
-    static Pool melodee{kMelodeeCopies, int(sizeof kMelodeeCopies / sizeof kMelodeeCopies[0])};
-    return f == FeluccaEngine::Flavor::Sloop ? sloop : f == FeluccaEngine::Flavor::Melodee ? melodee : felucca;
+const FeluccaCopy& coreOf(FeluccaEngine::Flavor f) {
+    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? kMelodee : kFelucca;
 }
+std::atomic<int> gInstances[3];
+int indexOf(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
 
 }  // namespace
 
-int FeluccaEngine::copies(Flavor f) { return pool(f).count; }
+int FeluccaEngine::instances(Flavor f) { return gInstances[indexOf(f)].load(); }
 
-int FeluccaEngine::copiesInUse(Flavor f) {
-    std::lock_guard<std::mutex> g(poolLock());
-    auto& p = pool(f);
-    int n = 0;
-    for (int i = 0; i < p.count; ++i) n += p.slots[size_t(i)].instances > 0;
-    return n;
-}
-
-int FeluccaEngine::instances(Flavor f) {
-    std::lock_guard<std::mutex> g(poolLock());
-    auto& p = pool(f);
-    int n = 0;
-    for (int i = 0; i < p.count; ++i) n += p.slots[size_t(i)].instances;
-    return n;
+void FeluccaEngine::Free::operator()(void* p) const {
+   #ifdef _WIN32
+    _aligned_free(p);
+   #else
+    std::free(p);
+   #endif
 }
 
 FeluccaEngine::FeluccaEngine(Flavor flavor) : flavor_{flavor} {
-    {
-        std::lock_guard<std::mutex> g(poolLock());   // the copy with the fewest instances
-        auto& p = pool(flavor_);
-        int best = 0;
-        for (int i = 1; i < p.count; ++i)
-            if (p.slots[size_t(i)].instances < p.slots[size_t(best)].instances) best = i;
-        p.slots[size_t(best)].instances++;
-        index_ = best;
-        core_ = &p.copies[best];
-    }
+    const FeluccaCopy& core = coreOf(flavor_);
+    const size_t bytes = size_t(core.state_size());   // (a multiple of 16)
+   #ifdef _WIN32
+    void* p = _aligned_malloc(bytes, 16);
+   #else
+    void* p = nullptr;
+    if (posix_memalign(&p, 16, bytes) != 0) p = nullptr;
+   #endif
+    if (!p) return;
+    state_.reset(p);
+    if (!core.state_init(p)) return;   // fel_state's layout check failed: never run it (valid() false)
+    core_ = &core;
+    gInstances[indexOf(flavor_)]++;
     ctl_ = int(core_->ctl());
-    saved_.resize(core_->state_bytes());   // its state while another instance plays in the copy
-    auto g = bind();                       // as the program started: restore() and init() there
+    auto g = bind();
+    core_->init();
 }
 
 FeluccaEngine::~FeluccaEngine() {
-    if (index_ < 0) return;
-    auto& s = pool(flavor_).slots[size_t(index_)];
-    {
-        std::lock_guard<std::mutex> g(s.m);
-        if (s.resident == this) s.resident = nullptr;
-    }
-    std::lock_guard<std::mutex> g(poolLock());
-    s.instances--;
+    if (core_) gInstances[indexOf(flavor_)]--;
 }
 
-// This instance's state in its copy, with the copy's lock held: another instance's state is
-// saved out first, then this one's put back (or, the first time, the copy started afresh).
+// The instance's lock, and the firmware's code pointed at its state on this thread
 std::unique_lock<std::mutex> FeluccaEngine::bind() const {
-    auto& s = pool(flavor_).slots[size_t(index_)];
-    std::unique_lock<std::mutex> l(s.m);
-    if (s.resident != this) {
-        if (s.resident != nullptr) core_->state_get(s.resident->saved_.data());
-        if (fresh_) {
-            core_->restore();
-            core_->init();
-            fresh_ = false;
-        } else {
-            core_->state_put(saved_.data());
-        }
-        s.resident = this;
-        ++swaps_;
-    }
+    std::unique_lock<std::mutex> l(lock_);
+    core_->bind(state_.get());
     return l;
 }
 
 void FeluccaEngine::reset() {
     if (!core_) return;
     auto g = bind();
-    core_->restore();
+    core_->state_init(state_.get());
     core_->init();
     blockPos_ = ctl_;
 }
@@ -176,18 +132,20 @@ static FeluccaEngine::Desc toDesc(const fel_desc_t& d) {
     return out;
 }
 
-int FeluccaEngine::tracks() const { return core_ ? int(core_->ntracks()) : 0; }
-int FeluccaEngine::parts() const { return core_ ? int(core_->nparts()) : 0; }
-int FeluccaEngine::engines() const { return core_ ? int(core_->nengines()) : 0; }
-int FeluccaEngine::paramCount() const { return core_ ? int(core_->pcount()) : 0; }
-int FeluccaEngine::firstEngineParam() const { return core_ ? int(core_->pe0()) : 0; }
-int FeluccaEngine::globalCount() const { return core_ ? int(core_->gcount()) : 0; }
-std::string FeluccaEngine::engineName(int e) const { return core_ ? core_->engine_name(uint32_t(e)) : ""; }
-std::string FeluccaEngine::enginePage(int e, int page) const { return core_ ? core_->engine_page(uint32_t(e), uint32_t(page)) : ""; }
+// (every call binds: any of the firmware's functions may read its state)
+int FeluccaEngine::tracks() const { if (!core_) return 0; auto g = bind(); return int(core_->ntracks()); }
+int FeluccaEngine::parts() const { if (!core_) return 0; auto g = bind(); return int(core_->nparts()); }
+int FeluccaEngine::engines() const { if (!core_) return 0; auto g = bind(); return int(core_->nengines()); }
+int FeluccaEngine::paramCount() const { if (!core_) return 0; auto g = bind(); return int(core_->pcount()); }
+int FeluccaEngine::firstEngineParam() const { if (!core_) return 0; auto g = bind(); return int(core_->pe0()); }
+int FeluccaEngine::globalCount() const { if (!core_) return 0; auto g = bind(); return int(core_->gcount()); }
+std::string FeluccaEngine::engineName(int e) const { if (!core_) return {}; auto g = bind(); return core_->engine_name(uint32_t(e)); }
+std::string FeluccaEngine::enginePage(int e, int page) const { if (!core_) return {}; auto g = bind(); return core_->engine_page(uint32_t(e), uint32_t(page)); }
 
 std::vector<std::string> FeluccaEngine::presetNames(int e) const {
     std::vector<std::string> out;
     if (!core_) return out;
+    auto g = bind();
     for (uint32_t i = 0; i < core_->npresets(uint32_t(e)); ++i) out.push_back(core_->preset_name(uint32_t(e), i));
     return out;
 }
@@ -195,11 +153,12 @@ std::vector<std::string> FeluccaEngine::presetNames(int e) const {
 std::vector<int> FeluccaEngine::enginesShown() const {
     std::vector<int> out;
     if (!core_) return out;
+    auto g = bind();
     for (uint32_t n = 0; n < core_->engines_shown(); ++n) out.push_back(int(core_->engine_shown(n)));
     return out;
 }
 
-int FeluccaEngine::fm6Engine() const { return core_ ? int(core_->fm6_engine()) : -1; }
+int FeluccaEngine::fm6Engine() const { if (!core_) return -1; auto g = bind(); return int(core_->fm6_engine()); }
 
 std::array<uint8_t, 155> FeluccaEngine::fm6Patch(int track) const {
     std::array<uint8_t, 155> v{};
@@ -233,7 +192,9 @@ bool FeluccaEngine::paramRange(int track, int id, int& min, int& max) const {
 
 bool FeluccaEngine::globalRange(int id, int& min, int& max) const {
     fel_desc_t d{};
-    if (!core_ || !core_->global_desc(uint32_t(id), &d)) return false;
+    if (!core_) return false;
+    auto g = bind();
+    if (!core_->global_desc(uint32_t(id), &d)) return false;
     min = d.min; max = d.max;
     return true;
 }
@@ -241,6 +202,7 @@ bool FeluccaEngine::globalRange(int id, int& min, int& max) const {
 FeluccaEngine::Desc FeluccaEngine::globalDesc(int id) const {
     fel_desc_t d{};
     if (!core_) return {};
+    auto g = bind();
     return core_->global_desc(uint32_t(id), &d) ? toDesc(d) : Desc{};
 }
 
@@ -345,13 +307,17 @@ void FeluccaEngine::drain() {
 
 std::vector<std::string> FeluccaEngine::buttonNames() const {
     std::vector<std::string> out;
-    if (core_) for (uint32_t i = 0; i < core_->nbuttons(); ++i) out.push_back(core_->button_name(i));
+    if (!core_) return out;
+    auto g = bind();
+    for (uint32_t i = 0; i < core_->nbuttons(); ++i) out.push_back(core_->button_name(i));
     return out;
 }
 
 std::vector<std::string> FeluccaEngine::knobNames() const {
     std::vector<std::string> out;
-    if (core_) for (uint32_t i = 0; i < core_->nknobs(); ++i) out.push_back(core_->knob_name(i));
+    if (!core_) return out;
+    auto g = bind();
+    for (uint32_t i = 0; i < core_->nknobs(); ++i) out.push_back(core_->knob_name(i));
     return out;
 }
 
@@ -526,4 +492,4 @@ void FeluccaEngine::select(int track) {
     core_->select(uint32_t(track));
 }
 
-std::string FeluccaEngine::version() const { return core_ ? core_->version() : std::string(); }
+std::string FeluccaEngine::version() const { if (!core_) return {}; auto g = bind(); return core_->version(); }

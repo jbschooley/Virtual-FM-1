@@ -4,10 +4,9 @@
  * user presets and editor protocol.
  *
  * Sloop is a fork of Felucca and is built the same way: one compilation unit whose state is all
- * file-level statics, compiled several times (CMakeLists.txt, SLOOP_COPIES), each copy with its own
- * FEL_PREFIX and sections, behind the same API as felucca_core.c (felucca_core.h). See that file
- * for how a copy is restored and its state saved and put back; this one only differs in what it
- * includes and what it replaces.
+ * file-level statics, compiled once with that state moved into a block each instance owns
+ * (fel_state.py), behind the same API as felucca_core.c (felucca_core.h). See that file for how;
+ * this one only differs in what it includes and what it replaces.
  *
  * The firmware's own sources are included unchanged, in the order its felucca.c includes them.
  * What touches hardware is replaced below: the panel's buttons, keys and knobs, the LEDs (none) and
@@ -32,15 +31,13 @@
 #define fm1_crash FEL(fm1_crash)
 
 #if !defined(__clang__) || !defined(FEL_BSS_SECTION)
-#error "Sloop's copies need Clang and their sections (CMakeLists.txt)"
+#error "the firmware cores are built with Clang through fel_state.py (CMakeLists.txt fm1_core)"
 #endif
+/* every writable variable from here to the pragma's end below (the firmware's, some static inside
+ * functions, and this file's own) carries this pragma's mark: fel_state.py moves each marked one
+ * into the state each instance owns (engines/felucca/fel_state.py, felucca_core.h) */
 #define FEL_PRAGMA(x) _Pragma(#x)
 #define FEL_SECTIONS(b, d) FEL_PRAGMA(clang section bss = b data = d)
-#ifdef FEL_BSS_FIRST                     /* Windows: where the sections start */
-FEL_SECTIONS(FEL_BSS_FIRST, FEL_DATA_FIRST)
-__attribute__((used)) static uint8_t fel_bss_start;
-__attribute__((used)) static uint8_t fel_data_start = 1;
-#endif
 FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 
 #define __attribute__(x)
@@ -275,66 +272,7 @@ static uint32_t fel_main_ms;
 static uint64_t fel_served_at;
 
 #undef __attribute__                     /* Sloop's code is done: attributes mean something again */
-static uint8_t fel_bss_marker;
-static uint8_t fel_data_marker = 1;
-#ifdef FEL_BSS_LAST
-FEL_SECTIONS(FEL_BSS_LAST, FEL_DATA_LAST)
-__attribute__((used)) static uint8_t fel_bss_stop;
-__attribute__((used)) static uint8_t fel_data_stop = 1;
-#endif
 #pragma clang section bss = "" data = ""
-
-/* ---- the copy's state, as the program started (as felucca_core.c) ----------------------------- */
-#ifndef FEL_BSS_LAST
-extern uint8_t fel_bss_start __asm(FEL_BSS_START);
-extern uint8_t fel_bss_stop __asm(FEL_BSS_STOP);
-extern uint8_t fel_data_start __asm(FEL_DATA_START);
-extern uint8_t fel_data_stop __asm(FEL_DATA_STOP);
-#endif
-static uint8_t *fel_pristine;
-
-static uint8_t *fel_at(uint8_t *p)
-{
-    __asm__ volatile("" : "+r"(p));
-    return p;
-}
-#define FEL_NB ((size_t)(fel_at(&fel_bss_stop) - fel_at(&fel_bss_start)))
-#define FEL_ND ((size_t)(fel_at(&fel_data_stop) - fel_at(&fel_data_start)))
-
-void *malloc(size_t);
-
-__attribute__((noinline)) void FEL(restore)(void)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    (void)fel_bss_marker; (void)fel_data_marker;
-    if (!fel_pristine) {
-        fel_pristine = (uint8_t *)malloc(nd ? nd : 1);
-        if (fel_pristine)
-            FEL(memcpy)(fel_pristine, fel_at(&fel_data_start), nd);
-        FEL(memset)(fel_at(&fel_bss_start), 0, nb);
-        return;
-    }
-    FEL(memset)(fel_at(&fel_bss_start), 0, nb);
-    FEL(memcpy)(fel_at(&fel_data_start), fel_pristine, nd);
-    __asm__ volatile("" ::: "memory");
-}
-
-uint32_t FEL(state_bytes)(void) { return (uint32_t)(FEL_NB + FEL_ND); }
-
-__attribute__((noinline)) void FEL(state_get)(uint8_t *out)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    __asm__ volatile("" ::: "memory");
-    FEL(memcpy)(out, fel_at(&fel_bss_start), nb);
-    FEL(memcpy)(out + nb, fel_at(&fel_data_start), nd);
-}
-__attribute__((noinline)) void FEL(state_put)(const uint8_t *in)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    FEL(memcpy)(fel_at(&fel_bss_start), in, nb);
-    FEL(memcpy)(fel_at(&fel_data_start), in + nb, nd);
-    __asm__ volatile("" ::: "memory");
-}
 
 /* ---- the API ------------------------------------------------------------------------------ */
 

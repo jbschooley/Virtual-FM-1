@@ -56,14 +56,12 @@ if(NOT MSVC)
 endif()
 
 # ---- Felucca's engines (engines/felucca: Felucca 1.0, GPL-3.0-only) -------------
-# Felucca's synth is one compilation unit with all its state in file-level statics, so
-# one compiled copy plays one instance at a time. felucca_core.c is compiled FELUCCA_COPIES
-# times, each copy with its own symbol prefix; each instance plays in one, sharing it when
-# there are more instances than copies (FeluccaEngine). Each copy keeps its writable state
-# in sections of its own, so that it can be put back to how it started, and an instance's
-# state saved out and put back in when it shares the copy;
-# that uses Clang's section pragma, so Felucca is built only with Clang (macOS and iOS
-# always; Linux with CC=clang; Windows with clang-cl: Visual Studio's ClangCL toolset, -T ClangCL).
+# Each firmware (Felucca, SLOOP, Melodee) is one compilation unit with all its state in
+# file-level statics. It is compiled once, and engines/felucca/fel_state.py moves that state into
+# a block each instance owns (felucca_core.h bind / state_size / state_init): one copy of the code,
+# any number of independent instances. That uses Clang's section pragma and LLVM IR, so the
+# firmwares are built only with Clang (macOS and iOS always; Linux with CC=clang; Android's NDK;
+# Windows with clang-cl: Visual Studio's ClangCL toolset, -T ClangCL), and with Python 3.
 if(CMAKE_C_COMPILER_ID MATCHES "Clang")
     set(FM1_FELUCCA_DEFAULT ON)
 else()
@@ -74,24 +72,24 @@ if(FM1_BUILD_FELUCCA AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(WARNING "Felucca's engines need Clang (CC=clang); building without them")
     set(FM1_BUILD_FELUCCA OFF)
 endif()
-set(FELUCCA_COPIES 16 CACHE STRING "How many Felucca instances play without sharing a copy (more share one, at some CPU cost)")
-set(SLOOP_COPIES 16 CACHE STRING "How many Sloop instances play without sharing a copy (more share one, at some CPU cost)")
-set(MELODEE_COPIES 16 CACHE STRING "How many Melodee instances play without sharing a copy (more share one, at some CPU cost)")
-# Sloop (engines/sloop: SLOOP 2.4.1, a fork of Felucca, GPL-3.0-only) is built the same way, from
-# sloop_core.c, behind the same API (felucca_core.h), into the same library.
+if(FM1_BUILD_FELUCCA)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(NOT Python3_Interpreter_FOUND)
+        message(WARNING "Felucca's engines need Python 3 (engines/felucca/fel_state.py); building without them")
+        set(FM1_BUILD_FELUCCA OFF)
+    endif()
+endif()
+# SLOOP (engines/sloop: SLOOP 2.4.1) and Melodee (engines/melodee: Melodee 0.13), both built from
+# Felucca and GPL-3.0-only, are built the same way, behind the same API, into the same library.
 
-# fm1_core_copies(<kind> <tag> <copies>): engines/<kind>/<kind>_core.c compiled <copies> times, copy i
-# with the prefix <tag><i>_ and its own sections; <kind>_copies.inc declares them and lists their
-# functions (FeluccaEngine.cpp). What every copy reads and none writes is compiled once: the sample
-# sets (SMP_DATA) and the empty user sample slots, if it has them, in <kind>_shared.c (<tag>_smp_data,
-# <tag>_no_samples); the copies include a felucca_samples.h written here from the vendored one, with
+# fm1_core(<kind> <tag>): engines/<kind>/<kind>_core.c compiled once through fel_state_build.py
+# (frontend IR, fel_state.py, the object), its functions prefixed <tag>_; <kind>_core.inc declares
+# them and lists them (FeluccaEngine.cpp). Its sample sets (SMP_DATA) and empty user sample slots,
+# if it has them, are compiled apart in <kind>_shared.c (<tag>_smp_data, <tag>_no_samples), read
+# only, so not state; the core includes a felucca_samples.h written here from the vendored one, with
 # SMP_DATA declared, not defined (its contents left as an unused array the compiler drops).
 # Sets <kind>Objects in the caller.
-function(fm1_core_copies kind tag copies)
-    math(EXPR last "${copies} - 1")
-    set(decl "")
-    set(table "")
-    set(objects "")
+function(fm1_core kind tag)
     set(samplesIn ${CMAKE_SOURCE_DIR}/engines/${kind}/generated/felucca_samples.h)
     if(NOT EXISTS ${samplesIn})   # (Melodee: no samples, no user sample slots)
         file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
@@ -115,104 +113,92 @@ function(fm1_core_copies kind tag copies)
             set(userSlots 3)
         endif()
         file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c
-             "/* written by CMakeLists.txt: what every ${kind} copy reads, once */\n#include <stdint.h>\n"
+             "/* written by CMakeLists.txt: what the ${kind} core reads and never writes (not its state) */\n#include <stdint.h>\n"
              "const uint8_t ${tag}_no_samples[${userSlots}][0x14000] = {{0}};\n${array}\n")
         string(REPLACE "${smpDecl}" "extern const uint8_t ${tag}_smp_data[];\n#define SMP_DATA ${tag}_smp_data\nstatic const uint8_t ${tag}_smp_data_unused[" header "${smp}")
         file(WRITE ${CMAKE_BINARY_DIR}/${kind}/shared/felucca_samples.h "${header}")
     endif()
     set(includes ${CMAKE_BINARY_DIR}/${kind}/shared ${CMAKE_SOURCE_DIR}/engines/${kind}/generated
                  ${CMAKE_SOURCE_DIR}/engines/felucca ${CMAKE_SOURCE_DIR}/engines/${kind})
-    foreach(i RANGE 0 ${last})
-        string(APPEND decl "#define FEL_PREFIX ${tag}${i}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n")
-        string(APPEND table "#define FEL_PREFIX ${tag}${i}_\n    { FELUCCA_API(FEL_ENTRY) },\n#undef FEL_PREFIX\n")
-        if(WIN32)
-            set(dir ${CMAKE_BINARY_DIR}/${kind}/copy${i})
-            file(MAKE_DIRECTORY ${dir})
-            set(obj ${dir}/${kind}_core${CMAKE_C_OUTPUT_EXTENSION})
-            set(incFlags "")
-            foreach(d ${includes})
-                list(APPEND incFlags -I${d})
-            endforeach()
-            add_custom_command(OUTPUT ${obj}
-                COMMAND ${FEL_CLANG} --target=${felTarget} -std=c11 -O2 -w -S -emit-llvm
-                        -DFEL_PREFIX=${tag}${i}_
-                        "-DFEL_BSS_SECTION=\"${tag}b${i}$m\"" "-DFEL_DATA_SECTION=\"${tag}d${i}$m\""
-                        "-DFEL_BSS_FIRST=\"${tag}b${i}$a\"" "-DFEL_BSS_LAST=\"${tag}b${i}$z\""
-                        "-DFEL_DATA_FIRST=\"${tag}d${i}$a\"" "-DFEL_DATA_LAST=\"${tag}d${i}$z\""
-                        ${incFlags}
-                        -MD -MF ${dir}/${kind}_core.d -MT ${obj}
-                        -o ${dir}/${kind}_core.ll ${CMAKE_SOURCE_DIR}/engines/${kind}/${kind}_core.c
-                COMMAND fel_sections ${dir}/${kind}_core.ll ${dir}/${kind}_core.sections.ll
-                COMMAND ${FEL_CLANG} --target=${felTarget} -O2 -c -o ${obj} ${dir}/${kind}_core.sections.ll
-                DEPENDS engines/${kind}/${kind}_core.c fel_sections
-                DEPFILE ${dir}/${kind}_core.d
-                COMMENT "${kind} copy ${i}"
-                VERBATIM)
-            set_source_files_properties(${obj} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
-            list(APPEND objects ${obj})
-            continue()
-        endif()
-        add_library(${kind}_core_${i} OBJECT engines/${kind}/${kind}_core.c)
-        # the copy's own sections, and the linker's symbols for where they start and stop
-        if(APPLE)
-            set(b "__DATA,__${tag}b${i},zerofill")   # zeros at start: no space in the file
-            set(d "__DATA,__${tag}d${i}")
-            set(bs "section$start$__DATA$__${tag}b${i}")
-            set(be "section$end$__DATA$__${tag}b${i}")
-            set(ds "section$start$__DATA$__${tag}d${i}")
-            set(de "section$end$__DATA$__${tag}d${i}")
-        else()
-            set(b "${tag}b${i}")
-            set(d "${tag}d${i}")
-            set(bs "__start_${tag}b${i}")
-            set(be "__stop_${tag}b${i}")
-            set(ds "__start_${tag}d${i}")
-            set(de "__stop_${tag}d${i}")
-        endif()
-        target_compile_definitions(${kind}_core_${i} PRIVATE FEL_PREFIX=${tag}${i}_
-            "FEL_BSS_SECTION=\"${b}\"" "FEL_DATA_SECTION=\"${d}\""
-            "FEL_BSS_START=\"${bs}\"" "FEL_BSS_STOP=\"${be}\""
-            "FEL_DATA_START=\"${ds}\"" "FEL_DATA_STOP=\"${de}\"")
-        target_include_directories(${kind}_core_${i} PRIVATE ${includes})
-        set_target_properties(${kind}_core_${i} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-        target_compile_options(${kind}_core_${i} PRIVATE -w -O2)   # the firmware's own code, as upstream builds it
-        list(APPEND objects $<TARGET_OBJECTS:${kind}_core_${i}>)
+    set(args --cc ${FEL_CLANG} --src ${CMAKE_SOURCE_DIR}/engines/${kind}/${kind}_core.c --prefix ${tag}_
+             -DFEL_PREFIX=${tag}_)
+    foreach(d ${includes})
+        list(APPEND args -I${d})
     endforeach()
-    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc.new
-         "// written by CMakeLists.txt: the ${copies} copies of ${kind}_core.c\n"
-         "#ifdef FELUCCA_COPIES_DECLARE\n${decl}#endif\n"
-         "#ifdef FELUCCA_COPIES_TABLE\n${table}#endif\n")
-    configure_file(${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc.new ${CMAKE_BINARY_DIR}/${kind}/${kind}_copies.inc COPYONLY)
-    set(${kind}Objects ${objects} ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c PARENT_SCOPE)
+    # the pragma's marks (only their presence matters: fel_state.py takes the marked variables out)
+    if(APPLE)
+        list(APPEND args "-DFEL_BSS_SECTION=\"__DATA,__felbss\"" "-DFEL_DATA_SECTION=\"__DATA,__feldata\"")
+    else()
+        list(APPEND args "-DFEL_BSS_SECTION=\"felbss\"" "-DFEL_DATA_SECTION=\"feldata\"")
+    endif()
+    if(WIN32)
+        list(APPEND args --target ${felTarget})
+    elseif(APPLE)
+        if(NOT CMAKE_GENERATOR STREQUAL "Xcode")   # (Xcode: its environment says, per build)
+            set(archs ${CMAKE_OSX_ARCHITECTURES})
+            if(NOT archs)
+                set(archs ${CMAKE_HOST_SYSTEM_PROCESSOR})
+            endif()
+            foreach(a ${archs})
+                list(APPEND args --arch ${a})
+            endforeach()
+            if(CMAKE_OSX_SYSROOT)
+                list(APPEND args --isysroot ${CMAKE_OSX_SYSROOT})
+            endif()
+            if(CMAKE_OSX_DEPLOYMENT_TARGET)
+                list(APPEND args --min ${CMAKE_OSX_DEPLOYMENT_TARGET})
+            endif()
+        endif()
+    else()   # Linux, Android: into a shared library
+        list(APPEND args --pic)
+        if(CMAKE_C_COMPILER_TARGET)
+            list(APPEND args --target ${CMAKE_C_COMPILER_TARGET})
+        endif()
+        if(CMAKE_SYSROOT)
+            list(APPEND args --sysroot ${CMAKE_SYSROOT})
+        endif()
+    endif()
+    # (a multi-configuration generator: one per configuration and, in Xcode, per SDK)
+    set(dir ${CMAKE_BINARY_DIR}/${kind}/core/${CMAKE_CFG_INTDIR})
+    set(obj ${dir}/${kind}_core${CMAKE_C_OUTPUT_EXTENSION})
+    add_custom_command(OUTPUT ${obj}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${dir}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/engines/felucca/fel_state_build.py ${args}
+                --out ${obj} --work ${dir}/work --depfile ${dir}/${kind}_core.d
+        DEPENDS engines/${kind}/${kind}_core.c engines/felucca/fel_state.py engines/felucca/fel_state_build.py
+        DEPFILE ${dir}/${kind}_core.d
+        COMMENT "${kind}: one core, its state per instance (fel_state.py)"
+        VERBATIM)
+    set_source_files_properties(${obj} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+    file(WRITE ${CMAKE_BINARY_DIR}/${kind}/${kind}_core.inc.new
+         "// written by CMakeLists.txt: ${kind}_core.c's functions\n"
+         "#ifdef FELUCCA_CORE_DECLARE\n#define FEL_PREFIX ${tag}_\n#include \"felucca_core_api.h\"\n#undef FEL_PREFIX\n#endif\n"
+         "#ifdef FELUCCA_CORE_TABLE\n#define FEL_PREFIX ${tag}_\n{ FELUCCA_API(FEL_ENTRY) }\n#undef FEL_PREFIX\n#endif\n")
+    configure_file(${CMAKE_BINARY_DIR}/${kind}/${kind}_core.inc.new ${CMAKE_BINARY_DIR}/${kind}/${kind}_core.inc COPYONLY)
+    set(${kind}Objects ${obj} ${CMAKE_BINARY_DIR}/${kind}/shared/${kind}_shared.c PARENT_SCOPE)
 endfunction()
 
 if(FM1_BUILD_FELUCCA)
-    if(WIN32)
-        # Windows: Clang loses the section pragma's names in COFF (Clang 18 and 19: every such
-        # variable goes to one section with no name). Each copy is compiled to LLVM IR, given its
-        # sections explicitly by fel_sections, and then compiled to an object.
-        add_executable(fel_sections engines/felucca/fel_sections.cpp)
-        if(MSVC)   # clang-cl: the clang driver beside it
-            get_filename_component(felClangDir "${CMAKE_C_COMPILER}" DIRECTORY)
-            find_program(FEL_CLANG NAMES clang clang.exe HINTS "${felClangDir}" NO_DEFAULT_PATH)
-            if(CMAKE_VS_PLATFORM_NAME STREQUAL "ARM64")
-                set(felTarget aarch64-pc-windows-msvc)
-            elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-                set(felTarget i686-pc-windows-msvc)
-            else()
-                set(felTarget x86_64-pc-windows-msvc)
-            endif()
+    if(MSVC)   # clang-cl: the clang driver beside it, for fel_state_build.py
+        get_filename_component(felClangDir "${CMAKE_C_COMPILER}" DIRECTORY)
+        find_program(FEL_CLANG NAMES clang clang.exe HINTS "${felClangDir}" NO_DEFAULT_PATH)
+        if(CMAKE_VS_PLATFORM_NAME STREQUAL "ARM64")
+            set(felTarget aarch64-pc-windows-msvc)
+        elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+            set(felTarget i686-pc-windows-msvc)
         else()
-            set(FEL_CLANG "${CMAKE_C_COMPILER}")
-            set(felTarget "${CMAKE_C_COMPILER_TARGET}")
+            set(felTarget x86_64-pc-windows-msvc)
         endif()
         if(NOT FEL_CLANG)
             message(FATAL_ERROR "Felucca on Windows: no clang beside ${CMAKE_C_COMPILER}")
         endif()
+    else()
+        set(FEL_CLANG "${CMAKE_C_COMPILER}")
+        set(felTarget "${CMAKE_C_COMPILER_TARGET}")
     endif()
-    fm1_core_copies(felucca fel ${FELUCCA_COPIES})
-    fm1_core_copies(sloop slp ${SLOOP_COPIES})
-    fm1_core_copies(melodee mel ${MELODEE_COPIES})
+    fm1_core(felucca fel)
+    fm1_core(sloop slp)
+    fm1_core(melodee mel)
     add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects})
     target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)

@@ -1,8 +1,12 @@
-/* felucca_core.h -- the API of one compiled copy of Felucca (felucca_core.c).
+/* felucca_core.h -- the API of a compiled firmware core (felucca_core.c, and sloop_core.c and
+ * melodee_core.c behind the same API).
  *
- * Every copy's functions carry its prefix: with FEL_PREFIX=fel3_, FEL(init) is
- * fel3_init. FELUCCA_API(X) lists them for code that builds a table of copies.
- * Not thread-safe: one copy is driven by one plugin instance, from its audio thread. */
+ * Each firmware is compiled once, its functions prefixed (FEL_PREFIX: fel_, slp_, mel_; FEL(init) is
+ * fel_init). Its state is not in the program's variables but in a block each instance owns
+ * (engines/felucca/fel_state.py rewrites the compiled core that way): state_size() bytes, set up
+ * by state_init(), and bind()-ed on the calling thread before any other call, which then works on
+ * that state. FELUCCA_API(X) lists the functions for code that builds a table of them.
+ * Not thread-safe per state: one instance's calls are made one at a time (FeluccaEngine's lock). */
 #ifndef FELUCCA_CORE_H
 #define FELUCCA_CORE_H
 
@@ -23,10 +27,9 @@ typedef struct {
 
 /* X(return type, name, parameter list) for every function of a copy */
 #define FELUCCA_API(X)                                                           \
-    X(void, restore, (void))                                                     \
-    X(uint32_t, state_bytes, (void))                                             \
-    X(void, state_get, (uint8_t *out))                                           \
-    X(void, state_put, (const uint8_t *in))                                      \
+    X(void, bind, (void *state))                                                 \
+    X(uint64_t, state_size, (void))                                              \
+    X(int, state_init, (void *state))                                            \
     X(void, init, (void))                                                        \
     X(const char *, version, (void))                                             \
     X(uint32_t, ctl, (void))                                                     \

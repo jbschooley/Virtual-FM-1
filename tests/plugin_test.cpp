@@ -371,7 +371,7 @@ static int checks() {
     // an instance set to SLOOP plays SLOOP's engines (its own copies), apart from Felucca's
     {
         using Fl = FeluccaEngine::Flavor;
-        const int slpBefore = FeluccaEngine::copiesInUse(Fl::Sloop), felBefore = FeluccaEngine::copiesInUse();
+        const int slpBefore = FeluccaEngine::instances(Fl::Sloop), felBefore = FeluccaEngine::instances();
         juce::MemoryBlock project;
         {
             FM1Processor p;
@@ -380,7 +380,7 @@ static int checks() {
             p.setFirmware("sloop");
             CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.4.1",
                   "set to SLOOP, the instance plays SLOOP 2.4.1");
-            CHECK(FeluccaEngine::copiesInUse(Fl::Sloop) == slpBefore + 1 && FeluccaEngine::copiesInUse() == felBefore,
+            CHECK(FeluccaEngine::instances(Fl::Sloop) == slpBefore + 1 && FeluccaEngine::instances() == felBefore,
                   "in a SLOOP copy, none of Felucca's");
             juce::AudioBuffer<float> buf(2, 256);
             auto peakOf = [&](int ch, int note) {
@@ -400,7 +400,7 @@ static int checks() {
             p.felucca()->setParam(0, 0, 33);
             p.getStateInformation(project);
             p.setFirmware("felucca");
-            CHECK(p.felucca() != nullptr && p.felucca()->flavor() == Fl::Felucca && FeluccaEngine::copiesInUse(Fl::Sloop) == slpBefore,
+            CHECK(p.felucca() != nullptr && p.felucca()->flavor() == Fl::Felucca && FeluccaEngine::instances(Fl::Sloop) == slpBefore,
                   "switched to Felucca: a Felucca engine, the SLOOP copy given back");
             p.felucca()->setParam(0, 0, 44);
             p.setFirmware("sloop");
@@ -416,13 +416,13 @@ static int checks() {
                   "a project keeps both, apart");
         }
         {   // an instance set to Melodee plays Melodee 0.12 in its own copies; no host parameters of its own yet
-            const int melBefore = FeluccaEngine::copiesInUse(Fl::Melodee);
+            const int melBefore = FeluccaEngine::instances(Fl::Melodee);
             FM1Processor p;
             p.setPlayConfigDetails(0, 2, 44100.0, 256);
             p.prepareToPlay(44100.0, 256);
             p.setFirmware("melodee");
             CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v0.13"
-                  && FeluccaEngine::copiesInUse(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 0.13, in a Melodee copy");
+                  && FeluccaEngine::instances(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 0.13, a Melodee instance");
             CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 0.13" && fm1::isFeluccaFamily("melodee"), "a firmware choice: Melodee 0.13");
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0;
@@ -1486,7 +1486,7 @@ static int checks() {
    #if FM1_FELUCCA
     // an instance set to Felucca plays Felucca's engines, and keeps them in its project
     {
-        const int inUse = FeluccaEngine::copiesInUse();
+        const int inUse = FeluccaEngine::instances();
         juce::MemoryBlock project;
         int felParamValue = 0, felGlobalValue = 0;
         std::array<uint8_t, 155> felPatch{};
@@ -1496,7 +1496,7 @@ static int checks() {
             p.prepareToPlay(48000.0, 256);
             p.setFirmware("felucca");
             CHECK(p.emulates() && p.felucca() != nullptr, "set to Felucca, the instance plays it");
-            CHECK(FeluccaEngine::copiesInUse() == inUse + 1, "with a copy of its own");
+            CHECK(FeluccaEngine::instances() == inUse + 1, "an engine of its own");
             CHECK(p.getLatencySamples() > 0, "at 48 kHz, with the converter's latency");
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0;
@@ -1524,7 +1524,7 @@ static int checks() {
             p.felucca()->setFm6Patch(2, felPatch);
             p.getStateInformation(project);
             p.setFirmware("baudgirl_fm1va");
-            CHECK(FeluccaEngine::copiesInUse() == inUse, "switching away gives the copy back");
+            CHECK(FeluccaEngine::instances() == inUse, "switching away lets it go");
             CHECK(p.getLatencySamples() == 0, "and the latency goes with it");
         }
         // host automation of Felucca's parameters
@@ -1860,15 +1860,15 @@ static int checks() {
             mirror.stop();
         }
 
-        // with every copy taken by other instances, a Felucca project still opens and plays its sound
+        // with many other Felucca instances alive, a Felucca project still opens and plays its sound
         {
             std::vector<std::unique_ptr<FeluccaEngine>> taken;
-            while (FeluccaEngine::copiesInUse() < FeluccaEngine::copies()) taken.push_back(std::make_unique<FeluccaEngine>());
+            for (int i = 0; i < 20; ++i) taken.push_back(std::make_unique<FeluccaEngine>());
             FM1Processor more;
             more.setStateInformation(project.getData(), int(project.getSize()));
             CHECK(more.felucca() != nullptr && more.emulates() && more.felucca()->engineOf(1) == 6
                   && more.felucca()->param(1, more.felucca()->firstEngineParam() + 2) == felParamValue,
-                  "more Felucca instances than copies: it still plays its own sound (no limit)");
+                  "with 20 other Felucca instances: it still plays its own sound (no limit)");
         }
         FM1Processor q;
         q.setStateInformation(project.getData(), int(project.getSize()));

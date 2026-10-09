@@ -1,23 +1,23 @@
-// FeluccaEngine -- Felucca (engines/felucca/felucca_core.c) for one plugin instance. No JUCE.
+// FeluccaEngine -- Felucca (engines/felucca/felucca_core.c), SLOOP or Melodee for one plugin
+// instance. No JUCE.
 //
-// Felucca keeps its state in one compiled copy's variables, and there are copies() of them
-// (FELUCCA_COPIES). Each instance plays in one: alone while there are no more instances than
-// copies, else sharing it with others, its state saved out when another plays there and put
-// back before it plays again (about 0.9 MB each way: CPU, not a limit). An instance always
-// plays in the copy it started in.
+// Each firmware is compiled once; its state is a block each instance owns (fel_state.py:
+// felucca_core.h's bind / state_size / state_init), about 0.6 to 1.1 MB. Every call into the
+// firmware points the code at this instance's block first, on the calling thread, under the
+// instance's lock: instances are independent, and any number of them play at once, on any threads.
 //
 // Felucca runs at 44.1 kHz in blocks of 32 samples (its control rate); render()
 // takes any number of frames and keeps the rest of a block for next time. MIDI goes
 // in as USB-MIDI packets, as the FM-1's USB port delivers them; Felucca reads them
 // at the start of each 32-sample block, as on the device.
 //
-// Thread safety: every call that reads or changes the instance's state takes its copy's lock
-// (render holds it for a block), so calls from any thread see whole changes. What does not
-// depend on the state (names, counts, presets' names) takes no lock.
+// Thread safety: every call into the firmware takes the instance's lock (render holds it for a
+// block), so calls from any thread see whole changes.
 #pragma once
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -35,21 +35,18 @@ struct FeluccaCopy {
 
 class FeluccaEngine {
 public:
-    // Which firmware: Felucca, or SLOOP (engines/sloop, a fork of Felucca behind the same API,
-    // with its own copies: SLOOP_COPIES)
+    // Which firmware: Felucca, SLOOP (engines/sloop) or Melodee (engines/melodee), both built from
+    // Felucca and behind the same API
     enum class Flavor { Felucca, Sloop, Melodee };
-    static int copies(Flavor f = Flavor::Felucca);       // the compiled copies (instances beyond them share)
-    static int copiesInUse(Flavor f = Flavor::Felucca);  // copies with at least one instance
-    static int instances(Flavor f = Flavor::Felucca);    // instances, in all copies
+    static int instances(Flavor f = Flavor::Felucca);    // instances alive
 
-    explicit FeluccaEngine(Flavor f = Flavor::Felucca);   // in the copy with the fewest instances
+    explicit FeluccaEngine(Flavor f = Flavor::Felucca);
     Flavor flavor() const { return flavor_; }
     ~FeluccaEngine();
     FeluccaEngine(const FeluccaEngine&) = delete;
     FeluccaEngine& operator=(const FeluccaEngine&) = delete;
 
-    bool valid() const { return core_ != nullptr; }   // (always, now there is no limit)
-    long swaps() const { return swaps_; }      // times its state was put back into its copy
+    bool valid() const { return core_ != nullptr; }   // false only if fel_state's layout check failed
     static constexpr double kRate = 44100.0;   // FS: Felucca renders at the FM-1's rate only
 
     // ---- audio thread ----
@@ -144,15 +141,14 @@ public:
     void reset();                              // as the device powers on
 
 private:
-    std::unique_lock<std::mutex> bind() const; // its state in its copy, the copy's lock held
+    std::unique_lock<std::mutex> bind() const; // its lock held, the firmware pointed at its state
     void feed(const uint8_t* bytes, int size); // (bind() held) a SysEx message into its USB port
     void drain();                              // (bind() held) what it sent, into sxDone_
     Flavor flavor_ = Flavor::Felucca;
     const FeluccaCopy* core_ = nullptr;
-    int index_ = -1;
-    mutable std::vector<uint8_t> saved_;       // its state while another instance plays in its copy
-    mutable bool fresh_ = true;                // never played yet: the copy starts afresh for it
-    mutable long swaps_ = 0;
+    struct Free { void operator()(void* p) const; };
+    std::unique_ptr<void, Free> state_;        // the firmware's state, this instance's (16-aligned)
+    mutable std::mutex lock_;
     std::array<int32_t, 2 * 32> block_{};      // one control block, interleaved
     std::vector<uint8_t> sxOut_;               // SysEx coming out, until a message is whole
     std::vector<std::vector<uint8_t>> sxDone_;

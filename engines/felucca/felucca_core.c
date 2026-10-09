@@ -3,26 +3,19 @@
  * FM-1 running Felucca, with its sound, sequencer, screen, front panel, projects, user
  * presets, FM6 patch bank and editor protocol.
  *
- * Felucca is built as one compilation unit whose state is all file-level statics, so
- * one compiled copy is one synth. This file is compiled several times (CMakeLists.txt,
- * FELUCCA_COPIES), each copy with its own FEL_PREFIX, so each plugin instance gets a
- * copy of its own: no state is shared or swapped. felucca_core.h declares the API.
+ * Felucca is built as one compilation unit whose state is all file-level statics (some static inside
+ * functions). It is compiled once (CMakeLists.txt fm1_core), and fel_state.py moves every such
+ * variable, marked by the section pragma below, into one block of state that each instance owns:
+ * felucca_core.h's bind() points the code at an instance's block before it runs. So each instance
+ * is its own synth, from the state as the program started (state_init()), with one copy of the
+ * code for them all. That needs Clang (the section pragma, and its IR); see fel_state.py for what
+ * it handles, and docs/ADDING-A-FIRMWARE.md for what a firmware or an update must keep to.
  *
  * The firmware's own sources are included unchanged, in the order felucca.c includes them,
  * the way its host tests (upstream/tests/ui_test.c, editor_test.c, backup_test.c) build
  * them. What touches hardware is replaced below: the panel's buttons, keys and knobs and
  * the screen are the plugin's, and the flash is RAM. Never built: the update and boot
- * loader paths (ota.c, the boot loader's request): nothing here acts on them.
- *
- * A copy is given to one instance after another. To start each from the state the
- * program started with (no voices, tails or sequencer positions left from the last
- * one), every writable variable of the copy (some of them static inside
- * functions) is placed in sections of its own (FEL_BSS_SECTION, FEL_DATA_SECTION),
- * whose image is kept from the start and put back by FEL(restore). That needs Clang's
- * section pragma; CMakeLists.txt builds Felucca only with Clang. Where the sections start
- * and stop comes from the linker (macOS, Linux), or on Windows, whose linker gives no such
- * symbols, from a variable in a section sorted before them and one sorted after: its linker
- * puts "felb3$a", "felb3$m" and "felb3$z" together in that order, as one section. */
+ * loader paths (ota.c, the boot loader's request): nothing here acts on them. */
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>   /* Felucca's code past libc.c uses the C library's memcpy and memset */
@@ -40,15 +33,13 @@
 #define proj_slot FEL(proj_slot)
 
 #if !defined(__clang__) || !defined(FEL_BSS_SECTION)
-#error "Felucca's copies need Clang and their sections (CMakeLists.txt)"
+#error "the firmware cores are built with Clang through fel_state.py (CMakeLists.txt fm1_core)"
 #endif
+/* every writable variable from here to the pragma's end below (the firmware's, some static inside
+ * functions, and this file's own) carries this pragma's mark: fel_state.py moves each marked one
+ * into the state each instance owns (engines/felucca/fel_state.py, felucca_core.h) */
 #define FEL_PRAGMA(x) _Pragma(#x)
 #define FEL_SECTIONS(b, d) FEL_PRAGMA(clang section bss = b data = d)
-#ifdef FEL_BSS_FIRST                     /* Windows: where the sections start */
-FEL_SECTIONS(FEL_BSS_FIRST, FEL_DATA_FIRST)
-__attribute__((used)) static uint8_t fel_bss_start;
-__attribute__((used)) static uint8_t fel_data_start = 1;
-#endif
 FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 
 #define __attribute__(x)
@@ -274,73 +265,7 @@ static uint32_t fel_main_ms;
 static uint64_t fel_served_at;
 
 #undef __attribute__                     /* Felucca's code is done: attributes mean something again */
-static uint8_t fel_bss_marker;          /* make sure both sections exist */
-static uint8_t fel_data_marker = 1;
-#ifdef FEL_BSS_LAST                      /* Windows: where they stop */
-FEL_SECTIONS(FEL_BSS_LAST, FEL_DATA_LAST)
-__attribute__((used)) static uint8_t fel_bss_stop;
-__attribute__((used)) static uint8_t fel_data_stop = 1;
-#endif
 #pragma clang section bss = "" data = ""
-
-/* ---- the copy's state, as the program started ----------------------------------------------- */
-#ifndef FEL_BSS_LAST
-extern uint8_t fel_bss_start __asm(FEL_BSS_START);
-extern uint8_t fel_bss_stop __asm(FEL_BSS_STOP);
-extern uint8_t fel_data_start __asm(FEL_DATA_START);
-extern uint8_t fel_data_stop __asm(FEL_DATA_STOP);
-#endif
-static uint8_t *fel_pristine;            /* outside the sections: kept across restores */
-
-/* a bound's address, hidden from the optimizer: to it, each bound is a 1-byte variable that
- * nothing may be read or written beyond */
-static uint8_t *fel_at(uint8_t *p)
-{
-    __asm__ volatile("" : "+r"(p));
-    return p;
-}
-#define FEL_NB ((size_t)(fel_at(&fel_bss_stop) - fel_at(&fel_bss_start)))
-#define FEL_ND ((size_t)(fel_at(&fel_data_stop) - fel_at(&fel_data_start)))
-
-void *malloc(size_t);
-
-/* never inlined, and a compiler barrier after: the section bounds are 1-byte symbols to
- * the optimizer, which must not move reads of the state across the copy */
-__attribute__((noinline)) void FEL(restore)(void)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    (void)fel_bss_marker; (void)fel_data_marker;
-    if (!fel_pristine) {                 /* the first time: nothing has run yet, keep the image */
-        fel_pristine = (uint8_t *)malloc(nd ? nd : 1);
-        if (fel_pristine)
-            FEL(memcpy)(fel_pristine, fel_at(&fel_data_start), nd);
-        FEL(memset)(fel_at(&fel_bss_start), 0, nb);
-        return;
-    }
-    FEL(memset)(fel_at(&fel_bss_start), 0, nb);
-    FEL(memcpy)(fel_at(&fel_data_start), fel_pristine, nd);
-    __asm__ volatile("" ::: "memory");
-}
-
-uint32_t FEL(state_bytes)(void) { return (uint32_t)(FEL_NB + FEL_ND); }
-
-/* an instance's whole state out of the copy, and back (state_bytes of it): an instance that
- * shares this copy with others is put back before it plays. Only into this same copy: the state
- * holds pointers into the copy's own variables and tables */
-__attribute__((noinline)) void FEL(state_get)(uint8_t *out)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    __asm__ volatile("" ::: "memory");
-    FEL(memcpy)(out, fel_at(&fel_bss_start), nb);
-    FEL(memcpy)(out + nb, fel_at(&fel_data_start), nd);
-}
-__attribute__((noinline)) void FEL(state_put)(const uint8_t *in)
-{
-    const size_t nb = FEL_NB, nd = FEL_ND;
-    FEL(memcpy)(fel_at(&fel_bss_start), in, nb);
-    FEL(memcpy)(fel_at(&fel_data_start), in + nb, nd);
-    __asm__ volatile("" ::: "memory");
-}
 
 /* ---- the API ------------------------------------------------------------------------------ */
 
