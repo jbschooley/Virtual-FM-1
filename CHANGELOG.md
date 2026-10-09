@@ -19,7 +19,9 @@ for the code. New work goes under the next version at the top.
   NOISE engines, 153 factory sounds, the SYN drum kits (kept with its projects
   and synced with an FM-1), and the drums' delay send (GLO > DRUMS > DLY, also a
   host parameter, "SLOOP DRDLY"). An FM-1 on SLOOP 2.4 is pulled from and sent
-  to, without the SYN kits it does not have; Live needs 2.5 on both. Not tried on
+  to, without the SYN kits it does not have (it has no PHYS or NOISE either:
+  user presets on them read as empty there, and tracks on them open with
+  another engine); Live needs 2.5 on both, and says so. Not tried on
   an FM-1 yet.
 
 ## [0.7.0] - 2026-10-08

@@ -1,4 +1,4 @@
-/* sloop_core.c -- SLOOP 2.4.1 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
+/* sloop_core.c -- SLOOP 2.5 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
  * Kuroshita / Hügelton Instruments), the whole firmware, as a library the plugin can drive: a
  * virtual FM-1 running Sloop, with its sound, sequencer, arranger, screen, front panel, projects,
  * user presets and editor protocol.
@@ -339,7 +339,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;
 }
 
-const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.4.1" */
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.5" */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }
@@ -636,7 +636,7 @@ int32_t FEL(arr_chain)(const uint8_t *e, uint32_t n, int loop)
 }
 const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_DRUM && lane < DRUM_LANES ? LANE_NAME[lane] : ""; }
 
-/* ---- the device's stored objects, as the editor's full backup carries them (editor.c v9): 0 the
+/* ---- the device's stored objects, as the editor's full backup carries them (editor.c v10): 0 the
  * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks, 8 the FM6
  * patch bank (2.4). The user sample slots (32..35) are not kept here. --------------------------------- */
 uint32_t FEL(object_max)(void) { return (uint32_t)sizeof proj_tmp; }
