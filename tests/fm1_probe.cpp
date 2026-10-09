@@ -192,8 +192,20 @@ int main(int argc, char** argv) {
         }
         if (!felucca::restore(mine, source, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
         const uint8_t slot = 31;   // U32
-        auto st = mine.ask(felucca::frame(felucca::kUpStore, {slot, 'S', 'E', 'N', 'D', ' ', 'T', 'E', 'S', 'T', 0}), 0);
-        std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED");
+        auto store = [&] { return mine.ask(felucca::frame(felucca::kUpStore, {slot, 'S', 'E', 'N', 'D', ' ', 'T', 'E', 'S', 'T', 0}), 0); };
+        auto st = store();
+        auto rc = [&] { return st && felucca::argsOf(*st).size() >= 2 ? int(felucca::argsOf(*st)[1]) : -1; };
+        if (rc() == 3) {   // SLOOP: "stop first" while a transport request waits for the main loop, run as the audio is
+            std::vector<float> l(256), r(256);
+            for (int k = 0; k < 40; ++k) mine.f->render(l.data(), r.data(), 256);
+            st = store();
+        }
+        if (rc() == 1) {   // SLOOP: the drum track is selected (no preset of it); the first part then
+            mine.ask(felucca::frame(felucca::kTrack, {0}), 0);
+            st = store();
+        }
+        std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s (rc %d)\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED",
+                    st && felucca::argsOf(*st).size() >= 2 ? int(felucca::argsOf(*st)[1]) : -1);
         auto ours = felucca::backup(mine, {}, err);
         if (!ours) { std::printf("the plugin's backup failed: %s\n", err.toRawUTF8()); return 1; }
         ours->erase(1);   // the synth's settings stay its own, as Send leaves them
@@ -445,6 +457,34 @@ int main(int argc, char** argv) {
                 pump(20);
             }
             std::printf("plugin -> FM-1: part %d LFO RATE set to %d here, the FM-1 has %d: %s\n", sel + 1, want, got, got == want ? "ok" : "NOT CARRIED");
+        }
+        if (slp) {   // SLOOP 2.5: a part on PHYS (engine 10), then the drums' delay send (global 32), set here, read from the FM-1
+            // (apart: a value changed with the engine goes out in the RELOAD's dump, not as a CHANGED push)
+            const int part = 0, drdly = (mine.f->global(32) + 23) % 128;
+            std::vector<float> l0(256), r0(256);
+            auto until = [&](auto done) {   // (at least a few main loops: the change goes out)
+                for (int i = 0; i < 40 && (i < 5 || !done()); ++i) {
+                    for (int k = 0; k < 4; ++k) mine.f->render(l0.data(), r0.data(), 256);
+                    mirror.tick(err);
+                    pump(20);
+                }
+            };
+            int eng = -1, dly = -1;
+            mine.f->setEngine(part, 10);
+            until([&] {
+                if (auto rep = synth.ask(felucca::frame(felucca::kTrackDump, {uint8_t(part)}), 400); rep && felucca::argsOf(*rep).size() >= 2) eng = felucca::argsOf(*rep)[1];
+                return eng == 10;
+            });
+            std::printf("plugin -> FM-1: part %d on PHYS here, the FM-1's engine %d: %s\n", part + 1, eng, eng == 10 ? "ok" : "NOT CARRIED");
+            mine.f->setGlobal(32, drdly);
+            until([&] {
+                if (auto rep = synth.ask(felucca::frame(2, {1, 32}), 400); rep && felucca::argsOf(*rep).size() >= 4) {
+                    auto a = felucca::argsOf(*rep);
+                    dly = (int(a[2]) | int(a[3]) << 7) - 8192;
+                }
+                return dly == drdly;
+            });
+            std::printf("plugin -> FM-1: drum delay %d here, the FM-1 has %d: %s\n", drdly, dly, dly == drdly ? "ok" : "NOT CARRIED");
         }
         std::printf("live for %s s: turn knobs on the FM-1; values seen here are printed\n", argv[2]);
         std::fflush(stdout);
