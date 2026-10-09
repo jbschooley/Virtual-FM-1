@@ -97,9 +97,8 @@ typedef struct {
     uint8_t src;                 /* SRC + 1 the index holds, 0 = none */
     uint8_t nz;
 } gr_part_t;
-static gr_part_t gr_p[NPART] __attribute__((section(".pool")));
+/* (its state: the part's engine arena, engines.c eng_arena_of) */
 
-static uint32_t gr_part(const track_t *t) { return (uint32_t)(t - trk) % NPART; }
 static uint32_t gr_nz(uint32_t src) { return src < SMP_NSETS ? SMP_SETS[src].nz : usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS]; }
 static const smp_zone_t *gr_zone(uint32_t src, uint32_t zl)
 {
@@ -348,7 +347,7 @@ static int gr_run(gr_part_t *P, gr_grain_t *g, int32_t *acc, uint32_t n)
 
 static void grain_note_on(track_t *t, voice_t *v)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = (gr_part_t *)eng_arena_of(t, ENGI_GRAIN);
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, i;
     v->s[0] = gr_find((uint32_t)t->p[P_E0] % SMP_NALL, v->note);
     v->s[1] = 0;                                    /* the first grain at once */
@@ -364,7 +363,7 @@ static void grain_note_on(track_t *t, voice_t *v)
  * one index entry is built */
 static void grain_block(track_t *t)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = (gr_part_t *)eng_arena_of(t, ENGI_GRAIN);
     uint32_t src = (uint32_t)t->p[P_E0] % SMP_NALL, st = gr_stamp(src), i;
     if (!P->rng)
         P->rng = 0x2545F491;
@@ -382,7 +381,7 @@ static void grain_block(track_t *t)
 
 static void grain_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = (gr_part_t *)eng_arena_of(t, ENGI_GRAIN);
     const int16_t *p = t->p;
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, i, mine = 0, nact = 0, iv;
     int32_t zl = v->s[0], acc[CTL], lp, y = v->s[2];
@@ -426,6 +425,12 @@ static const preset_t GRAIN_PRESETS[] = {
     {"LOFI CLOUD", {0, 45, 95, 85, 0, 35, 12, 80}, {70, 90, 120, 90}, 0, 0, FX(0, 45, 20, 70)},
     {"VIBE HAZE", {2, 30, 100, 90, 0, 25, 10, 90}, {50, 100, 120, 95}, 0, 0, FX(0, 40, 25, 75)},
     {"FLUTE DUST", {5, 50, 108, 72, 0, 10, 10, 85}, {50, 100, 127, 100}, 0, 0, FX(0, 30, 20, 70)},
+    /* SLOOP 2.5: strings as a cloud, a piano shimmer an octave up, a dark horn drone */
+    {"STR CLOUD", {4, 40, 100, 90, 0, 30, 12, 80}, {70, 100, 120, 95}, 0, 0, FX(0, 50, 20, 75)},
+    {"SHIMMER", {0, 30, 90, 95, 12, 40, 15, 110}, {60, 100, 120, 100}, 0, 0, FX(0, 40, 35, 85)},
+    {"DRONE", {3, 50, 115, 80, -12, 20, 20, 50}, {90, 100, 127, 100}, 0, 0, FX(0, 30, 15, 70)},
+    {"PNO FREEZE", {0, 40, 127, 127, 0, 5, 0, 100}, {80, 100, 127, 100}, 0, 0, FX(0, 30, 20, 75)},
+    {"HORN CLOUD", {3, 30, 100, 90, 0, 30, 15, 90}, {70, 100, 120, 95}, 0, 0, FX(0, 40, 20, 70)},
 };
 
 static const engine_t ENG_GRAIN = {

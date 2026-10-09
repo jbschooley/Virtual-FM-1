@@ -11,13 +11,13 @@
  *                                                 last touched first); OCT+ cycles the step's fill condition
  *                                                 (normal, fill only, no fill), OCT- clears its nudge, locks and
  *                                                 condition
- *   SCL   any key: the key of the song     knobs: CHORD  SCALE  KEYS  TRANSPOSE
+ *   SEL   any key: the key of the song     knobs: CHORD  SCALE  KEYS  TRANSPOSE
  *   GLO   keys 1..4 mute, 5..8 solo,       knobs: the levels of tracks 1..4
  *         9 fill while held, 10 fill the next bar, the last white key: tap tempo
  *   SAVE  keys 1..4 play section A..D (on the next bar; two or more tapped while SAVE stays held: a chain of
  *         them, looped, each for its pattern's bars), 5..8 store the loop into A..D, 13 loop / song,
  *         14 SONG REC (the order you play becomes the song), 16 the song page
- * The keys' part runs in the audio ISR (seq.c layer_now: no lag, no lost press); the SEQ, SCL and
+ * The keys' part runs in the audio ISR (seq.c layer_now: no lag, no lost press); the SEQ, SEL and
  * GLO keys come to the UI through seq.c lk_q. HOLD: REC held clears the track, SAVE held saves the
  * project (a ring fills; let go before and nothing happens). */
 static const uint8_t LAYER_BTN[LY_COUNT] = {NB, B_FX, B_EDIT, B_ARP, B_SEQ, B_SCL, B_GLO, B_SAVE};
@@ -312,7 +312,7 @@ static void tap_tempo(void)
     }
 }
 
-/* a key of the layers the UI runs (seq.c lk_q): SEQ steps, SCL key, GLO mix */
+/* a key of the layers the UI runs (seq.c lk_q): SEQ steps, SEL key, GLO mix */
 static void layer_key(uint32_t layer, uint32_t k, uint32_t down)
 {
     int32_t w = punch_key(k);

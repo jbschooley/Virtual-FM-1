@@ -247,7 +247,7 @@ static void trio_sync(uint32_t w, uint32_t *php, uint32_t inc, int32_t g, const 
 static uint32_t trio_inc(int32_t pitch16, int32_t semi, int32_t ct, int32_t fine)
 {
     int32_t d16 = ct * 16 / 100, rem = ct * 16 - d16 * 100;      /* rem: 1/1600 semitone */
-    uint32_t inc = PITCH_INC[clamp(pitch16 + semi * 16 + d16, 0, 2047)];
+    uint32_t inc = pitch_inc(clamp(pitch16 + semi * 16 + d16, 0, 2047));
     return inc + (uint32_t)((int32_t)(inc >> 12) * (rem * 2367 / 16000 + fine));
 }
 
@@ -273,7 +273,7 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     uint32_t w1 = ws->w[0], w2 = ws->w[1], w3 = ws->w[2], i;
     uint32_t ring = ws->flags & TRIO_RING, sync = ws->flags & TRIO_SYNC;
     int32_t g1 = ws->g[0], g2 = ws->g[1], g3 = ws->g[2];
-    uint32_t base = PITCH_INC[m->pitch16];
+    uint32_t base = pitch_inc(m->pitch16);
     int32_t fine = (base >> 12) ? (int32_t)(m->inc - base) / (int32_t)(base >> 12) : 0;
     uint32_t inc1 = m->inc;
     uint32_t inc2 = trio_inc(m->pitch16, p[P_E1], p[P_E3], fine);
@@ -368,6 +368,13 @@ static const preset_t TRIO_PRESETS[] = {
     {"SAW PAD", {0, 0, 12, 30, 0, 72, 10, 64}, {52, 90, 115, 86}, 6, 0, FX(0, 40, 20, 60)},
     {"SYNC LEAD", {9, 9, 0, 0, 0, 82, 30, 64}, {2, 70, 100, 40}, 18, 1, FX(0, 10, 30, 22), XP(P_GLIDE + 1, 56)},
     {"HOOVER", {0, 0, -12, 40, 0, 70, 20, 64}, {10, 70, 110, 40}, 10, 1, FX(10, 40, 10, 24), XP(P_GLIDE + 1, 70)},
+    /* SLOOP 2.5: a musette accordion, a 70s string machine, an 80s poly synth */
+    {"ACCORDION", {1, 0, 12, 14, 0, 92, 10, 40}, {6, 70, 118, 24}, 0, 0, FX(0, 20, 0, 22)},
+    {"ENSEMBLE", {0, 12, 0, 10, 0, 85, 0, 64}, {50, 90, 118, 80}, 0, 0, FX(0, 90, 10, 55)},
+    {"80S POLY", {0, 0, 12, 12, 0, 70, 30, 64}, {2, 72, 70, 50}, 34, 0, FX(0, 50, 22, 34)},
+    {"SQR LEAD", {1, 0, 12, 4, 0, 90, 20, 50}, {2, 70, 110, 30}, 10, 1, FX(0, 10, 28, 22), XP(P_GLIDE + 1, 40)},
+    {"POWER STAB", {0, 7, 12, 8, 0, 85, 25, 64}, {0, 70, 50, 36}, 30, 0, FX(16, 10, 20, 25)},
+    {"PULSE PAD", {1, 0, 12, 20, 0, 70, 10, 30}, {60, 90, 115, 85}, 0, 0, FX(0, 50, 20, 60), XP(P_LD_SHP + 1, 25, P_LRATE + 1, 30)},
 };
 
 static const engine_t ENG_TRIO = {

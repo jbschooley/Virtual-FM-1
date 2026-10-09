@@ -903,7 +903,24 @@ int main(int argc, char **argv)
         }
     {   /* mixes: idle (subtracted from the presets' counts), idle + drums, DIGITAL + PHASE + VOICE asking
          * 8 + 8 + 4 (the budget keeps 8) + drums */
-        job_t *j = add(J_CPU, "cpu/mix/idle");
+        job_t *j;
+        j = add(J_CPU, "cpu/mix/3parts_heavy_now_drums");      /* (2.5 exp) FM6, GRAIN, TRIO */
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][0][0] = ENGI_FM6, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+        cpu_parts[ncpu][1][0] = ENGI_GRAIN, cpu_parts[ncpu][1][1] = 0, cpu_parts[ncpu][1][2] = 8;
+        cpu_parts[ncpu][2][0] = 6, cpu_parts[ncpu][2][1] = 3, cpu_parts[ncpu][2][2] = 8;
+        cpu_parts[ncpu][NPART][0] = 1;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFF;
+        j = add(J_CPU, "cpu/mix/3parts_phys_noise_drums");     /* (2.5 exp) PHYS SYMP, PHYS MODAL, NOISE */
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][0][0] = ENGI_PHYS, cpu_parts[ncpu][0][1] = 7, cpu_parts[ncpu][0][2] = 8;
+        cpu_parts[ncpu][1][0] = ENGI_PHYS, cpu_parts[ncpu][1][1] = 3, cpu_parts[ncpu][1][2] = 8;
+        cpu_parts[ncpu][2][0] = ENGI_NOISE, cpu_parts[ncpu][2][1] = 1, cpu_parts[ncpu][2][2] = 8;
+        cpu_parts[ncpu][NPART][0] = 1;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFF;
+        j = add(J_CPU, "cpu/mix/idle");
         memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
         j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
         j->e = 0xFF;
@@ -919,6 +936,7 @@ int main(int argc, char **argv)
         cpu_parts[ncpu][2][0] = 5, cpu_parts[ncpu][2][1] = 0, cpu_parts[ncpu][2][2] = 4;
         cpu_parts[ncpu][NPART][0] = 1;
         j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFF;
         j->e = 0xFF;
     }
     c1 = nj;

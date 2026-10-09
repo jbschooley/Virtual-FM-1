@@ -28,6 +28,10 @@
 #define PROJ_NG_V3 27u                         /* G_COUNT of formats 1..3 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
 #define PROJ_NG_V2 27u                         /* G_COUNT of formats 1 and 2 */
+#define PROJ_NG 32u                            /* the globals of formats 4 and 5 (G_COUNT until 2.4). SLOOP 2.5's
+                                                * G_DRDLY rides in the byte after sel (0 in older projects: off),
+                                                * so the format and its size do not change */
+_Static_assert(G_DRDLY == PROJ_NG && G_COUNT == PROJ_NG + 1u, "the globals a project holds, then G_DRDLY");
 typedef struct {                               /* one track; the drum track ignores engine / preset */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
@@ -41,8 +45,8 @@ typedef struct {                               /* one track; the drum track igno
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
-    uint8_t sel, rsv[3];                       /* the selected track */
+    int16_t g[PROJ_NG];
+    uint8_t sel, drdly, rsv[2];                /* the selected track; 2.5: G_DRDLY */
     proj_trk_t t[NTRK];
     uint32_t sum;
 } project_t;
@@ -56,7 +60,7 @@ typedef struct {                               /* a track of format 4 (SLOOP 2.0
 } proj_trk_v4_t;
 typedef struct {                               /* format 4, read only */
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[PROJ_NG];
     uint8_t sel, rsv[3];
     proj_trk_v4_t t[NTRK];
     uint32_t sum;
@@ -135,7 +139,7 @@ static int16_t swing_from_v3(int32_t v) { return (int16_t)clamp((v * 4 + 2) / 5,
 static void proj_g_from_old(int16_t *g, const int16_t *g2)
 {
     uint32_t i;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG; i++)
         g[i] = i < PROJ_NG_V3 ? g2[i] : GP[i].def;
     g[G_SWING] = swing_from_v3(g[G_SWING]);
 }
@@ -301,9 +305,10 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
     memset(p, 0, sizeof *p);
     p->magic = PROJ_MAGIC;
     p->size = sizeof *p;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG; i++)
         p->g[i] = song.g[i];
     p->sel = song.sel;
+    p->drdly = (uint8_t)song.g[G_DRDLY];
     for (i = 0; i < NTRK; i++) {
         memcpy(p->t[i].p, trk[i].p, sizeof trk[i].p);
         p->t[i].engine = trk[i].eng_req;
@@ -316,15 +321,16 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
     p->sum = proj_sum(p);
 }
 
-/* a project's tracks (and its globals, all: a load; or only the drum level / reverb: a song
+/* a project's tracks (and its globals, all: a load; or only the drum level / reverb / delay: a song
  * section) into the working one, every value back inside its range. The audio ISR must not run
  * meanwhile (the song sections: called from it; a load: IRQ off) */
 static void proj_apply(const project_t *p, int all)
 {
     uint32_t i, k;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG; i++)
         if (all ? i != G_SLOT && i != G_LOAD && i != G_SAVE && i != G_SYNC && i != G_MIDI && i != G_ROUTE : i == G_DRLVL || i == G_DRREV)
             song.g[i] = (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
+    song.g[G_DRDLY] = (int16_t)clamp(p->drdly, GP[G_DRDLY].min, GP[G_DRDLY].max);   /* (a load and a section, as REV) */
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];
@@ -526,12 +532,17 @@ typedef struct {
 #define PERSIST_SIZE_V22 __builtin_offsetof(persist_t, lights)   /* the settings as 2.2 wrote them (no lights) */
 _Static_assert(sizeof(persist_t) == PERSIST_SIZE_V22 + 4u, "lights: the last word, no padding before it");
 #if FELUCCA_ARRANGER
+_Static_assert(__builtin_offsetof(persist_t, arrangement) == 48u && sizeof(arr_config_t) == 36u,
+               "the web editor's Song page edits bytes 48..83 of the settings (web/editor.html ARR)");
+#endif
+#if FELUCCA_ARRANGER
 #define PERSIST_MAGIC 0x50455233u                  /* "PER3": includes the song order */
 #else
 #define PERSIST_MAGIC 0x50455232u
 #endif
 #if FELUCCA_FLASH
 static persist_t persist_saved;
+static void dsu_boot(void);
 #endif
 
 static void persist_boot(void)                    /* before settings_init / panel_init */
@@ -604,12 +615,40 @@ static void persist_boot(void)                    /* before settings_init / pane
                     sec_dirty |= (uint8_t)(1u << i);
             }
     }
+    dsu_boot();                                    /* SLOOP 2.5: the SYN kits (after the settings) */
     up_boot();                                     /* user presets */
     fm6_bank_boot();                               /* the FM6 patch bank (fm6_bank.c) */
 #endif
 }
 
 static int project_used(uint32_t slot) { return proj_ok(&proj_slot[slot & 3u]); }
+
+#if FELUCCA_FLASH
+/* SLOOP 2.5: the settings object holds the SYN kits after persist_t (drum_synth.c dsu): firmware before 2.5 reads
+ * its persist_t and leaves the rest (st_load cuts at its size); its own next save drops them */
+static int settings_write(const persist_t *p)
+{
+    if (!dsu_valid(&dsu))
+        dsu_defaults();
+    if (st_save2(OBJ_SETTINGS, p, sizeof *p, &dsu, sizeof dsu))
+        return -1;
+    dsu_dirty = 0;
+    return 0;
+}
+static void dsu_boot(void)                          /* the SYN kits from the settings object, else the defaults */
+{
+    st_hdr_t h;
+    dsu_defaults();
+    if (st_current(OBJ_SETTINGS, &h) >= 0 && h.len == sizeof(persist_t) + sizeof(dsu_bank_t) &&
+        dsu_valid((const dsu_bank_t *)(st_buf + sizeof(persist_t)))) {
+        uint32_t k;
+        memcpy(&dsu, st_buf + sizeof(persist_t), sizeof dsu);
+        for (k = 0; k < DSU_N; k++)
+            dsu_fix_kit(&dsu.k[k]);
+    }
+    dsu_dirty = 0;
+}
+#endif
 
 static void persist_fill(persist_t *p)              /* the settings as they are now */
 {
@@ -634,7 +673,7 @@ static void settings_save(void)
     persist_fill(&p);
     if (!memcmp(&p, &persist_saved, sizeof p))
         return;                                    /* unchanged: no erase cycle */
-    if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)
+    if (settings_write(&p) == 0)
         persist_saved = p;
 #endif
 }
@@ -674,8 +713,10 @@ static uint32_t settings_restore(const void *raw, uint32_t n)
 #if FELUCCA_ARRANGER
     if (!arr_valid(&p.arrangement, 15u))
         return 2;
+    if ((song.playing || transport_req) && memcmp(&p.arrangement, &arrangement, sizeof arrangement))
+        return 3;                                    /* SLOOP 2.5: a new song order only when stopped (as on the SONG screen) */
 #endif
-    if (!flash_ok || st_save(OBJ_SETTINGS, &p, sizeof p))
+    if (!flash_ok || settings_write(&p))
         return 4;
     persist_saved = p;
     settings.palette = p.palette;

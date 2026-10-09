@@ -27,7 +27,7 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     uint32_t inc1 = m->inc;
     /* DTN in cents: whole 1/16 semitones from the table, the rest as a fine factor */
     int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;            /* rem: 1/1600 semitone */
-    uint32_t inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
+    uint32_t inc2 = pitch_inc(clamp(m->pitch16 + d16, 0, 2047));
     inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
     uint32_t pw = 0x80000000u + (uint32_t)((m->shape - (64 << 8)) << 15);
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
@@ -115,6 +115,15 @@ static const preset_t ANALOG_PRESETS[] = {
     {"WARM PAD", {4, 12, 64, 6, 52, 8, 0, 32}, {75, 90, 115, 90}, 0, 0, FX(0, 55, 20, 55), XP(P_LRATE + 1, 30, P_LD_SHP + 1, 20)},
     {"DARK STR", {0, 18, 64, 0, 48, 6, 0, 32}, {60, 90, 118, 85}, 0, 0, FX(0, 50, 18, 60)},
     {"ATMOS PAD", {4, 25, 64, 20, 60, 15, 0, 32}, {90, 100, 120, 100}, 0, 0, FX(0, 60, 30, 75), XP(P_LRATE + 1, 18, P_LD_PIT + 1, 1)},
+    /* SLOOP 2.5: a breathy pan flute, a fat mono lead, a classic mono bass */
+    {"PAN FLUTE", {2, 0, 0, 30, 70, 10, 0, 64}, {14, 70, 110, 40}, 0, 1, FX(0, 10, 24, 45),
+     XP(P_LD_PIT + 1, 1, P_LRATE + 1, 80, P_LFADE + 1, 70)},
+    {"FAT LEAD", {0, 8, 64, 0, 70, 30, 30, 64}, {2, 70, 110, 30}, 30, 1, FX(0, 0, 26, 20), XP(P_GLIDE + 1, 40)},
+    {"MONO BASS", {0, 4, 64, 0, 48, 36, 30, 64}, {0, 60, 70, 20}, 44, 1, FX(10, 0, 0, 4), XP(P_TRANS + 1, -24)},
+    {"PWM LEAD", {4, 0, 0, 0, 80, 20, 10, 64}, {2, 70, 110, 30}, 0, 1, FX(0, 10, 26, 22),
+     XP(P_LD_PIT + 1, 1, P_LRATE + 1, 80, P_LFADE + 1, 60, P_GLIDE + 1, 30)},
+    {"SAW BASS", {0, 6, 64, 0, 52, 30, 40, 64}, {0, 60, 60, 20}, 30, 1, FX(8, 0, 0, 4), XP(P_TRANS + 1, -24)},
+    {"SINE PAD", {3, 10, 64, 4, 90, 0, 0, 32}, {80, 90, 118, 90}, 0, 0, FX(0, 60, 20, 65)},
 };
 
 static const engine_t ENG_ANALOG = {

@@ -123,18 +123,22 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     return (int)h.len;
 }
 
-static int st_save(uint32_t obj, const void *src, uint32_t len)
+/* an object in two parts, src then src2 (SLOOP 2.5: the settings and the SYN kits after them) */
+static int st_save2(uint32_t obj, const void *src, uint32_t len, const void *src2, uint32_t len2)
 {
     uint32_t seq, base, off;
     int cur, rc;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX)
+    if (obj >= OBJ_COUNT || len + len2 > ST_PAYLOAD_MAX)
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
     for (off = 0; off < len; off++)
         st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
+    for (off = 0; off < len2; off++)
+        st_buf[len + off] = ((const uint8_t *)src2)[off];
+    len += len2;
     if ((rc = st_erase(base)) != 0)
         return rc;
     for (off = 0; off < len; off += 256u) {
@@ -160,3 +164,4 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     }
     return 0;
 }
+static int st_save(uint32_t obj, const void *src, uint32_t len) { return st_save2(obj, src, len, 0, 0); }

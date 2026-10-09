@@ -77,7 +77,7 @@ static uint32_t keys_sounding(const track_t *t)
     return m;
 }
 
-static uint32_t scale_keys(uint32_t root_only)   /* SCL: the keys in the scale (or its roots only) */
+static uint32_t scale_keys(uint32_t root_only)   /* SEL: the keys in the scale (or its roots only) */
 {
     uint32_t i, m = 0, root = (uint32_t)trk[0].p[P_ROOT] % 12u, mask = SCALE_MASK[clamp(trk[0].p[P_SCALE], 0, NSCALES - 1)];
     for (i = 0; i < 27u; i++) {
@@ -166,7 +166,7 @@ static uint32_t keys_lit(void)
 }
 
 /* menu NOTES, on the layers whose keys are tiles (FX effects, SEQ steps, GLO mute / solo): what
- * sounds glows dimly under the tiles, which keep their full light. SCL (the scale) and EDIT on the
+ * sounds glows dimly under the tiles, which keep their full light. SEL (the scale) and EDIT on the
  * drum track (the sounds of the pattern): those glow, and what sounds is lit (keys_lit) */
 static uint32_t keys_notes_dim(void)
 {
@@ -483,7 +483,19 @@ static void seq_entry(uint32_t pressed)
             st->lvl = st->rat = 0;
             st->time = ST_NOTE;
         }
-        if (t->p[P_VOICE]) {
+        if (t->p[P_CHORD] && !t->p[P_VOICE]) {            /* chord mode (2.4.1): the chord as it sounded (CHORD+,
+                                                            * VLEAD), not only its root; (not played yet: built here) */
+            uint8_t c[4];
+            uint32_t m, j;
+            if (kb_kind[k] == KS_NOTE && kb_n[k] && kb_root[k] == note) {
+                m = kb_n[k] > 4u ? 4u : kb_n[k];
+                memcpy(c, kb_nt[k], m);
+            } else {
+                m = chord_notes(t, note, c);
+            }
+            for (j = 0; j < m && st->n < 4u; j++)
+                st->note[st->n++] = c[j];
+        } else if (t->p[P_VOICE]) {
             st->note[0] = (uint8_t)note;
             st->n = 1;
         } else if (st->n < 4u) {
@@ -655,7 +667,7 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
         return 0;
     }
     ui.layer_used = used[held];
-    while (lk_r != lk_w) {                                /* the keys of SEQ, SCL, GLO (seq.c) */
+    while (lk_r != lk_w) {                                /* the keys of SEQ, SEL, GLO (seq.c) */
         uint32_t e = lk_q[lk_r % LKQ];
         lk_r++;
         used[held] = 1;

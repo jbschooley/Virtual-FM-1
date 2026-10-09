@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICER: a per-track insert, a tempo-synced 16-step gate / stutter. It works on the track's dry
  * mono signal after DIST and before LEVEL / PAN / the sends (fx.c mix_part), so the sends follow
- * the chopped sound; on the drum track before its pan and reverb send (slicer_drums).
+ * the chopped sound; on the drum track before its pan and its reverb and delay sends (slicer_drums).
  *   P_SLCR    OFF / GATE / STUT
  *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
@@ -176,14 +176,14 @@ static int slicer_busy(const track_t *t)
 }
 
 /* the drum track: as drums_render, through the SLICER when it is on (or still fading) */
-static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
+static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, int32_t *dly, uint32_t n)
 {
     const track_t *t = TDRUM;
     const sl_t *s = &sl[TRK_DRUM];
     uint32_t i;
     if (t->p[P_SLCR] == SL_OFF && !s->gc && !s->w) {
         slicer_track(t, 0, n);
-        drums_render(ml, mr, rev, n);
+        drums_render(ml, mr, rev, dly, n);
         return;
     }
     for (i = 0; i < n; i++)
@@ -191,7 +191,7 @@ static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
     drums_render_mono(sl_dbuf, n);
     slicer_track(t, sl_dbuf, n);
     {
-        int32_t send = song.g[G_DRREV] * 258, pan = t->p[P_PAN];
+        int32_t send = song.g[G_DRREV] * 258, dsend = song.g[G_DRDLY] * 258, pan = t->p[P_PAN];
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
         for (i = 0; i < n; i++) {
             int32_t x = sl_dbuf[i];
@@ -199,6 +199,8 @@ static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
             mr[i] += (x * gr) >> 12;
             if (send)
                 rev[i] += mulq15(x, send);
+            if (dsend)
+                dly[i] += mulq15(x, dsend);
         }
     }
 }

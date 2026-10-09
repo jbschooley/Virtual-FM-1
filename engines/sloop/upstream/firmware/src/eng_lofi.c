@@ -143,7 +143,7 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         v->s[3] += p[P_E4] / 8;
     v->s[5]++;
     pitch = m->pitch16 - v->s[3] + ARPS[ar & 3][(v->s[5] / 28) % 3] * 16;   /* ~50 Hz, chip-style */
-    inc = PITCH_INC[clamp(pitch, 0, 2047)];
+    inc = pitch_inc(clamp(pitch, 0, 2047));
     if (p[P_E5])
         inc += (uint32_t)(((int32_t)(inc >> 12) * (((osc_sine(v->ph[1]) >> 8) * p[P_E5]) >> 4)) >> 4);   /* no overflow */
     v->ph[1] += 0x01000000u;
@@ -207,6 +207,12 @@ static const preset_t LOFI_PRESETS[] = {
     {"GAME LEAD", {0, 0, 32, 0, 0, 20, 0, 127}, {0, 60, 90, 30}, 0, 1, FX(0, 0, 36, 18)},
     {"GB BASS", {1, 1, 0, 0, 0, 0, 0, 90}, {0, 50, 70, 20}, 0, 1, FX(0, 0, 6, 0), XP(P_TRANS + 1, -12)},
     {"8BIT ARP", {2, 0, 96, 0, 0, 0, 2, 110}, {0, 60, 80, 40}, 0, 0, FX(0, 0, 30, 20), ARP(1, 2, 2, 40)},
+    /* SLOOP 2.5: {CHIP, WAVE, DUTY, CRSH, SWP, VIB, ARP, TONE} */
+    {"NES BASS", {2, 1, 64, 0, 0, 0, 0, 127}, {0, 50, 80, 20}, 0, 1, FX(0, 0, 0, 4), XP(P_TRANS + 1, -12)},
+    {"CHIP CHORD", {2, 0, 32, 0, 0, 0, 2, 110}, {0, 60, 80, 40}, 0, 0, FX(0, 0, 30, 20)},
+    {"1BIT BEEP", {3, 0, 64, 0, 0, 0, 0, 100}, {0, 40, 60, 20}, 0, 0, FX(0, 0, 25, 15)},
+    {"WAVE LEAD", {0, 4, 40, 0, 0, 40, 0, 120}, {2, 60, 100, 30}, 0, 1, FX(0, 0, 30, 20), XP(P_GLIDE + 1, 30)},
+    {"CHIP NOISE", {2, 3, 64, 0, 90, 0, 0, 127}, {0, 55, 0, 24}, 0, 0, FX(0, 0, 10, 10)},
 };
 
 static const engine_t ENG_LOFI = {

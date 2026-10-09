@@ -50,7 +50,7 @@ static void track_lfo_tick(track_t *t)
 /* voices the engine may use (POLY and UNISON): its cap, else all of them */
 static uint32_t trk_nvoice(const track_t *t)
 {
-    uint32_t c = ENGINES[t->engine]->poly;
+    uint32_t c = ENGINES[t->engine] == &ENG_PHYS ? phys_poly(t) : ENGINES[t->engine]->poly;   /* (PHYS: by MODEL) */
     return c && c < NPOLY ? c : NPOLY;
 }
 
@@ -299,6 +299,13 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
         } else if (e == &ENG_PHASE) {
             v->s[0] = s0;                               /* the WAVE / WAVE2 toggles go with the phases kept */
             v->s[1] = s1;
+        } else if (e == &ENG_NOISE) {
+            v->s[0] = s0;                               /* the filter and the colour poles (2.5) */
+            v->s[1] = s1;
+            v->s[4] = s4;
+            v->s[5] = s5;
+            v->s[6] = s6;
+            v->s[7] = s7;
         }
     }
 }
@@ -689,7 +696,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
                         ((v->penv * p[P_ED_PIT] * 3) >> 7);
             pitch = (q >> 8) + tune;
             m.pitch16 = clamp(pitch, 0, 2047);
-            m.inc = PITCH_INC[m.pitch16];
+            m.inc = pitch_inc(m.pitch16);
             q = (q & 255) * 3792 >> 16;                 /* the fraction, as fine (1/16 st = 14.8) */
             m.fine = v->fine + tune_fine + q;
             if (m.fine)                                 /* unison detune, fine tune and the fraction */

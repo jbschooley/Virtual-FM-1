@@ -47,7 +47,7 @@ static struct {                                  /* the patch through the macros
 } fm6_eff[NPART];
 static fm6_lfo_t fm6_lfo[NPART];
 static int32_t fm6_lfo_v[NPART], fm6_lfo_d[NPART];   /* this block's LFO value and delay (Q24) */
-static fm6_note_t fm6_note[NPART][FM6_POLY] __attribute__((section(".pool")));   /* 18 x 244 B */
+/* the voices' fm6_note_t: the part's engine arena (engines.c eng_arena_of) */
 
 /* ------------------------------------------------------- patch formats --- */
 /* the highest value of each byte of the 155-byte voice */
@@ -259,7 +259,7 @@ static fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
     if (t < &trk[0] || t >= &trk[NPART])
         return 0;
     i = (uint32_t)(v - t->v);
-    return i < FM6_POLY ? &fm6_note[t - trk][i] : 0;
+    return i < FM6_POLY ? &((fm6_note_t *)eng_arena_of(t, ENGI_FM6))[i] : 0;
 }
 
 static void fm6_note_on(track_t *t, voice_t *v)

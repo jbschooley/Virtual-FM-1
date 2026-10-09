@@ -137,7 +137,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     depth = clamp(depth + (m->shape - (64 << 8)), 0, 127 << 8);
     dcw = (uint32_t)depth * 65535u / (127u << 8);
     dcw = (dcw * 56000u) >> 16;                              /* the classic range of the bend */
-    inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
+    inc2 = pitch_inc(clamp(m->pitch16 + d16, 0, 2047));
     inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
     pd_setup(&b1, w1, dcw);
     pd_setup(&b2, w2 ? w2 - 1u : w1, dcw);                   /* WAVE2 (every other cycle) */
@@ -176,6 +176,10 @@ static const preset_t PHASE_PRESETS[] = {
     {"CZ STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {50, 90, 105, 75}, 0, 0, FX(0, 50, 20, 55)},
     {"RESO PLUCK", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, 0, FX(0, 0, 30, 30)},
     {"CZ BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, 0, FX(0, 20, 14, 26)},
+    /* SLOOP 2.5 */
+    {"CZ LEAD", {0, 0, 70, 60, 6, 0, 0, 0}, {2, 70, 110, 30}, 0, 1, FX(0, 10, 25, 25), XP(P_GLIDE + 1, 30)},
+    {"CZ PAD", {1, 4, 45, 30, 14, 0, 0, 0}, {70, 90, 115, 85}, 0, 0, FX(0, 50, 20, 60)},
+    {"CZ RESO", {6, 0, 80, 90, 0, 0, 0, 0}, {0, 70, 60, 40}, 0, 0, FX(0, 10, 25, 30)},
 };
 
 static const engine_t ENG_PHASE = {

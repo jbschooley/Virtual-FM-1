@@ -97,7 +97,7 @@ static int32_t ds_onepole(uint32_t cut)                 /* CUTOFF_HZ index -> a 
     uint32_t g = SVF_G[cut & 127u];
     return (int32_t)((g << 15) / (4096u + g));
 }
-static uint32_t ds_inc(int32_t p16) { return PITCH_INC[clamp(p16, 0, 127 * 16 + 15)]; }
+static uint32_t ds_inc(int32_t p16) { return pitch_inc(clamp(p16, 0, 127 * 16 + 15)); }
 static uint16_t ds_blocks(uint32_t units2ms) { return (uint16_t)(units2ms * 2u * FS / 1000u / CTL); }
 
 /* the filter's coefficients for this block: the cutoff plus the envelope's share */
@@ -119,14 +119,14 @@ static void ds_filter(dsv_t *s)
 /* the 808 cymbal oscillators (205.3 304.4 369.6 522.7 540 800 Hz) as 1/16 semitones above the first */
 static const int16_t DS_METAL[6] = {0, 109, 163, 259, 268, 377};
 
-static void ds_on(dsv_t *s, const dkit_t *kit, uint32_t note, uint32_t vel)
+static void ds_on(dsv_t *s, const dsnd_t *snd, uint32_t crush, uint32_t note, uint32_t vel)
 {
     int32_t semi;
     uint32_t lane = ds_lane(note, &semi), i;
-    const dsnd_t *d = &kit->s[lane];
+    const dsnd_t *d = &snd[lane];
     memset(s, 0, sizeof *s);
     s->d = d;
-    s->crush = kit->crush;
+    s->crush = (uint8_t)crush;
     s->gain = (int32_t)vel * 258;
     {   /* level: quarter dB from 128; 24 quarters = 6 dB = x2 (0.02 dB off per 6 dB) */
         static const uint16_t QDB[24] = {1024, 1054, 1085, 1116, 1149, 1182, 1217, 1252, 1289, 1326, 1365, 1405,
@@ -157,7 +157,7 @@ static void ds_on(dsv_t *s, const dkit_t *kit, uint32_t note, uint32_t vel)
     s->rnd = (int32_t)(0x9E3779B9u ^ (note * 2654435761u) ^ rng());
     s->lfsr = 0x4001u;
     {   /* CHIP clock: 8x that note; saturated (the top notes would wrap 32 bits: a dull noise) */
-        uint32_t ci = PITCH_INC[clamp((int32_t)d->chip, 0, 127) * 16];
+        uint32_t ci = pitch_inc(clamp((int32_t)d->chip, 0, 127) * 16);
         s->cinc = ci >= 0x20000000u ? 0xFFFFFFFFu : ci << 3;
     }
     for (i = 0; i < 6u; i++)
@@ -303,3 +303,84 @@ static int ds_render(dsv_t *s, int32_t *out, uint32_t n)
     ds_control(s);
     return ds_alive(s);
 }
+
+/* ---- SLOOP 2.5: your own synthesised kits, SYN1..SYN4 (drums.c DRUM_SYN..), edited in the web editor's DRUM
+ * SYNTH page (editor_dsyn.c). Each is a kit as DS_KITS has them: 16 dsnd_t and the crush, with a name. They live
+ * in RAM (the drum voices play them from there, so an edit is heard at once) and in flash after the settings
+ * (project.c settings_write: one A/B object, so a cut-off write keeps the last copy). Never stored: copies of
+ * 808, 909, TRAP and TECHNO. Every value from outside (the editor, a backup, flash) goes through dsu_fix, so the
+ * voices only ever see values the factory kits could hold. */
+#define DSU_N 4u
+#define DSU_MAGIC 0x31555344u                     /* "DSU1" */
+typedef struct {
+    char name[8];                                 /* ASCII, 0-padded (not terminated when 8 long) */
+    uint8_t crush, src, rsv[2];                   /* the kit's crush; src: the factory kit it started from */
+    dsnd_t s[DS_LANES];
+} dsu_kit_t;
+typedef struct {
+    uint32_t magic;
+    uint16_t ver, n;                              /* 1, DSU_N */
+    dsu_kit_t k[DSU_N];
+} dsu_bank_t;
+_Static_assert(sizeof(dsnd_t) == 22u && sizeof(dsu_kit_t) == 364u && sizeof(dsu_bank_t) == 1464u, "drum synth bank layout");
+static dsu_bank_t dsu;
+static volatile uint8_t dsu_dirty;                /* RAM differs from flash (an edit not stored yet) */
+static const uint8_t DSU_DEF[DSU_N] = {0, 1, 5, 12};   /* 808, 909, TRAP, TECHNO */
+
+static void dsu_from_factory(uint32_t k, uint32_t src)
+{
+    dsu_kit_t *u = &dsu.k[k % DSU_N];
+    const dkit_t *f = &DS_KITS[src % DS_NKITS];
+    uint32_t i;
+    memset(u, 0, sizeof *u);
+    for (i = 0; i < 8u && f->name[i]; i++)
+        u->name[i] = f->name[i];
+    u->crush = f->crush;
+    u->src = (uint8_t)(src % DS_NKITS);
+    memcpy(u->s, f->s, sizeof u->s);
+}
+static void dsu_defaults(void)
+{
+    uint32_t k;
+    dsu.magic = DSU_MAGIC;
+    dsu.ver = 1;
+    dsu.n = DSU_N;
+    for (k = 0; k < DSU_N; k++)
+        dsu_from_factory(k, DSU_DEF[k]);
+}
+/* a sound into the ranges the voices expect (ds_on / ds_render index tables with them) */
+static void dsu_fix_sound(dsnd_t *d)
+{
+    if (d->wave > DW_BELL) d->wave = DW_SINE;
+    if ((d->src & 15u) > DN_CHIP || (d->src & ~(uint8_t)(15u | DN_CLAP))) d->src = DN_WHITE;
+    if (d->pitch > 127u) d->pitch = 127;
+    d->fine &= 15u;
+    if (d->bend > 96u) d->bend = 96;
+    d->btime &= 127u; d->decay &= 127u; d->ndec &= 127u;
+    if (d->tlev > 127u) d->tlev = 127;
+    if (d->t2lev > 127u) d->t2lev = 127;
+    if (d->click > 127u) d->click = 127;
+    if (d->nlev > 127u) d->nlev = 127;
+    d->fcut &= 127u; d->hpf &= 127u; d->chip &= 127u;
+    if (d->drive > 127u) d->drive = 127;
+}
+static void dsu_fix_kit(dsu_kit_t *u)
+{
+    uint32_t i;
+    for (i = 0; i < 8u; i++)
+        if (u->name[i] && (u->name[i] < 32 || u->name[i] > 126))
+            u->name[i] = ' ';
+    u->src %= DS_NKITS;
+    u->rsv[0] = u->rsv[1] = 0;
+    for (i = 0; i < DS_LANES; i++)
+        dsu_fix_sound(&u->s[i]);
+}
+static int dsu_valid(const dsu_bank_t *b) { return b->magic == DSU_MAGIC && b->ver == 1u && b->n == DSU_N; }
+static const dsu_kit_t *dsu_kit(uint32_t k)       /* (RAM never set up: the defaults, e.g. without flash) */
+{
+    if (!dsu_valid(&dsu))
+        dsu_defaults();
+    return &dsu.k[k % DSU_N];
+}
+/* the GM note each synthesised lane answers to with no pitch offset (DS_MAP): the editor's audition */
+static const uint8_t DS_LANE_NOTE[DS_LANES] = {36, 38, 39, 42, 46, 43, 48, 49, 51, 70, 63, 37, 56, 75, 35, 40};

@@ -89,11 +89,13 @@ GM_ROLE_WORDS = [("bassdrum", "kick"), ("kick", "kick"), ("snare", "snare"), ("h
                  ("tomhi", "tomhi"), ("tom", "tom"),
                  ("rim", "rim"), ("cowbell", "cowbell"), ("tamb", "tamb"), ("shaker", "shaker"),
                  ("conga", "conga"), ("claves", "claves"), ("wood", "wood"), ("crash", "crash"), ("ride", "ride")]
-GM_KEEP = {"crash": 1.0, "ride": 1.0, "ohh": 0.6}
+GM_KEEP = {"crash": 0.6, "ride": 0.6, "ohh": 0.6}   # (SLOOP 2.5: the cymbals 1.0 -> 0.6 s, 12.8 KB of flash back;
+                                                      # the first 0.44 s as recorded, then a fade: GM_FADE)
 GM_RATE = {"chh": 32000, "ohh": 32000, "crash": 32000, "ride": 32000}   # the metal keeps its top (else TR)
 # an acoustic kit from the CC0 recordings (assets/samples-cc0/KIT: VCSL): the concert bass drum and the toms
 # get a shorter body (a kit's tuned-up, damped heads): their level falls as exp(-t / tau) after a hold
 GM_SHAPE = {"kick": (0.03, 0.13), "tomlo": (0.04, 0.22), "tomhi": (0.04, 0.2)}
+GM_FADE = {"crash": 0.16, "ride": 0.16}               # the cymbals fade out over their last 0.16 s (else 30 ms)
 # the balance of the kit (dB under full scale): the kick and the snare up front, the metal and the hand
 # percussion further back, as the synthesised kits (tools/level_drumkits.py); the click's wood block stays
 GM_GAIN = {"chh": -9, "ohh": -9, "crash": -8, "ride": -9, "shaker": -8, "tamb": -6, "conga": -4, "cowbell": -4,
@@ -242,7 +244,7 @@ def gm_kit_entry(role, path, rate=TR):
     while end > 64 and abs(x[end - 1]) < 0.004 * pk:
         end -= 1
     x = x[:end]
-    fade = min(len(x) // 4, int(0.03 * rate))
+    fade = min(len(x) // 4, int(GM_FADE.get(role, 0.03) * rate))
     for i in range(fade):
         x[len(x) - fade + i] *= 1 - i / fade
     g = 30000 / pk * 10 ** (GM_GAIN.get(role, 0) / 20) if path.parent.name == "KIT" else 30000 / pk
