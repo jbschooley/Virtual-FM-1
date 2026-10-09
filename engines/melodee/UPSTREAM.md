@@ -48,16 +48,19 @@ same way, unchanged.
 
 - `melodee_core.c` compiles the whole firmware as one unit, in its
   `melodee.c`'s order, behind the same API as `engines/felucca/felucca_core.c`
-  (`felucca_core.h`), and is compiled `MELODEE_COPIES` times (16) the same way:
-  each copy with its own prefix (`mel0_` ...) and sections, an instance's state
-  saved out of its copy and put back when instances share one.
-  `FeluccaEngine` plays it with `Flavor::Melodee`, from a pool of its own.
+  (`felucca_core.h`), and is compiled once the same way, its functions
+  prefixed `mel_`, its state (about 1.1 MB, its RAM flash included) a block each
+  instance owns (`engines/felucca/fel_state.py`; `docs/ADDING-A-FIRMWARE.md`,
+  "A firmware built from its C source"). `FeluccaEngine` plays it with
+  `Flavor::Melodee`. Its `gfx.c` initializes a pointer with the address of its
+  own screen buffer (`cv_px = cv_primary`): `fel_state.py` sets that per
+  instance.
 - The hardware is replaced as for Felucca: the panel and screen are the
   plugin's, the flash is RAM, the clock follows the audio rendered and the main
   loop runs every 16 ms of it. Not built: `lcd.c`, `audio.c`, the update and
   boot loader (`ota.c`), the serial console and the USB audio device. Its audio
   memory arena (`resources.c`, 0.13) is the host build's 128 KB array, in each
-  copy's state; on the device its size is the linker's, so running out of it
+  instance's state; on the device its size is the linker's, so running out of it
   may differ.
 - The flash: Melodee keeps far more than Felucca (98 sectors when every object
   is used: bank projects of five sectors and a two-sector extension per copy,
@@ -72,7 +75,21 @@ same way, unchanged.
 - The LEDs: Melodee has two dim planes, the keys a layout shows and the buttons'
   idle glow; `FEL(leds)` gives them as 2 and 1. It lights PLAY's own LED while
   playing, not Felucca's green one.
-- `tests/melodee_test.cpp` checks the copies, sound (a CZ-1 tone and a PROPHET program too),
+- `tests/melodee_test.cpp` checks its instances (many at once, on several threads), sound (a CZ-1 tone and a PROPHET program too),
   parameters, the editor protocol and the objects (a project slot across its
   extension sectors, a CZ bank); `tests/melodee-frozen.txt` keeps its parameters
   and factory presets, so a later Melodee that changes them is noticed.
+
+## Updating
+
+1. In a clean checkout of the new tag, run its `tools/build.py` `generate()` (twice: the
+   same bytes) and replace `upstream/` and `generated/` with the new files; update the version
+   and commit above, and the release in `firmwares/Firmwares.cpp` (`knownVersions`).
+2. Compare `melodee_core.c` with the new `melodee.c` (its include order: a new source file is included
+   there too, inside the section pragma) and `main.c` (its init and main loop), and keep to
+   `docs/ADDING-A-FIRMWARE.md`'s "A firmware built from its C source": every writable variable
+   inside the pragma, so it is per instance. The build stops with `fel_state: ...` on what the
+   rewrite cannot handle; the line it prints says where.
+3. Build and run ctest: `melodee_regress` must pass on the new goldens, `melodee_test` checks the
+   plugin's side (its instance checks included), and its frozen list says what changed in
+   Melodee's parameters and presets.

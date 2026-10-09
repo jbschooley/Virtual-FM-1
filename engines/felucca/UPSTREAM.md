@@ -39,19 +39,19 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
 
 - `felucca_core.c` compiles the whole firmware as one unit, in
   `felucca.c`'s order, the way Felucca's host tests (`tests/ui_test.c`,
-  `editor_test.c`, `backup_test.c`) build it, with a prefix per compiled copy:
+  `editor_test.c`, `backup_test.c`) build it, its functions prefixed `fel_`:
   sound, sequencer, screen and front panel, projects, user presets, the FM6
   bank and the editor protocol. The hardware is replaced: the panel and screen
   are the plugin's, the flash is RAM, the clock follows the audio rendered and
   the main loop runs every 16 ms of it. Only `main.c`'s `felucca_init` is
   repeated. Never built: the update and boot loader code (`ota.c`, `main.c`'s
   boot loader paths); requests for them are taken and ignored.
-- `FeluccaEngine` gives each plugin instance one of the compiled copies, alone
-  while there are no more instances than copies; beyond that instances share
-  one, each instance's state saved out of the copy and put back before it
-  plays (`felucca_core.c` `state_get` / `state_put`). An instance always plays
-  in the copy it started in, since its state holds pointers into that copy.
-- What every copy reads and none writes is compiled once: CMakeLists.txt writes,
+- It is compiled once, and `fel_state.py` moves all its writable state (marked
+  by the section pragma in `felucca_core.c`) into a block each instance owns:
+  `FeluccaEngine` allocates it, sets it up (`state_init`) and points the code
+  at it (`bind`) before every call. See `docs/ADDING-A-FIRMWARE.md`, "A
+  firmware built from its C source", for what that asks of an update.
+- What it reads and never writes is compiled apart: CMakeLists.txt writes,
   from `generated/felucca_samples.h`, a copy where `SMP_DATA` (the sample sets)
   is only declared, and `felucca_shared.c` defining it, with the empty user
   sample slots. A new `gen_samples.py` that names it differently stops the
@@ -80,9 +80,10 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
    version and commit above.
 3. Compare `felucca_core.c` with the new `felucca.c` (its include order),
    `main.c` (`felucca_init`, the main loop's pass) and the host tests' stubs
-   (`tests/ui_test.c`, `editor_test.c`, `backup_test.c`); its non-static
-   globals must still get a name per copy (`nm` on one copy's object: only
-   `fel*_` symbols).
+   (`tests/ui_test.c`, `editor_test.c`, `backup_test.c`), and keep to
+   `docs/ADDING-A-FIRMWARE.md`'s "A firmware built from its C source": every
+   writable variable inside the section pragma, so it is per instance (the
+   build stops with `fel_state: ...` on what it cannot rewrite).
 4. Build and run ctest: `felucca_regress` must pass on the new goldens, and
-   `felucca_test` checks the plugin's side. If the goldens changed, the
+   `felucca_test` checks the plugin's side, its instance checks included. If the goldens changed, the
    sound changed: see the multi-firmware plan on keeping old versions.

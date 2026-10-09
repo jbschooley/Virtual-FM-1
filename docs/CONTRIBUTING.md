@@ -14,18 +14,19 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Felucca is built into the plugin from its own C source, which needs **Clang**:
-the default on macOS; on Linux configure with `CC=clang CXX=clang++`; on Windows
-use Visual Studio's ClangCL toolset (`-T ClangCL`, from the "C++ Clang tools for
-Windows" component), as CI does. With another compiler (MSVC's own) the plugin
-builds without Felucca and says so when an instance is set to it. On Windows each Felucca copy is compiled to LLVM IR first and
-`engines/felucca/fel_sections.cpp` gives its variables their sections
-explicitly: Clang loses the section pragma's names in Windows objects.
+Felucca, SLOOP and Melodee are built into the plugin from their own C source,
+which needs **Clang** and **Python 3**: Clang is the default on macOS; on Linux
+configure with `CC=clang CXX=clang++`; on Windows use Visual Studio's ClangCL
+toolset (`-T ClangCL`, from the "C++ Clang tools for Windows" component), as CI
+does. Each is compiled once to LLVM IR, rewritten by
+`engines/felucca/fel_state.py` so each instance owns its state, and compiled
+from that ([`ADDING-A-FIRMWARE.md`](ADDING-A-FIRMWARE.md), "A firmware built
+from its C source"). With another compiler (MSVC's own), or without Python, the
+plugin builds without them and says so when an instance is set to one.
 
 | Option | Default | What |
 |---|---|---|
 | `FM1_BUILD_FELUCCA` | on with Clang | Felucca's engines |
-| `FELUCCA_COPIES` | 16 | Felucca copies compiled in: up to that many instances play without sharing one (more share, at some CPU) |
 | `FM1_BUILD_PLUGIN` / `_AU` / `_LV2` / `_AAX` | on / on / on / off | the formats ([`AAX.md`](AAX.md)) |
 | `FM1_BUILD_TOOLS` | on | `fm1_probe`, the command-line check against a real FM-1 (macOS) |
 | `FM1_COPY_PLUGIN` | on | copy the plugins into your plug-in folders after building |
@@ -36,8 +37,8 @@ The iPad app and AUv3: [`IOS.md`](IOS.md). Packaging: `scripts/`.
 ## Tests
 
 `ctest` runs them all, where they are built: `sync_test` (and `fm1_probe`)
-on macOS only, `host_test_lv2` on Linux only, `felucca_regress` and
-`felucca_test` with Clang (not MSVC). None touches your library or a connected FM-1: the
+on macOS only, `host_test_lv2` on Linux only, the Felucca, SLOOP and Melodee
+tests with Clang (not MSVC; the `_regress` ones not on Windows). None touches your library or a connected FM-1: the
 plugin's tests point the library at a temporary folder (`FM1_DATA_DIR`) and
 never connect (`FM1_NO_DEVICE`). A scratch program of your own that creates an
 `FM1Processor` would save into your real library: set those two first.
@@ -50,13 +51,15 @@ never connect (`FM1_NO_DEVICE`). A scratch program of your own that creates an
 | `json_test` | the JSON preset and pattern format ([`JSON-FORMAT.md`](JSON-FORMAT.md)) |
 | `params_test` | the host parameters: every released id is still there, unchanged (`tests/params-frozen.txt`) |
 | `sync_test` | (macOS) the sync session against a simulated FM-1+VA on virtual MIDI ports, and identities |
-| `plugin_checks` | the whole plugin without a host: each firmware's releases, rates and latency, projects, the library, Felucca (its state, host parameters, transport, device file, sync between two of its copies, more instances than copies), the version messages |
+| `plugin_checks` | the whole plugin without a host: each firmware's releases, rates and latency, projects, the library, Felucca (its state, host parameters, transport, device file, sync between two instances, many instances), the version messages |
 | `state_test` | projects saved by earlier versions (`tests/states/`) still load as they did |
 | `library_test` | the library folder: moving the old library file in, instances seeing each other's writes |
 | `render_smoke` | renders every preset in many configurations (below) |
 | `host_test` | loads the built VST3 (and LV2 on Linux) as a host would, with its editor |
 | `felucca_regress` | Felucca's own regression: its golden renders, on the vendored source |
-| `felucca_test` | Felucca as the plugin drives it: the copies, sound, the editor protocol, its objects, its panel; and `tests/felucca-frozen.txt` |
+| `felucca_test` | Felucca as the plugin drives it: its instances (many at once, on several threads, each as alone), sound, the editor protocol, its objects, its panel; and `tests/felucca-frozen.txt` |
+| `sloop_regress`, `sloop_test` | the same for SLOOP (`tests/sloop-frozen.txt`; new ones: `SLOOP_APPEND_FROZEN=1`) |
+| `melodee_regress`, `melodee_test` | the same for Melodee (`tests/melodee-frozen.txt`; new ones: `MELODEE_APPEND_FROZEN=1`), its RAM flash with every object stored |
 
 ### What guards what
 

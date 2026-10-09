@@ -169,11 +169,11 @@ look for in baud girl's source once it is published.
 ## Build
 
 Requires CMake 3.22+, a C++20 compiler and Ninja on macOS (`brew install cmake
-ninja`), or Visual Studio 2022 on Windows. Felucca's engines need Clang (on
-Linux, configure with `CC=clang CXX=clang++`; on Windows, Visual Studio's ClangCL
-toolset: `cmake -B build -G "Visual Studio 17 2022" -A x64 -T ClangCL`, with
-"C++ Clang tools for Windows" installed); built with another compiler, the
-plugin leaves them out. JUCE 9.0.3 is a submodule:
+ninja`), or Visual Studio 2022 on Windows. The Felucca, SLOOP and Melodee
+engines need Clang and Python 3 (on Linux, configure with `CC=clang
+CXX=clang++`; on Windows, Visual Studio's ClangCL toolset: `cmake -B build -G
+"Visual Studio 17 2022" -A x64 -T ClangCL`, with "C++ Clang tools for Windows"
+installed); built without them, the plugin leaves them out. JUCE 9.0.3 is a submodule:
 
 ```
 git clone --recurse-submodules https://github.com/jbschooley/Virtual-FM-1

@@ -45,10 +45,10 @@ Pi), the font is Terminus (SIL OFL 1.1).
 
 - `sloop_core.c` compiles the whole firmware as one unit, in its `felucca.c`'s
   order, behind the same API as `engines/felucca/felucca_core.c`
-  (`felucca_core.h`), and is compiled `SLOOP_COPIES` times (16) the same way:
-  each copy with its own prefix (`slp0_` ...) and sections, an instance's state
-  (about 660 KB) saved out of its copy and put back when instances share one.
-  `FeluccaEngine` plays it with `Flavor::Sloop`, from a pool of its own.
+  (`felucca_core.h`), and is compiled once the same way, its functions
+  prefixed `slp_`, its state (about 700 KB) a block each instance owns
+  (`engines/felucca/fel_state.py`; `docs/ADDING-A-FIRMWARE.md`, "A firmware
+  built from its C source"). `FeluccaEngine` plays it with `Flavor::Sloop`.
 - The hardware is replaced as for Felucca: the panel and screen are the
   plugin's, the flash is RAM, the clock follows the audio rendered and the main
   loop runs every 16 ms of it. Not built: `lcd.c`, `audio.c`, the update and
@@ -56,7 +56,7 @@ Pi), the font is Terminus (SIL OFL 1.1).
   and the USB audio input. The LEDs are stubs; the MASTER knob is not read: the
   level stays at the 2048 `felucca_init` starts with (the plugin has its own
   volume).
-- The sample sets (`SMP_DATA`) are compiled once for all copies
+- The sample sets (`SMP_DATA`) are compiled apart, read only, not state
   (`sloop_shared.c`, written by CMakeLists.txt), with the empty user sample
   slots.
 - The stored objects are those of Sloop's editor backup (v9): 0 the working
@@ -65,6 +65,20 @@ Pi), the font is Terminus (SIL OFL 1.1).
   `FM6_BANK_XIP`). The user sample slots (32-35) are not kept.
 - The visualiser (`ui_vis.c`, 2.4) reads the mix left and right, fed in
   `FEL(render)` from fx.c's `vis_tap` as audio.c's `audio_block` does.
-- `tests/sloop_test.cpp` checks the copies, sound, parameters, the editor
+- `tests/sloop_test.cpp` checks its instances (many at once, on several threads), sound, parameters, the editor
   protocol and the objects; `tests/sloop-frozen.txt` keeps its parameters and
   factory presets, so a later Sloop that changes them is noticed.
+
+## Updating
+
+1. In a clean checkout of the new tag, run its `tools/build.py` `generate()` (twice: the
+   same bytes) and replace `upstream/` and `generated/` with the new files; update the version
+   and commit above, and the release in `firmwares/Firmwares.cpp` (`knownVersions`).
+2. Compare `sloop_core.c` with the new `felucca.c` (its include order: a new source file is included
+   there too, inside the section pragma) and `main.c` (its init and main loop), and keep to
+   `docs/ADDING-A-FIRMWARE.md`'s "A firmware built from its C source": every writable variable
+   inside the pragma, so it is per instance. The build stops with `fel_state: ...` on what the
+   rewrite cannot handle; the line it prints says where.
+3. Build and run ctest: `sloop_regress` must pass on the new goldens, `sloop_test` checks the
+   plugin's side (its instance checks included), and its frozen list says what changed in
+   SLOOP's parameters and presets.

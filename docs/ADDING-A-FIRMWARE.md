@@ -56,12 +56,10 @@ building, the tests and the rules for working with a real FM-1.
 4. **Sound.** An engine under `engines/<id>/`: plain C or C++ with no JUCE, so
    its tests stay small. It may run at its own rate: the plugin converts
    (`RateConverter`) and reports the latency, as for Felucca at 44.1 kHz. A
-   firmware whose source is C with file-level state, as Felucca's is, can be
-   compiled several times with a prefix per copy, each instance playing in
-   one; with more instances than copies, they share one and each one's state
-   is saved out and put back. `engines/felucca/felucca_core.c` and its
-   `UPSTREAM.md` show how (Clang only: the copies' state lives in sections of
-   their own).
+   firmware whose source is C with all its state in file-level statics, as
+   Felucca's, SLOOP's and Melodee's are, is compiled once and its state moved
+   into a block each instance owns: see "A firmware built from its C source"
+   below. It must follow those rules, and so must every update of it.
 5. **What it saves.** `FM1Processor::getStateInformation` saves the firmware
    id, the release it was made for (`firmwareVersion`) and a child per
    firmware with its state (Felucca's: the music as Felucca saves a project).
@@ -77,8 +75,77 @@ building, the tests and the rules for working with a real FM-1.
    an instance is set to it (`FeluccaPanel`), or the FM-1 tabs.
 8. **Tests**, in `CONTRIBUTING.md`'s list: the sync against a simulated synth
    (`sync_test` for profiles; `plugin_test` runs Felucca's sync between two of
-   the plugin's Felucca copies), the engine's own (`felucca_test`), and a check
-   with the real synth through `tests/fm1_probe.cpp`.
+   the plugin's Felucca instances), the engine's own (`felucca_test`), and a
+   check with the real synth through `tests/fm1_probe.cpp`.
+
+## A firmware built from its C source (Felucca, SLOOP, Melodee)
+
+These firmwares keep all their state in file-level and function-local statics:
+compiled as written, one copy of the code is one synth. The plugin compiles each
+once and gives every instance its own copy of the state instead:
+
+- `engines/<kind>/<kind>_core.c` (the "core") includes the firmware's sources,
+  unchanged, as one compilation unit, replaces the hardware, and exposes the
+  API in `engines/felucca/felucca_core.h`.
+- `engines/felucca/fel_state.py` rewrites the core's LLVM IR (CMakeLists.txt
+  `fm1_core`, through `fel_state_build.py`): every writable variable marked by
+  the core's section pragma becomes a field of one struct, reached through a
+  thread-local pointer. Each instance owns one such block (`state_size()`,
+  `state_init()`), and `FeluccaEngine` points the code at it (`bind()`) under
+  the instance's lock before every call. So any number of instances play at
+  once, on any threads, with one copy of the code, at a few percent of CPU on
+  the firmware's own work.
+
+**Adding such a firmware, or updating one (a new upstream release), needs:**
+
+1. **Every writable variable inside the pragma.** The core opens
+   `FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)` before the firmware's
+   first include and closes it (`#pragma clang section bss = "" data = ""`)
+   after its own last variable. A writable variable outside that range, or in
+   another compiled file, is one variable shared by every instance: a bug the
+   compiler does not report. Only read-only data may live elsewhere (the sample
+   sets in `<kind>_shared.c`, written by CMakeLists.txt). When an update adds a
+   source file, include it inside the range, in the order upstream's own unity
+   file (felucca.c, melodee.c ...) does.
+2. **Upstream's attributes stripped**: `#define __attribute__(x)` before the
+   firmware's includes (so its `section`, `used`, `aligned` ... attributes do
+   not fight the pragma) and `#undef __attribute__` after them.
+3. **Clang**, with no `-g` for the core (debug information would name the
+   variables the rewrite removes), and Python 3 for the build.
+4. **What `fel_state.py` handles**: any use of a variable inside a function,
+   directly or inside constant expressions; a variable initialized with the
+   address of another (a pointer or an array of pointers); clang's private
+   constants holding such addresses (local aggregate initializers). **What it
+   refuses** (the build stops with `fel_state: ...` and the line):
+   `thread_local` variables, other initializers holding a state address (a
+   struct containing a pointer to state, for instance), state named by `switch`,
+   `indirectbr` or `blockaddress`, and state named outside a function (other
+   than the cases above). On such an error: change the core if it is the
+   core's own code; if it is upstream's, extend `fel_state.py` for that form
+   (keep it refusing everything it does not understand), and add a check that
+   exercises it.
+5. **No heap state that outlives an instance.** Memory the firmware takes with
+   `malloc` is not part of the block: it would leak when an instance closes,
+   and must not be shared between instances. Felucca, SLOOP and Melodee use
+   none in the code the plugin builds.
+6. **Pointers the hardware provides** (a memory-mapped flash address, a DMA
+   buffer) replaced by the core with state or constants, as the cores already
+   do for the flash (RAM sectors) and the screen.
+
+**Then check** (CONTRIBUTING.md has the commands):
+
+- the build prints, per firmware, `fel_state: N globals -> one state of X bytes`;
+  a large jump in X is worth a look (a new buffer upstream);
+- `<kind>_test`: its instance checks (20 instances, each sounding as alone; six
+  on six threads at once; a new instance after a used one plays as the first),
+  its frozen parameters, the editor protocol and objects;
+- `<kind>_regress`: upstream's own golden renders, on the vendored source;
+- `plugin_checks`, and on macOS a universal build
+  (`-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"`) whose `<kind>_test` also passes
+  under Rosetta (`arch -x86_64`): the rewrite runs per architecture, and its
+  layout check (`state_init` returns 0 if a field is misaligned; the engine
+  then refuses to start) must pass on each. CI builds Windows, Linux and
+  Android through the same tool.
 
 ## Versions
 
