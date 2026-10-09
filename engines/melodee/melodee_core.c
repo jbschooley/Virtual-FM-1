@@ -484,8 +484,11 @@ int32_t FEL(param_get)(uint32_t track, uint32_t id) { return track < NTRK && id 
 void FEL(param_set)(uint32_t track, uint32_t id, int32_t v)
 {
     const param_desc_t *d = track_param_desc(track, id);
-    if (d && d->max > d->min)
+    if (d && d->max > d->min) {
         trk[track].p[id] = (int16_t)clamp(v, d->min, d->max);
+        if (scale_shared(id))            /* SCL, QNT, DEG are the song's: every part's, as a knob or the editor sets them */
+            scale_share(&trk[track]);
+    }
 }
 /* three globals are the device's settings, not the song's (params.c's global page): A4 (tuning_a4),
  * BOOT and the DRUM channel; set, they are saved as its GLO page saves them (ui_input.c) */
