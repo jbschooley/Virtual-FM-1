@@ -84,6 +84,14 @@ def outside_strings(line, fn):
     return out + fn(line[i:])
 
 
+def names(text, tok):
+    """the @names in text, outside quoted strings (a comdat's or an inline asm's text can hold '@x':
+    MSVC's mangled names do, "??_C@_04BEGKODDK@dust?$AA@")"""
+    out = []
+    outside_strings(text, lambda part: out.extend(t.group(1) for t in tok.finditer(part)) or part)
+    return out
+
+
 def find_paren(s, i):
     """s[i] == '(' -> the index of its ')'"""
     depth = 0
@@ -211,7 +219,7 @@ def main():
     kept = []
     for l in lines:
         m = re.match(r'^@([\w.$]+|"[^"]*") = (?:private |internal )(?:unnamed_addr )?constant (.*)$', l)
-        if m and any(t.group(1) in state for t in tok.finditer(m.group(2))):
+        if m and any(x in state for x in names(m.group(2), tok)):
             body = m.group(2)
             e = type_end(body)
             t, tail = body[:e], body[e + 1:]
@@ -251,7 +259,7 @@ def main():
     cexpr = re.compile(r'(getelementptr(?: inbounds| nuw| nusw)*|ptrtoint|bitcast|inttoptr) \(')
 
     def rewrite_function(body):
-        used = sorted({t.group(1) for l in body[1:] for t in tok.finditer(l) if t.group(1) in state})
+        used = sorted({x for l in body[1:] for x in names(l, tok) if x in state})
         if not used:
             return body
         entry = ['  %fel.tls = call ptr @llvm.threadlocal.address.p0(ptr @fel_state_base)',
@@ -266,7 +274,7 @@ def main():
             m = tok.fullmatch(v)
             if m and m.group(1) in state:
                 return gname[m.group(1)]
-            if cexpr.match(v) and any(t.group(1) in state for t in tok.finditer(v)):
+            if cexpr.match(v) and any(x in state for x in names(v, tok)):
                 return materialize(v)
             return v
 
@@ -291,7 +299,7 @@ def main():
             return name
 
         def rewrite_line(l):
-            if not any(t.group(1) in state for t in tok.finditer(l)):
+            if not any(x in state for x in names(l, tok)):
                 return l
             out, i = '', 0
             while True:
@@ -301,11 +309,11 @@ def main():
                     break
                 j = find_paren(l, m.end() - 1)
                 expr = l[m.start():j + 1]
-                out += l[i:m.start()] + (materialize(expr) if any(t.group(1) in state for t in tok.finditer(expr)) else expr)
+                out += l[i:m.start()] + (materialize(expr) if any(x in state for x in names(expr, tok)) else expr)
                 i = j + 1
             # (a phi may name state: its replacement is made at the function's entry, which comes
             # before every block)
-            if re.search(r'\b(switch|indirectbr|blockaddress)\b', l) and any(t.group(1) in state for t in tok.finditer(out)):
+            if re.search(r'\b(switch|indirectbr|blockaddress)\b', l) and any(x in state for x in names(out, tok)):
                 fail('a state reference the rewrite does not handle: ' + l.strip()[:120])
             return outside_strings(out, lambda part: tok.sub(lambda t: gname[t.group(1)] if t.group(1) in state else t.group(0), part))
 
@@ -329,7 +337,7 @@ def main():
             out.append(lines[i])
             i += 1
     for l in out:   # anything else naming state (another global's initializer, metadata): not handled
-        if not l.startswith('define ') and any(t.group(1) in state for t in tok.finditer(l)) and not l.startswith(';'):
+        if not l.startswith('define ') and any(x in state for x in names(l, tok)) and not l.startswith(';'):
             if re.match(r'^\s', l):
                 continue
             fail('a state reference outside a function: ' + l[:160])
@@ -343,7 +351,7 @@ def main():
             continue
         f = f'%f.{ident(n)}'
         init.append(f'  {f} = getelementptr inbounds %fel.state, ptr %p, i32 0, i32 {index[n]}')
-        if not any(t.group(1) in state for t in tok.finditer(g['init'])):   # a constant: copied in
+        if not any(x in state for x in names(g['init'], tok)):   # a constant: copied in
             consts.append(f'@fel.init.{ident(n)} = private unnamed_addr constant {g["type"]} {g["init"]}, align {g["align"]}')
             init.append(f'  call void @llvm.memcpy.p0.p0.i64(ptr align {g["align"]} {f}, ptr align {g["align"]} @fel.init.{ident(n)}, i64 {g["size"]}, i1 false)')
             continue
@@ -364,7 +372,7 @@ def main():
                     init.append(f'  %b.{tag} = getelementptr inbounds %fel.state, ptr %p, i32 0, i32 {index[base.group(1)]}')
                     init.append(f'  %a.{tag} = getelementptr{gm.group(1)} {parts[0]}, ptr %b.{tag}, {", ".join(parts[2:])}')
                     return f'%a.{tag}'
-            if any(t.group(1) in state for t in tok.finditer(val)):
+            if any(x in state for x in names(val, tok)):
                 fail(f'an initializer of {n} the rewrite does not handle: {val[:120]}')
             return val
 
