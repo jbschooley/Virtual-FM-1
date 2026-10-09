@@ -8,8 +8,9 @@ playing, send an edit to the synth without saving it, or sync the whole
 128-preset library in either direction.
 
 Each instance is set to one of the FM-1's firmwares: M-VAVE's own, baud girl's
-FM-1+VA, Felucca, Hügelton's multi-engine firmware, or SLOOP, isod89's
-groovebox built on Felucca. The plugin runs Felucca and SLOOP from their own
+FM-1+VA, Felucca, Hügelton's multi-engine firmware, SLOOP, isod89's
+groovebox built on Felucca, or Melodee, Kerem Kilic's multi-engine firmware
+built on Felucca. The plugin runs Felucca, SLOOP and Melodee from their own
 source, with their screen, front panel, sequencer and projects.
 
 It works on its own as a synth too; the FM-1 is only needed for syncing.
@@ -39,7 +40,8 @@ On an iPhone (the iOS app builds from source):
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
   an FM-1 yet; 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
-  1.0.3 (1.0 to 1.0.2 too) or **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.4.1. On M-VAVE's own
+  1.0.3 (1.0 to 1.0.2 too), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.4.1 or
+  **[Melodee](https://github.com/keremimo/melodee)** 0.13. On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -136,6 +138,13 @@ project saves its own current preset, edits, patterns and arpeggiator.
   are kept in the library as the file SLOOP's web editor uses for backups
   (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.4: pull, send and
   live, as with Felucca; one still on 2.3 is pulled from only.
+- **Melodee 0.13**, built from its source the same way: its engines on four
+  parts, PROPHET (with Sequential's Prophet-5 factory programs) and CZ-1 (with
+  Casio's CZ-1 tones) among them, its 32 pattern banks, in the same editor,
+  Library and Device tabs. Its projects, user presets and CZ, FM6 and PROPHET
+  banks are kept in the library as the file Melodee's web editor uses for
+  backups (`Melodee/Melodee device.json`). With an FM-1 running Melodee 0.13:
+  pull, send and live, a part's own CZ-1 tone or PROPHET patch included.
 
 ## Not done yet
 
@@ -151,6 +160,9 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **iPad and iPhone**: the app and AUv3 build from source and sync with the
   FM-1 over USB-C, but are not distributed; see [`docs/IOS.md`](docs/IOS.md).
 - **Felucca** and **SLOOP**: their user sample slots are empty.
+- **Melodee**: no host parameters yet (automation does not reach it), and its
+  Sequencer tab edits, pulls and sends the pattern bank each part plays (the
+  Sync page's Pull and Send carry all of them).
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
@@ -187,12 +199,12 @@ Source layout:
 - `firmwares/` the firmware list and each firmware's releases
   (`Firmwares.cpp`), and one folder per firmware: `fm1_common/` the FM-1
   protocols stock and FM-1+VA share (no JUCE), `fm1_stock/`, `baudgirl_fm1va/`,
-  and `felucca/` (its profile and its sync over its editor protocol, Felucca's and
-  SLOOP's)
+  and `felucca/` (its profile and its sync over its editor protocol, Felucca's,
+  SLOOP's and Melodee's)
 - `engines/` the sound, without JUCE: `dx7/` msfa (Apache-2.0, from Dexed;
   changes in `engines/dx7/msfa/NOTICE.md`) and the voice, envelope and filter
   code around it; `fm1_fx/` the FM-1's effects, the Hardware character stage
-  and the rate converter; `felucca/` and `sloop/` Felucca's and SLOOP's firmware
+  and the rate converter; `felucca/`, `sloop/` and `melodee/` Felucca's, SLOOP's and Melodee's firmware
   (GPL-3.0, vendored, see their `UPSTREAM.md`) built as libraries
 - `plugin/` the processor, editor, parameters, library, sequencer and
   arpeggiator, and Felucca's editor, host parameters and device file;
@@ -213,6 +225,8 @@ Source layout:
   its source with its author's agreement, its sample pack included.
 - **isod89** for [SLOOP](https://github.com/isod89/sloop-fm1), which the plugin
   also builds from its source.
+- **Kerem Kilic** for [Melodee](https://github.com/keremimo/melodee), which the
+  plugin also builds from its source.
 - **Google's music-synthesizer-for-android** (msfa) and **Dexed** by Pascal
   Gauthier and contributors, for the FM engine and the editor's look.
 - Reverse-engineering work on the FM-1 by
@@ -226,5 +240,6 @@ Source layout:
 
 GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
 in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
-are GPL-3.0-or-later, Felucca and SLOOP are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
-the MIT licence.
+are GPL-3.0-or-later, Felucca, SLOOP and Melodee are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
+the MIT licence. Melodee includes Casio's CZ-1 tones and Sequential's Prophet-5
+programs as sound data, with no licence granted; see `THIRD_PARTY.md`.

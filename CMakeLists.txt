@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 # these must be set before project() to take effect
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
-project(VirtualFM1 VERSION 0.6.0 LANGUAGES C CXX)
+project(VirtualFM1 VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -4,6 +4,25 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [0.7.0] - 2026-10-08
+
+### Added
+
+- **Melodee 0.13** (Kerem Kilic's firmware, built on Felucca) is a firmware an
+  instance can play, built from its source: its engines on four parts, PROPHET
+  among them with Sequential's 200 Prophet-5 factory programs, and CZ-1 with
+  Casio's 64 CZ-1 tones; its 32 pattern banks, screen, front panel, projects and
+  user presets. Its device file is kept in the library as Melodee's web editor
+  writes a backup (`Melodee/Melodee device.json`).
+- **Sync with an FM-1 running Melodee 0.13**: Pull and Send of everything (all
+  pattern banks, projects, user presets, CZ, FM6 and PROPHET banks), a part's
+  sound with its own CZ-1 tone or PROPHET patch, the patterns of the bank each
+  part plays with Melodee's song, and Live, pattern bank switches included. An
+  FM-1 still on Melodee 0.12 is not sent to or followed live: update it with
+  Melodee's installer (pulling from it has not been tried).
+- Melodee has no host parameters yet, and its Sequencer tab works on the
+  pattern bank each part plays.
+
 ## [0.6.0] - 2026-10-07
 
 ### Changed
@@ -371,6 +390,7 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
+[0.7.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.4.1...v0.5.0
