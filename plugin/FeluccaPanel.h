@@ -81,7 +81,7 @@ private:
 
     FM1Processor& proc_;
     int track_ = 0;
-    int builtTrack_ = -1, builtEngine_ = -1;
+    int builtTrack_ = -1, builtEngine_ = -1, builtLabels_ = -1;   // (labels: what renames controls, SLOOP 2.6's INSERT TYPE and ENV SYNC)
     juce::uint32 statusUntil_ = 0;   // the info line shows a status until then, then the keyboard hint   // what the controls are for (the device can change either)
     juce::TextButton trackButtons_[4];
     juce::ComboBox engineBox_, presetBox_;

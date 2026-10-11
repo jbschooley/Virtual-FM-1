@@ -215,8 +215,8 @@ static int checks() {
             const fm1::Identity sloop{"FM-1", 900, "FELUCCA SLOOP 2.2"}, dev{"FM-1", 900, "FELUCCA v1.1-dev"};
             const auto c = fm1::checkVersion(sloop);
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
-                  && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.5",
-                  "an FM-1 running SLOOP is SLOOP, a choice (2.5) played like Felucca");
+                  && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.6",
+                  "an FM-1 running SLOOP is SLOOP, a choice (2.6) played like Felucca");
             {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): told apart, played and synced
                 const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
                 CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
@@ -241,23 +241,20 @@ static int checks() {
                 CHECK(!felucca::readBackup(f, o, err, felucca::feluccaDialect()) && err.contains("Melodee"), "its backup files are refused: " + err);
                 f.deleteFile();
             }
-            const auto cur = fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.5"});
-            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.5", "SLOOP 2.5: current, nothing to say: " + cur.text);
-            {
-                const fm1::Identity s24{"FM-1", 900, "FELUCCA SLOOP 2.4"};
-                const auto c24 = fm1::checkVersion(s24);
-                CHECK(c24.known && c24.support == fm1::Support::Older && c24.text.find("not tried") == std::string::npos
-                      && c24.text.find("update it to 2.5") != std::string::npos && fm1::writesRefused(s24).empty(),
-                      "SLOOP 2.4: a known release, said to lack 2.5's engines and kits: " + c24.text);
+            const fm1::Identity s26{"FM-1", 900, "FELUCCA SLOOP 2.6"};
+            const auto cur = fm1::checkVersion(s26);
+            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.6" && fm1::writesRefused(s26).empty(),
+                  "SLOOP 2.6: current, nothing to say, written to: " + cur.text);
+            for (const char* r : {"2.3", "2.4", "2.4.1", "2.5"}) {   // none reads 2.6's projects (format 6)
+                const fm1::Identity older{"FM-1", 900, std::string("FELUCCA SLOOP ") + r};
+                const auto c2 = fm1::checkVersion(older);
+                CHECK(c2.known && c2.support == fm1::Support::Older && c2.text.find("pulled from only") != std::string::npos
+                      && c2.text.find("update it to 2.6") != std::string::npos && fm1::writesRefused(older).find("update it to 2.6") != std::string::npos,
+                      std::string("SLOOP ") + r + ": known, pulled from only (nothing sent, no Live): " + c2.text);
             }
-            const fm1::Identity s23{"FM-1", 900, "FELUCCA SLOOP 2.3"};
-            const auto old = fm1::checkVersion(s23);
-            CHECK(old.known && old.support == fm1::Support::Older && old.text.find("pulled from only") != std::string::npos
-                  && fm1::writesRefused(s23).find("update it to 2.5") != std::string::npos && fm1::writesRefused(fm1::Identity{"FM-1", 900, "FELUCCA SLOOP 2.4.1"}).empty(),
-                  "SLOOP 2.3: known, pulled from only (nothing sent, no Live): " + old.text);
             const auto v30 = fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"});
-            CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.5") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
-            CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.5") != std::string::npos,
+            CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.6") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
+            CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.6") != std::string::npos,
                   "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
@@ -378,8 +375,8 @@ static int checks() {
             p.setPlayConfigDetails(0, 2, 44100.0, 256);
             p.prepareToPlay(44100.0, 256);
             p.setFirmware("sloop");
-            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.5",
-                  "set to SLOOP, the instance plays SLOOP 2.5");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.6",
+                  "set to SLOOP, the instance plays SLOOP 2.6");
             CHECK(FeluccaEngine::instances(Fl::Sloop) == slpBefore + 1 && FeluccaEngine::instances() == felBefore,
                   "in a SLOOP copy, none of Felucca's");
             juce::AudioBuffer<float> buf(2, 256);
@@ -412,7 +409,7 @@ static int checks() {
             p.getStateInformation(both);
             auto tree = juce::ValueTree::readFromData(both.getData(), both.getSize());
             CHECK(tree.getChildWithName("Felucca").isValid() && tree.getChildWithName("Sloop").isValid()
-                  && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.5",
+                  && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.6",
                   "a project keeps both, apart");
         }
         {   // an instance set to Melodee plays Melodee 0.12 in its own copies; no host parameters of its own yet
@@ -531,6 +528,32 @@ static int checks() {
             ours = objs({0, 2, 3, 4, 5, 6, 7, 8, 9});
             auto sloop25 = objs({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
             CHECK(felucca::fitToSynth(ours, sloop25, felucca::sloopDialect()).isEmpty() && ours.size() == 9, "SLOOP 2.5: the SYN kits too");
+            ours = objs({0, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+            CHECK(felucca::fitToSynth(ours, sloop25, felucca::sloopDialect()).isEmpty() && ours.size() == 9 && !ours.count(10),
+                  "SLOOP 2.5 has no object 10 (2.6's MIDI setup): left out");
+            {   // 2.6's object 10 in backup files: left out at its default (as SLOOP lists it, so an older editor
+                // reads the file); a 2.6 file without it restores the default, an older one leaves it
+                const auto& d = felucca::sloopDialect();
+                std::vector<uint8_t> def(40, 0);
+                def[32] = 1; def[33] = 2; def[34] = 3; def[35] = 10; def[36] = 2;
+                auto mid = def;
+                mid[32] = 5;
+                felucca::Objects o = objs({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+                o[10] = def;
+                const auto f = juce::File::createTempFile(".json");
+                f.replaceWithText(felucca::backupJson(o, "SLOOP 2.6 (Virtual FM-1)", d));
+                felucca::Objects back;
+                juce::String err;
+                CHECK(!f.loadFileAsString().contains("\"id\": 10") && felucca::readBackup(f, back, err, d) && back.count(10) && back[10] == def,
+                      "a default object 10 is left out of the file, and comes back as the default from a 2.6 file: " + err);
+                o[10] = mid;
+                f.replaceWithText(felucca::backupJson(o, "SLOOP 2.6 (Virtual FM-1)", d));
+                CHECK(felucca::readBackup(f, back, err, d) && back[10] == mid, "a changed one is kept: " + err);
+                o.erase(10);
+                f.replaceWithText(felucca::backupJson(o, "FELUCCA SLOOP 2.5", d));
+                CHECK(felucca::readBackup(f, back, err, d) && !back.count(10), "a 2.5 file has none: the device's stays as it is");
+                f.deleteFile();
+            }
             auto mine = objs({0, 2, 23});
             auto mel12 = objs({0, 1, 2});
             CHECK(felucca::fitToSynth(mine, mel12, felucca::melodeeDialect()).contains("no object 23"), "Melodee 0.12: a PROPHET bank it cannot take: nothing sent");
@@ -765,10 +788,22 @@ static int checks() {
             if (f && level && wave && kit && dust && felLevel) {
                 int perTrack[4] = {}, globals = 0;
                 for (const auto& en : felparams::entries()) if (en.sloop) { if (en.track >= 0) ++perTrack[en.track]; else ++globals; }
-                CHECK(perTrack[0] == 60 && perTrack[1] == 60 && perTrack[2] == 60 && perTrack[3] == 10 && globals == 17
+                CHECK(perTrack[0] == 70 && perTrack[1] == 70 && perTrack[2] == 70 && perTrack[3] == 15 && globals == 24
                       && !au.apvts.getParameter("slp_t1_ed_fx") && !au.apvts.getParameter("slp_dr_level") && au.apvts.getParameter("slp_t3_chord")
-                      && au.apvts.getParameter("slp_t2_vlead") && au.apvts.getParameter("slp_dr_filt") && au.apvts.getParameter("slp_drdly"),
-                      "three parts alike (2.4: FILT, STRUM, VLEAD too), the drum track's kit, pattern, slicer and FILT, seventeen globals (2.5: the drums' DLY); not its preset trim");
+                      && au.apvts.getParameter("slp_t2_vlead") && au.apvts.getParameter("slp_dr_filt") && au.apvts.getParameter("slp_drdly")
+                      && au.apvts.getParameter("slp_t1_itype") && au.apvts.getParameter("slp_t3_lpol") && au.apvts.getParameter("slp_dr_imix")
+                      && !au.apvts.getParameter("slp_dr_lsync") && au.apvts.getParameter("slp_txsrc") && !au.apvts.getParameter("slp_bend"),
+                      "three parts alike (2.4: FILT, STRUM, VLEAD; 2.6: INSERT, TYPE, ESYNC, LFO 2), the drum track's kit, pattern, slicer, FILT and "
+                      "(2.6) INSERT, twenty-four globals (2.5: the drums' DLY; 2.6: TEXTURE); not its preset trim or the FM-1's MIDI settings");
+                {   // the engine's eight follow P_E0 (63 from 2.6): slp_t1_e0 is the engine's first, not 2.6's INSERT TYPE
+                    const int e0 = f->firstEngineParam();
+                    const auto d = f->paramDesc(0, e0);
+                    f->setParam(0, e0, d.max);
+                    au.feluccaChanged(0);
+                    CHECK(e0 == 63 && std::abs(wave->getValue() - 1.0f) < 1e-5f, "slp_t1_e0 is P_E0 (63 from 2.6)");
+                    f->setParam(0, e0, d.def);
+                    au.feluccaChanged(0);
+                }
                 const auto ld = f->paramDesc(0, 0);
                 CHECK(std::abs(level->getValue() - float(f->param(0, 0) - ld.min) / float(ld.max - ld.min)) < 1e-5f,
                       "the host sees SLOOP's values once the instance is set to SLOOP");

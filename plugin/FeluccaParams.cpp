@@ -60,7 +60,9 @@ const int kGlobalRange[27][3] = {
 // P_ED_FX (8): SLOOP's level trim, which its presets set. Its drum track (4) has its kit (P_E0),
 // pattern, slicer and filter only, as the device shows it; its level and reverb are globals (DRLVL,
 // DRREV). 2.4's three are listed after the rest (their ids added, none moved).
-constexpr int kSloopCommon = 50, kSloopEngineFirst = 53;
+// SLOOP 2.6 added ten before the engine's eight (53..62, below), which now start at 63: the
+// engine's host parameters keep their ids and follow them there.
+constexpr int kSloopCommon = 50, kSloopEngineFirst = 63;
 const struct { const char* name; int range[3]; } kSloop24[3] = {
     {"filt", {-64, 63, 0}}, {"strum", {-60, 60, 0}}, {"vlead", {0, 1, 0}}};
 const int kSloopTrackRange[50][3] = {
@@ -75,7 +77,7 @@ const int kSloopTrackRange[50][3] = {
     {0, 127, 127}, {0, 5, 0}};
 const int kSloopDrumIds[] = {29, 30, 31, 32, 45, 46, 47, 48};   // the pattern and the slicer
 const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
-    {"bpm", 0, {40, 240, 90}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"dtime", 4, {0, 7, 1}},
+    {"bpm", 0, {40, 240, 90}}, {"swing", 1, {0, 100, 0}}, {"tune", 3, {-50, 50, 0}}, {"dtime", 4, {0, 8, 1}},   // (2.6: 1/4D)
     {"dfdbk", 5, {0, 120, 60}}, {"dcolor", 6, {0, 127, 70}}, {"dmix", 7, {0, 127, 90}}, {"rsize", 8, {0, 127, 90}},
     {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}},
     {"drlvl", 25, {0, 127, 100}}, {"drrev", 26, {0, 127, 16}}, {"dust", 27, {0, 127, 0}},
@@ -137,6 +139,21 @@ std::vector<Entry> build() {
     // SLOOP 2.5's: the drums' delay send (GLO > DRUMS > DLY, global 32), after everything before it
     const int drdly[3] = {0, 127, 0};
     out.push_back({"slp_drdly", -1, 32, defaultOf(drdly), true, 6});
+    // SLOOP 2.6's (core.h, params.c): every track's INSERT (the drums' too), and the synth parts'
+    // ANALOG filter TYPE, ENV SYNC and LFO 2; GLO > TEXTURE, the song's. Not GLO > MIDI or MIDI 2's
+    // channels and BEND: settings of the FM-1, as SYNC and OUT
+    static const struct { const char* name; int index; int range[3]; bool drums; } k26[] = {
+        {"itype", 53, {0, 8, 0}, true}, {"ia", 54, {0, 127, 64}, true}, {"ib", 55, {0, 127, 96}, true},
+        {"ic", 56, {0, 127, 96}, true}, {"imix", 57, {0, 127, 127}, true}, {"ftype", 58, {0, 2, 0}, false},
+        {"esync", 59, {0, 1, 0}, false}, {"lsync", 60, {0, 10, 0}, false}, {"ltrig", 61, {0, 1, 0}, false},
+        {"lpol", 62, {0, 1, 0}, false}};
+    for (int t = 0; t < 3; ++t)
+        for (const auto& k : k26) out.push_back({"slp_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), true, 7});
+    for (const auto& k : k26) if (k.drums) out.push_back({"slp_dr_" + juce::String(k.name), 3, k.index, defaultOf(k.range), true, 7});
+    static const struct { const char* name; int index; int range[3]; } k26g[] = {
+        {"txsrc", 37, {0, 10, 0}}, {"txlvl", 38, {0, 127, 64}}, {"txtone", 39, {-64, 63, 0}}, {"txmove", 40, {0, 127, 40}},
+        {"txrate", 41, {0, 4, 2}}, {"txwhen", 42, {0, 1, 0}}, {"txduck", 43, {0, 1, 0}}};
+    for (const auto& g : k26g) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true, 7});
     return out;
 }
 

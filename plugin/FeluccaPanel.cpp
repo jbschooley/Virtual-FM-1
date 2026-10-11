@@ -29,12 +29,15 @@ const GroupDef kTrackGroups[] = {
 // SLOOP 2.4.1's (core.h P_*): Felucca 1.0's numbering up to the slicer (48), then CHORD (49), the
 // track's FILT (50), STRUM and VLEAD (51-52, its CHORD+ page) and the engine's eight; no modulation
 // matrix
+// SLOOP 2.6 adds (53..62) the track's INSERT, ANALOG's filter TYPE, ENV SYNC and LFO 2's SYNC, TRIG,
+// POL; the engine's eight from 63
 const GroupDef kSloopGroups[] = {
     {"Engine", -1, -1},
-    {"Filter", 50, 50},
-    {"Envelope", 1, 4},
+    {"Filter", 50, 50, 58},
+    {"Envelope", 1, 4, 59},
     {"Envelope to", 5, 7},
     {"LFO", 9, 12},
+    {"LFO sync", 60, 62},
     {"LFO to", 13, 16},
     {"Voice", 37, 44},
     {"Chord", 49, 49},
@@ -43,6 +46,7 @@ const GroupDef kSloopGroups[] = {
     {"Scale", 25, 28},
     {"Sequencer", 29, 32},
     {"Sends", 33, 36},
+    {"Insert", 53, 57},
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
@@ -68,13 +72,20 @@ const GroupDef kMelodeeGroups[] = {
 const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 // SLOOP's: the same up to the chorus, then its drum level, reverb and (2.5) delay sends and master bus
 // (DUST, DUCK, FILT)
-const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 32, 27, 28, 29};
+const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 32, 27, 28, 29,
+                                       37, 38, 39, 40, 41, 42, 43};   // (2.6: GLO > TEXTURE, the bed under the mix)
 // Melodee's: no shared delay (4..7), its A4 reference (21)
 const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
-const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10; GLO) the drums, any other the selected part.";
+const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10) the drums, any other the selected part (GLO > MIDI sets them).";
+// what renames this part's controls: SLOOP 2.6's INSERT TYPE (its A, B, C) and ENV SYNC (ATK, DEC,
+// REL as note values)
+int labelsKeyOf(const FeluccaEngine& f, int track) {
+    if (f.flavor() != FeluccaEngine::Flavor::Sloop || f.paramCount() <= 59) return 0;
+    return f.param(track, 53) * 2 + (f.param(track, 59) != 0);
+}
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
@@ -445,7 +456,7 @@ void FeluccaSoundPage::timerCallback() {
     }
     // the part, or its engine, changed (on the Device tab, by a loaded project or user preset,
     // or on a synced FM-1): the controls again, once they show
-    if (auto e = engine(); e && isShowing() && (builtTrack_ != track_ || builtEngine_ != e->engineOf(track_))) refresh();
+    if (auto e = engine(); e && isShowing() && (builtTrack_ != track_ || builtEngine_ != e->engineOf(track_) || builtLabels_ != labelsKeyOf(*e, track_))) refresh();
     if (isShowing() && !isMouseButtonDownAnywhere()) loadValues();
 }
 
@@ -491,6 +502,7 @@ void FeluccaSoundPage::build() {
     }
     builtTrack_ = track_;
     builtEngine_ = f->engineOf(track_);
+    builtLabels_ = labelsKeyOf(*f, track_);
     engineBox_.setEnabled(!drums);
     presetBox_.setEnabled(!drums);
     if (!drums) {
@@ -569,7 +581,7 @@ void FeluccaSoundPage::build() {
         // SLOOP's drum track: its kit, pattern, slicer and filter (its level and reverb are globals, DRLVL
         // and DRREV; the device shows it no other track page, and its drums read nothing else)
         if (drums && juce::String(def.title) != "Engine" && juce::String(def.title) != "Sequencer" && juce::String(def.title) != "Slicer"
-            && juce::String(def.title) != "Filter") continue;   // (2.4: the drums have their FILT too)
+            && juce::String(def.title) != "Filter" && juce::String(def.title) != "Insert") continue;   // (2.4: the drums have their FILT too; 2.6 their INSERT)
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {
@@ -580,7 +592,7 @@ void FeluccaSoundPage::build() {
         const int first = def.first >= 0 ? def.first : f->firstEngineParam();
         const int last = def.first >= 0 ? def.last : f->firstEngineParam() + (drums ? 0 : 7);
         for (int id = first; id <= last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
-        if (def.also >= 0 && def.also < f->paramCount()) addControl(g, def.also, f->paramDesc(track_, def.also));
+        if (def.also >= 0 && def.also < f->paramCount() && !drums) addControl(g, def.also, f->paramDesc(track_, def.also));   // (the drums: no filter TYPE)
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
     {

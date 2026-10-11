@@ -67,10 +67,12 @@ const Dialect& feluccaDialect() {
 const Dialect& sloopDialect() {
     // 2.4: object 8, its FM6 patch bank (restored before the projects that name its slots), and a
     // fourth user sample slot (35); 2.5: object 9, its SYN drum kits (editor.html BK.RESTORE 6, 7, 8,
-    // 9, 2..5, 0, 1), and the drums' delay send (global 32), carried live with the other drum mix
+    // 9, 2..5, 0, 1), and the drums' delay send (global 32), carried live with the other drum mix; 2.6:
+    // object 10, the MIDI LEARN map and GLO > MIDI (a setting of the FM-1, listed only when not the
+    // default; BK.RESTORE 6, 7, 8, 9, 10, 2..5, 0, 1), and GLO > TEXTURE (globals 37..43, the song's)
     static const Dialect d{"SLOOP", 34, 35, 36, false,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34, 35}, {6, 7, 8, 9, 2, 3, 4, 5, 0, 1}, 9, true, "sloop-backup",
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30, 32}, 3, 33};
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 32, 33, 34, 35}, {6, 7, 8, 9, 10, 2, 3, 4, 5, 0, 1}, 10, true, "sloop-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30, 32, 37, 38, 39, 40, 41, 42, 43}, 3, 33};
     return d;
 }
 
@@ -133,6 +135,35 @@ bool isPush(int cmd) { return cmd == kChanged || cmd == kReload || cmd == kStepC
 
 // ---- the full backup as a file (Felucca's web editor: web/fm1backup.js; SLOOP's: editor.html) ----
 
+// SLOOP 2.6's object 10 (the MIDI LEARN map, GLO > MIDI) at its default: nothing learned, CH1-3 1 2 3,
+// the drums 10, OTHER SEL, BEND 2 (editor.html mlDefault). The synth lists it only when it is not, so a
+// backup without it is one an older editor reads; one from 2.5.1 or later without it had the default.
+static std::vector<uint8_t> sloopMidiDefault() {
+    std::vector<uint8_t> b(40, 0);
+    b[32] = 1; b[33] = 2; b[34] = 3; b[35] = 10; b[36] = 2;
+    return b;
+}
+static bool isSloopMidiDefault(const std::vector<uint8_t>& b) {
+    if (b.size() != 32 && b.size() != 36 && b.size() != 40) return false;
+    const auto d = sloopMidiDefault();
+    for (size_t i = 0; i < b.size(); ++i) if (b[i] != d[i]) return false;
+    return true;
+}
+// "FELUCCA SLOOP 2.6", "SLOOP 2.6 (Virtual FM-1)": the release a backup names, at least a.b.c
+static bool namesSloopAtLeast(const juce::String& firmware, std::initializer_list<int> least) {
+    const auto at = firmware.indexOf("SLOOP ");
+    if (at < 0) return false;
+    auto parts = juce::StringArray::fromTokens(firmware.substring(at + 6).upToFirstOccurrenceOf(" ", false, false), ".", "");
+    if (parts.isEmpty() || !parts[0].containsOnly("0123456789")) return false;
+    size_t i = 0;
+    for (int want : least) {
+        const int have = i < size_t(parts.size()) ? parts[int(i)].getIntValue() : 0;
+        if (have != want) return have > want;
+        ++i;
+    }
+    return true;
+}
+
 bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Dialect& d) {
     out.clear();
     auto v = juce::JSON::parse(f.loadFileAsString());
@@ -179,6 +210,8 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         error = "the backup has no music or settings";
         return false;
     }
+    if (sloop && !out.count(10) && namesSloopAtLeast(v.getProperty("firmware", {}).toString(), {2, 5, 1}))
+        out[10] = sloopMidiDefault();   // (as SLOOP's editor restores it)
     return true;
 }
 
@@ -218,6 +251,7 @@ juce::String backupJson(const Objects& objects, const juce::String& firmware, co
         const auto& b = it != objects.end() ? it->second : none;
         auto* o = new juce::DynamicObject();
         if (sloop && id >= 32 && it == objects.end()) continue;   // (SLOOP: a sample slot not read is left out)
+        if (sloop && id == 10 && (it == objects.end() || it->second.empty() || isSloopMidiDefault(it->second))) continue;   // (as SLOOP lists it)
         o->setProperty("id", id);
         o->setProperty(sloop ? "len" : "size", int(b.size()));
         o->setProperty("crc", b.empty() ? juce::int64(0) : juce::int64(crc32(b)));

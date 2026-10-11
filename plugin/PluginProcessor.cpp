@@ -1198,6 +1198,7 @@ bool FM1Processor::feluccaSend() {
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
         if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
+        if (felucca::isSloop(d)) ours->erase(10);   // and SLOOP's MIDI setup (2.6: MIDI LEARN, the channels)
         if (const auto why = felucca::fitToSynth(*ours, *theirs, d); why.isNotEmpty())
             return Fm1Session::JobResult{false, "Nothing sent: " + why + ". Its backup: " + kept};
         if (!felucca::restore(synth, *ours, progress, err))

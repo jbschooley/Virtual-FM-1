@@ -3,8 +3,8 @@
 `upstream/` is part of [SLOOP](https://github.com/isod89/sloop-fm1), isod89's
 groovebox firmware for the M-VAVE FM-1, a fork of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments), at **v2.5** (commit `fa9ce5742f4aea9484e7c129dd81079d07e7321f`,
-2026-10-08). It is GPL-3.0-only, but for its FM6 core (`fm6_core.c`, from
+Instruments), at **v2.6** (commit `d30d6553353373cf5506b9ed285fc4a2aa0c30ef`,
+2026-10-10). It is GPL-3.0-only, but for its FM6 core (`fm6_core.c`, from
 msfa: Apache-2.0, `upstream/LICENSES/Apache-2.0-msfa.txt`); see
 `upstream/LICENSE` and `upstream/LICENSING.md`.
 
@@ -26,7 +26,7 @@ Copied unchanged:
   samples compiled into it
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-checkout of v2.5 with Python 3 and Pillow (it needs that checkout's `assets/`,
+checkout of v2.6 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not copied): `felucca_font.h`, `felucca_icons.h`, `felucca_tables.h`,
 `felucca_samples.h`, `felucca_drumkits.h`, `felucca_fm6.h` and `sloop_logo.h`.
 Generating twice gave the same bytes.
@@ -62,7 +62,8 @@ Pi), the font is Terminus (SIL OFL 1.1).
 - The stored objects are those of Sloop's editor backup (v10): 0 the working
   project, 1 the settings, 2-5 the projects A-D, 6 and 7 the user preset banks,
   8 the FM6 patch bank (read in place on the device, from its RAM sectors here:
-  `FM6_BANK_XIP`), 9 the SYN drum kits (2.5, kept with the settings). The user
+  `FM6_BANK_XIP`), 9 the SYN drum kits (2.5, kept with the settings), 10 the MIDI part (2.6: the MIDI
+  LEARN map and GLO > MIDI's channels; no bytes, and not listed, at its default). The user
   sample slots (32-35) are not kept.
 - The visualiser (`ui_vis.c`, 2.4) reads the mix left and right, fed in
   `FEL(render)` from fx.c's `vis_tap` as audio.c's `audio_block` does.

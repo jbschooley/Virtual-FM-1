@@ -173,7 +173,7 @@ int main() {
     }
     {   // a Felucca and a Sloop side by side: each its own
         FeluccaEngine fel, slp{kSloop};
-        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.5" && fel.engines() == 14 && slp.engines() == 12,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.6" && fel.engines() == 14 && slp.engines() == 12,
               "a Felucca instance and a Sloop instance at once, each its own firmware");
     }
 
@@ -234,8 +234,11 @@ int main() {
     // ---- parameters ----
     {
         Sloop f{kSloop};
-        CHECK(f.paramCount() == 61 && f.firstEngineParam() == 53 && f.globalCount() == 33 && f.globalDesc(32).label == "DLY",
-              "61 parameters per track (2.4: FILT, STRUM, VLEAD before the engine's 8); 33 globals (2.5: the drums' DLY)");
+        CHECK(f.paramCount() == 71 && f.firstEngineParam() == 63 && f.globalCount() == 45 && f.globalDesc(32).label == "DLY",
+              "71 parameters per track (2.4: FILT, STRUM, VLEAD; 2.6: INSERT, TYPE, ESYNC, LFO 2 before the engine's 8); 45 globals (2.5: the drums' DLY; 2.6: MIDI, TEXTURE, BEND)");
+        CHECK(f.paramDesc(0, 53).label == "INSRT" && f.paramDesc(0, 58).label == "TYPE" && f.paramDesc(0, 59).label == "ESYNC"
+              && f.globalDesc(37).label == "SRC" && f.globalDesc(43).label == "DUCK" && f.globalDesc(44).label == "BEND",
+              "2.6's parameters where the plugin's host parameters and panel expect them (53..62; globals 37..44)");
         const auto lvl = f.paramDesc(0, 0);
         f.setParam(0, 0, lvl.max + 50);
         CHECK(f.param(0, 0) == lvl.max, "values are kept in range");
@@ -248,6 +251,35 @@ int main() {
         int enums = 0;
         for (int id = 0; id < f.paramCount(); ++id) enums += !f.paramDesc(0, id).names.empty();
         CHECK(enums > 5, "list parameters carry their value names");
+    }
+
+    // ---- 2.6's MIDI, through the plugin's MIDI input as through the FM-1's ----
+    {
+        std::vector<float> l(256), r(256);
+        auto render = [&](FeluccaEngine& f, int blocks) { for (int k = 0; k < blocks; ++k) f.render(l.data(), r.data(), 256); };
+        auto raw = [](FeluccaEngine& f, std::initializer_list<uint8_t> m) { std::vector<uint8_t> b(m); f.midi(b.data(), int(b.size())); };
+        Sloop f{kSloop};
+        render(f, 4);
+        raw(f, {0xC9, 3});   // Program Change on the drum channel (10): kit 3
+        render(f, 8);
+        CHECK(f.param(3, f.firstEngineParam()) == 3, "Program Change on channel 10 picks the drums' kit");
+        std::vector<int> before;
+        for (int id = 0; id < f.paramCount(); ++id) before.push_back(f.param(1, id));
+        raw(f, {0xC1, 5});   // channel 2: part 2's sound, the 6th of its PRESETS list
+        render(f, 8);
+        std::vector<int> after;
+        for (int id = 0; id < f.paramCount(); ++id) after.push_back(f.param(1, id));
+        CHECK(after != before, "Program Change on channel 2 loads a sound on part 2");
+        auto bent = [&](bool bend) {
+            Sloop g{kSloop};
+            render(g, 4);
+            if (bend) raw(g, {0xE0, 0x7F, 0x7F});   // channel 1, full up
+            noteOn(g, 1, 60, 100);
+            uint64_t h = 1469598103934665603ull;
+            for (int k = 0; k < 40; ++k) { g.render(l.data(), r.data(), 256); h = hash(hash(h, l), r); }
+            return h;
+        };
+        CHECK(bent(true) != bent(false), "pitch bend on channel 1 bends part 1");
     }
 
     // ---- the virtual device ----
@@ -268,8 +300,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.5" && info[at] == 12 && info[at + 1] == 61 && info[at + 4] == 53,
-              "INFO answers, as SLOOP 2.5 (12 engines, 61 parameters, P_E0 53)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.6" && info[at] == 12 && info[at + 1] == 71 && info[at + 2] == 45 && info[at + 4] == 63,
+              "INFO answers, as SLOOP 2.6 (12 engines, 71 parameters, 45 globals, P_E0 63)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {
@@ -293,8 +325,19 @@ int main() {
         CHECK(g.object(1, settingsObj) && !settingsObj.empty(), "the settings object");
         CHECK(g.object(8, empty) && empty.empty(), "object 8: its FM6 patch bank (2.4), empty at first");
         std::vector<uint8_t> syn, syn2;
-        CHECK(g.object(9, syn) && !syn.empty() && f.putObject(9, syn) == 0 && f.object(9, syn2) && syn2 == syn && !g.object(10, empty),
-              "object 9 (2.5): its SYN drum kits, kept and put back; nothing past 9");
+        CHECK(g.object(9, syn) && !syn.empty() && f.putObject(9, syn) == 0 && f.object(9, syn2) && syn2 == syn && !g.object(11, empty),
+              "object 9 (2.5): its SYN drum kits, kept and put back; nothing past 10");
+        {   // object 10 (2.6): the MIDI LEARN map and GLO > MIDI, no bytes at the default; a changed one is
+            // kept and goes to another instance
+            std::vector<uint8_t> ml, ml2;
+            CHECK(g.object(10, ml) && ml.empty(), "object 10 (2.6): no bytes while the MIDI setup is the default");
+            ml.assign(40, 0);
+            ml[0] = 74; ml[1] = uint8_t(1 << 1);   // CC 74 learned for track 0, code 1 (a common parameter, id 0: LEVEL)
+            ml[32] = 5; ml[33] = 6; ml[34] = 7; ml[35] = 10; ml[36] = 2;   // CH1-3 on 5 6 7
+            CHECK(f.putObject(10, ml) == 0 && f.object(10, ml2) && ml2.size() == 40 && ml2[32] == 5 && ml2[34] == 7
+                  && f.global(33) == 5 && f.global(35) == 7, "object 10 takes the MIDI setup: the channels follow (GLO > MIDI)");
+            CHECK(g.putObject(10, ml2) == 0 && g.object(10, ml) && ml == ml2, "and goes to another instance unchanged");
+        }
 
         const auto names = f.buttonNames();
         const int play = int(std::find(names.begin(), names.end(), std::string("PLAY")) - names.begin());

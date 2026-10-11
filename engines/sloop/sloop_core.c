@@ -260,6 +260,8 @@ static void felucca_init(void)
     song.g[G_SYNC] = (int16_t)lights_sync;
     song.g[G_MIDI] = (int16_t)lights_mout;    /* (2.4: settings of the FM-1, as G_SYNC) */
     song.g[G_ROUTE] = (int16_t)lights_min;
+    song.g[G_CH1] = midi_set[0], song.g[G_CH2] = midi_set[1], song.g[G_CH3] = midi_set[2];   /* (2.6: GLO > MIDI, */
+    song.g[G_DRCH] = midi_set[3], song.g[G_CHOTH] = midi_set[4], song.g[G_BEND] = midi_set[5];   /* settings of the FM-1) */
     layers_init();
     go_home();
     ui.force = 1;
@@ -339,7 +341,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;
 }
 
-const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.5" */
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* ui.c's: "SLOOP 2.6" */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }
@@ -638,7 +640,8 @@ const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor.c v10): 0 the
  * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks, 8 the FM6
- * patch bank (2.4). The user sample slots (32..35) are not kept here. --------------------------------- */
+ * patch bank (2.4), 9 the SYN drum kits (2.5), 10 the MIDI part (2.6). The user sample slots (32..35) are
+ * not kept here. --------------------------------- */
 uint32_t FEL(object_max)(void) { return (uint32_t)sizeof proj_tmp; }
 
 int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
@@ -649,7 +652,9 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
         proj_capture((project_t *)ED_BK_RAW);
     else if (id == 1u)
         persist_fill(&ed_bk_set);
-    else if (id > 9u)                    /* (9, 2.5: the SYN drum kits) */
+    else if (id == 10u)                  /* (2.6: the MIDI LEARN map and GLO > MIDI; no bytes while the default) */
+        midi_part_fill(ed_bk_ml);
+    else if (id > 10u)                   /* (9, 2.5: the SYN drum kits) */
         return -1;
     p = ed_bk_obj(id, &len);
     if (!p || len > max)
@@ -662,7 +667,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
-    if (id > 9u || len > sizeof proj_tmp)
+    if (id > 10u || len > sizeof proj_tmp)
         return 1;
     if (transport_req == 2u) {           /* a stop asked for (a project loaded just before): as the next */
         seq_stop();                      /* audio block would, before Sloop refuses this as busy (rc 3) */

@@ -4,6 +4,22 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **SLOOP 2.6** is built in (it was 2.5): eleven more punch-in effects and the
+  REV and ECHO THROWs, an INSERT on every track (the drums too), LFO 2 synced to
+  the tempo, ENV SYNC, ANALOG's filter TYPE, note LEN and step velocity, the
+  TEXTURE bed under the mix, and its MIDI setup (a channel per track, sustain,
+  pitch bend, Program Change, MIDI LEARN), which the plugin's MIDI input plays
+  through as the FM-1's does. The Sound page and the host parameters have the
+  INSERT, filter TYPE, ENV SYNC, LFO 2 and TEXTURE ("SLOOP P1 ITYPE", "SLOOP
+  TXSRC" and so on); the FM-1's MIDI settings are synced with Pull, and a Send
+  leaves the FM-1's own. An FM-1 still on SLOOP 2.5 or older cannot read 2.6's
+  projects: the plugin pulls from it only, and says to update it with SLOOP's
+  installer.
+
 ## [0.8.0] - 2026-10-09
 
 ### Changed

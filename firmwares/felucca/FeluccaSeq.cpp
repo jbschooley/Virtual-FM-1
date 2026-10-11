@@ -119,10 +119,11 @@ std::optional<int> readParam(Endpoint& e, int track, int id) {
     return r14(a, 2);
 }
 
-bool lockable(int id) {   // P_LEVEL..P_LD_AMP 0..16, P_SGATE 32, P_DIST..P_REV 33..36, P_GLIDE 38, P_PAN 39,
-                          // P_DETUNE 44, P_SLCR..P_SLDEPTH 45..48, P_TFLT 50, P_E0..P_E7 53..60
+bool lockable(int id) {   // SLOOP 2.6's seq.c p_lockable: P_LEVEL..P_LD_AMP 0..16, P_SGATE 32, P_DIST..P_REV
+                          // 33..36, P_GLIDE 38, P_PAN 39, P_DETUNE 44, P_SLCR..P_SLDEPTH 45..48, P_TFLT 50, the
+                          // INSERT's P_IA..P_IMIX 54..57, P_E0..P_E7 63..70
     return (id >= 0 && id <= 16) || id == 32 || (id >= 33 && id <= 36) || id == 38 || id == 39 || id == 44
-        || (id >= 45 && id <= 48) || id == 50 || (id >= 53 && id <= 60);
+        || (id >= 45 && id <= 48) || id == 50 || (id >= 54 && id <= 57) || (id >= 63 && id <= 70);
 }
 
 Bytes lockSet(int track, int step, int param, int value) {
