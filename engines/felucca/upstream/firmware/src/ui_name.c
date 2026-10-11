@@ -17,6 +17,11 @@
  *   black keys   by name, in both octaves: F# cursor left, G# SPACE, A# cursor right, C# DELETE (the character
  *                before the cursor; held: repeats, as the arrows do), D# ABC / 123.
  *   KNOB 1       the cursor; KNOB 2 the character at the cursor (SPACE A..Z 0..9 - . _ / # +; at the end: a new one).
+ *   KNOB 3       (1.2, Discussion #90) USER: the sound's category (BASS LEAD PAD PLUCK KEYS DRUM FX OTHER, category.c),
+ *                shown in the field's title row and written with the name (PRESETS > LIST filters by it); it starts at
+ *                the slot's own (a rename) or the sound's (a save: its user preset's, its factory preset's).
+ *                PROJECT: a random name, a new one each detent (an adjective and a noun, NM_RA / NM_RB; the field
+ *                takes it whole, then the keys edit it as any other).
  *   LEDs         every key that types or edits is lit; the key whose letters are being cycled blinks.
  * Spaces at either end are dropped when it is written; an empty name: USER the automatic one, PROJECT none. */
 enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME };
@@ -38,6 +43,8 @@ static struct {
     uint8_t tap;                                       /* .. that letter's index in its group */
     uint8_t rep;                                       /* the key (+ 1) of a held arrow / DELETE, 0 none */
     uint32_t t, rep_t;                                 /* fm1_ms of the last tap; of the next repeat */
+    uint8_t cat;                                       /* USER: the category (CAT_BASS..CAT_OTHER) KNOB 3 sets */
+    uint32_t rnd;                                      /* PROJECT: KNOB 3's random names (xorshift; 0 = not seeded) */
     uint32_t sig;                                      /* drawn-state cache */
     char s[NM_LEN + 1u];
     char ph[NM_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
@@ -50,8 +57,9 @@ static void name_close(void)
         ui.force = 1;
     nm.kind = NK_NONE;
 }
-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : (uint32_t)grid_on(); }
+/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
+ * reads song.grid) */
+static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u; }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {
@@ -89,6 +97,7 @@ static void name_open(uint32_t kind, uint32_t slot)
             up_name(user_of(TSEL), b);
         else
             str_cpy(b, nm.ph, sizeof b);
+        nm.cat = (uint8_t)(kind == NK_USER_RENAME ? up_cat(slot) : track_cat(TSEL));
     } else {
         str_cpy(nm.ph, "PROJECT A", sizeof nm.ph);
         nm.ph[8] = (char)('A' + (slot & 3u));
@@ -187,10 +196,39 @@ static void nm_do(uint32_t f)                          /* a black key's function
         break;
     }
 }
-static void nm_knob(uint32_t k, int32_t s)             /* KNOB 1 the cursor, KNOB 2 the character there */
+/* PROJECT, KNOB 3: random names, adjective + noun, at most 5 + 1 + 6 characters (no trademarks, no names) */
+static const char *const NM_RA[16] = {"NEON", "GLASS", "AMBER", "SOLAR", "LUNAR", "SILK", "IRON", "PALE",
+                                      "DEEP", "WILD", "QUIET", "SLOW", "GOLD", "BLUE", "DUSTY", "HAZY"};
+static const char *const NM_RB[16] = {"DRIFT", "PULSE", "ORBIT", "RIVER", "HARBOR", "TIDE", "ECHO", "GARDEN",
+                                      "SIGNAL", "MIRROR", "CANAL", "FIELD", "COAST", "CLOUD", "BLOOM", "SAIL"};
+static void nm_random(void)                            /* a new name, never the one in the field */
+{
+    char b[NM_LEN + 1u];
+    uint32_t x;
+    do {
+        x = nm.rnd ? nm.rnd : fm1_ms * 2654435761u | 1u;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        nm.rnd = x;
+        str_cpy(b, NM_RA[x & 15u], sizeof b);
+        str_cpy(b + str_len(b), " ", 2);
+        str_cpy(b + str_len(b), NM_RB[(x >> 4) & 15u], sizeof b - str_len(b));
+    } while (str_eq(b, nm.s));
+    str_cpy(nm.s, b, sizeof nm.s);
+    nm.len = nm.cur = (uint8_t)str_len(nm.s);
+}
+static void nm_knob(uint32_t k, int32_t s)             /* KNOB 1 the cursor, KNOB 2 the character there, KNOB 3 */
 {
     int32_t i, n = (int32_t)sizeof NM_SET - 1;
     nm_commit();
+    if (k == 2u) {                                     /* USER: the category (no wrap); PROJECT: a random name */
+        if (nm.kind <= NK_USER_RENAME)
+            nm.cat = (uint8_t)clamp((int32_t)nm.cat + s, CAT_BASS, CAT_OTHER);
+        else
+            nm_random();
+        return;
+    }
     if (k == 0u) {
         nm.cur = (uint8_t)clamp((int32_t)nm.cur + s, 0, nm.len);
         return;
@@ -221,10 +259,10 @@ static void name_ok(void)
     }
     switch (nm.kind) {
     case NK_USER_SAVE:
-        up_ui_named(2, nm.slot, b);
+        up_ui_named(2, nm.slot, b, nm.cat);
         break;
     case NK_USER_RENAME:
-        up_ui_named(3, nm.slot, b);
+        up_ui_named(3, nm.slot, b, nm.cat);
         break;
     case NK_PROJ_SAVE:
         project_save_as(nm.slot, b);
@@ -263,7 +301,7 @@ static void name_input(uint32_t notes, uint32_t oct)
         nm_do(nm_black(nm.rep - 1u));
         nm.rep_t = fm1_ms + NM_RATE_MS;
     }
-    for (k = 0; k < 2u; k++)
+    for (k = 0; k < 3u; k++)
         if ((s = panel_enc(EN_K1 + k)) != 0)
             nm_knob(k, s);
     enc_drop();                                        /* the other knobs do nothing here */
@@ -311,6 +349,8 @@ static void nm_draw_field(void)
     fmt_int(b, nm.len);
     str_cpy(b + str_len(b), "/12", 4);
     cv_text_r(231, 2, &AF_S, b, nm.len >= NM_LEN ? T_ACCENT : T_DIM, T_SURF);
+    if (nm.kind <= NK_USER_RENAME)                     /* USER: the category KNOB 3 sets, left of the count */
+        cv_text_r(231 - text_w(&AF_S, b) - 10, 2, &AF_S, CAT_NAME[nm.cat % CAT_N], T_THEME, T_SURF);
     for (i = 0; i < NM_LEN; i++) {
         int32_t x = NM_CX(i);
         char c[2] = {empty ? nm.ph[i] : i < nm.len ? nm.s[i] : 0, 0};
@@ -390,21 +430,22 @@ static void nm_draw_panel(void)
 }
 static void nm_draw_foot(void)
 {
-    khint_t a[2], b[3];
+    khint_t a[3], b[3];
     int ok = !transport_busy();
     a[0] = (khint_t){KC_OCTUP, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE" : "RENAME"};
     a[1] = (khint_t){KC_OCTDN, "CANCEL"};
+    a[2] = (khint_t){KC_K3, nm.kind <= NK_USER_RENAME ? "CATEGORY" : "RANDOM"};   /* (1.2: the category, a random name) */
     b[0] = (khint_t){KC_K1, "MOVE"};
     b[1] = (khint_t){KC_K2, "CHAR"};
     b[2] = (khint_t){KC_KEYS, "TYPE"};
     cv_begin(240, H_FOOT, T_BG);
-    cv_key_row(8, 232, 2, a, 2, ok ? 3u : 2u, T_BG);
+    cv_key_row(8, 232, 2, a, 3, ok ? 7u : 6u, T_BG);
     cv_key_row(8, 232, 21, b, 3, 7u, T_BG);
     cv_blit(0, Y_FOOT);
 }
 static void name_draw(void)
 {
-    uint8_t st[7] = {nm.kind, nm.slot, nm.len, nm.cur, nm.num, nm.key, nm.tap};
+    uint8_t st[8] = {nm.kind, nm.slot, nm.len, nm.cur, nm.num, nm.key, nm.tap, nm.cat};
     uint32_t sig = fnv(fnv(2166136261u, st, sizeof st), nm.s, sizeof nm.s) + ux.gen * 7919u +
                    (uint32_t)transport_busy() * 104729u;
     if (ui.force) {

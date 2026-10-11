@@ -70,6 +70,11 @@ preset/FM6/07_PLUCK 91e9132dd7237f14
 preset/SLICE/00_CHOP 6d1e706b5119b570
 preset/SLICE/01_STUTTER 94226b45e8a75cf0
 drums/drum_gm_kit a88dcac7803e88d4
+drums/kit_80 e3de7e091a481244
+drums/kit_10 0cd4e95937dc519c
+drums/kit_66 04e60dfd865541b0
+drums/kit_55 b86935ebf007cdbc
+drums/kit_77 1e3617b89fd7e2fc
 mode/ANALOG/POLY 37fb068bc75b2f5c
 mode/ANALOG/MONO 4904e99e3020a8b0
 mode/ANALOG/LEGATO 8fff1c8dc8b7ded8

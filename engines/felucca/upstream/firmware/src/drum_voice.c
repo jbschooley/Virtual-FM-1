@@ -8,7 +8,8 @@
  *   fast (tau under ~40 ms)  Q16 per sample, e = (e * k) >> 15 with k Q15 (the floor form: always reaches 0)
  *   slow (tau above)         Q30 per CTL block times a Q16 factor, ramped linearly inside the block
  *
- * Lanes and their variants (dv_type: what a lane plays):
+ * Lanes and their variants (dv_type: what a lane plays; ROUND: KICK's other kick; CONGA CLAVE CYM: the GM notes
+ * of congas, claves and cymbals on KIT STD, eng_drum.c DRUM_GM):
  *   KICK    PUNCH: a sine swept in two stages (an attack of +2 octaves, then TONE's 0..+3 octaves after a
  *           hold), held flat for 12 ms, phase-locked 2nd and 3rd harmonics, a DC-free click (two cycles of
  *           a high sine under a raised-cosine window) and a soft-clip DRIVE; ROUND: no attack stage and
@@ -36,6 +37,19 @@
  *   BELL    two square waves (f, 1.48 f) through a band-pass under a short strike and a tail envelope
  *           (extra: STRIKE; TONE: the squares themselves mixed in). CYM: the metal source through two
  *           band-passes (TONE: high / low balance; TUNE moves both) under a strike (STRIKE) and a ring
+ * The model kits (KIT 80 10 66 55 77): each lane a kit's own voice, played through the runs above with that kit's
+ * numbers (DV_KIT: pitches, sweeps, decays, the noise's colour, the metal clusters, the clap's bursts, the accent):
+ *   80  a deep sine kick with a small drop and a long decay, a snare of two shells and bright noise, a 1 kHz clap of
+ *       three bursts and a tail, the six-square hats, a low-noise tom, a rim's crack, a two-square bell
+ *   10  a small kit: a kick swept down from 90 Hz, one shell over white noise, three slow claps and a long tail,
+ *       hats and a cymbal (on BELL) of four squares; TOM and RIM stand-ins built from its body and shell
+ *   66  an early rhythm box: a kick that swells in, a bright noisy snare with a short shell, hats of noise in a
+ *       narrow band near 8 kHz, a low conga on TOM, a high rim, a bell of two sines; a CLAP stand-in from its
+ *       snare's noise
+ *   55  a kick dropping from 100 Hz, a 245 Hz snare under band noise, hats of a high cluster and noise, a tom with
+ *       its stick, a click rim, a bell of a wide metal cluster; a CLAP stand-in from its snare's noise
+ *   77  a long kick that swells in, a 226 Hz snare under wide noise, six close claps and a tail, pulse-cluster
+ *       hats, a bent tom, claves on RIM, the cymbal on BELL
  * Parameters per lane (dv_param_t): TUNE (1/16 semitone from the designed pitch, held in the voice's
  * range), DECAY, TONE, extra, LEVEL, accent, 0..127 each; the designed sound is at DV_DEF's values.
  * Accent adds up to 4 dB, a little more on the transient (click, spike, the claps). At LEVEL 100 the
@@ -53,13 +67,14 @@ enum {
     DVT_PUNCH, DVT_ROUND, DVT_SNARE, DVT_CLAP, DVT_HATC, DVT_HATO, DVT_TOM, DVT_CONGA, DVT_RIM, DVT_CLAVE,
     DVT_BELL, DVT_CYM, DVT_COUNT
 };
-static const uint8_t DV_LANE_TYPE[DV_NLANE][2] = {   /* lane, variant -> type */
-    {DVT_PUNCH, DVT_ROUND}, {DVT_SNARE, DVT_SNARE}, {DVT_CLAP, DVT_CLAP}, {DVT_HATC, DVT_HATC},
-    {DVT_HATO, DVT_HATO}, {DVT_TOM, DVT_CONGA}, {DVT_RIM, DVT_CLAVE}, {DVT_BELL, DVT_CYM},
-};
+/* a lane of a model kit as a type: the kit (1..DV_NKIT) in the high 4 bits, the lane in the low 3 (Felucca's own
+ * types: 0 above). Its run (the DVT_* it plays through) is the kit's (DV_KIT) */
+#define DV_NKIT 5
+#define DV_KITOF(t) ((uint32_t)(t) >> 4)
+#define DV_KTYPE(kit, lane) ((uint8_t)(((kit) << 4) | (lane)))
 
 typedef struct {
-    uint8_t type;                                        /* DVT_* */
+    uint8_t type;                                        /* DVT_*, or a model kit's (DV_KTYPE) */
     uint8_t decay, tone, extra, level, accent;           /* 0..127 */
     int16_t tune;                                        /* 1/16 semitone from the designed pitch */
 } dv_param_t;
@@ -75,7 +90,7 @@ typedef struct {                                         /* coefficients (dv_set
     int32_t out;                                         /* output gain: type, LEVEL, accent (Q12) */
     uint16_t hold, click;                                /* kick: hold (blocks), click length (samples); clap:
                                                           * tooth spacing (samples), teeth */
-    uint8_t type, pad;
+    uint8_t type, mrow;                                  /* mrow: the metal source's ratios (DV_METAL_R) */
     int16_t metal;                                       /* the metal source's pitch (p16) for this lane */
 } dv_coef_t;
 
@@ -120,9 +135,143 @@ static const struct {
 #define DV_P16(hz_p16) pitch_inc(clamp((hz_p16), 0, 2047))
 /* the metal source's ratios (Q12). Hats: the six-square cluster of the classic analog hats (205.3, 304.4,
  * 369.6, 522.7, 540, 800 Hz over 205.3); the cymbal: inharmonic, picked by ear */
-static const uint16_t DV_METAL_R[2][6] = {
+static const uint16_t DV_METAL_R[7][6] = {
     {4096, 6073, 7374, 10428, 10774, 15961},
     {4096, 5800, 6560, 7530, 8810, 10650},
+    /* the model kits' (a ratio 0: that square stands still, a constant the band-passes take away) */
+    {4096, 5989, 10562, 14799, 0, 0},                    /* 10: four squares, 318 465 820 1149 Hz */
+    {4096, 4203, 4368, 4836, 6059, 7486},                /* 55 hats: a high cluster, 8.0 .. 14.7 kHz */
+    {4096, 12254, 17607, 21692, 25765, 43372},           /* 55 bell: 720 Hz .. 7.6 kHz, wide apart */
+    {4096, 4695, 5646, 10855, 13031, 15117},             /* 77: two triads of pulses, 3.7 .. 13.5 kHz */
+    {0, 0, 0, 0, 0, 0},                                  /* 66: none (its metal is noise through a narrow band) */
+};
+
+/* The model kits (KIT 80 10 66 55 77 in eng_drum.c): every lane a kit's own voice, built on the runs above
+ * with its own numbers. Per lane: the run, the designed pitch (p16; TUNE +-1 octave), the main decay's tau at
+ * DECAY 0 (0.1 ms) and its span (octaves x 16 over DECAY 0..127), the output gain (Q12), then the run's own
+ * numbers, v[] (p16 pitches and offsets, gains Q15, taus in 0.1 ms unless noted):
+ *   KICK   v0 the sweep (p16, x TONE / 64, TONE above 64 adds up to 4 semitones), v1 its tau, v2 an attack
+ *          sweep above it (tau 1.5 ms), v3 v4 the 2nd and 3rd harmonics, v5 the click's pitch (0: none), v6 its
+ *          level, v7 the drive (Q12, x (SNAP + 64) / 128, at least x1), v8 a rise (tau; 0: none), v9 a hold (blocks)
+ *   SNARE  v0 the 2nd shell sine's ratio - 1 (x 256), v1 the glide (p16), v2 its tau, v3 the shell's tau
+ *          (x 1/64 of the noise's), v4 the 2nd sine's level, v5 the shell's level, v6 the noise band (p16, TONE
+ *          +-8 semitones), v7 its damping (Q12), v8 the spike's tau, v9 the spike, v10 the noise (x SNAP / 64),
+ *          v11 high-passed noise on the spike, v12 its corner (p16)
+ *   CLAP   v1 the band's damping (its centre: the pitch, TONE +-8 semitones), v2 the bright noise's corner, v3 its
+ *          level (x TONE / 64), v4 the tail, v5 the teeth, v6 a tooth's tau, v7 the teeth's spacing (samples,
+ *          x 0.5 .. 1.5 with SNAP), v8 how many
+ *   HATS   v0 the band (p16, TONE +-8 semitones), v1 its damping, v2 the high-pass (p16, TONE +-12 semitones), v3
+ *          the sizzle's corner,
+ *          v4 the sizzle (Q12, x SNAP / 64; SNAP above 64 adds up to x1), v5 the metal source's level, v6 white
+ *          noise's, v7 the rise, v8 the source's ratios (DV_METAL_R)
+ *   CYM    v0 v1 the high band and its damping, v2 v3 the low band, v4 the high band's share (x TONE / 64), v5 the
+ *          strike (x SNAP / 64), v6 its tau (ms), v7 v8 the metal source's and noise's levels, v9 the ratios
+ *   TOM    v0 the bend (p16, x SNAP / 64; SNAP above 64 adds up to 4 semitones), v1 the stick's tau, v2 its
+ *          low-pass (p16), v3 the stick (low noise), v4 the slap (high noise), both x TONE / 64, v5 a soft clip
+ *          (Q12, 0: none; TONE above 64 drives it up to x1 more)
+ *   RIM    v0 the 2nd sine (p16 from the 1st), v1 v2 their levels (the 2nd x TONE / 64), v3 the drive (Q12, as
+ *          the kick's)
+ *   BELL   v0 the 2nd square (p16 from the 1st), v1 the band (p16 from the 1st, TONE +-8 semitones), v2 its
+ *          damping, v3 the strike (Q14, x SNAP / 64), v4 its tau, v5 the squares themselves (x TONE / 64) */
+typedef struct {
+    uint8_t run, oct16;
+    int16_t p16;
+    uint16_t tau0, gain;
+    int16_t v[13];
+} dv_kit_t;
+/* the accent per kit: + (x / 16384) per accent step (75: +4 dB at full, as Felucca's own) */
+static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40};
+static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
+    {   /* 80 */
+        /* deep sine, a small drop, long decay */
+        {DVT_PUNCH, 64, 499, 198, 3124, {26, 150, 0, 300, 0, 0, 0, 4096, 12, 0, 0, 0, 0}},
+        /* shells 173 / 336 Hz, noise 2.7 .. 7 kHz, tau 30 ms */
+        {DVT_SNARE, 40, 845, 125, 5690, {241, 0, 100, 53, 32767, 11000, 1678, 6827, 30, 0, 28000, 0, 1828}},
+        /* band 1 kHz, 3 teeth 10 ms, tail 90 ms */
+        {DVT_CLAP, 48, 1331, 316, 13485, {0, 4096, 1678, 0, 2000, 30000, 35, 441, 3, 0, 0, 0, 0}},
+        /* six squares, band 7.1 kHz, tau 16 ms */
+        {DVT_HATC, 45, 893, 60, 9017, {1874, 5120, 2020, 2042, 7209, 32767, 0, 3, 0, 0, 0, 0, 0}},
+        /* tau 75 ms */
+        {DVT_HATO, 63, 893, 253, 13955, {1874, 5120, 1934, 2042, 1147, 32767, 0, 3, 0, 0, 0, 0, 0}},
+        /* mid tom 139 Hz, tau 58 ms, a little bend */
+        {DVT_TOM, 53, 785, 182, 4055, {8, 100, 1302, 1200, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 455 + 1667 Hz into a hard clip */
+        {DVT_RIM, 32, 1113, 12, 4599, {360, 12000, 30000, 32000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* squares 540 / 800 Hz, band 860 Hz */
+        {DVT_BELL, 50, 1161, 252, 2697, {109, 129, 3413, 30000, 45, 0, 0, 0, 0, 0, 0, 0, 0}},
+    },
+    {   /* 10 */
+        /* 62 Hz swept from 90, tau 190 ms */
+        {DVT_PUNCH, 60, 561, 464, 2239, {103, 180, 0, 0, 0, 1233, 2600, 4096, 0, 0, 0, 0, 0}},
+        /* one shell 185 Hz swept from 280, noise tau 100 ms */
+        {DVT_SNARE, 40, 864, 418, 3710, {0, 115, 160, 77, 0, 9000, 1828, 8192, 30, 0, 32767, 0, 1828}},
+        /* 3 claps 28 ms apart, a 0.7 s tail */
+        {DVT_CLAP, 30, 1678, 3636, 2932, {0, 9102, 1715, 8000, 17000, 30000, 100, 1235, 3, 0, 0, 0, 0}},
+        /* four squares, band 7.2 kHz, tau 80 ms */
+        {DVT_HATC, 45, 1014, 300, 6315, {1900, 3277, 1444, 2042, 0, 19661, 0, 3, 2, 0, 0, 0, 0}},
+        /* tau 0.7 s */
+        {DVT_HATO, 63, 1014, 1516, 5167, {1900, 3277, 1444, 2042, 0, 19661, 0, 3, 2, 0, 0, 0, 0}},
+        /* (stand-in) a body of the kit: 120 Hz bent down from 160 */
+        {DVT_TOM, 53, 744, 377, 2858, {80, 30, 1444, 1500, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* (stand-in) a short shell click, 740 Hz */
+        {DVT_RIM, 32, 1248, 25, 5868, {254, 22000, 9000, 8192, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* the cymbal: band 4.2 kHz, 60 ms + 0.9 s */
+        {DVT_CYM, 53, 1014, 3773, 10841, {1766, 3413, 1729, 3413, 16384, 20000, 60, 19661, 0, 2, 0, 0, 0}},
+    },
+    {   /* 66 */
+        /* 64 Hz, a slow rise, tau 58 ms */
+        {DVT_PUNCH, 64, 570, 119, 4353, {0, 100, 0, 0, 0, 0, 0, 4096, 40, 0, 0, 0, 0}},
+        /* shells 280 / 397 Hz, bright noise, tau 14 ms */
+        {DVT_SNARE, 40, 979, 54, 10633, {107, 0, 100, 120, 6000, 1200, 1907, 8192, 30, 16000, 32767, 32767, 1828}},
+        /* (stand-in) the snare noise struck 3 times */
+        {DVT_CLAP, 48, 1777, 210, 7505, {0, 6827, 1870, 0, 6000, 30000, 50, 400, 3, 0, 0, 0, 0}},
+        /* noise through a narrow band at 8 kHz, tau 52 ms */
+        {DVT_HATC, 45, 1907, 225, 4594, {1907, 1024, 1870, 2042, 0, 0, 7000, 3, 6, 0, 0, 0, 0}},
+        /* tau 78 ms */
+        {DVT_HATO, 63, 1907, 197, 6084, {1907, 1024, 1870, 2042, 0, 0, 7000, 3, 6, 0, 0, 0, 0}},
+        /* a low conga 157 Hz, tau 30 ms */
+        {DVT_CONGA, 53, 819, 94, 5803, {0, 50, 1523, 0, 1500, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 1.5 kHz, tau 2.7 ms */
+        {DVT_RIM, 32, 1441, 13, 8636, {304, 26000, 1000, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* sines 830 / 613 Hz, tau 14 ms */
+        {DVT_RIM, 40, 1280, 60, 3629, {-84, 30000, 7500, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+    },
+    {   /* 55 */
+        /* 55 Hz dropping from 100, tau 45 ms */
+        {DVT_PUNCH, 60, 531, 103, 4388, {163, 120, 0, 1600, 0, 1444, 1500, 6000, 0, 0, 0, 0, 0}},
+        /* 245 Hz, noise 4.2 .. 7.6 kHz, tau 22 ms */
+        {DVT_SNARE, 40, 942, 92, 5087, {0, 26, 180, 64, 0, 9000, 1809, 4096, 100, 32767, 32000, 0, 1828}},
+        /* (stand-in) the snare noise struck 3 times */
+        {DVT_CLAP, 48, 1809, 175, 6050, {0, 5120, 1870, 0, 6000, 30000, 50, 360, 3, 0, 0, 0, 0}},
+        /* a cluster 8 .. 14.7 kHz + noise, tau 25 ms */
+        {DVT_HATC, 45, 1909, 94, 2473, {1996, 5120, 1940, 2042, 4000, 11469, 18022, 3, 3, 0, 0, 0, 0}},
+        /* tau 125 ms */
+        {DVT_HATO, 63, 1909, 354, 1662, {1996, 5120, 1940, 2042, 4000, 11469, 18022, 3, 3, 0, 0, 0, 0}},
+        /* a low tom 150 Hz, tau 57 ms */
+        {DVT_TOM, 53, 824, 179, 4091, {21, 600, 1523, 9000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 500 + 1467 Hz, tau 2 ms */
+        {DVT_RIM, 32, 1139, 10, 5884, {435, 22000, 22000, 24576, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* a wide cluster 0.7 .. 7.6 kHz, tau 34 ms */
+        {DVT_CYM, 50, 1240, 114, 13203, {1701, 4096, 1550, 4096, 22000, 20000, 30, 19661, 8192, 4, 0, 0, 0}},
+    },
+    {   /* 77 */
+        /* 66 Hz, a swell, tau 140 ms */
+        {DVT_PUNCH, 60, 579, 337, 2590, {26, 450, 0, 1500, 520, 1478, 1800, 4096, 30, 0, 0, 0, 0}},
+        /* 226 Hz, noise 1.2 .. 8 kHz, 2.5 + 60 ms */
+        {DVT_SNARE, 40, 919, 251, 4125, {0, 0, 100, 37, 0, 20000, 1585, 10240, 25, 32767, 14000, 0, 1828}},
+        /* 8 claps 7 ms apart, a tail */
+        {DVT_CLAP, 48, 1393, 281, 8368, {0, 6302, 1585, 1500, 8000, 30000, 52, 322, 6, 0, 0, 0, 0}},
+        /* six pulses 3.7 .. 13.5 kHz, tau 80 ms */
+        {DVT_HATC, 45, 1690, 300, 3359, {1828, 8192, 1596, 2042, 0, 29491, 0, 3, 5, 0, 0, 0, 0}},
+        /* tau 0.47 s */
+        {DVT_HATO, 63, 1690, 1188, 2748, {1828, 8192, 1596, 2042, 0, 29491, 0, 3, 5, 0, 0, 0, 0}},
+        /* tom 140 Hz bent 7.5 %, tau 120 ms */
+        {DVT_TOM, 53, 797, 377, 2858, {20, 180, 1523, 2500, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* claves 2350 / 3180 Hz, tau 30 ms */
+        {DVT_CLAVE, 32, 1568, 149, 2131, {84, 28000, 10000, 6348, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* the cymbal: 34 ms + 0.3 s */
+        {DVT_CYM, 53, 1690, 1100, 7582, {1969, 5120, 1748, 5120, 24000, 16000, 34, 24576, 6554, 5, 0, 0, 0}},
+    },
 };
 
 /* ------------------------------------------------------- setup helpers (not in the sample loops) --- */
@@ -151,12 +300,14 @@ static uint32_t dv_kb(uint32_t us)
     k = 65536u - x + (x2 >> 1) - x3 / 6u + x4 / 24u;
     return k > 65535u ? 65535u : k;
 }
-/* the main tau of a type at DECAY d (us) */
-static uint32_t dv_tau(uint32_t type, uint32_t d)
+/* a main tau at DECAY d (us), from its tau at DECAY 0 (0.1 ms) and its span (octaves x 16) */
+static uint32_t dv_tau_of(uint32_t tau0, uint32_t oct16, uint32_t d)
 {
-    uint32_t m = dv_exp2(d * DV_DEF[type].oct16 * 4096u / (127u * 16u));   /* Q16, below 2^21 */
-    return (DV_DEF[type].tau0 * ((m * 100u) >> 12)) >> 4;
+    uint32_t m = dv_exp2(d * oct16 * 4096u / (127u * 16u));   /* Q16, below 2^21 */
+    return (tau0 * ((m * 100u) >> 12)) >> 4;
 }
+/* the main tau of a type at DECAY d (us) */
+static uint32_t dv_tau(uint32_t type, uint32_t d) { return dv_tau_of(DV_DEF[type].tau0, DV_DEF[type].oct16, d); }
 /* p16 -> the SVF's cutoff index (0..127 << 8: 30 Hz .. 16 kHz) */
 static int32_t dv_cut(int32_t p16) { return clamp(((p16 - 360) * 4785) >> 8, 0, 127 << 8); }
 /* p16 -> one-pole coefficient, Q15: w / (1 + w), w = 2 pi f / fs */
@@ -177,7 +328,7 @@ static void dv_hp1(int32_t *g, int32_t *p, int32_t p16)
 /* 0..127 -> a / b .. 1: a gain in Q15 from v (lin) */
 static int32_t dv_lin(uint32_t v, int32_t lo, int32_t hi) { return lo + (int32_t)(((hi - lo) * (int32_t)v) / 127); }
 
-static void dv_setup(dv_coef_t *c, const dv_param_t *p)
+static void dv_setup_own(dv_coef_t *c, const dv_param_t *p)
 {
     uint32_t t = p->type < DVT_COUNT ? p->type : 0u, d = p->decay, tn = p->tone, x = p->extra;
     int32_t p16 = clamp(DV_DEF[t].p16 + p->tune, DV_DEF[t].lo, DV_DEF[t].hi), acc = p->accent;
@@ -185,6 +336,7 @@ static void dv_setup(dv_coef_t *c, const dv_param_t *p)
     for (i = 0; i < sizeof *c / 4u; i++)
         ((uint32_t *)c)[i] = 0;
     c->type = (uint8_t)t;
+    c->mrow = t == DVT_CYM;
     c->inc[0] = DV_P16(p16);
     c->metal = (int16_t)p16;
     /* output: the type's gain x LEVEL (127 = 1) x accent (+0..4 dB) */
@@ -214,6 +366,7 @@ static void dv_setup(dv_coef_t *c, const dv_param_t *p)
         break;
     }
     case DVT_SNARE:
+        c->click = 154;                                  /* the 2nd shell sine: x1.6 */
         c->span[0] = DV_P16(p16 + 11) - c->inc[0];       /* glide: +4 % */
         c->k[0] = dv_k(20000);
         c->k[1] = dv_k(tau * 2u / 5u);                   /* shell: 0.4 x the noise body */
@@ -297,10 +450,150 @@ static void dv_setup(dv_coef_t *c, const dv_param_t *p)
     }
 }
 
+/* x (0..127) of a design value v at 64: v x / 64 */
+static int32_t dv_at(int32_t v, uint32_t x) { return v * (int32_t)x / 64; }
+/* a drive g (Q12, at least x1) and its level kept (Q15) */
+static void dv_drive(int32_t *g, int32_t *keep, int32_t d)
+{
+    *g = d < 4096 ? 4096 : d;
+    *keep = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * *g) >> 12));
+}
+
+/* a model kit's voice: the same runs, the kit's numbers (DV_KIT). TUNE TONE DECAY extra (SNAP) and the accent move
+ * them as they move Felucca's own (64: the kit's design) */
+static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
+{
+    uint32_t kit = DV_KITOF(p->type) - 1u, d = p->decay, tn = p->tone, x = p->extra, i;
+    const dv_kit_t *K = &DV_KIT[kit][p->type & 7u];
+    const int16_t *v = K->v;
+    int32_t p16, dp, acc = p->accent;
+    uint32_t tau;
+    p16 = clamp(K->p16 + p->tune, K->p16 - 192, K->p16 + 192);
+    dp = p16 - K->p16;
+    tau = dv_tau_of(K->tau0, K->oct16, d);
+    for (i = 0; i < sizeof *c / 4u; i++)
+        ((uint32_t *)c)[i] = 0;
+    c->type = K->run;                                    /* (the run; the lane's type is the caller's) */
+    c->inc[0] = DV_P16(p16);
+    c->metal = (int16_t)p16;
+    c->out = (int32_t)(K->gain * (uint32_t)p->level / 127u);
+    c->out += (c->out * acc * DV_KIT_ACC[kit]) >> 14;
+    switch (K->run) {
+    case DVT_PUNCH: {
+        int32_t b = dv_at(v[0], tn) + (tn > 64u ? (int32_t)tn - 64 : 0);   /* (TONE above 64: +4 semitones more) */
+        c->span[1] = DV_P16(p16 + b) - c->inc[0];
+        c->span[0] = DV_P16(p16 + v[2] + b) - DV_P16(p16 + b);
+        c->k[0] = dv_k(1500);
+        c->k[1] = dv_k((uint32_t)v[1] * 100u);
+        c->k[2] = v[8] ? dv_k((uint32_t)v[8] * 100u) : 0;   /* the rise */
+        c->kb[0] = dv_kb(tau);
+        c->hold = (uint16_t)v[9];
+        c->g[0] = v[3];
+        c->g[1] = v[4];
+        if (v[5]) {
+            c->inc[1] = DV_P16(v[5] + dp);
+            c->inc[2] = c->inc[1] >> 1;
+            c->click = (uint16_t)(0xFFFFFFFFu / c->inc[2]);
+            c->g[2] = v[6] + ((v[6] * acc) >> 8);
+        }
+        dv_drive(&c->g[3], &c->g[4], v[7] * ((int32_t)x + 64) / 128);
+        break;
+    }
+    case DVT_SNARE:
+        c->click = (uint16_t)v[0];
+        c->span[0] = DV_P16(p16 + v[1]) - c->inc[0];
+        c->k[0] = dv_k((uint32_t)v[2] * 100u);
+        c->k[1] = dv_k(tau * (uint32_t)v[3] / 64u);
+        c->k[2] = dv_k((uint32_t)v[8] * 100u);
+        c->kb[0] = dv_kb(tau);
+        tsvf_coef_k(&c->f[0], dv_cut(v[6] + ((int32_t)tn - 64) * 2 + dp), v[7]);
+        c->hp = dv_pole(v[12] + dp);
+        c->g[0] = v[4];
+        c->g[1] = v[5];
+        c->g[2] = dv_at(v[10], x);
+        c->g[3] = v[9] + ((v[9] * acc) >> 8);
+        c->g[4] = v[11];
+        break;
+    case DVT_CLAP:
+        tsvf_coef_k(&c->f[0], dv_cut(p16 + ((int32_t)tn - 64) * 2), v[1]);
+        c->hp = dv_pole(v[2] + dp);
+        c->k[0] = dv_k((uint32_t)v[6] * 100u);
+        c->kb[0] = dv_kb(tau);
+        c->hold = (uint16_t)(v[7] * (int32_t)(x + 64u) / 128);
+        c->click = (uint16_t)v[8];
+        c->g[0] = dv_at(v[3], tn);
+        c->g[1] = v[4];
+        c->g[2] = v[5] + acc * 20;
+        break;
+    case DVT_HATC:
+    case DVT_HATO: {
+        int32_t tp = ((int32_t)tn - 64) * 3 + dp;
+        tsvf_coef_k(&c->f[0], dv_cut(v[0] + dp + ((int32_t)tn - 64) * 2), v[1]);
+        dv_hp1(&c->g[2], &c->g[3], v[2] + tp);
+        dv_hp1(&c->g[4], &c->g[5], v[3] + tp);
+        c->g[1] = dv_at(v[4], x) + (x > 64u ? ((int32_t)x - 64) * 64 : 0);   /* (SNAP above 64: up to x1 more) */
+        c->kb[0] = dv_kb(tau);
+        c->k[1] = dv_k((uint32_t)v[7] * 100u);
+        c->kb[1] = dv_kb(1500);
+        c->span[0] = (uint32_t)v[5];                     /* the metal source, noise (dv_run) */
+        c->span[1] = (uint32_t)v[6];
+        c->mrow = (uint8_t)v[8];
+        break;
+    }
+    case DVT_CYM:
+        tsvf_coef_k(&c->f[0], dv_cut(v[0] + dp), v[1]);
+        tsvf_coef_k(&c->f[1], dv_cut(v[2] + dp), v[3]);
+        c->kb[0] = dv_kb(tau);
+        c->kb[1] = dv_kb((uint32_t)v[6] * 1000u);
+        c->g[0] = clamp(dv_at(v[4], tn), 0, 32767);
+        c->g[1] = 32767 - c->g[0];
+        c->g[2] = dv_at(v[5], x) + acc * 60;
+        c->span[0] = (uint32_t)v[7];
+        c->span[1] = (uint32_t)v[8];
+        c->mrow = (uint8_t)v[9];
+        break;
+    case DVT_TOM:
+    case DVT_CONGA:
+        c->kb[0] = dv_kb(tau);
+        c->span[0] = DV_P16(p16 + dv_at(v[0], x) + (x > 64u ? (int32_t)x - 64 : 0)) - c->inc[0];
+        c->k[0] = dv_k((uint32_t)v[1] * 100u);
+        c->hp = dv_pole(v[2] + ((int32_t)tn - 64) * 3);
+        c->g[0] = dv_at(v[3], tn);
+        c->g[2] = dv_at(v[4], tn);
+        c->g[1] = tn > 64u ? (v[5] > 4096 ? v[5] : 4096) + ((int32_t)tn - 64) * 64 : v[5];   /* (TONE above 64:
+                                                          * into the soft clip, up to x1 more) */
+        break;
+    case DVT_RIM:
+    case DVT_CLAVE:
+        c->k[0] = dv_k(tau);
+        c->inc[1] = DV_P16(p16 + v[0]);
+        c->g[0] = v[1];
+        c->g[1] = dv_at(v[2], tn);
+        dv_drive(&c->g[2], &c->g[3], v[3] * ((int32_t)x + 64) / 128 * (512 + acc) / 512);
+        break;
+    default:                                             /* DVT_BELL */
+        c->inc[1] = DV_P16(p16 + v[0]);
+        tsvf_coef_k(&c->f[0], dv_cut(p16 + v[1] + ((int32_t)tn - 64) * 2), v[2]);
+        c->k[0] = dv_k((uint32_t)v[4] * 100u);
+        c->kb[0] = dv_kb(tau);
+        c->g[0] = dv_at(v[3], x) * 2 + acc * 40;
+        c->g[1] = dv_at(v[5], tn);
+        break;
+    }
+}
+
+static void dv_setup(dv_coef_t *c, const dv_param_t *p)
+{
+    if (DV_KITOF(p->type) - 1u < DV_NKIT)
+        dv_setup_kit(c, p);
+    else
+        dv_setup_own(c, p);
+}
+
 static void dv_metal_tune(dv_metal_t *b, const dv_coef_t *c)
 {
     uint32_t i, inc = DV_P16(c->metal);
-    const uint16_t *r = DV_METAL_R[c->type == DVT_CYM];
+    const uint16_t *r = DV_METAL_R[c->mrow];
     for (i = 0; i < 6u; i++)
         b->inc[i] = (inc >> 12) * r[i];
 }
@@ -346,7 +639,7 @@ static inline void dv_slow(int32_t *q, uint32_t kb, int32_t *a, int32_t *d)
 
 static __attribute__((noinline)) void dv_kick_run(const dv_coef_t *c, dv_voice_t *v, int32_t *y, uint32_t n)
 {
-    uint32_t i, ph = v->ph[0], cph = v->ph[1], wph = v->ph[2], p1 = v->e[0], p2 = v->e[1], cn = v->n;
+    uint32_t i, ph = v->ph[0], cph = v->ph[1], wph = v->ph[2], p1 = v->e[0], p2 = v->e[1], cn = v->n, r = v->e[2];
     uint32_t k2 = v->cnt ? 32768u : c->k[1], s1 = c->span[0] >> 16, s2 = c->span[1] >> 16;
     int32_t a, d;
     dv_slow(&v->q[0], v->cnt ? 65536u : c->kb[0], &a, &d);   /* (held) */
@@ -359,7 +652,8 @@ static __attribute__((noinline)) void dv_kick_run(const dv_coef_t *c, dv_voice_t
         p2 = (p2 * k2) >> 15;
         b = sine_i(ph) + ((sine_i(ph << 1) * c->g[0]) >> 15) + ((sine_i(ph * 3u) * c->g[1]) >> 15);
         a += d;
-        x = (b * (a >> 5)) >> 15;
+        x = (b * ((a >> 5) - (int32_t)(r >> 1))) >> 15;   /* (r: a rise, the model kits'; 0 on Felucca's own) */
+        r = (r * c->k[2]) >> 15;
         if (cn) {                                        /* the click: a windowed burst, mean 0 */
             int32_t w = (32768 - sine_i(wph + 0x40000000u)) >> 1;
             x += (((sine_i(cph) * w) >> 15) * c->g[2]) >> 15;
@@ -369,7 +663,7 @@ static __attribute__((noinline)) void dv_kick_run(const dv_coef_t *c, dv_voice_t
         }
         y[i] = (softclip((x * c->g[3]) >> 12) * c->g[4]) >> 15;
     }
-    v->ph[0] = ph, v->ph[1] = cph, v->ph[2] = wph, v->e[0] = p1, v->e[1] = p2, v->n = (uint16_t)cn;
+    v->ph[0] = ph, v->ph[1] = cph, v->ph[2] = wph, v->e[0] = p1, v->e[1] = p2, v->e[2] = r, v->n = (uint16_t)cn;
     v->live = v->q[0] > DV_QUIET;
 }
 
@@ -383,7 +677,7 @@ static __attribute__((noinline)) void dv_snare_run(const dv_coef_t *c, dv_voice_
         int32_t sh, nz = DV_NOISE(v), bp, hp, x;
         eg = (eg * c->k[0]) >> 15;
         p0 += inc;
-        p1 += inc + (inc >> 8) * 154u;                   /* x1.6 */
+        p1 += inc + (inc >> 8) * c->click;               /* x (1 + click / 256) */
         sh = sine_i(p0) + ((sine_i(p1) * c->g[0]) >> 15);
         sh = (sh * (int32_t)(es >> 1)) >> 15;
         es = (es * c->k[1]) >> 15;
@@ -527,6 +821,16 @@ static __attribute__((noinline)) void dv_cym_run(const dv_coef_t *c, dv_voice_t 
     v->live = v->q[0] > DV_QUIET;
 }
 
+/* a model kit's metal: the source (c->span[0], Q15) and white noise (c->span[1]) mixed into y */
+static __attribute__((noinline)) void dv_metal_mix(const dv_coef_t *c, dv_voice_t *v, const int32_t *m, int32_t *y,
+                                                   uint32_t n)
+{
+    uint32_t i;
+    int32_t gm = (int32_t)c->span[0], gn = (int32_t)c->span[1];
+    for (i = 0; i < n; i++)
+        y[i] = (m[i] * gm + DV_NOISE(v) * gn) >> 15;
+}
+
 /* ------------------------------------------------------------------- the API --- */
 static void dv_init(dv_voice_t *v, uint32_t type)
 {
@@ -553,6 +857,7 @@ static void dv_strike(const dv_coef_t *c, dv_voice_t *v)
     case DVT_ROUND:
         v->cnt = c->hold;
         v->n = c->click;
+        v->e[2] = c->k[2] ? 65536u : 0;                  /* the rise, if any */
         break;
     case DVT_CLAP:
         v->q[0] = 0;
@@ -591,6 +896,10 @@ static void dv_run(const dv_coef_t *c, dv_voice_t *v, const int32_t *metal, int3
         v->live = 0;
         return;
     }
+    if (dv_uses_metal(c->type) && c->span[1]) {          /* a model kit's metal: the source and white noise */
+        dv_metal_mix(c, v, metal, y, n);
+        metal = y;                                       /* (the runs read a sample before they write it) */
+    }
     switch (c->type) {
     case DVT_PUNCH:
     case DVT_ROUND:
@@ -624,13 +933,20 @@ static void dv_run(const dv_coef_t *c, dv_voice_t *v, const int32_t *metal, int3
     dv_out(c, y, n);
 }
 
-/* the designed parameters of a type (LEVEL 100, no accent) */
+/* the run a type plays through (DVT_*): itself, or its model kit's lane's */
+static uint32_t dv_run_type(uint32_t type)
+{
+    return DV_KITOF(type) - 1u < DV_NKIT ? DV_KIT[DV_KITOF(type) - 1u][type & 7u].run : type < DVT_COUNT ? type : 0u;
+}
+
+/* the designed parameters of a type (LEVEL 100, no accent); a model kit's lane: 64 each */
 static void dv_default(dv_param_t *p, uint32_t type)
 {
+    uint32_t own = DV_KITOF(type) == 0;
     p->type = (uint8_t)type;
-    p->decay = DV_DEF[type].def[0];
-    p->tone = DV_DEF[type].def[1];
-    p->extra = DV_DEF[type].def[2];
+    p->decay = own ? DV_DEF[type].def[0] : 64;
+    p->tone = own ? DV_DEF[type].def[1] : 64;
+    p->extra = own ? DV_DEF[type].def[2] : 64;
     p->level = 100;
     p->accent = 0;
     p->tune = 0;

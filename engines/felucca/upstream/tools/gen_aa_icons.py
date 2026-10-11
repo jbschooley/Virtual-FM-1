@@ -12,7 +12,10 @@ choosing which one a parameter gets) is mapped to a Fukiai glyph by LEGACY below
 UI adds (transport, tracks 1-4, USB, favourites, ...) by EXTRA (ICON_X_<NAME>).
 
 Output: per size S in --sizes
-  AI<S>_DATA    cells of S x S px, 4-bit alpha, 2 px per byte, rows back to back
+  AI<S>_DATA    cells of S x S px, 4-bit alpha, rows back to back, each cell a byte-aligned bit stream of the
+                canonical Huffman code AI_HC (gen_aa_font.py huff_pack, the fonts' M and L: one code for
+                every size; gfx.c cv_alpha_hc draws it), 2 spare bytes at the end
+  AI<S>_OFF     each cell's byte offset in AI<S>_DATA
   AI<S>_INK     each cell's ink box (the UI centres an icon by its ink: src/icons.c icon_ink)
   AI<S>_IDX[ICON_COUNT]  cell number of every icon at that size, 0xFF = not rasterised at that size
   (12 px: all legacy icons + SMALL_EXTRA; 16 px: only the --big set; 24 px: HUGE_DEFAULT)
@@ -26,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aa_raster as ar  # noqa: E402
+from gen_aa_font import huff_pack, huff_unpack  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,16 +68,13 @@ LEGACY = {
 
 # icons the redesign adds (header, dialogs, lists, menu); name -> Fukiai glyph
 EXTRA = {
-    "x_play": "control_play_f", "x_stop": "control_stop_f", "x_pause": "control_pause_f", "x_rec": "control_rec_f",
-    "x_rec_o": "control_rec_o", "x_play_o": "control_play_o",
+    # (1.1: the ones no screen draws are gone: x_pause x_play_o x_star_o x_check x_power x_doc x_plus x_minus
+    #  x_undo x_redo x_palette x_back x_down x_up x_hugelton x_fx x_timer; add one back with its first use)
+    "x_play": "control_play_f", "x_stop": "control_stop_f", "x_rec": "control_rec_f", "x_rec_o": "control_rec_o",
     # (1.0.2: the tracks' circled numerals are no longer baked: icons.c trk_icon draws a digit on a cushion)
-    "x_usb": "port_usb_c", "x_star": "symbol_star", "x_star_o": "symbol_star_o", "x_check": "symbol_check",
-    "x_cog": "symbol_cog", "x_lock": "symbol_lock_close_f", "x_power": "control_power",
-    "x_folder": "symbol_folder", "x_doc": "symbol_document", "x_plus": "symbol_plus", "x_minus": "symbol_minus",
-    "x_undo": "symbol_arrow_undo", "x_redo": "symbol_arrow_redo", "x_warn": "symbol_error",
-    "x_palette": "symbol_primitives_o", "x_speaker": "control_speaker_2", "x_info": "symbol_info_f",
-    "x_back": "control_arrow_back", "x_down": "symbol_carret_down", "x_up": "symbol_carret_up",
-    "x_left": "symbol_carret_left", "x_right": "symbol_carret_right", "x_hugelton": "symbol_hugelton",
+    "x_usb": "port_usb_c", "x_star": "symbol_star", "x_cog": "symbol_cog", "x_lock": "symbol_lock_close_f",
+    "x_folder": "symbol_folder", "x_warn": "symbol_error", "x_speaker": "control_speaker_2", "x_info": "symbol_info_f",
+    "x_left": "symbol_carret_left", "x_right": "symbol_carret_right",
     # page and state icons (Fukiai 0.8.0): MIXER / PHRASES / SONG pages, motion, calibration, the battery
     # (battery_2 is not used: the stock level 0..3 maps to battery_0 / 1 / 3 / 4, see ui_draw.c batt_icon)
     "x_mixer": "ui_slider_vertical", "x_pattern": "symbol_grid_nine", "x_song": "symbol_disc",
@@ -81,12 +82,16 @@ EXTRA = {
     "x_doctor": "symbol_doctor", "x_bat0": "system_battery_0", "x_bat1": "system_battery_1",
     "x_bat3": "system_battery_3", "x_bat4": "system_battery_4", "x_bat_chg": "system_battery_charging",
     # the FX hold layer (ui_draw.c draw_layer, Fukiai 0.8.3) and the HOLD menu row
-    "x_fx": "control_fx", "x_knob": "ui_knob", "x_timer": "symbol_stopwatch", "x_hpf": "function_filter_hpf",
+    "x_knob": "ui_knob", "x_hpf": "function_filter_hpf",
     "x_repeat": "control_arrow_loop", "x_reverse": "control_reverse_f", "x_tstop": "symbol_stop",
     "x_freeze": "symbol_freeze",
     # OCT UP / OCT DN (the harmonizer): stand-ins until Fukiai has a pitch-shift glyph;
     # the first of each tuple the font has
     "x_oct_up": ("symbol_pitch_up", "control_arrow_up"), "x_oct_dn": ("symbol_pitch_down", "control_arrow_down"),
+    # a missing sample (the header message, the SLICES page): SAMPLE NOT FOUND
+    "x_nofile": "symbol_document_disabled",
+    # the MENU's tabs (ui_menu.c, 1.0.5): DISPLAY (CONTROL x_knob, AUDIO x_speaker, 1.2 MIDI midi, SYSTEM x_cog)
+    "x_eye": "symbol_eye",
 }
 
 # a glyph given as a tuple: the first one the font has (a glyph still to be drawn falls back to a stand-in;
@@ -100,22 +105,24 @@ EXTRA = {
 FIT_TO = {"system_battery_0": "system_battery_4"}
 
 # new icons that are also needed at 12 px (list rows, menu values)
-SMALL_EXTRA = ["x_star", "x_star_o", "x_check", "x_lock", "x_cog", "x_usb", "x_plus", "x_minus", "x_undo", "x_redo",
-               "x_warn", "x_folder", "x_doc", "x_back", "x_down", "x_up", "x_left", "x_right",
+SMALL_EXTRA = ["x_star", "x_lock", "x_cog", "x_usb", "x_warn", "x_folder", "x_left", "x_right",
                "x_mixer", "x_pattern", "x_song", "x_motion", "x_motion_rec", "x_motion_del",
-               "x_fx", "x_hpf", "x_repeat", "x_reverse", "x_tstop", "x_freeze"]
+               "x_hpf", "x_repeat", "x_reverse", "x_tstop", "x_freeze"]
+# legacy names no screen draws (1.1): kept in the enum (assets/icons.json's order), not rasterised (no cell)
+NOT_DRAWN = ["tape"]
 
 # the 24 px set: the header battery (Fukiai's battery is a wide, short glyph: at 16 px its body was 12 x 6)
-# and the FX map's effect cells (ui_layer.c layer_fx: the icon alone, no name)
-HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb",   # (+ the USB-C plug: as flat)
-                "x_repeat", "x_reverse", "cutoff", "x_hpf", "x_tstop", "x_freeze", "x_oct_up", "x_oct_dn"]
+# (up to 1.1.5 also the FX map's effect cells; 1.2's map names the 16 keys' effects instead, ui_layer.c layer_fx)
+HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb"]   # (+ the USB-C plug: as flat)
 
 # the 16 px set: header, footer, dialogs and menu rows (everything else only exists at 12 px)
-BIG_DEFAULT = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_usb", "x_star", "x_star_o", "x_check",
-               "x_cog", "x_power", "x_warn", "x_palette", "x_speaker", "x_info", "x_hugelton", "x_doc",
+# (1.0.5: the MENU rows lost their icons, the tabs carry them)
+BIG_DEFAULT = ["x_play", "x_stop", "x_rec", "x_rec_o", "x_usb", "x_star",
+               "x_cog", "x_warn", "x_speaker", "x_info", "x_eye", "midi",
                "wave", "algorithm", "phase", "bits", "sample", "mouth", "trio", "drawbar", "slice", "grain",
-               "phys", "drum", "noise", "mod", "tempo", "tape",
-               "x_song", "x_motion", "x_motion_del", "x_doctor", "x_fx", "x_knob", "x_timer", "rate", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
+               "phys", "drum", "noise", "mod", "tempo",
+               "x_song", "x_motion", "x_motion_del", "x_doctor", "x_knob", "rate", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg",
+               "x_nofile"]
 
 
 def glyph_table(font_path):
@@ -245,21 +252,35 @@ def main():
            "#pragma once", "#include <stdint.h>", "enum {"]
     out += [f"    {a.prefix}{n.upper()}," for n in names]
     out += [f"    {a.prefix}COUNT", "};", ""]
-    cost = {}
+    cells = {}
     for s in sizes:
-        subset = ([n for n in names if n in legacy or n in SMALL_EXTRA] if s == min(sizes) else
+        subset = ([n for n in names if (n in legacy and n not in NOT_DRAWN) or n in SMALL_EXTRA] if s == min(sizes) else
                   [n for n in names if n in HUGE_DEFAULT] if s == 24 else [n for n in names if n in big])
-        data, idx, inks = [], [0xFF] * len(names), []
+        cells[s] = []
         for n in subset:
             b, ink = ar.raster_icon(font if glyph_of[n] in mended else a.font, s, cps[glyph_of[n]], a.gamma)
             assert ink, f"{n} is empty at {s}px"
-            idx[names.index(n)] = len(data)
-            data.append(b)
+            cells[s].append((n, [v for i in range(s * s) for v in (b[i >> 1] >> (0 if i & 1 else 4) & 15,)], b))
+    # one Huffman code for every cell of every size (one decoding table in RAM: gfx.c hc_lut)
+    hc, packed = huff_pack([v for s in sizes for _, v, _ in cells[s]])
+    packed = iter(packed)
+    out.append("/* the cells' Huffman code (gen_aa_font.py huff_pack; gfx.c cv_alpha_hc) */")
+    out.append(ar.c_array("AI_HC", "uint8_t", hc, 24))
+    cost = {}
+    for s in sizes:
+        data, offs, idx, inks = bytearray(), [], [0xFF] * len(names), []
+        for n, v, b in cells[s]:
+            p = next(packed)
+            assert huff_unpack(hc, p, s * s) == v
+            idx[names.index(n)] = len(offs)
+            offs.append(len(data))
+            data += p
             inks.append(ink_box(b, s))
-        bpi = (s * s + 1) // 2
-        flat = [v for b in data for v in b]
-        out.append(f"#define AI{s}_N {len(data)}")
-        out.append(ar.c_array(f"AI{s}_DATA", "uint8_t", flat, 24, "0x{:02x}"))
+        data += bytes(2)                               # gfx.c cv_alpha_hc reads up to 2 bytes ahead
+        assert len(data) < 65536
+        out.append(f"#define AI{s}_N {len(offs)}")
+        out.append(ar.c_array(f"AI{s}_DATA", "uint8_t", list(data), 24, "0x{:02x}"))
+        out.append(ar.c_array(f"AI{s}_OFF", "uint16_t", offs, 16))
         out.append(ar.c_array(f"AI{s}_IDX", "uint8_t", idx, 24))
         if s <= 16:   # each cell's ink box (icons.c icon_ink: centring by ink): x0 y0 x1-1 y1-1, a nibble each
             out.append(f"/* the cells' ink boxes: x0 | y0 << 4 | (x1 - 1) << 8 | (y1 - 1) << 12 */")
@@ -272,11 +293,12 @@ def main():
                                   [x0 | y0 << 8 | x1 << 16 | y1 << 24 for x0, y0, x1, y1 in inks], 8))
             ib = 4 * len(inks)
         out.append("")
-        cost[s] = (len(data), len(flat) + len(idx) + ib)
+        cost[s] = (len(offs), len(data) + 2 * len(offs) + len(idx) + ib)
+    cost[0] = (0, len(hc))
     Path(a.out).write_text("\n".join(out))
     tot = sum(c[1] for c in cost.values())
     for s, (n, b) in cost.items():
-        print(f"icons {s}px: {n} cells, {b} B")
+        print(f"icons {s}px: {n} cells, {b} B" if s else f"icons code: {b} B")
     print(f"icons total {tot} B -> {a.out}   ({len(legacy)} legacy names + {len(EXTRA)} new)")
     if a.report:
         for n in names:

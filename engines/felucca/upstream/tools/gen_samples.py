@@ -10,7 +10,9 @@ The ADPCM state at the loop start is stored so loops restart exactly.
 
 Libraries:
   cc0        assets/samples-cc0/ (tools/fetch_cc0.py, Versilian Studios, CC0):
-             PIANO, FLUTE, SAX (set 1, once TRANH, and set 4, once PERC, are aliases of PIANO)
+             PIANO, FLUTE, SAX (set 1, once TRANH, and set 4, once PERC, are aliases of PIANO).
+             PIANO is the 5-zone piano of 1.0 .. 1.1.5 (1.2 .. 1.4.1 built a reduced 2-zone
+             one at 11,025 Hz; 1.5 went back to the full one, the same bytes as 1.1.5)
 SAMPLE's factory presets end before set 4 (SMP_PERC_SLOT); every sample set and SET / USR
 index stays in its original place.
 A retired set keeps its index as an alias: the original's name and zones (no data), and a
@@ -28,6 +30,18 @@ offsets do not move) and NOT one of the SAMPLE sets (the SET list, its presets a
 USR1-3 numbers stay as they were). Its slice table (decoder states on a 128-point grid,
 the hits as AUTO slices) is written with it: SLC_BREAK_INIT.
 
+SLICE's SRC PIANO (added in 1.0.4 after BREAK and USR1-3) is the PIANO set's middle C zone itself:
+no data of its own, only its slice table (one AUTO slice, the note's attack): SLC_PIANO_INIT.
+(1.2 .. 1.4.1 kept a copy of that zone after BREAK, as their PIANO had none; 1.5 shares it again.)
+Without the CC0 library (no PIANO set) it has no material (SLICE plays a sine there).
+
+  gen_samples.py OUT.h                                       the header (tools/build.py)
+  gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD
+                  a CC0 set as built from its own files (PIANO: the 5 zones of 1.0 .. 1.1.5, 1.5) as a user slot:
+                  PREFIX.hdr / .bin (the editor's SMP_END header / SMP_WRITE data), PREFIX.slot (as in flash).
+                  Kept for reference and tests only (1.2's PIANO HD file, which old users may hold in USR1..3:
+                  it plays as the built-in PIANO does); nothing in the build or the app depends on it.
+
 The header is cached (build/gen_samples.cache) under a hash of every
 input file, this script, sampleio.py and the Python version, so unchanged
 inputs skip the slow pitch detection.
@@ -36,6 +50,7 @@ import hashlib
 import math
 import os
 import re
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +74,7 @@ CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", 
 PERC_SLOT = 4                                # core.h SMP_SET_PERC: SAMPLE's factory presets end before it
 MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
 
+
 KIT_BASE = 53                     # F3, the lowest FM-1 key
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
@@ -77,7 +93,8 @@ BREAK_HITS = [(0, "kick", 1.0), (0, "chh", 0.55), (2, "kick", 0.7), (2, "chh", 0
               (4, "chh", 0.45), (6, "chh", 0.4), (7, "kick", 0.8), (8, "chh", 0.55), (9, "snare", 0.3),
               (10, "kick", 0.9), (10, "ohh", 0.4), (12, "snare", 1.0), (12, "chh", 0.45), (14, "chh", 0.4),
               (14, "snare", 0.35)]
-SLC_GRID, SLC_AUTO = 128, 32                 # eng_slice.c slc_src_t
+SLC_PIANO_NOTE = 60                          # SLICE's SRC PIANO: the PIANO zone of this root (middle C)
+SLC_GRID, SLC_AUTO = 128, 32                # eng_slice.c slc_src_t
 
 ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75),
        "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
@@ -109,23 +126,27 @@ def name_note(name):
     return (int(m.group(2)), NOTE[m.group(1)]) if m else None
 
 
+def octave_conv(files):
+    """octave convention of a set's files (C4 = 60: 1, C3 = 60: 2): YIN votes, the names give the notes"""
+    votes = {1: 0, 2: 0}
+    for p in files:
+        nn = name_note(p.name)
+        if not nn:
+            continue
+        sr, x = wav(p)
+        det = hz_to_midi(detect_hz(x[onset(x):], sr))
+        for o in (1, 2):
+            if abs(det - ((nn[0] + o) * 12 + nn[1])) < 1.0:
+                votes[o] += 1
+    return 2 if votes[2] >= votes[1] else 1
+
+
 def cc0_entries(setname, kind):
     """-> [(file name, int16 samples at TR, loop or None, root)]"""
     files = sorted((CC0 / setname).glob("*.wav"))
     out = []
     if kind != "kit":
-        # octave convention of this set (C4 = 60 or C3 = 60): YIN votes, the names give the notes
-        votes = {1: 0, 2: 0}
-        for p in files:
-            nn = name_note(p.name)
-            if not nn:
-                continue
-            sr, x = wav(p)
-            det = hz_to_midi(detect_hz(x[onset(x):], sr))
-            for o in (1, 2):
-                if abs(det - ((nn[0] + o) * 12 + nn[1])) < 1.0:
-                    votes[o] += 1
-        conv = 2 if votes[2] >= votes[1] else 1
+        conv = octave_conv(files)
     for k, p in enumerate(files):
         sr, x = wav(p)
         x = x[max(0, onset(x) - 16):]
@@ -241,6 +262,7 @@ class Builder:
         self.zones, self.sets, self.blob, self.kinds = [], [], bytearray(), {}
         self.alias = {}                         # set index -> the set index it aliases
         self.brk = None
+        self.pno = None
 
     def slice_break(self):
         """SLICE's BREAK, after every set; its slice table: decoder states at k * len / SLC_GRID, the hits"""
@@ -251,6 +273,18 @@ class Builder:
         grid = ima_states(data, [k * n // SLC_GRID for k in range(SLC_GRID)])
         hits = hits[:SLC_AUTO]
         self.brk = dict(off=off, n=n, grid=grid, apos=hits, ast=ima_states(data, hits))
+
+    def slice_piano(self):
+        """SLICE's PIANO: the PIANO set's SLC_PIANO_NOTE zone (its data, no copy); its slice table: decoder states
+        at k * len / SLC_GRID, one AUTO slice at 0 (a single note has one attack)"""
+        z = next((z for name, z0, nz in self.sets if name == "PIANO"
+                  for z in self.zones[z0:z0 + nz] if z["root16"] == SLC_PIANO_NOTE * 16), None)
+        if not z:
+            return
+        off, n = z["off"], z["n"]
+        data = self.blob[off:off + (n + 1) // 2]
+        grid = ima_states(data, [k * n // SLC_GRID for k in range(SLC_GRID)])
+        self.pno = dict(off=off, n=n, grid=grid, apos=[0], ast=ima_states(data, [0]))
 
     def add(self, s, loop_start):
         """ADPCM-encode s into the blob (each sample starts on an even offset) -> (offset, state at loop_start)"""
@@ -340,26 +374,42 @@ class Builder:
         L.append("#define SMP_SET_NAMES_INIT " + names)
         L.append("static const char *const SMP_SET_NAMES[] = {" + names + "};")
         L += self.break_header()
+        L += self.piano_header()
         return "\n".join(L) + "\n"
 
-    def break_header(self):
-        """SLC_BREAK_INIT: an eng_slice.c slc_src_t (len, rate, nseg, nauto, seg[], grid[], apos[], ast[])"""
-        b = self.brk
-        if not b:
-            return ["#define SLC_BREAK_INIT {0}"]
+    @staticmethod
+    def slc_init(name, b):
+        """an eng_slice.c slc_src_t initializer (len, rate, nseg, nauto, seg[], grid[], apos[], ast[])"""
         rate = int(round(TR / 44100 * 65536))
 
         def lst(v, k):
             v = list(v) + [0] * (k - len(v))
             return ", \\\n    ".join(", ".join(map(str, v[i:i + 12])) for i in range(0, len(v), 12))
-        return ["", f"/* SLICE's BREAK: one bar of {BREAK_STEPS} steps at {BREAK_BPM} BPM, {len(b['apos'])} hits */",
-                f"#define SLC_BREAK_BPM {BREAK_BPM}", f"#define SLC_BREAK_STEPS {BREAK_STEPS}",
-                f"#define SLC_BREAK_INIT {{{b['n']}, {rate}, 1, {len(b['apos'])}, {{{{{b['off']}, 0, {b['n']}}}}}, {{ \\",
+        return [f"#define {name} {{{b['n']}, {rate}, 1, {len(b['apos'])}, {{{{{b['off']}, 0, {b['n']}}}}}, {{ \\",
                 "    " + lst(b["grid"], SLC_GRID) + "}, { \\", "    " + lst(b["apos"], SLC_AUTO) + "}, { \\",
                 "    " + lst(b["ast"], SLC_AUTO) + "}}"]
 
+    def break_header(self):
+        """SLC_BREAK_INIT: SLICE's BREAK ({0}: none)"""
+        b = self.brk
+        if not b:
+            return ["#define SLC_BREAK_INIT {0}"]
+        return ["", f"/* SLICE's BREAK: one bar of {BREAK_STEPS} steps at {BREAK_BPM} BPM, {len(b['apos'])} hits */",
+                f"#define SLC_BREAK_BPM {BREAK_BPM}", f"#define SLC_BREAK_STEPS {BREAK_STEPS}"] + \
+            self.slc_init("SLC_BREAK_INIT", b)
+
+    def piano_header(self):
+        """SLC_PIANO_INIT: SLICE's PIANO, the PIANO zone of middle C ({0}: none, no CC0 library)"""
+        b = self.pno
+        if not b:
+            return ["#define SLC_PIANO_INIT {0}"]
+        return ["", f"/* SLICE's PIANO: the PIANO zone of MIDI {SLC_PIANO_NOTE} ({b['n']} samples at SMP_DATA[{b['off']}]) */",
+                f"#define SLC_PIANO_NOTE {SLC_PIANO_NOTE}"] + self.slc_init("SLC_PIANO_INIT", b)
+
     def summary(self):
         brk = f", SLICE BREAK {self.brk['n']} samples" if self.brk else ""
+        own = self.pno and not any(z["off"] == self.pno["off"] for z in self.zones)
+        brk += f", SLICE PIANO ({'own copy' if own else 'shared'}) {self.pno['n']} samples" if self.pno else ""
         return f"samples: {len(self.sets)} sets, {len(self.zones)} zones, {len(self.blob)} B ADPCM{brk}"
 
 
@@ -407,6 +457,7 @@ def main(out):
                 b.cc0_set(name, kind)
     if slice_on():                                  # SLICE's BREAK: only when that engine is built
         b.slice_break()                             # last: the sets' offsets stay as they were
+        b.slice_piano()                             # (no data of its own: the PIANO set's)
     text = b.header()
     Path(out).write_text(text)
     CACHE.parent.mkdir(parents=True, exist_ok=True)
@@ -414,5 +465,38 @@ def main(out):
     print(b.summary())
 
 
+def user_slot_file(setname, slotname, prefix):
+    """a one-shot CC0 set as built from all of its own files (PIANO: the 5 zones of 1.0 .. 1.1.5, 1.5) as a
+    user sample slot: PREFIX.hdr (the 480-byte header SMP_END takes), PREFIX.bin (the ADPCM SMP_WRITE takes; as
+    tools/fm1_sample_upload.py build writes them) and PREFIX.slot (the slot as stored in flash: header at 0, data at
+    512). Each zone's ADPCM bytes, length, rate, root and key range are checked against that set as Builder.cc0_set
+    builds it: from USR1..3 it plays the same (one-shot zones there; the slot has no loop)"""
+    kind = next((k for n, k in CC0_SETS if n == setname and k != "alias"), None)
+    if kind != "oneshot":
+        raise SystemExit(f"{setname}: not a one-shot CC0 set")
+    ent = cc0_entries(setname, kind)
+    hdr, data = sio.user_slot(slotname, [(s, int(round(root)), None, None) for _, s, _, root in ent])
+    b = Builder()
+    b.cc0_set(setname, kind)
+    zl = sorted(b.zones, key=lambda z: z["root16"])
+    for k, z in enumerate(zl):
+        off, n, ls, le, rate, root16, pred, idx, lo, hi, looped = struct.unpack_from("<5I2h4B", hdr, 32 + 28 * k)
+        want = bytes(b.blob[z["off"]:z["off"] + (z["n"] + 1) // 2])
+        if (data[off:off + (n + 1) // 2] != want or n != z["n"] or root16 != z["root16"] or (lo, hi) != (z["lo"], z["hi"])
+                or rate != int(round(z["sr"] / 44100 * 65536)) or looped or z["looped"]):
+            raise SystemExit(f"{setname} zone {k}: the slot differs from the set")
+    Path(prefix).parent.mkdir(parents=True, exist_ok=True)
+    Path(prefix + ".hdr").write_bytes(hdr)
+    Path(prefix + ".bin").write_bytes(data)
+    Path(prefix + ".slot").write_bytes(hdr.ljust(sio.SLOT_DATA_OFF, b"\0") + data)
+    print(f"{slotname}: {len(zl)} zones, {len(data)} B ADPCM of {sio.SLOT_MAX_DATA} -> {prefix}.hdr / .bin / .slot "
+          f"(the zones of {setname} from its own files)")
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if sys.argv[1:2] == ["--user-slot"]:
+        if len(sys.argv) != 5:
+            sys.exit('gen_samples.py --user-slot SET NAME PREFIX   (e.g. PIANO "PIANO HD" build/piano_hd/PIANO_HD)')
+        user_slot_file(*sys.argv[2:5])
+    else:
+        main(sys.argv[1])

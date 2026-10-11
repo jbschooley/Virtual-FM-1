@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* I2S output (ALNK0 -> external codec) and the
  * audio ISR: per half buffer, blocks of CTL samples: mix_block (fx.c: events ->
- * each synth part -> dist -> level / pan -> sends -> buses -> master) -> 24-bit stereo. */
+ * each synth part -> dist -> level / pan -> sends -> buses -> master) -> USB audio (uac_tap) -> the metronome's
+ * click (click.c, the DAC only) -> 24-bit stereo. */
 /* registers: hal/fm1_audio.h */
 #define HALF_WORDS (HALF_FRAMES * 2u)
 #define DAC_TICKS 544u            /* TIMER4 ticks per I2S frame (24 MHz / 44,117.6 Hz) */
@@ -22,9 +23,6 @@ struct felucca_dbg {
 static volatile uint32_t audio_halves, audio_max_us;
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 static uint32_t audio_cpu_rem;                         /* keep the fractional IIR step: no low-load bias */
-#define SCOPE_N 512u
-static int16_t scope_buf[SCOPE_N];
-static uint32_t scope_w;
 
 static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 -> 24 bit */
 {
@@ -35,9 +33,11 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 #endif
     if (fx_usb_fixed)                                   /* USB LEVEL FIXED: USB took the full level, the DAC */
         usb_fixed_dac(out, n);                          /* (speaker, headphones) gets MASTER's (fx.c) */
-    for (i = 0; i < n; i++) {
-        if (i & 1u)
+    if (!scope_mix)                                     /* the HOME scope (SCOPE OUT): the music, before the click */
+        for (i = 1; i < n; i += 2u)                     /* (MIX: fx.c mix_block took it) */
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
+    click_render(out, n);                               /* the metronome (click.c): the DAC only, not USB */
+    for (i = 0; i < n; i++) {
         out[2u * i] *= 1 << OUT_SHIFT;
         out[2u * i + 1u] *= 1 << OUT_SHIFT;
     }

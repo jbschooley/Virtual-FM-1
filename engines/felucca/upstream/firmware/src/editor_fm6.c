@@ -3,8 +3,11 @@
 /* Editor protocol: the FM6 patches (EDITOR_PROTOCOL.md "FM6 patches", cmds 68..71). A patch travels as the
  * 128-byte packed record (every byte 7-bit: no pack7). Targets: 0 a track's own patch (index 0..3), 1 the patch bank
  * (retired in 1.0.3: GET / PUT / ERASE answer rc 3, "no bank"; LIST counts 0 bank slots), 2 a factory patch
- * (0..FM6_NFACTORY-1, read only), 3 a user preset's patch (0..UP_SLOTS-1: an FM6 user preset; up_fm6.c). */
+ * (0..FM6_NFACTORY-1, read only), 3 a user preset's patch (0..UP_SLOTS-1: an FM6 user preset; up_fm6.c).
+ * 1.4.1: the voice bank (EDITOR_PROTOCOL.md "FM6 voice bank", cmds 74..77; fm6_vbank.c), written whole: BEGIN, a
+ * WRITE per voice, END with the name and the CRC; LIST its names. */
 enum { ED_FM6_GET = 68, ED_FM6_PUT, ED_FM6_LIST, ED_FM6_ERASE };
+enum { ED_FM6B_BEGIN = 74, ED_FM6B_WRITE, ED_FM6B_END, ED_FM6B_LIST };
 enum { ED_FM6_TRACK, ED_FM6_BANK, ED_FM6_FACTORY, ED_FM6_USER };
 #define ED_FM6_NOBANK 3u                                   /* rc: this firmware has no patch bank */
 
@@ -80,6 +83,45 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         rc = n != 1u ? 1u : ED_FM6_NOBANK;
         ed_b(n ? a[0] : 127u); ed_b(rc);
         return 1;
+    case ED_FM6B_BEGIN:                                    /* -> rc */
+        ed_b(n ? 1u : ed_flash_stop() ? 3u : fvb_begin());
+        return 1;
+    case ED_FM6B_WRITE:                                    /* index, 128 bytes -> index, rc */
+        ed_b(n ? a[0] : 127u);
+        ed_b(n != 1u + FM6_PACKED ? 1u : ed_flash_stop() ? 3u : fvb_write(a[0], a + 1));
+        return 1;
+    case ED_FM6B_END:                                      /* name (10), CRC-32 (5 x 7 bits) -> rc, voices */
+        rc = n != 15u || a[14] > 15u ? 1u : ed_flash_stop() ? 3u :
+             fvb_end(a, (uint32_t)a[10] | (uint32_t)a[11] << 7 | (uint32_t)a[12] << 14 | (uint32_t)a[13] << 21 |
+                            (uint32_t)a[14] << 28);
+        ed_b(rc);
+        for (i = 0, n = 0; i < FM6_NBANK; i++)
+            n += (fm6_bank_used >> i) & 1u;
+        ed_b(n);
+        return 1;
+    case ED_FM6B_LIST: {                                   /* -> voices (32), bank (0 none / 1), its name, per voice:
+                                                            * used, name */
+        const fvb_info_t *in;
+        char nm[11];
+        if (n)
+            return 0;
+        in = fvb_info();
+        for (i = 0; i < 10u; i++)
+            nm[i] = in ? in->name[i] : 0;
+        for (nm[10] = 0, i = 10; i && (nm[i - 1] == ' ' || !nm[i - 1]); i--)
+            nm[i - 1] = 0;
+        ed_b(FM6_NBANK); ed_b(in != 0);
+        ed_str(nm, 10);
+        for (i = 0; i < FM6_NBANK; i++) {
+            uint32_t u = fm6_bank_read && !fm6_bank_read(i, pk);
+            ed_b(u);
+            if (u)
+                ed_fm6_name(pk);
+            else
+                ed_b(0);
+        }
+        return 1;
+    }
     }
     return 0;
 }

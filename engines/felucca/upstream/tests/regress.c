@@ -3,7 +3,8 @@
 /* Regression suite of the FELUCCA DSP on the Mac (same sources as the firmware, through hostsim.c).
  *   build/host/regress [GOLDEN_FILE CPU_FILE]      (run_tests.sh builds and runs it)
  *
- * 1. golden renders: every engine x factory preset, the GM map on DRUM (SAMPLE PERC until 1.0.2), the voice modes (POLY / MONO /
+ * 1. golden renders: every engine x factory preset, the GM map on DRUM (SAMPLE PERC until 1.0.2; and on each model kit,
+ *    KIT 80 10 66 55 77), the voice modes (POLY / MONO /
  *    LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and the SLICER (slicer.c:
  *    GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
  *    a fixed phrase (notes, an overlap, a chord, note-offs, the release tail) and is reduced to a
@@ -204,13 +205,13 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     phrase(t, 60);
 }
 
-static void job_drums(const job_t *j)           /* every GM note through DRUM on part 4, a roll */
+static void job_drums(const job_t *j)           /* every GM note through DRUM on part 4, a roll; arg: KIT (0: STD) */
 {
     track_t *t = &trk[3];
     uint32_t n, k = 0;
-    (void)j;
     host_tracks_init();
     host_drums(t);
+    t->p[P_E0] = j->arg;
     for (n = 35; n <= 81u; n++, k++) {
         input_on(t, n, 60u + (n * 7u) % 60u);
         run_to(at(0.06 * (k + 1)));
@@ -331,6 +332,8 @@ static void job_cpu(const job_t *j)
     host_tracks_init();
     for (p = 0; p < NPART; p++) {
         host_preset(&trk[p], parts[p][0], parts[p][1]);
+        if (j->arg && ENGINES[parts[p][0]] == &ENG_DRUM)
+            trk[p].p[P_E0] = j->arg;                    /* DRUM: a KIT (the model kits) */
         if (parts[p][2] == DRUM_HITS)
             continue;
         trk[p].p[P_VOICE] = V_POLY;
@@ -354,7 +357,11 @@ static void job_cpu(const job_t *j)
                     trk_note_on(&trk[p], KIT[i], 100);
         if (drums_on && (k * CTL) % (FS / 8u) < CTL)
             drum_hit((k * CTL) / (FS / 8u));
+        if (j->e == 0xFE && clk.env <= 0)
+            click_req = 2;                              /* idle_click: the metronome sounding all the time */
         mix_block(last_out, CTL);
+        if (j->e == 0xFE)
+            click_render(last_out, CTL);                /* (audio.c audio_block: after the master) */
     }
     R.ns = (double)(now_ns() - t0) / (nb * CTL);
     R.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
@@ -1033,6 +1040,10 @@ int main(int argc, char **argv)
             j->pi = (uint8_t)pi;
         }
     add(J_DRUMS, "drums/drum_gm_kit");
+    for (i = 0; i < DV_NKIT; i++) {                 /* the model kits (KIT 80 10 66 55 77) */
+        snprintf(name, sizeof name, "drums/kit_%s", N_DRUM_KIT[DK_80 + i]);
+        add(J_DRUMS, name)->arg = (uint8_t)(DK_80 + i);
+    }
     for (i = 0; i < 3u; i++)
         for (k0 = 0; k0 < 4u && eng_ok(MODE_E[i][0]); k0++) {
             job_t *j;
@@ -1100,6 +1111,17 @@ int main(int argc, char **argv)
             j->e = (uint8_t)e;
             j->pi = (uint8_t)pi;
         }
+    for (i = 0; i < DV_NKIT; i++) {                 /* DRUM's model kits: the 8 lanes, as its preset above */
+        job_t *j;
+        snprintf(name, sizeof name, "cpu/DRUM/kit_%s", N_DRUM_KIT[DK_80 + i]);
+        j = add(J_CPU, name);
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][0][0] = ENGI_DRUM, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = ENGI_DRUM;
+        j->pi = 0;
+        j->arg = (uint8_t)(DK_80 + i);
+    }
     {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 DRUM; SAMPLE PERC until 1.0.2), FM (DIGITAL with
          * FELUCCA_FM4, else FM6) + PHASE + VOICE asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
         job_t *j = add(J_CPU, "cpu/mix/idle");
@@ -1119,6 +1141,10 @@ int main(int argc, char **argv)
         cpu_parts[ncpu][3][0] = ENGI_DRUM, cpu_parts[ncpu][3][1] = 0, cpu_parts[ncpu][3][2] = DRUM_HITS;
         j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
         j->e = 0xFF;
+        j = add(J_CPU, "cpu/mix/idle_click");          /* idle + the metronome's click (click.c) never silent */
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFE;
     }
     c1 = nj;
     run_jobs(J + c0, c1 - c0, 1);
@@ -1212,8 +1238,8 @@ int main(int argc, char **argv)
     /* a preset's own cost: its count less the idle mix's (the mix alone is half of a light preset's),
      * so +25 % means 25 % more engine work; the mixes as they are */
     nc = load_kv(cpath, cpu, MAXJ);
-    idle_now = J[c1 - 3u].r.ipc;
-    idle_base = kv_get(cpu, nc, J[c1 - 3u].name) ? atof(kv_get(cpu, nc, J[c1 - 3u].name)) : 0;
+    idle_now = J[c1 - 4u].r.ipc;
+    idle_base = kv_get(cpu, nc, J[c1 - 4u].name) ? atof(kv_get(cpu, nc, J[c1 - 4u].name)) : 0;
     for (i = c0; i < c1; i++) {
         const job_t *j = &J[i];
         const char *want = kv_get(cpu, nc, j->name);
@@ -1264,7 +1290,7 @@ int main(int argc, char **argv)
         if (eng_ok(e))
             printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
                    heavy[e], heavy_ns[e]);
-    for (i = c1 - 3u; i < c1; i++)
+    for (i = c1 - 4u; i < c1; i++)
         printf("regress:   %-23s %6.0f instr  %6.1f ns\n", J[i].name + 8, J[i].r.ipc, J[i].r.ns);
 
     printf("regress: %u golden renders (%u changed, %u gone), %u health failures, %u voice / routing checks failed, "

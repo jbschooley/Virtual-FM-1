@@ -85,15 +85,10 @@ static uint32_t upf_tag(const up_rec_t *r)       /* FNV-1a of the record without
 
 static int upf_fm6(uint32_t k) { return up_used(k) && up_rec(k)->engine == ENGI_FM6; }
 
-/* slot k's patch -> pk (128 bytes), 0 = it has one */
-static int upf_get(uint32_t k, uint8_t *pk)
+/* a 128-byte packed record's 7-bit bytes, 8 to 7 bytes (UPF_PK) and back (the voice bank too, fm6_vbank.c) */
+static void upf_pk_get(const uint8_t *d, uint8_t *pk)
 {
     uint32_t i, acc = 0, n = 0, o = 0;
-    const uint8_t *d;
-    if (k >= UP_SLOTS || !upf_valid(&upf) || !((upf.used >> k) & 1u) || !upf_fm6(k) ||
-        upf.e[k].tag != upf_tag(up_rec(k)))
-        return 1;
-    d = upf.e[k].pk;
     for (i = 0; i < FM6_PACKED; i++) {
         while (n < 7u) {
             acc |= (uint32_t)d[o++] << n;
@@ -103,6 +98,29 @@ static int upf_get(uint32_t k, uint8_t *pk)
         acc >>= 7;
         n -= 7u;
     }
+}
+static void upf_pk_put(const uint8_t *pk, uint8_t *d)
+{
+    uint32_t i, acc = 0, n = 0, o = 0;
+    memset(d, 0, UPF_PK);
+    for (i = 0; i < FM6_PACKED; i++) {
+        acc |= (uint32_t)(pk[i] & 127u) << n;
+        n += 7u;
+        while (n >= 8u) {
+            d[o++] = (uint8_t)acc;
+            acc >>= 8;
+            n -= 8u;
+        }
+    }
+}
+
+/* slot k's patch -> pk (128 bytes), 0 = it has one */
+static int upf_get(uint32_t k, uint8_t *pk)
+{
+    if (k >= UP_SLOTS || !upf_valid(&upf) || !((upf.used >> k) & 1u) || !upf_fm6(k) ||
+        upf.e[k].tag != upf_tag(up_rec(k)))
+        return 1;
+    upf_pk_get(upf.e[k].pk, pk);
     return 0;
 }
 
@@ -110,23 +128,13 @@ static int upf_get(uint32_t k, uint8_t *pk)
 static void upf_set(uint32_t k, const uint8_t *pk)
 {
     uint8_t v[FP_SIZE + 1u], c[FM6_PACKED];
-    uint32_t i, acc = 0, n = 0, o = 0;
     if (k >= UP_SLOTS)
         return;
     if (!upf_valid(&upf))
         upf_empty();
     fm6_unpack(pk, v);
     fm6_pack(v, c);
-    memset(upf.e[k].pk, 0, UPF_PK);
-    for (i = 0; i < FM6_PACKED; i++) {
-        acc |= (uint32_t)(c[i] & 127u) << n;
-        n += 7u;
-        while (n >= 8u) {
-            upf.e[k].pk[o++] = (uint8_t)acc;
-            acc >>= 8;
-            n -= 8u;
-        }
-    }
+    upf_pk_put(c, upf.e[k].pk);
     upf.e[k].tag = upf_tag(up_rec(k));
     upf.used |= 1u << k;
 }

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Icons: 4-bit alpha cells of the Fukiai icon font (MIT), 12 px (parameters, lists) and 16 px
+/* Icons: 4-bit alpha cells of the Fukiai icon font (MIT), Huffman-coded (cv_alpha_hc), 12 px (parameters, lists) and 16 px
  * (header, dialogs, menu): web/fukiai.ttf -> build/gen/ui_icons.h
  * (tools/gen_aa_icons.py; names from assets/icons.json). Which icon a parameter gets is decided
  * here, by its label. FELUCCA_ICONS=0 turns the parameter icons off (labels get their full width back). */
@@ -22,9 +22,10 @@ static int32_t cv_trk(int32_t x, int32_t y, uint32_t size, uint32_t k, uint16_t 
     char s[2] = {(char)('1' + k), 0};
     const aag_t *g = &f->g[glyph(f, (uint8_t)s[0])];
     int32_t in = size > 16u ? 2 : 0, w = (int32_t)size - 2 * in;
+    int32_t nud = k == 0u ? 1 : 0;   /* the 1's ink centred looks right of centre (its flag): nudged left 1 px (2 looked left) */
     cv_rrect(x + in, y + in, w, w, -(w / 4), fill, under);
-    GFX_HOOK_ALIGN(x + in, y + in, x + in + w, y + in + w, AL_HV, "track cushion digit");
-    cv_text_on(x + in + (w - g->bw) / 2 - g->bx, y + in + (w - g->bh) / 2 - g->by, f, s, under, fill);   /* its ink centred */
+    GFX_HOOK_ALIGN(x + in - nud, y + in, x + in + w - nud, y + in + w, AL_HV, "track cushion digit");   /* (the 1: measured against its nudge) */
+    cv_text_on(x + in + (w - g->bw) / 2 - g->bx - nud, y + in + (w - g->bh) / 2 - g->by, f, s, under, fill);   /* its ink centred */
     GFX_HOOK_ITEM(x + in, y + in, x + in + w, y + in + w);
     return (int32_t)size;
 }
@@ -73,8 +74,8 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         return cv_trk(x, y, size, id - ICON_TRK, fg, bg);
     if ((k = icon_cell(&size, id)) < 0)
         return 0;
-    cv_alpha(x, y, size, size, (size == 24u ? AI24_DATA : size == 16u ? AI16_DATA : AI12_DATA) + (uint32_t)k * (size * size / 2u),
-             ramp(fg, bg));
+    cv_alpha_hc(x, y, size, size, size == 24u ? AI24_DATA + AI24_OFF[k] : size == 16u ? AI16_DATA + AI16_OFF[k] :
+                AI12_DATA + AI12_OFF[k], AI_HC, ramp(fg, bg));
     GFX_HOOK_ICON(x, y, size, id);
     GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u);
     return (int32_t)size;
@@ -154,8 +155,8 @@ static const icon_map_t ICON_MAP[] = {
     {"FREQ", ICON_CUTOFF}, {"TRK", ICON_KEYTRACK}, {"DRFT", ICON_SWEEP},   /* NOISE (COLR, DENS, CRSH: above) */
     {"MLVL", ICON_MOD}, {"MRAT", ICON_RATIO}, {"MEG", ICON_DECAY}, {"VMOD", ICON_ACCENT}, {"DTUN", ICON_DETUNE},
     {"SLOT", ICON_LOAD},                                                    /* FM6 (ALG, FB: above) */
-    /* fixed columns drawn by ui_draw.c (STEP page, preset browser, SYSTEM) */
-    {"NOTE", ICON_PITCH}, {"STEP", ICON_STEPS}, {"FLAG", ICON_ACCENT}, {"ACC", ICON_ACCENT}, {"LANE", ICON_DRUM}, {"HIT", ICON_GATE}, {"SLD", ICON_SLIDE}, {"USB", ICON_MIDI},
+    /* fixed columns drawn by ui_draw.c (STEP page, preset browser) */
+    {"NOTE", ICON_PITCH}, {"STEP", ICON_STEPS}, {"FLAG", ICON_ACCENT}, {"ACC", ICON_ACCENT}, {"LANE", ICON_DRUM}, {"HIT", ICON_GATE}, {"SLD", ICON_SLIDE},
     {"TRACK", ICON_MIX},                  /* TRACKS page (LEVEL, LEN, PAN: above) */
     {"SLCR", ICON_SLICE}, {"PAT", ICON_STEPS}, {"DEPTH", ICON_MIX},   /* SLICER page (RATE: param_icon) */
 };
@@ -195,6 +196,10 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return ICON_DIVISION;                 /* arp / SLICER RATE is a note division, not Hz */
     if (d->names == N_TRIO_MODE)
         return ICON_CUTOFF;                   /* TRIO's MODE is the filter type, not the arp mode */
+    if (d == &TP[P_FTYPE])
+        return ICON_CUTOFF;                   /* ANALOG's filter TYPE (1.5): "TYPE" is also the reverb's */
+    if (d == &TP[P_ESYNC])
+        return ICON_TEMPO;                    /* ENV SYNC (1.5): as LFO 2's SYNC */
     if (d->names == N_NOISE_MODE)
         return ICON_NOISE;                    /* NOISE's MODE is the source; its CLK the register clock */
     if (d == &NOISE_CLK)
@@ -214,7 +219,7 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
 static uint32_t mod_src_icon(int32_t s)
 {
     static const uint8_t I[MS_N] = {ICON_MOD, ICON_LFO_WAVE, ICON_ENV, ICON_ACCENT, ICON_KEYTRACK, ICON_PROB,
-                                    ICON_MOD, ICON_MIDI, ICON_LEVEL};
+                                    ICON_MOD, ICON_MIDI, ICON_LEVEL, ICON_W_SH, ICON_GLIDE};
     return I[clamp(s, 0, MS_N - 1)];
 }
 static uint32_t mod_dst_icon(const track_t *t, int32_t d)
@@ -223,6 +228,8 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
                                      ICON_CHORUS, ICON_DELAY, ICON_REVERB, ICON_RATE, ICON_VIBRATO};
     uint32_t id;
     d = clamp(d, 0, MD_N - 1);
+    if (d == MD_DEPTH)
+        return ICON_LFO_WAVE;
     if (d < MD_E1)
         return I[d];
     id = P_E0 + (uint32_t)(d - MD_E1);
@@ -260,11 +267,10 @@ static uint32_t motion_icon(void) { return rec_on(TSEL) ? ICON_X_MOTION_REC : IC
 static uint32_t page_icon(const page_t *pg)
 {
     switch (pg->graph) {
-    case GR_TRK: return ICON_X_MIXER;         /* MIXER (GLO): vertical faders */
-    case GR_PATS: return ICON_X_PATTERN;      /* SEQ > PHRASES: the pattern loader */
+    case GR_TRK: return ICON_X_MIXER;         /* MIXER (HOME): vertical faders */
+    case GR_PATS: return ICON_X_PATTERN;      /* SAVE > PHRASES: the pattern loader */
     case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
-    case GR_CHANCE: return ICON_PROB;         /* CHANCE: the die */
-    case GR_MOTION: return motion_icon();
+    case GR_EVENTS: return motion_icon();     /* AUTOMATION */
     default: return ICON_NONE;
     }
 }

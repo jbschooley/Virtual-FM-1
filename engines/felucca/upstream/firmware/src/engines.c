@@ -1,8 +1,26 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol), the
- * factory patterns (SEQ > PATTERNS) and the parts' sounds at power-on. */
+ * factory patterns (SAVE > PHRASES) and the parts' sounds at power-on. */
 #include "dsp.c"
+
+/* The parts' engine memory (1.5): a part plays one engine at a time, so the engines with large per-part state
+ * (engine_t.mem: PHYS's slots, GRAIN's grains and index, DRUM's lanes, FM6's notes, SLICE's reverse windows)
+ * keep it in one region per part instead of an array each. The region holds the state of the engine that
+ * last claimed it (eng_mem_owner); a switch to another such engine zeroes its engine_t.mem bytes, which is
+ * the state each had at power-on, so a switch sounds as it did with the arrays (tests/union_test.c). State
+ * that runs on across notes and switches stays outside (WHEEL's wheels, GRAIN's random numbers).
+ * Sized by the largest, PHYS (3 x SYMP's slot); an engine that needs more than ENG_MEM_PART grows it for
+ * every part (x NPART of the pool). Zero-initialised pool section: main.c fm1_cstart clears it. */
+#define ENG_MEM_PART 12888u
+static union {
+    uint64_t align;
+    uint8_t b[ENG_MEM_PART];
+} eng_mem[NPART] __attribute__((section(".pool")));
+static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in the region, 0 = none (zeros) */
+#define ENG_MEM(p) ((void *)eng_mem[p].b)  /* part p's region (p < NPART) */
+#define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
+
 #include "eng_analog.c"
 #include "eng_phase.c"
 #include "eng_lofi.c"
@@ -50,6 +68,46 @@ static const engine_t *const ENGINES[NENGINES] = {
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
 static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 
+/* part t's engine memory goes to its engine (t->engine; voice.c engine_block, once a block: on a switch, after
+ * the old engine's fade, before any note on the new one): zeroed (its engine_t.mem bytes) when another
+ * engine's state is in it. An engine without memory leaves it as it is: a switch back finds its state. */
+static void eng_mem_claim(const track_t *t)
+{
+    uint32_t p = (uint32_t)(t - trk), e, k, n;
+    uint32_t *w;
+    if (p >= NPART)
+        return;
+    e = eng_idx(t->engine);
+    n = ENGINES[e]->mem;
+    if (!n || eng_mem_owner[p] == e + 1u)
+        return;
+    w = (uint32_t *)ENG_MEM(p);
+    for (k = 0; k < (n + 3u) / 4u; k++)
+        w[k] = 0;
+    eng_mem_owner[p] = (uint8_t)(e + 1u);
+}
+
+/* the sample source a track's sound plays that has no data (SAMPLE's SET, GRAIN's SRC, SLICE's SRC: an empty or
+ * invalid user slot, a set or PIANO this build lacks): its name (it plays a sine: eng_sample.c smp_sine), 0 = none;
+ * *code a small number for it (1.., per engine and source) so the UI says it once (ui_input.c sample_notice) */
+static uint8_t snd_said[NTRK];   /* per track: the code last said, 0 = none (a project load clears them: said again) */
+static const char *snd_missing(const track_t *t, uint32_t *code)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL;
+#if FELUCCA_SLICE
+    if (e == &ENG_SLICE) {
+        si = slc_src_of(t->p);
+        *code = 64u + si;
+        return slc_get(si) ? 0 : N_SLC_SRC[si];
+    }
+#endif
+    if (e != &ENG_SAMPLE && e != &ENG_GRAIN)
+        return 0;
+    *code = (e == &ENG_GRAIN ? 32u : 1u) + si % 32u;
+    return smp_set_missing(si) ? SMP_ALL_NAMES[si] : 0;
+}
+
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
  * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it follows FM6). The indices stay as they are (the
  * stores and the protocol hold them); only this table orders them */
@@ -85,7 +143,7 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
     return eng_vis((eng_rank(e % NENGINES) + (dir > 0 ? 1u : NENG_SHOWN - 1u)) % NENG_SHOWN);
 }
 
-/* factory sequence patterns: SEQ > PATTERNS loads one into the selected track (ui.c pat_load); a preset
+/* factory sequence patterns: SAVE > PHRASES loads one into the selected track (ui.c pat_load); a preset
  * only suggests one with PAT(n), loading a sound never touches the steps. Absolute notes, loaded as they
  * are (DRUM plays them as GM drums, SLICE as slices; SCL TRANS and OCT transpose): 0 = rest;
  * flags 1 = accent, 2 = slide, 4 = tie (holds the previous note). Names: at most 8 characters */

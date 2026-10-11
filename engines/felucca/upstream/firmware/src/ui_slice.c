@@ -10,7 +10,8 @@
  *   KNOB 3  SPLIT  picked (right): OCT+ splits the slice at its middle (up to 32 slices)
  *   KNOB 4  JOIN   picked (right): OCT+ joins the slice to the one before (its start goes)
  *   OCT-    drops the pick, or (none) goes HOME
- * Edits are for a user slot (USR1..3: SRC); BREAK and an empty slot show their slices only. The first edit takes
+ * Edits are for a user slot (USR1..3: SRC); BREAK and PIANO show their slices only, a source with no material (it
+ * plays a sine) says SAMPLE NOT FOUND (the no-file icon). The first edit takes
  * the slices shown into the slot's MAN table (eng_slice.c) and sets DIV to MAN; later edits change that table (the
  * audio side switches tables between notes). Leaving the page saves them with the sample (slice_store.c, once
  * stopped). Included by ui.c (before the action pages); the cards: ui_draw.c, the waveform: ui_graph.c. */
@@ -26,14 +27,12 @@ static struct {
 static int slice_page_ok(void) { return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE; }
 static int slice_page_on(void) { return !ui.home && cur_page()->graph == GR_SLICES && slice_page_ok(); }
 
-/* the source the selected part plays (an empty slot: BREAK, as slice_note_on), its DIV; 0 = no material */
+/* the source the selected part plays, its DIV; 0 = no material (an empty slot: the sine, as slice_note_on) */
 static const slc_src_t *slice_src(uint32_t *src, uint32_t *div)
 {
     const int16_t *p = TSEL->p;
-    uint32_t k = (uint32_t)p[P_E0] & 3u;
+    uint32_t k = slc_src_of(p);
     const slc_src_t *s = slc_get(k);
-    if (!s)
-        s = slc_get(k = 0);
     *src = k;
     *div = (uint32_t)clamp(p[P_E1], 0, SLC_DIV_MAN);
     return s;
@@ -76,17 +75,16 @@ static void slice_view(uint32_t *a, uint32_t *b, uint32_t *len)
         *b = *a + 1u;
 }
 
-/* the edit table of the selected part's slot, the first time from the slices shown (DIV becomes MAN); 0 = BREAK
- * or an empty slot: nothing to edit (says so) */
+/* the edit table of the selected part's slot, the first time from the slices shown (DIV becomes MAN); 0 = BREAK,
+ * PIANO or an empty slot: nothing to edit (says so) */
 static slc_man_t *slice_edit_begin(uint32_t *k)
 {
     uint32_t src, div, n, i, a, b, st;
     const slc_src_t *s = slice_src(&src, &div);
     slc_man_t *m;
-    if (!s || !src) {
+    if (!s || !src || src == SLC_SRC_PIANO) {
         static const char *const EMPTY[3] = {"USR1 EMPTY", "USR2 EMPTY", "USR3 EMPTY"};
-        uint32_t u = (uint32_t)TSEL->p[P_E0] & 3u;   /* (an empty USR slot plays BREAK: src 0) */
-        ui_message(u ? EMPTY[u - 1u] : "SRC USR1-3 TO EDIT");
+        ui_message(src && src != SLC_SRC_PIANO ? EMPTY[src - 1u] : "SRC USR1-3 TO EDIT");
         return 0;
     }
     *k = src - 1u;
@@ -129,8 +127,11 @@ static void slice_knob(uint32_t slot, int32_t steps)
 {
     uint32_t n = slice_count(), j = slice_sel(), k, a, b, len;
     slc_man_t *m;
-    if (!n)
+    if (!n) {                                        /* no material (a sine plays): KNOB 2 says why ("USR2 EMPTY") */
+        if (slot)
+            slice_edit_begin(&k);
         return;
+    }
     if (slot == 0u) {
         sp.sel = (uint8_t)clamp((int32_t)j + steps, 0, (int32_t)n);
         return;
@@ -157,7 +158,7 @@ static int slice_act_ready(uint32_t c)
 {
     uint32_t src, div, n = slice_count(), j = slice_sel();
     const slc_src_t *s = slice_src(&src, &div);
-    if (!s || !src || j >= n)
+    if (!s || slc_slot_of(s) >= SMP_USER_SLOTS || j >= n)   /* (BREAK, PIANO: no edits) */
         return 0;
     if (c == 3u)
         return j > 0u;
@@ -167,6 +168,10 @@ static void slice_act(uint32_t c)
 {
     uint32_t n = slice_count(), j = slice_sel(), k;
     slc_man_t *m;
+    if (!n) {                                        /* no material: says why */
+        slice_edit_begin(&k);
+        return;
+    }
     if (j >= n) {
         ui_message("PICK A SLICE");
         return;

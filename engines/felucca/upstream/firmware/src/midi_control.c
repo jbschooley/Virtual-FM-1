@@ -184,7 +184,8 @@ static void midi_silence_track(uint32_t track)
     track_t *t = &trk[track];
     uint32_t i;
     trk_all_off(t);
-    t->nheld = t->arp_phys = t->arp_note = t->rh_n = 0;
+    t->nheld = t->arp_phys = t->rh_n = 0;
+    arp_forget(t);
     t->seq_n = t->seq_hold = t->slide_glide = 0;
     for (i = 0; i < NVOICE; i++)
         if (t->v[i].active)
@@ -202,6 +203,102 @@ static int midi_track_held(uint32_t track)
         if ((fm1_in.notes & (1u << k)) && kb_trk[k] == track)
             return 1;
     return 0;
+}
+
+/* The standard CC map (#103): always on, these CCs only, on the track the channel plays (ROUT as notes). A CC
+ * sets its parameter as a knob would, 0..127 over the parameter's range (64: the middle of a bipolar one), and
+ * AUTOMATION records it as a knob move (motion_capture: the selected track, armed and playing). CC74 / CC71 are
+ * the engine's own brightness / resonance (MIDI_CC_ENG); an engine without one ignores them. CC121 resets none
+ * of them (RP-015: they are the sound's) */
+#define MCC_CUT 0xFEu
+#define MCC_RES 0xFFu
+static const uint8_t MIDI_CC_MAP[][2] = {
+    {5, P_GLIDE}, {7, P_LEVEL}, {10, P_PAN}, {71, MCC_RES}, {72, P_REL}, {73, P_ATK}, {74, MCC_CUT}, {75, P_DEC},
+    {91, P_REV}, {93, P_CHOR}, {94, P_DLY},
+};
+/* per engine (ENGINES[] order): CC74's E index + 1 in the high nibble, CC71's in the low one, 0 = none */
+static const uint8_t MIDI_CC_ENG[NENGINES] = {
+    0x56, 0x00, 0x30, 0x80, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
+                                                       * TRIO CUT RES, WHEEL - */
+    0x80, 0x30, 0x30, 0x34, 0x30,                     /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
+#if FELUCCA_SLICE
+    0x80,                                             /* SLICE TONE */
+#endif
+};
+/* a CC sets parameter id of track t as a knob would: 0..127 over its range */
+static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)
+{
+    const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
+    int32_t v = d->min + ((int32_t)value * (d->max - d->min) + 63) / 127;
+    if (d->max <= d->min || t->p[id] == v)
+        return;
+    t->p[id] = (int16_t)v;
+    (void)motion_capture(t, id, (int16_t)v);
+}
+/* MIDI LEARN (1.5, Discussion #170): up to ML_N CCs, each set to one parameter of one track, whatever channel it
+ * comes on (a channel ROUT ignores stays ignored) and whichever track that channel plays. Kept with the settings in
+ * the 32 bytes of favorites.factory[14] (no engine 14: favorites.c; all 0 in every older setting = nothing learned),
+ * an entry two bytes, as a 16-bit value LSB first: bits 0..6 the CC, 7..8 the track, 9..15 the parameter's code, 0 =
+ * an empty entry: a common parameter its P_* id + 1 (1 .. ML_E0 - 1: their ids never move, new ones go before P_E0),
+ * an engine parameter ML_E0 + k for P_E0 + k (P_E0 moves when common ones are added). A learned CC no longer reaches
+ * the standard map (#103) on any channel: the controller is the user's now. The CCs with a meaning of their own
+ * (midi_control's cases, CC0 / 32 bank select, CC11 EXPR, CC96 / 97 data increment, CC120..127) are never learned. The UI
+ * (midi_learn.c) writes the entries with the interrupts off; ml_arm / ml_heard hand a CC heard while learning to it */
+#define ML_N 16u
+#define ML_E0 120u
+typedef char ml_ids_fit[P_E0 < ML_E0 && P_COUNT - P_E0 == 8 ? 1 : -1];
+static uint8_t *const ml_tab;               /* favorites.factory[14] (midi_learn.c: a build without the UI, none) */
+static volatile uint8_t *const ml_io;       /* ui.ml.io (midi_learn.c; not globals here: the ISR's data keeps its layout) */
+#define ml_arm (ml_io[0])                   /* the UI waits for a CC (MIDI LEARN with a parameter picked) */
+#define ml_heard (ml_io[1])                 /* .. the CC that came meanwhile, + 1 (0 none) */
+static uint32_t ml_id(uint32_t code)        /* an entry's code -> P_* id, P_COUNT: none this firmware knows */
+{
+    return code >= ML_E0 ? P_E0 + code - ML_E0 : code && code <= P_E0 ? code - 1u : P_COUNT;
+}
+static int ml_free_cc(uint32_t cc)          /* (CC1 6 38 64 98..101 120..127: midi_control's own) */
+{
+    return cc && cc < 120u && cc != 1u && cc != 6u && cc != 11u && cc != 32u && cc != 38u && cc != 64u &&
+           (cc < 96u || cc > 101u);
+}
+/* 1: cc is learned (set here) or taken by MIDI LEARN waiting for one */
+static int __attribute__((noinline)) midi_learned(uint32_t cc, uint32_t value)
+{
+    uint32_t i, e, id, hit = 0;
+    if (!ml_tab || !ml_free_cc(cc))
+        return 0;
+    if (ml_arm) {
+        if (!ml_heard)
+            ml_heard = (uint8_t)(cc + 1u);
+        return 1;
+    }
+    for (i = 0; i < ML_N; i++) {
+        e = ml_tab[2u * i] | (uint32_t)ml_tab[2u * i + 1u] << 8;
+        if ((e >> 9) && (e & 127u) == cc) {
+            if ((id = ml_id(e >> 9)) < P_COUNT)
+                midi_cc_set(&trk[(e >> 7) & 3u], id, value);
+            hit = 1;
+        }
+    }
+    return hit;
+}
+
+static void __attribute__((noinline)) midi_cc_map(track_t *t, uint32_t cc, uint32_t value)
+{
+    uint32_t i, id = 0xFFFFu, e;
+    if (midi_learned(cc, value))                /* (a learned CC is the user's: not the map's) */
+        return;
+    for (i = 0; i < NELEM(MIDI_CC_MAP); i++)
+        if (MIDI_CC_MAP[i][0] == cc)
+            id = MIDI_CC_MAP[i][1];
+    if (id >= MCC_CUT) {
+        if (id == 0xFFFFu)
+            return;
+        e = MIDI_CC_ENG[eng_idx(t->eng_req)] >> (id == MCC_CUT ? 4 : 0) & 15u;
+        if (!e)
+            return;
+        id = P_E0 + e - 1u;
+    }
+    midi_cc_set(t, id, value);
 }
 
 static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
@@ -226,7 +323,8 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
         for (i = 0; i < NTRK; i++)
             if ((mask & (1u << i)) && !midi_track_held(i)) {
                 trk_all_off(&trk[i]);
-                trk[i].nheld = trk[i].arp_phys = trk[i].arp_note = trk[i].rh_n = 0;
+                trk[i].nheld = trk[i].arp_phys = trk[i].rh_n = 0;
+                arp_forget(&trk[i]);
             }
         break;
     case 121:                                      /* Reset All Controllers, keep bend sensitivity */
@@ -256,19 +354,25 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
             midi_expression_channel(ch);
         }
         break;
-    default: break;
+    default:
+        midi_cc_map(midi_track(ch), cc, value);
+        break;
     }
 }
 
-/* ROUT CH1-4 listens to channels 1..4 only. A switch to it from SEL (events_block, before the queue) lets go
- * of what channels 5..16 hold: their notes released (also pedal-held ones), their pedal, bend, wheel and RPN
- * selection reset, so no note can hang on a channel that is no longer heard. Each part's bend then follows
- * its own channel (1..4), as CH1-4 routes it. */
-static void __attribute__((noinline)) midi_route_ch14(void)
+/* ROUT CH1-4 listens to channels 1..4 only (1.2: CH5-8, CH9-12, CH13-16 to their four). A switch to a block from
+ * SEL or another block (events_block, before the queue) lets go of what the other channels hold: their notes
+ * released (also pedal-held ones), their pedal, bend, wheel and RPN selection reset, so no note can hang on a
+ * channel that is no longer heard. Each part's bend then follows its own channel of the block. */
+static void __attribute__((noinline)) midi_route_block(void)
 {
     uint32_t ch, note;
-    for (ch = NPART; ch < 16u; ch++) {
+    for (ch = 0; ch < 16u; ch++) {
         midi_channel_t *c = midi_channel(ch);
+        if (midi_in_block(ch)) {
+            midi_expression(midi_track(ch), c);
+            continue;
+        }
         for (note = 0; note < 128u; note++)
             if (midi_notes[ch][note])
                 midi_release(ch, note);
@@ -276,17 +380,20 @@ static void __attribute__((noinline)) midi_route_ch14(void)
         c->bend = 0;
         c->rpn_msb = c->rpn_lsb = 127;
     }
-    for (ch = 0; ch < NPART; ch++)
-        midi_expression(&trk[ch], midi_channel(ch));
 }
+
+/* Program Change (1.5.1, #179 by renebohne): the track the channel plays (ROUT as for notes) takes program d1. Only
+ * noted here, 0x80 | d1 per track (a later one before the main loop wins): a sound load is the main loop's work
+ * (undo, motion, FM6's patch), never the audio ISR's. ui.mpc (ui.c; a build without the UI: none) */
+static volatile uint8_t *const mpc_io;
 
 /* Keep the occasional controller/panic dispatch outside the hot rendering loop. Channel voice messages only
  * (realtime and clock are handled in events_block, SysEx never reaches here). With ROUT CH1-4 channels
- * 5..16 are ignored entirely: notes, bend, CCs (CC1/11/64, RPN, and the CC120/121/123 panic and reset),
- * channel aftertouch, so they stay free for other instruments. */
+ * 5..16 are ignored entirely (with CH5-8 .. CH13-16 every channel outside the block): notes, bend, CCs (CC1/11/64, RPN, and the CC120/121/123 panic and reset),
+ * channel aftertouch, Program Change, so they stay free for other instruments. */
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
-    if (ch >= NPART && !song.g[G_ROUTE])
+    if (song.g[G_ROUTE] != 1 && !midi_in_block(ch))
         return;
     if (st == 0x90u || st == 0x80u)
         midi_note_event(ch, d1, st == 0x90u ? d2 : 0);
@@ -298,4 +405,6 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
         midi_control(ch, d1, d2);
     } else if (st == 0xD0u)
         mod_midi(midi_track(ch), st, d1, d2);
+    else if (st == 0xC0u && mpc_io)                /* Program Change: the main loop loads it (ui.c midi_pc_poll) */
+        mpc_io[trk_index(midi_track(ch))] = (uint8_t)(0x80u | d1);
 }

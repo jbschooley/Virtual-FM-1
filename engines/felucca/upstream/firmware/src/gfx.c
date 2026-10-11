@@ -74,6 +74,7 @@ static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
 static uint8_t cv_scroll;        /* 1: drawing a scrolled view (its text may run past the canvas) */
 static int32_t cv_oy;            /* y offset for graph drawing */
 static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 (cv_begin: the whole canvas) */
+static uint8_t cv_flip;          /* cv_alpha_hc: the cell mirrored left <-> right (the header's metronome, ui_draw.c) */
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
@@ -389,8 +390,8 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
  * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to 8 bits come from a
  * 256-entry table made once per font in RAM (symbol | length << 8; 0 = a longer code: bit by bit). The
  * stream is read in order, so rows outside the clip are decoded and dropped; a run spans rows */
-#define HC_FONTS 2                       /* the coded faces: M and L (gen_aa_font.py HUFF) */
-static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS];
+#define HC_FONTS 3                       /* the codes: the faces M and L (gen_aa_font.py HUFF), the icons (AI_HC) */
+static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS] __attribute__((section(".pool")));
 static const uint16_t *hc_lut(const uint8_t *hc)
 {
     uint32_t k, len, code = 0, sym = 15, i;
@@ -450,9 +451,9 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
             }
             n = run < w - gx ? run : w - gx;
             if (v && row) {
-                int32_t px = x + (int32_t)gx;
+                int32_t px = cv_flip ? x + (int32_t)(w - 1u - gx) : x + (int32_t)gx, dx = cv_flip ? -1 : 1;
                 uint32_t k;
-                for (k = 0; k < n; k++, px++)
+                for (k = 0; k < n; k++, px += dx)
                     if ((uint32_t)px < cv_w)
                         row[px] = rv[v];
             }

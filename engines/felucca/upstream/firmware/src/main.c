@@ -76,6 +76,7 @@ static void fm1_fault(const fm1_crash_t *c)
     char b[12];
     uint32_t t0;
     fm1_audio_stop();
+    scr_wake_now();                                   /* (MENU > SCREEN OFF: the panel on first) */
     lcd_fill(0, 0, 240, 240, UI_CRASH_BG);            /* fixed, outside the palettes */
     draw_text_line(0, 8, 240, &AF_M, "FELUCCA CRASH", UI_CRASH_INK, UI_CRASH_BG, 1);
     hexs(b, c->vec);
@@ -109,6 +110,7 @@ static void felucca_init(void)
         set_engine_of(t, TRK_DEF[i][0]);
         apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
         t->engine = t->eng_req;
+        eng_mem_claim(t);                     /* (zeros already: no note can come before) */
         track_defaults_steps(t);              /* (a sound load never touches them) */
         if (TRK_DEF[i][2])
             load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
@@ -117,14 +119,34 @@ static void felucca_init(void)
     }
     undo_depth--;
     song.sel = 0;
-    song.master_q12 = 2048;
+    song.master_q12 = 2048;                   /* (the pot's level replaces it before the audio starts: master_boot) */
     ui.home = 1;
     ui.force = 1;
 }
 
+/* The power-on LED sweep (1.1, hal/fm1_led_anim.h: a soft light over the keys left to right, then the buttons swell
+ * and settle on the glow; ~0.70 s), started before the scan and run by it: nothing waits for it, the splash's 430 ms
+ * and the first ~0.27 s of the UI go by under it (the UI's LEDs from its end, or at once on a key or a button down).
+ * Every LEDS setting: it is no idle glow; with DIM HI / DIM LO it ends on that glow (and is drawn over that glow
+ * level), with OFF / INV dark. Not with MENU > ANIM OFF (no motion: the LEDs as the UI has them at once), not after a crash (a crash record newer than the last boot saw: the crash screen's
+ * reset), a hang (a WDT reset) or a failed boot (bootguard: the last one died within its first 30 s): straight to the
+ * UI. The UBOOT paths never get here. */
+static uint32_t crash_seen __attribute__((section(".noinit")));   /* fm1_crash.count at the last boot */
+static uint8_t boot_clean;                    /* no crash, hang (WDT) or failed boot before this one (boot_leds):
+                                               * the sweep runs and the autosave is restored (project.c autosave_boot) */
+static void boot_leds(void)
+{
+    uint32_t crashed = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.count != crash_seen;
+    crash_seen = fm1_crash.count;
+    boot_clean = !crashed && !bootguard.failed && !(fm1_boot.p3_rst & 4u);
+    fm1_led_dim_level(settings_leds == LEDS_DIM_LO);
+    if (boot_clean && !(ui_prefs & PREF_ANIM_OFF))
+        fm1_led_anim_start(settings_leds == LEDS_DIM || settings_leds == LEDS_DIM_LO);
+}
+
 static void fm1_main(void)
 {
-    int32_t knob = 512 * 16;
+    uint32_t ms;
     persist_boot();
 #if FELUCCA_OTA
     if (flash_ok)
@@ -133,9 +155,7 @@ static void fm1_main(void)
     settings_init();
     usb_serial_apply();                                 /* (#67: the saved USB SERIAL before usb_start) */
     lcd_init();
-    lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(0, 94, 240, &AF_L, "FELUCCA", T_THEME, 1);
-    draw_text_box(0, 134, 240, &AF_S, "MULTI-ENGINE SYNTH", T_MID, 1);
+    draw_splash();                                      /* ui_draw.c (1.1.5) */
     if (felucca_dbg.magic != DBG_MAGIC) {
         memset(&felucca_dbg, 0, sizeof felucca_dbg);
         felucca_dbg.magic = DBG_MAGIC;
@@ -153,11 +173,14 @@ static void fm1_main(void)
     fm1_adc_init();
     panel_init();
     felucca_init();
+    master_boot();
+    kb_boot_hold = 1;                         /* #137: no notes from the keys before the UI (seq.c keyboard_block) */
     audio_init();
     usb_start();
 #if FELUCCA_UART
     uart_midi_init();
 #endif
+    boot_leds();
     timer5_start();
     fm1_guard_lock_top();
     fm1_irq_enable_all();
@@ -166,8 +189,14 @@ static void fm1_main(void)
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();
     }
-    fm1_delay_ms(400);
+    autosave_boot(boot_clean);                /* (1.2) the last session's music, under the splash */
+    for (ms = 0; ms < 400u; ms += 10u) {      /* the splash; the pot followed (MIDI IN plays under it) */
+        fm1_delay_ms(10);
+        master_poll();
+    }
+    kb_boot_hold = 0;
     lcd_fill(0, 0, 240, 240, T_BG);
+    scrn.idle = fm1_ms;                        /* (MENU > SCREEN OFF: from here) */
 
     for (;;) {
         uint32_t m = fm1_ms;
@@ -182,15 +211,7 @@ static void fm1_main(void)
             if (b > 0)
                 song.batt_raw = song.batt_raw ? song.batt_raw + (b - song.batt_raw) / 32 : b;
         }
-        {
-            int32_t a = fm1_adc_read(FM1_ADC_MASTER);
-            if (a >= 0) {
-                uint32_t k10;
-                knob += (a * 16 - knob) / 8;
-                k10 = (uint32_t)(knob / 16);
-                song.master_q12 = (k10 * k10) >> 8;            /* 0 .. ~4096 */
-            }
-        }
+        master_poll();
         {   /* OCT- + OCT+ held 5 s: enter UBOOT with RAM intact (debug / update); a countdown
              * shows from 2 s over the whole screen (the menu and the dialogs too: ui_draw), letting
              * go cancels it */
@@ -211,6 +232,7 @@ static void fm1_main(void)
                 }
             } else if (fm1_ms - t0 > 5000u) {
                 fm1_audio_stop();
+                scr_wake_now();
                 lcd_fill(0, 0, 240, 240, T_BG);
                 draw_text_box(0, 110, 240, &AF_M, "UBOOT", T_THEME, 1);
                 usb_detach();
@@ -225,6 +247,7 @@ static void fm1_main(void)
         if (usb.ota_req) {                              /* M-UPGRADE upgrade command */
             usb.ota_req = 0;
             panic_req = (1u << NTRK) - 1u;               /* every track (bit per track) */
+            scr_wake_now();                             /* (its progress on the screen) */
             if (flash_ok)
                 ota_session();                          /* returns only if nothing was committed */
             lcd_fill(0, 0, 240, 240, T_BG);
@@ -233,6 +256,7 @@ static void fm1_main(void)
 #endif
         if (usb.uboot_req) {                            /* SysEx F0 22 24 35 7D F7 from the host */
             fm1_audio_stop();
+            scr_wake_now();
             lcd_fill(0, 0, 240, 240, T_BG);
             draw_text_box(0, 110, 240, &AF_M, "UBOOT (USB)", T_THEME, 1);
             fm1_delay_ms(20);
@@ -250,6 +274,7 @@ static void fm1_main(void)
         felucca_dbg.stage = 1;
         ui_input();
         settings_poll();                              /* queued settings save: only while stopped */
+        autosave_poll();                              /* (1.2) the music, stopped and idle: project.c */
         felucca_dbg.stage = 2;
         ui_leds();
         ui_draw();

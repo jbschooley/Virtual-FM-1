@@ -170,11 +170,13 @@ static void con_flr(const char *p)                  /* flash read over SPI (no X
 #if FELUCCA_UAC
 static void con_uac(void)                              /* USB audio input: stream state and glitches */
 {
-    uint32_t p = uac.pkts;
+    uint32_t p = uac.pkts, base = uac.r48 ? 48u : 44u;
     con_kv("uac_alt", uac.alt);
+    con_kv("uac_hz", uac.r48 ? 48000 : 44100);      /* the rate the host set (SET_CUR; 44100 until it does) */
+    con_kv("uac_rate_sets", (int32_t)uac.rate_sets);
     con_kv("uac_starts", (int32_t)uac.starts);
     con_kv("uac_pkts", (int32_t)p);
-    con_kv("uac_rate_hz", p ? 44000 + (int32_t)(uac.frames - 44u * p) * 1000 / (int32_t)p : 0);   /* < 5 h */
+    con_kv("uac_rate_hz", p ? (int32_t)base * 1000 + (int32_t)(uac.frames - base * p) * 1000 / (int32_t)p : 0);   /* < 5 h */
     con_kv("uac_underruns", (int32_t)uac.underruns);
     con_kv("uac_overruns", (int32_t)uac.overruns);
     con_kv("uac_missed", (int32_t)uac.missed);
