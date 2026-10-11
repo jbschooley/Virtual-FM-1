@@ -229,6 +229,8 @@ static int checks() {
                 CHECK(m13c.support == fm1::Support::Older && m13c.known && m13c.text.find("Melodee 0.13 syncs with it") != std::string::npos
                       && fm1::writesRefused(m13).find("set this instance to Melodee 0.13") != std::string::npos
                       && fm1::writesRefused(m13, "melodee_013").empty(), "0.13: pulled from only, but an instance set to 0.13 syncs fully: " + m13c.text);
+                const auto kept = fm1::checkVersion(m13, "melodee_013");
+                CHECK(kept.support == fm1::Support::Current && kept.text == "FM-1_9013: Melodee 0.13", "to an instance set to 0.13, nothing to say: " + kept.text);
                 const auto mc = fm1::checkVersion(m12);
                 CHECK(mc.support == fm1::Support::Older && mc.known && mc.text.find("update it to 1.1.0") != std::string::npos
                       && !fm1::writesRefused(m102).empty() && !fm1::writesRefused(m12).empty(),
@@ -589,7 +591,7 @@ static int checks() {
             {   // 1.0.2's INFO says motion is version 2 (4D 02 40 01); Melodee advertises no live-sync caps (53),
                 // in 0.13 or 1.1: Live works the same with both
                 FeluccaEngine m11{Fl::Melodee}, m13{Fl::Melodee, FeluccaEngine::Release::Previous};
-                auto caps = [](FeluccaEngine& f) { auto r = f.ask(felucca::frame(1)); return r ? int(felucca::liveCaps(felucca::argsOf(*r))) : -1; };
+                auto caps = [](FeluccaEngine& f) { auto r = f.ask(felucca::frame(1)); return r ? int(felucca::liveCaps(felucca::argsOf(*r), true)) : -1; };
                 const std::vector<uint8_t> v2 = {'X', 0, 1, 104, 27, 64, 96, 'A', 0, 4, 16, 0x55, 1, 9, 0x4D, 2, 0x40, 1, 0x53, 1, 3};   // (one engine, named A)
                 CHECK(caps(m11) == caps(m13) && caps(m11) == 0 && felucca::liveCaps(v2) == 3,
                       "Melodee 1.1's INFO reads as 0.13's (no live caps); caps after a motion v2 tag are read");
@@ -677,6 +679,24 @@ static int checks() {
             b.setStateInformation(saved.getData(), int(saved.getSize()));
             CHECK(b.firmwareId() == "felucca_103" && b.felucca() && b.felucca()->release() == Rl::Previous && b.felucca()->engineOf(2) == 6
                   && b.felucca()->param(2, 0) == 88, "a project with 1.0.2's Felucca music opens on 1.0.3, its music as it was");
+        }
+        {   // the library's device file as 0.13 (or Felucca 1.0.x) wrote it seeds the kept release's, whichever
+            // instance opens first (the current release would write over it)
+            for (int order = 0; order < 2; ++order) {
+                const auto keptFile = felucca::DeviceStore::defaultFile(felucca::melodee013Dialect());
+                const auto curFile = felucca::DeviceStore::defaultFile(felucca::melodeeDialect());
+                keptFile.deleteFile();
+                curFile.getParentDirectory().createDirectory();
+                FeluccaEngine m13{Fl::Melodee, FeluccaEngine::Release::Previous};
+                const auto made = felucca::backupJson(felucca::objectsOf(m13), "MELODEE v0.13 (Virtual FM-1)", felucca::melodee013Dialect());
+                curFile.replaceWithText(made);
+                FeluccaEngine cur{Fl::Melodee}, old{Fl::Melodee, FeluccaEngine::Release::Previous};
+                felucca::DeviceStore curStore{felucca::melodeeDialect()}, keptStore{felucca::melodee013Dialect()};
+                if (order == 0) { curStore.load(cur); keptStore.load(old); } else { keptStore.load(old); curStore.load(cur); }
+                CHECK(keptFile.existsAsFile() && keptFile.loadFileAsString() == made, "a 0.13 library device file seeds 0.13's own (" + juce::String(order ? "0.13" : "1.1") + " first)");
+                keptFile.deleteFile();
+                curFile.deleteFile();
+            }
         }
         {   // a Send fitted to an older synth's objects (felucca::fitToSynth)
             auto objs = [](std::initializer_list<int> ids, size_t size = 4) {

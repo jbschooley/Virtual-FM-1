@@ -3,6 +3,7 @@
 #include "FeluccaDevice.h"
 
 #include "FeluccaEngine.h"
+#include "FeluccaSeq.h"
 #include "LibraryStore.h"
 
 namespace felucca {
@@ -78,7 +79,24 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     return {};
 }
 
+// A kept previous release's device file (Melodee 0.13's, Felucca 1.0.3's) starts as the one that
+// release wrote before the current release was built in, if the library has it ("Melodee device.json"
+// made by 0.13): copied before either reads, so the current release cannot have written over it yet
+static void seedKept(const Dialect& d, const juce::File& mine) {
+    const bool mel = isMelodee(d);
+    if (isSloop(d) || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
+    const Dialect& kept = mel ? melodee013Dialect() : felucca103Dialect();
+    const Dialect& current = mel ? melodeeDialect() : feluccaDialect();
+    const juce::String made = mel ? "MELODEE v0.13" : "v1.0";   // ("MELODEE v0.13 (Virtual FM-1)", "v1.0.3 (Virtual FM-1)")
+    const auto keptFile = DeviceStore::defaultFile(kept), currentFile = DeviceStore::defaultFile(current);
+    if (keptFile.existsAsFile() || !currentFile.existsAsFile()) return;
+    if (!juce::JSON::parse(currentFile).getProperty("firmware", {}).toString().startsWith(made)) return;
+    keptFile.getParentDirectory().createDirectory();
+    currentFile.copyFileTo(keptFile);
+}
+
 juce::String DeviceStore::load(FeluccaEngine& f) {
+    seedKept(dialect_, file_);
     seen_ = fileHash();
     blocked_ = false;
     lastError_ = {};

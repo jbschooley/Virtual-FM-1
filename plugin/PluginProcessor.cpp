@@ -1185,7 +1185,7 @@ bool FM1Processor::feluccaSynth() const {
 juce::String FM1Processor::feluccaSynthProblem() const {
     auto id = session.lastIdentity();
     if (!link.isOpen() || !id || !fm1::isFeluccaFamily(fm1::firmwareIdFor(*id)) || !fm1::runs(*id, firmwareId().toStdString())) return {};
-    const auto check = fm1::checkVersion(*id);   // a release too old to sync: why, and what to do
+    const auto check = fm1::checkVersion(*id, firmwareId().toStdString());   // a release too old to sync: why, and what to do
     return check.support == fm1::Support::Deprecated ? juce::String(check.text) : juce::String();
 }
 

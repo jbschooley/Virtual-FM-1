@@ -118,7 +118,7 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 // bit 0 WATCH while watching keeps what is not pushed yet, bit 1 no RELOAD after the editor's own
 // PRESET or SET of G_ENGSEL. The reply's arguments.
 constexpr uint8_t kCapWatchKeeps = 1, kCapNoEcho = 2;
-uint8_t liveCaps(const std::vector<uint8_t>& infoArgs);
+uint8_t liveCaps(const std::vector<uint8_t>& infoArgs, bool melodee = false);   // (Melodee: its 50 block is 2 bytes, NPAT and CHAIN_ROWS)
 
 // what copySound loaded on the other side: a preset, and (Melodee) a part's own CZ-1 tone or PROPHET
 // patch, which leaves it on preset 0 (each has the other side push a RELOAD)

@@ -73,7 +73,9 @@ struct VersionCheck {
     Support support = Support::Older;      // (a newer one: the newest's, untested)
     std::string text;                      // "FM-1_095: newer than ... (not tried yet)"
 };
-VersionCheck checkVersion(const Identity& id);
+// (choiceId: the instance's choice, if it is a kept previous release's: an FM-1 on that release is
+// what it plays, nothing to say)
+VersionCheck checkVersion(const Identity& id, const std::string& choiceId = {});
 // Why the plugin only reads from this synth (sends nothing, no Live), or empty: SLOOP before 2.4
 std::string writesRefused(const Identity& id, const std::string& choiceId = {});
 

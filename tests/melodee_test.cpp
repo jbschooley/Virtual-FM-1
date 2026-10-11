@@ -201,6 +201,25 @@ int main() {
               && m13.engineName(3) == "LOFI" && mel.engineName(3) == "SID", "and Melodee 0.13 beside it, as it was (LOFI where 1.1 has SID)");
     }
 
+    {   // 1.0's metronome (CLICK ON: editor command 35, item 4) sounds over a playing, empty song
+        auto loud = [](bool click) {
+            Mel f{kMel};
+            std::vector<float> l(256), r(256);
+            if (click) {
+                const uint8_t m[] = {0xF0, 0x7D, 0x46, 0x4C, 35, 4, 2, 0xF7};
+                f.sysex(m, int(sizeof m));
+            }
+            for (int k = 0; k < 4; ++k) f.render(l.data(), r.data(), 256);
+            f.transport(true);
+            double peak = 0;
+            for (int k = 0; k < 400; ++k) { f.render(l.data(), r.data(), 256); for (float v : l) peak = std::max(peak, double(std::fabs(v))); }
+            return peak;
+        };
+        const double off = loud(false), on = loud(true);
+        std::printf("  metronome: peak %.4f off, %.4f on\n", off, on);
+        CHECK(off < 1e-4 && on > 0.01, "1.0's metronome sounds when it is on (and not when off)");
+    }
+
     // ---- what it is ----
     Mel a{kMel};
     CHECK(a.tracks() == 4 && a.parts() == 4, "four parts, each with any engine");

@@ -156,9 +156,15 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
            + std::string(currentVersion("sloop").label) + " with SLOOP's installer to send to it or go Live. Pull still works.";
 }
 
-VersionCheck checkVersion(const Identity& id) {
+VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
+    if (isPreviousRelease(choiceId) && runs(id, choiceId)) {   // an instance set to a kept release, an FM-1 on it
+        c.known = &currentVersion(choiceId);
+        c.support = Support::Current;
+        c.text = id.name() + ": " + firmwareChoice(choiceId).name + " " + c.known->label;
+        return c;
+    }
     if (c.firmwareId == "melodee") {   // its release from its INFO ("MELODEE v0.13"): Melodee changes often
         const auto& current = currentVersion("melodee");
         const auto at = id.editor.find("MELODEE v");

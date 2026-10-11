@@ -29,7 +29,8 @@ for the code. New work goes under the next version at the top.
 - **Melodee 0.13 is kept** beside it as its own firmware choice: 1.0 retired
   0.13's LOFI, PHASE, VOICE and NOISE engines, so a project saved with 0.13 opens
   on 0.13 and plays as it did, and an instance set to Melodee 0.13 syncs fully
-  with an FM-1 still on 0.13.
+  with an FM-1 still on 0.13. The projects and user presets 0.13 kept in the
+  library come along to it.
 
 ## [0.8.0] - 2026-10-09
 

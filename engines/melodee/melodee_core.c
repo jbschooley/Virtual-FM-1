@@ -504,6 +504,7 @@ void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames 
             fel_main_pass();
         }
         mix_block(out + 2u * i, CTL);
+        click_render(out + 2u * i, CTL);   /* (1.0: the metronome and count-in, after the mix, as audio.c's audio_block) */
         {   /* the HOME screen's oscilloscope, as audio.c's audio_block feeds it: every other left sample */
             uint32_t k;
             for (k = 1u; k < CTL; k += 2u)

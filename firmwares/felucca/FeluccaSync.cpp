@@ -463,7 +463,7 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
 // INFO: version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, NENGINES engine names, NTRK,
 // CHAIN_ROWS, then tagged blocks (tag, 01, a payload of a length the tag gives); older firmware ends
 // earlier. 53 01 caps: the live-sync capabilities.
-uint8_t liveCaps(const std::vector<uint8_t>& a) {
+uint8_t liveCaps(const std::vector<uint8_t>& a, bool melodee) {
     size_t k = 0;
     auto string = [&] { while (k < a.size() && a[k] != 0) ++k; ++k; };
     string();                                  // the version
@@ -476,7 +476,8 @@ uint8_t liveCaps(const std::vector<uint8_t>& a) {
         const uint8_t tag = a[k];
         size_t len = 0;
         switch (tag) {
-            case 0x55: case 0x42: case 0x53: case 0x50: len = 1; break;   // UI caps, backup caps, live sync caps, FM6 v2 (1.0.3)
+            case 0x55: case 0x42: case 0x53: len = 1; break;   // UI caps, backup caps, live sync caps
+            case 0x50: len = melodee ? 2 : 1; break;           // Felucca 1.0.3's FM6 v2; Melodee's pattern banks (NPAT, CHAIN_ROWS)
             case 0x4D: case 0x46: len = 2; break;              // motion, FM6 patches (factory, bank count)
             default: return 0;                                 // a block this does not know: stop
         }
@@ -495,7 +496,7 @@ static std::optional<std::vector<uint8_t>> layout(Endpoint& ep, uint8_t* caps = 
     size_t at = 0;
     while (at < a.size() && a[at] != 0) ++at;
     if (at + 6 > a.size()) return std::nullopt;
-    if (caps) *caps = liveCaps(a);
+    if (caps) *caps = liveCaps(a, isMelodee(ep.dialect()));
     return std::vector<uint8_t>(a.begin() + long(at) + 1, a.begin() + long(at) + 6);
 }
 
