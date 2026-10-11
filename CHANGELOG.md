@@ -26,6 +26,22 @@ for the code. New work goes under the next version at the top.
   play on it; the ones from before keep their names and follow its new numbering.
   An FM-1 on Melodee 0.12 to 1.0.2 is pulled from only, and told to update with
   Melodee's installer. Not yet tried with an FM-1 running 1.1.0.
+- **Felucca 1.5.1** is built in (it was 1.0.3): parameter locks, ratchets,
+  nudges and quantize, songs with a lane per track, the INSERT on every track,
+  ANALOG's band-pass and high-pass, envelopes in note values, LFO sync, DRUM
+  lane levels, stereo spread, the five VA drum kits, MIDI LEARN, Program
+  Change, the REV and ECHO THROWs and more (its 32-voice FM6 bank is sent by
+  Felucca's web editor: the plugin has no way to load one yet). New host
+  parameters ("Felucca P1 ITYPE", "Felucca P1 KICK" and so on); the ones from
+  before keep their names. The Sequencer tab's Pull and Send carry each step's
+  ratchet and nudge, parameter locks as locks, and songs with a slot per track.
+  An FM-1 on Felucca 1.0 to 1.4.1 cannot read 1.5's projects: the plugin pulls
+  from it only, and says to update it. Not yet tried with an FM-1 running 1.5.1.
+- **Felucca 1.0.3 is kept** beside it, as Melodee 0.13 is: a project saved with
+  Felucca 1.0.x opens on 1.0.3 and plays as it did (1.0.5 retired the HAND, CYM
+  and H+CYM kits), and an instance set to Felucca 1.0.3 syncs fully with an FM-1
+  still on 1.0.3. Renaming a plain user preset on Felucca 1.5.1 sets its sound
+  category back to the default (the editor protocol has no place for it there).
 - **Melodee 0.13 is kept** beside it as its own firmware choice: 1.0 retired
   0.13's LOFI, PHASE, VOICE and NOISE engines, so a project saved with 0.13 opens
   on 0.13 and plays as it did, and an instance set to Melodee 0.13 syncs fully

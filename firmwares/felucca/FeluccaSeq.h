@@ -32,6 +32,7 @@ struct Step {
     std::array<uint8_t, 4> note{};
     int time = kRest, flags = 0, vel = 0;
     int hit = 0, acc = 0, chance = 100; // Felucca: its drum lanes, accents, chance (percent)
+    int ratchet = 1, nudge = 0;         // Felucca 1.0.5 / 1.2: x1..x4, and -8..7 sixteenths of a step (1.5.1's TRACK_STEP)
     int lvl = 0, rat = 0;               // SLOOP: 2 bits a note
     bool operator==(const Step&) const = default;
 };
@@ -100,14 +101,18 @@ bool writePattern(Endpoint& e, int track, const TrackPattern& p, juce::String& e
 bool copyPatterns(Endpoint& from, Endpoint& to, int tracks, juce::String& error, bool onlyLength = false,
                   const Progress& progress = {});
 
-// Felucca's song chain (SONG, 33): rows of {project slot 0..3, repeat 1..16}
+// Felucca's song chain (SONG, 33): rows of {project slot 0..3, repeat 1..16}; from 1.2 a slot per track
+// (lanes: SONG ops 4..7), read and written whole with the current Felucca
 struct Chain {
     std::vector<std::pair<int, int>> rows;
+    std::vector<std::array<int, 4>> lanes;   // (1.2: each row's slot per track; empty: rows only)
     bool running = false;
     int row = 0, remaining = 0;
 };
 std::optional<Chain> readChain(Endpoint& e);
 Bytes chainWrite(const std::vector<std::pair<int, int>>& rows);
+Bytes chainWrite(const Chain& c);                   // (lanes when it has them)
+bool isCurrentFelucca(const Dialect& d);           // Felucca 1.5.1 (not the 1.0.3 kept beside it)
 
 // Melodee: each track has 8 pattern banks (PATTERN, 73), and its song's rows name a bank per track
 // (BANK_SONG, 74); SONG's rows set every track to one bank
@@ -135,7 +140,7 @@ Bytes chainPlay(bool play);
 struct Motion {
     bool on = false;
     int max = 64;
-    struct Event { int step, param, value; };
+    struct Event { int step, param, value; bool lock = false; };   // (lock: Felucca 1.1's parameter lock)
     std::vector<Event> events;
 };
 std::optional<Motion> readMotion(Endpoint& e, int track);

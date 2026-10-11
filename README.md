@@ -40,7 +40,8 @@ On an iPhone (the iOS app builds from source):
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
   an FM-1 yet; 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
-  1.0.3 (1.0 to 1.0.2 too), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
+  1.5.1 (1.5 too; 1.0 to 1.4.1 pulled from only; one on 1.0.3 syncs with an
+  instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
   2.5 pulled from only) or
   **[Melodee](https://github.com/keremimo/melodee)** 1.1.0 (0.12 to 1.0.2
   pulled from only; one on 0.13 syncs with an instance set to Melodee 0.13). On M-VAVE's own
@@ -126,14 +127,18 @@ project saves its own current preset, edits, patterns and arpeggiator.
   editors can check against. See [`docs/JSON-FORMAT.md`](docs/JSON-FORMAT.md).
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
-- **Felucca 1.0.3**, built from its source: its thirteen engines on four parts,
+- **Felucca 1.5.1**, built from its source: its thirteen engines on four parts,
   each part's parameters in an editor and as host parameters. Its Library tab
   lists the 32 user presets and four projects to load, save, rename and erase;
   its Device tab shows its own screen, buttons, knobs and keys, so its
   sequencer, projects and user presets work as on the device. Its projects and
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
-  running Felucca: pull everything, send everything, or keep both in step live.
+  running Felucca 1.5.1: pull everything, send everything, or keep both in step live
+  (not yet tried with an FM-1 on 1.5.1); the Sequencer tab carries steps' ratchets and
+  nudges, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
+  beside it, its own firmware choice, for the projects made with it: a project saved
+  with 1.0.x opens on it, and it syncs fully with an FM-1 still on 1.0.3.
 - **SLOOP 2.6**, built from its source the same way: its twelve engines (FM6,
   PHYS and NOISE among them) on three parts and a drum track, each with its
   INSERT, in the same editor and as host parameters, Library and Device tabs.

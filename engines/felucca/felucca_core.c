@@ -45,7 +45,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define __attribute__(x)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
 #define FELUCCA_FLASH 1                  /* projects, user presets and their FM6 patches in "flash" (RAM below) */
-#define FELUCCA_VERSION "v1.0.3"
+#define FELUCCA_VERSION "v1.5.1"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
  * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
  * 240 KB of each one's state */
@@ -112,7 +112,15 @@ static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
 };
 static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL];   /* lit, and the idle glow: read by FEL(leds) */
+/* (1.1) the breathing LEDs and a steady mid level (the DRUM grid's beats): FEL(leds) shows both dim */
+static uint8_t fm1_led_breath[FM1_NCOL], fm1_led_mid[FM1_NCOL];
 static void fm1_led_dim_level(uint32_t lo) { (void)lo; }
+/* (1.1, hal/fm1_led_anim.h) the power-on sweep and the idle animation: none here, the UI's LEDs at once */
+static void fm1_led_anim_start(uint32_t glow) { (void)glow; }
+static int fm1_led_anim_on(void) { return 0; }
+static void fm1_led_idle_start(uint32_t glow) { (void)glow; }
+static int fm1_led_idle_on(void) { return 0; }
+static void fm1_led_anim_stop(void) {}
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
 static int32_t host_enc[7];
@@ -144,6 +152,8 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
             host_screen[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
 }
 static void lcd_sync(void) {}
+static void lcd_power(uint32_t on) { (void)on; }   /* (1.1.5: MENU > SCREEN OFF's backlight, as its host tests stub it) */
+static void lcd_wake_now(void) {}
 #define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope, fed in FEL(render) */
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
@@ -158,6 +168,7 @@ static struct { uint32_t stage, page, home, ui_frames; } felucca_dbg;
 #include "../upstream/firmware/src/gfx.c"
 #include "../upstream/firmware/src/panel.c"
 #include "../upstream/firmware/src/ui.c"
+#include "../upstream/firmware/src/menu_items.c"   /* (1.5: MENU's rows and settings, after ui.c as felucca.c has it) */
 #include "../upstream/firmware/src/icons.c"
 #include "../upstream/firmware/src/ui_graph.c"
 #include "../upstream/firmware/src/ui_draw.c"
@@ -244,6 +255,7 @@ static void felucca_init(void)
         set_engine_of(t, TRK_DEF[i][0]);
         apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
         t->engine = t->eng_req;
+        eng_mem_claim(t);                     /* (1.1: zeros already: no note can come before) */
         track_defaults_steps(t);              /* (a sound load never touches them) */
         if (TRK_DEF[i][2])
             load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
@@ -339,10 +351,11 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     settings_init();
     panel_init();
     felucca_init();
+    scrn.idle = fm1_ms;                  /* (1.1.5: MENU > SCREEN OFF counts from here, as main.c) */
     usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
-const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* "v1.0": the release built here */
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* "v1.5.1": the release built here */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }
@@ -548,7 +561,7 @@ uint32_t FEL(armed)(void) { return song.rec; }   /* live recording armed: a bit 
 uint32_t FEL(scale_mask)(uint32_t track) { return track < NTRK ? scale_mask(&trk[track]) : 0xFFFu; }
 
 /* the LEDs as ui_leds last set them: 14 buttons by label, the 27 keys, then PLAY's green LED;
- * each 0 dark, 1 glowing (the idle glow), 3 lit */
+ * each 0 dark, 1 glowing (the idle glow), 2 dim (1.1: breathing, the DRUM grid's beats), 3 lit */
 uint32_t FEL(leds)(uint8_t *out, uint32_t max)
 {
     uint32_t i, n = 0;
@@ -560,7 +573,8 @@ uint32_t FEL(leds)(uint8_t *out, uint32_t max)
             for (p = 0; p < FM1_NCOL; p++)
                 for (r = 1; r < 5u; r++)
                     if (FM1_KEYMAP[r][p] == (int8_t)id)
-                        v = (fm1_led[p] >> r) & 1u ? 3u : (fm1_led_dim[p] >> r) & 1u ? 1u : 0u;
+                        v = (fm1_led[p] >> r) & 1u ? 3u : ((fm1_led_breath[p] | fm1_led_mid[p]) >> r) & 1u ? 2u
+                          : (fm1_led_dim[p] >> r) & 1u ? 1u : 0u;
         out[n++] = (uint8_t)v;
     }
     return n;

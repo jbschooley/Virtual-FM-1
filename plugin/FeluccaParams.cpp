@@ -172,6 +172,21 @@ std::vector<Entry> build() {
             {"dtype", 25, {0, 3, 1}}, {"dwear", 26, {0, 127, 64}}};
         for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, 0});
     }
+    // Felucca 1.1 to 1.5's (1.5.1 core.h, params.c), on the current release only: the DRUM lanes' levels
+    // (83..90), LFO 2's SYNC TRIG POL (91..93), QNTZ (94), SPRD (95), the INSERT (96..100), ANALOG's
+    // filter TYPE (101) and ENV SYNC (102)
+    {
+        constexpr int kHint = 9;
+        static const struct { const char* name; int index; int range[3]; } part[] = {
+            {"kick", 83, {0, 127, 127}}, {"snare", 84, {0, 127, 127}}, {"clap", 85, {0, 127, 127}}, {"hatcl", 86, {0, 127, 127}},
+            {"hatop", 87, {0, 127, 127}}, {"tom", 88, {0, 127, 127}}, {"rim", 89, {0, 127, 127}}, {"bell", 90, {0, 127, 127}},
+            {"lsync", 91, {0, 10, 0}}, {"ltrig", 92, {0, 1, 0}}, {"lpol", 93, {0, 1, 0}}, {"sqnt", 94, {0, 1, 1}}, {"sprd", 95, {0, 127, 0}},
+            {"itype", 96, {0, 8, 0}}, {"ia", 97, {0, 127, 64}}, {"ib", 98, {0, 127, 96}}, {"ic", 99, {0, 127, 96}}, {"imix", 100, {0, 127, 127}},
+            {"ftype", 101, {0, 2, 0}}, {"esync", 102, {0, 1, 0}}};
+        for (int t = 0; t < kParts; ++t)
+            for (const auto& k : part)
+                out.push_back({"fel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, false, false, 0});
+    }
     return out;
 }
 
@@ -190,7 +205,12 @@ int indexOf(const juce::String& id) {
 
 int indexOn(const Entry& e, int release) {
     if (e.only >= 0 && e.only != release) return -1;
-    if (e.melodee && e.only < 0 && release == 0 && e.track >= 0 && e.index >= kMelodeeEngineFirst013) return e.index + 12;
+    // (the ids from before a release added parameters before the engine's eight: on the current release
+    // those eight are that many higher. Melodee 1.0: twelve from 84; Felucca 1.1 to 1.5: twenty from 83)
+    if (e.only < 0 && release == 0 && e.track >= 0 && !e.sloop) {
+        if (e.melodee && e.index >= kMelodeeEngineFirst013) return e.index + 12;
+        if (!e.melodee && e.index >= kEngineFirst) return e.index + 20;
+    }
     return e.index;
 }
 

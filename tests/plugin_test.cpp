@@ -193,17 +193,17 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.0.3"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.96" && fm1::firmwareChoice("felucca").label() == "Felucca 1.5.1"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
         CHECK(at(96).known && at(96).support == Support::Current && at(96).text.find("not tried") == std::string::npos, "FM-1_096: current, tried on an FM-1");
         CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
-              && at(910).support == Support::Current, "094 (a tested beta, said so), V15, Felucca 1.0.3 known");
+              && at(915).support == Support::Current && at(910).support == Support::Older, "094 (a tested beta, said so), V15, Felucca 1.5.1 known, 1.0 older");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
         auto n = at(97);
         CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.96") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
-        CHECK(at(911).newer && at(911).firmwareId == "felucca" && at(911).text.find("1.0") != std::string::npos, "Felucca 1.1 too");
+        CHECK(at(916).newer && at(916).firmwareId == "felucca" && at(916).text.find("1.5.1") != std::string::npos, "Felucca 1.6 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
         CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos && at(95).text.find("not a release the plugin knows") != std::string::npos,
               "one between known releases is not called older");
@@ -267,17 +267,20 @@ static int checks() {
                   "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
-            const auto v104 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.4"});
-            CHECK(v104.newer && v104.text.find("Felucca 1.0.4, newer than the plugin's 1.0.3") != std::string::npos,
-                  "a later 1.0.x (FM-1_910, as 1.0) is told apart by its INFO: " + v104.text);
-            const auto v10 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"});
-            CHECK(!v10.newer && v10.support == Support::Tested && v10.text.find("Felucca 1.0, older than the plugin's 1.0.3") != std::string::npos,
-                  "and 1.0 is an earlier one: " + v10.text);
-            const auto v102 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.2"});
-            CHECK(!v102.newer && v102.support == Support::Older && v102.text.find("older than the plugin's 1.0.3") != std::string::npos
-                  && v102.text.find("FM6 patch bank") != std::string::npos, "1.0.2: older, its bank its own: " + v102.text);
-            const auto v103 = fm1::checkVersion(fm1::Identity{"FM-1", 910, "FELUCCA v1.0.3"});
-            CHECK(!v103.newer && v103.support == Support::Current && v103.text == "FM-1_910", "1.0.3 is the one built in");
+            // releases that answer the same FM-1_9XY are told apart by INFO; 1.5's projects open on none before 1.5
+            const fm1::Identity f104{"FM-1", 910, "FELUCCA v1.0.4"}, f103{"FM-1", 910, "FELUCCA v1.0.3"}, f141{"FM-1", 914, "FELUCCA v1.4.1"},
+                                f15{"FM-1", 915, "FELUCCA v1.5"}, f151{"FM-1", 915, "FELUCCA v1.5.1"}, f152{"FM-1", 915, "FELUCCA v1.5.2"};
+            const auto v104 = fm1::checkVersion(f104), v103 = fm1::checkVersion(f103), v141 = fm1::checkVersion(f141);
+            CHECK(!v104.newer && v104.support == Support::Older && v104.text.find("Felucca 1.0.4, older than the plugin's 1.5.1; pulled from only") != std::string::npos
+                  && v141.support == Support::Older && !fm1::writesRefused(f141).empty() && !fm1::writesRefused(f104).empty(),
+                  "1.0.x to 1.4.1: older, pulled from only: " + v104.text);
+            CHECK(v103.text.find("an instance set to Felucca 1.0.3 syncs with it") != std::string::npos && fm1::writesRefused(f103, "felucca_103").empty()
+                  && fm1::checkVersion(f103, "felucca_103").text == "FM-1_910: Felucca 1.0.3", "1.0.3: and synced fully by an instance set to 1.0.3: " + v103.text);
+            const auto v15 = fm1::checkVersion(f15), v151 = fm1::checkVersion(f151), v152 = fm1::checkVersion(f152);
+            CHECK(v15.support == Support::Older && v15.text.find("synced as 1.5.1") != std::string::npos && fm1::writesRefused(f15).empty()
+                  && v151.support == Support::Current && v151.text == "FM-1_915" && fm1::writesRefused(f151).empty()
+                  && v152.newer && v152.text.find("newer than the plugin's 1.5.1") != std::string::npos,
+                  "1.5: the same formats, synced; 1.5.1 the one built in; a later 1.5.x newer: " + v15.text);
         }
         CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
               "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
@@ -697,6 +700,36 @@ static int checks() {
                 keptFile.deleteFile();
                 curFile.deleteFile();
             }
+        }
+        {   // Felucca 1.5.1's patterns copied whole between two instances (the Sequencer tab's Pull and Send): a
+            // step's ratchet and nudge, a parameter lock as a lock (not motion), and a song with a slot per track
+            auto a = std::make_shared<FeluccaEngine>(), b = std::make_shared<FeluccaEngine>();
+            felucca::VirtualEndpoint ea(a), eb(b);
+            felucca::Step st;
+            st.n = 1; st.note[0] = 60; st.time = 0; st.vel = 100; st.ratchet = 3; st.nudge = -3;
+            CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 1, 4, st), 400).has_value(), "a ratcheted, nudged step written");
+            auto v14 = [](int v) { v += 8192; return std::vector<uint8_t>{uint8_t(v & 127), uint8_t((v >> 7) & 127)}; };
+            std::vector<uint8_t> lock = {1, 5, 6, 0}, motion = {1, 3, 7, 0};
+            for (auto x : v14(33)) lock.push_back(x);
+            for (auto x : v14(55)) motion.push_back(x);
+            auto rc = [](const std::optional<fm1::Bytes>& r) { auto x = r ? felucca::argsOf(*r) : std::vector<uint8_t>{}; return x.size() >= 2 ? int(x[1]) : -1; };
+            CHECK(rc(ea.ask(felucca::frame(felucca::kMotion, lock), 400)) == 0 && rc(ea.ask(felucca::frame(felucca::kMotion, motion), 400)) == 0,
+                  "a lock and a motion event on part 2");
+            felucca::Chain song;
+            song.rows = {{0, 2}, {1, 1}};
+            song.lanes = {{0, 1, 0, 2}, {1, 1, 3, 0}};
+            CHECK(rc(ea.ask(felucca::chainWrite(song), 400)) == 0, "a song with a slot per track");
+            juce::String err;
+            CHECK(felucca::copySequencer(ea, eb, 4, err), "copied to the other (" + err + ")");
+            const auto got = felucca::readStep(eb, 1, 4);
+            CHECK(got && got->ratchet == 3 && got->nudge == -3 && got->note[0] == 60, "the step with its ratchet and nudge");
+            const auto m = felucca::readMotion(eb, 1);
+            int locks = 0, moves = 0;
+            if (m) for (const auto& ev : m->events) { if (ev.lock && ev.step == 6 && ev.value == 33) ++locks; if (!ev.lock && ev.step == 7 && ev.value == 55) ++moves; }
+            CHECK(m && locks == 1 && moves == 1 && m->events.size() == 2, "the lock stays a lock, the motion motion");
+            const auto c = felucca::readChain(eb);
+            CHECK(c && c->lanes.size() == 2 && c->lanes[0] == (std::array<int, 4>{0, 1, 0, 2}) && c->lanes[1] == (std::array<int, 4>{1, 1, 3, 0})
+                  && c->rows[0].second == 2, "the song with each track's slot");
         }
         {   // a Send fitted to an older synth's objects (felucca::fitToSynth)
             auto objs = [](std::initializer_list<int> ids, size_t size = 4) {
@@ -1830,11 +1863,14 @@ static int checks() {
                           "the host shows Felucca's own value names");
                     // defaults are Felucca's own; four parts alike; nothing for what the device never reads
                     CHECK(std::abs(bpm->getDefaultValue() - (120.0f - 40.0f) / 200.0f) < 1e-6f, "fel_bpm's default is Felucca's 120");
-                    int perPart[4] = {};
-                    for (const auto& en : felparams::entries()) if (en.track >= 0 && !en.sloop && !en.melodee) ++perPart[en.track];
-                    CHECK(perPart[0] == 70 && perPart[1] == 70 && perPart[2] == 70 && perPart[3] == 70
-                          && au.apvts.getParameter("fel_t4_atk") && au.apvts.getParameter("fel_t3_m2dst") && au.apvts.getParameter("fel_rtype"),
-                          "four parts, each with the same parameters (1.0's modulation and chords too)");
+                    int perPart[2][4] = {};   // (on 1.5.1, on 1.0.3)
+                    for (const auto& en : felparams::entries())
+                        if (en.track >= 0 && !en.sloop && !en.melodee)
+                            for (int r = 0; r < 2; ++r) if (felparams::indexOn(en, r) >= 0) ++perPart[r][en.track];
+                    CHECK(perPart[1][0] == 70 && perPart[1][1] == 70 && perPart[1][2] == 70 && perPart[1][3] == 70
+                          && perPart[0][0] == 90 && perPart[0][3] == 90 && au.apvts.getParameter("fel_t4_atk") && au.apvts.getParameter("fel_t3_m2dst")
+                          && au.apvts.getParameter("fel_rtype") && au.apvts.getParameter("fel_t2_itype") && au.apvts.getParameter("fel_t4_kick"),
+                          "four parts, each with the same parameters (1.0's modulation and chords too; 1.5's twenty on 1.5.1 only)");
                     CHECK(!au.apvts.getParameter("fel_t1_fm1_atk") && !au.apvts.getParameter("fel_t1_ed_fx"),
                           "none for parameters nothing on the device reads");
                     // a project's Felucca sound wins over host values saved stale
@@ -1972,7 +2008,7 @@ static int checks() {
             juce::MemoryBlock mb;
             made.getStateInformation(mb);
             auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
-            CHECK(tree.getProperty("firmwareVersion").toString() == "1.0.3" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.0.3",
+            CHECK(tree.getProperty("firmwareVersion").toString() == "1.5.1" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.5.1",
                   "a project says the release it was made for");
             tree.setProperty("firmwareVersion", "0.9", nullptr);
             juce::MemoryOutputStream os;
@@ -1981,7 +2017,7 @@ static int checks() {
             juce::String said;
             later.onStatus = [&said](const juce::String& t) { said = t; };
             later.setStateInformation(os.getData(), int(os.getDataSize()));
-            CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.0"), "loading one made for another release says so");
+            CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.5.1"), "loading one made for another release says so");
             later.onStatus = nullptr;
             FM1Processor hostLoaded;   // a host loads the project before any editor is open
             hostLoaded.setStateInformation(os.getData(), int(os.getDataSize()));
@@ -2003,7 +2039,7 @@ static int checks() {
             juce::String err;
             int steps = 0;
             auto all = felucca::backup(ea, [&](int, int, const juce::String&) { ++steps; return true; }, err);
-            CHECK(all && (*all)[3] == music && (*all)[0].size() == 3584 && steps > 10, "a full backup through the protocol, in pieces");
+            CHECK(all && (*all)[3] == music && (*all)[0].size() == 3840 && steps > 10, "a full backup through the protocol, in pieces");
             CHECK(all && felucca::restore(eb, *all, {}, err) && b->engineOf(1) == 6 && b->param(1, 0) == 61
                   && b->object(3, slot) && slot == music, "restored into the other: the music and the project slot");
             if (!err.isEmpty()) std::printf("  sync: %s\n", err.toRawUTF8());
@@ -2021,7 +2057,7 @@ static int checks() {
                     juce::String perr;
                     if (!felucca::backup(ve, {}, perr)) ++refused;
                     auto o = felucca::objectsOf(*e);
-                    if (o.size() == 10 && o[3] == music && o[0].size() == 3584) ++direct;   // (0..9: 1.0.3)
+                    if (o.size() == 10 && o[3] == music && o[0].size() == 3840) ++direct;   // (0..9: 1.0.3 to 1.5.1)
                 }
                 auto o = felucca::objectsOf(*e);
                 auto f2 = std::make_shared<FeluccaEngine>();
@@ -2051,7 +2087,7 @@ static int checks() {
                             if (pieces == 3) { auto cut = q; cut.erase(cut.end() - 4, cut.end() - 1); return e.ask(cut, t); }
                             if (pieces == 7) { e.ask(q, t); return std::nullopt; }
                             const int off = a.size() > 6 ? int(a[2] | a[3] << 7 | a[4] << 14) : -1;
-                            if (a[1] == 0 && off == 3584 - 128 && !lastCut) {
+                            if (a[1] == 0 && off == 3840 - 128 && !lastCut) {   // (1.5's project: 3840 bytes, 30 pieces)
                                 lastCut = true;
                                 auto cut = q; cut.erase(cut.end() - 4, cut.end() - 1); return e.ask(cut, t);
                             }
@@ -2147,13 +2183,13 @@ static int checks() {
         q.setFirmware("baudgirl_fm1va");
         q.setFirmware("felucca");
         CHECK(q.felucca() != nullptr && q.felucca()->engineOf(1) == 6, "switching away and back keeps Felucca's sound");
-        // the project keeps Felucca's own format (a FUN8 project); a damaged one is refused whole
+        // the project keeps Felucca's own format (1.5: a FUN10 project); a damaged one is refused whole
         {
             auto tree = juce::ValueTree::readFromData(project.getData(), project.getSize()).getChildWithName("Felucca").createCopy();
             juce::MemoryOutputStream music;
-            CHECK(juce::Base64::convertFromBase64(music, tree.getProperty("music").toString()) && music.getDataSize() == 3584,
+            CHECK(juce::Base64::convertFromBase64(music, tree.getProperty("music").toString()) && music.getDataSize() == 3840,
                   "the project holds Felucca's music as Felucca saves a project");
-            if (music.getDataSize() == 3584) {
+            if (music.getDataSize() == 3840) {
                 auto* bytes = static_cast<uint8_t*>(const_cast<void*>(music.getData()));
                 bytes[200] ^= 0x5A;   // its hash no longer matches
                 tree.setProperty("music", juce::Base64::toBase64(bytes, music.getDataSize()), nullptr);

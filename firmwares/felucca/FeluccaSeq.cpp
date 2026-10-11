@@ -34,6 +34,10 @@ std::vector<uint8_t> stepArgs(const Dialect& d, const Step& s) {
         a.push_back(uint8_t(s.acc & 127));
         a.push_back(uint8_t(((s.hit >> 7) & 1) | (((s.acc >> 7) & 1) << 1)));
         a.push_back(uint8_t(std::clamp(s.chance, 0, 100)));
+        if (isCurrentFelucca(d)) {   // (1.5.1: its ratchet and nudge too; a shorter write keeps the step's own)
+            a.push_back(uint8_t(std::clamp(s.ratchet, 1, 4)));
+            a.push_back(uint8_t(std::clamp(s.nudge, -8, 7) + 8));
+        }
     }
     return a;
 }
@@ -53,6 +57,7 @@ std::optional<Step> stepFrom(const Dialect& d, const std::vector<uint8_t>& b) {
         s.hit = b[8] | ((b[10] & 1) << 7);
         s.acc = b[9] | (((b[10] >> 1) & 1) << 7);
         s.chance = b[11];
+        if (b.size() >= 14) { s.ratchet = std::clamp<int>(b[12], 1, 4); s.nudge = int(b[13] & 15) - 8; }   // (1.0.5, 1.2)
     }
     return s;
 }
@@ -264,8 +269,11 @@ bool copyPatterns(Endpoint& from, Endpoint& to, int tracks, juce::String& error,
     return true;
 }
 
+bool isCurrentFelucca(const Dialect& d) { return &d == &feluccaDialect(); }
+
 std::optional<Chain> readChain(Endpoint& e) {
-    auto r = e.ask(frame(kSong, {0}), kAsk);
+    const bool lanes = isCurrentFelucca(e.dialect());   // (1.2: op 4, each row a slot per track and its repeat)
+    auto r = e.ask(frame(kSong, {uint8_t(lanes ? 4 : 0)}), kAsk);
     if (!r) return std::nullopt;
     auto a = argsOf(*r);
     if (a.size() < 6) return std::nullopt;
@@ -273,13 +281,33 @@ std::optional<Chain> readChain(Endpoint& e) {
     c.running = a[3] != 0;
     c.row = a[4];
     c.remaining = a[5];
-    for (size_t i = 0; i < a[2] && 6 + 2 * i + 1 < a.size(); ++i) c.rows.push_back({a[6 + 2 * i], a[7 + 2 * i]});
+    const size_t w = lanes ? 5 : 2;
+    for (size_t i = 0; i < a[2] && 6 + w * i + w - 1 < a.size(); ++i) {
+        const size_t at = 6 + w * i;
+        if (lanes) {
+            c.lanes.push_back({a[at], a[at + 1], a[at + 2], a[at + 3]});
+            int slot = 0;   // (a row's one slot, as op 0 shows it: the first track that plays one)
+            for (int k = 0; k < 4; ++k) if (a[at + size_t(k)] < 4) { slot = a[at + size_t(k)]; break; }
+            c.rows.push_back({slot, a[at + 4]});
+        } else
+            c.rows.push_back({a[at], a[at + 1]});
+    }
     return c;
 }
 
 Bytes chainWrite(const std::vector<std::pair<int, int>>& rows) {
     std::vector<uint8_t> a = {1, uint8_t(rows.size())};
     for (auto [slot, rep] : rows) { a.push_back(uint8_t(slot)); a.push_back(uint8_t(rep)); }
+    return frame(kSong, a);
+}
+
+Bytes chainWrite(const Chain& c) {
+    if (c.lanes.size() != c.rows.size() || c.lanes.empty()) return chainWrite(c.rows);
+    std::vector<uint8_t> a = {5, uint8_t(c.lanes.size())};   // (op 1 with lanes)
+    for (size_t i = 0; i < c.lanes.size(); ++i) {
+        for (int s : c.lanes[i]) a.push_back(uint8_t(s));
+        a.push_back(uint8_t(c.rows[i].second));
+    }
     return frame(kSong, a);
 }
 
@@ -329,6 +357,19 @@ Bytes bankChainWrite(const std::vector<BankRow>& rows) {
 }
 
 std::optional<Motion> readMotion(Endpoint& e, int track) {
+    if (isCurrentFelucca(e.dialect())) {   // 1.2: all of them (up to 128) and each one's kind (a lock or motion), op 8
+        auto r = e.ask(frame(kMotion, {uint8_t(track), 8}), kAsk);
+        if (!r) return std::nullopt;
+        auto a = argsOf(*r);
+        if (a.size() < 7 || a[0] != track) return std::nullopt;
+        Motion m;
+        m.on = a[2] != 0;
+        const size_t n = size_t(a[3] | a[4] << 7);
+        m.max = a[5] | a[6] << 7;
+        if (a.size() < 7 + 5 * n) return std::nullopt;
+        for (size_t i = 0; i < n; ++i) m.events.push_back({a[7 + 4 * i] & 63, a[7 + 4 * i + 1], r14(a, 7 + 4 * i + 2), a[7 + 4 * n + i] != 0});
+        return m;
+    }
     auto r = e.ask(frame(kMotion, {uint8_t(track)}), kAsk);
     if (!r) return std::nullopt;
     auto a = argsOf(*r);
@@ -385,7 +426,7 @@ bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, 
         auto song = readBankChain(from);
         if (!song) { err = "no answer to BANK_SONG"; return false; }
         if (int c = rc(to.ask(bankChainWrite(song->rows), 4000)); c != 0) { err = c < 0 ? "no answer to BANK_SONG" : "the song was refused (rc " + juce::String(c) + ")"; return false; }
-    } else if (int c = rc(to.ask(chainWrite(chain->rows), 4000)); c != 0) {
+    } else if (int c = rc(to.ask(isCurrentFelucca(to.dialect()) ? chainWrite(*chain) : chainWrite(chain->rows), 4000)); c != 0) {
         err = c < 0 ? "no answer to SONG" : "the song chain was refused (rc " + juce::String(c) + ")";
         return false;
     }
@@ -394,16 +435,23 @@ bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, 
         if (!src || !dst) { err = "no answer to MOTION"; return false; }
         if (src->events.size() == dst->events.size() && src->on == dst->on
             && std::equal(src->events.begin(), src->events.end(), dst->events.begin(),
-                          [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value; }))
+                          [](auto& x, auto& y) { return x.step == y.step && x.param == y.param && x.value == y.value && x.lock == y.lock; }))
             continue;
         auto motion = [&](const fm1::Bytes& q) {
             const int c = rc(to.ask(q, 4000));
-            if (c != 0) err = c < 0 ? juce::String("no answer to MOTION") : "motion was refused (rc " + juce::String(c) + (c == 2 ? ": its 64 events are taken" : "") + ")";
+            if (c != 0) err = c < 0 ? juce::String("no answer to MOTION") : "motion was refused (rc " + juce::String(c) + (c == 2 ? ": its events are all taken" : "") + ")";
             return c == 0;
         };
         if (!motion(motionClear(t))) return false;
-        for (auto& e : src->events)
-            if (!motion(motionSet(t, e.step, e.param, e.value))) return false;
+        if (isCurrentFelucca(to.dialect()) && !motion(frame(kMotion, {uint8_t(t), 6, 127}))) return false;   // (1.1: its locks too, every step)
+        for (auto& e : src->events) {
+            if (e.lock) {   // (a lock goes to a side that keeps locks: Felucca 1.5.1, op 5)
+                if (!isCurrentFelucca(to.dialect())) continue;
+                std::vector<uint8_t> q = {uint8_t(t), 5, uint8_t(e.step & 63), uint8_t(e.param & 127)};
+                v14(q, e.value);
+                if (!motion(frame(kMotion, q))) return false;
+            } else if (!motion(motionSet(t, e.step, e.param, e.value))) return false;
+        }
         if (!motion(motionOn(t, src->on))) return false;
     }
     return true;

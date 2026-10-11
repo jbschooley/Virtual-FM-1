@@ -294,7 +294,8 @@ if(FM1_BUILD_FELUCCA)
     # the copies: independent, and playing
     add_executable(felucca_test tests/felucca_test.cpp)
     target_link_libraries(felucca_test PRIVATE fm1_felucca)
-    target_compile_definitions(felucca_test PRIVATE FELUCCA_FROZEN="${CMAKE_SOURCE_DIR}/tests/felucca-frozen.txt")
+    target_compile_definitions(felucca_test PRIVATE FELUCCA_FROZEN="${CMAKE_SOURCE_DIR}/tests/felucca-frozen.txt"
+                               FELUCCA103_FROZEN="${CMAKE_SOURCE_DIR}/tests/felucca103-frozen.txt")
     add_test(NAME felucca_test COMMAND felucca_test)
     add_executable(sloop_test tests/sloop_test.cpp)
     target_link_libraries(sloop_test PRIVATE fm1_felucca)

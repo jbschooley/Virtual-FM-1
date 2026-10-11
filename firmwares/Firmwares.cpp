@@ -79,9 +79,15 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {96, "0.96", Support::Current, ""},   // her current release (baudgirl.com, 2026-10-06); tried on an FM-1 the same day
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
+    // (X.Y.Z answers FM-1_9XY: told apart by INFO, checkVersion below). 1.5's projects open on no release
+    // before 1.5: those are pulled from only; an FM-1 on 1.0.3 syncs fully with an instance set to Felucca
+    // 1.0.3 (kept)
     static const std::vector<KnownVersion> felucca = {
         {904, "0.4 beta", Support::Deprecated, "the plugin supports Felucca from 1.0: update it with Felucca's installer"},
-        {910, "1.0.3", Support::Current, ""},   // (1.0 .. 1.0.2 answer as FM-1_910 too: told by INFO, below)
+        {910, "1.0.5.2", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
+        {911, "1.1.5.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
+        {914, "1.4.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
+        {915, "1.5.1", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
     };
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
@@ -147,6 +153,14 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
         const bool m013 = release == "0.13" || release.rfind("0.13.", 0) == 0;
         return "This FM-1 runs Melodee " + release + ", which may not read Melodee " + current + "'s projects: update it to " + current
                + " with Melodee's installer to send to it or go Live" + (m013 ? ", or set this instance to Melodee 0.13" : "") + ". Pull still works.";
+    }
+    if (firmwareIdFor(id) == "felucca") {   // 1.5's projects open on no release before 1.5
+        const std::string release = feluccaRelease(id);
+        if (release.empty() || !sloopNewer("1.5", release)) return {};
+        const bool kept = release == "1.0.3" || release.rfind("1.0.3.", 0) == 0;
+        return "This FM-1 runs Felucca " + release + ", which does not read Felucca " + std::string(currentVersion("felucca").label)
+               + "'s projects: update it with Felucca's installer to send to it or go Live" + (kept ? ", or set this instance to Felucca 1.0.3" : "")
+               + ". Pull still works.";
     }
     if (firmwareIdFor(id) != "sloop") return {};
     const auto at = id.editor.find("SLOOP ");
@@ -219,34 +233,26 @@ VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
     const std::string who = id.name();
     for (const auto& v : list)
         if (v.identity == id.version) c.known = &v;
-    if (c.known && c.firmwareId == "felucca" && id.editor.rfind("FELUCCA v", 0) == 0) {
-        // Felucca X.Y.Z answers as X.Y (FM-1_9XY): its INFO's version tells a newer bug-fix release
-        const std::string release = id.editor.substr(9);
-        auto parts = [](const std::string& v) {
-            std::vector<int> n;
-            for (size_t i = 0; i < v.size();) {
-                if (!std::isdigit(static_cast<unsigned char>(v[i]))) break;
-                int x = 0;
-                while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) x = x * 10 + (v[i++] - '0');
-                n.push_back(x);
-                if (i < v.size() && v[i] == '.') ++i; else break;
-            }
-            return n;
-        };
-        if (parts(release) > parts(c.known->label)) {
+    if (c.firmwareId == "felucca" && !feluccaRelease(id).empty() && id.version >= 910) {
+        // the release from its INFO ("FELUCCA v1.0.3"): several answer the same FM-1_9XY
+        const std::string release = feluccaRelease(id);
+        const auto& current = currentVersion("felucca");
+        c.known = c.known ? c.known : &current;
+        if (release == current.label) { c.known = &current; c.support = current.support; c.text = who; return c; }
+        if (sloopNewer(release, current.label)) {
             c.newer = true;
-            c.support = c.known->support;
-            c.text = who + ": Felucca " + release + ", newer than the plugin's " + c.known->label + "; synced as "
-                   + c.known->label + " (not tried yet)";
+            c.support = current.support;
+            c.text = who + ": Felucca " + release + ", newer than the plugin's " + current.label + "; synced as " + current.label + " (not tried yet)";
             return c;
         }
-        if (parts(release) < parts(c.known->label)) {   // an earlier bug-fix release of the same X.Y
-            c.support = release == "1.0" ? Support::Tested : Support::Older;
-            c.text = who + ": Felucca " + release + ", older than the plugin's " + c.known->label + "; synced as "
-                   + c.known->label + (release == "1.0" ? "" : " (not tried)")
-                   + ", its FM6 patch bank kept its own. Update it with Felucca's installer for the same sounds on both";
-            return c;
-        }
+        const bool sameFormat = !sloopNewer("1.5", release);   // (1.5 and 1.5.1 read each other's projects)
+        const bool kept = release == "1.0.3" || release.rfind("1.0.3.", 0) == 0;
+        c.support = Support::Older;
+        c.text = who + ": Felucca " + release + ", older than the plugin's " + current.label
+               + (sameFormat ? "; synced as " + std::string(current.label) + " (not tried)"
+                             : std::string("; pulled from only") + (kept ? " (an instance set to Felucca 1.0.3 syncs with it)" : "")
+                               + ": update it to " + current.label + " with Felucca's installer to send to it or go Live");
+        return c;
     }
     if (c.known) {
         c.support = c.known->support;

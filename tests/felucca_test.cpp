@@ -54,9 +54,14 @@ static std::string describe(const FeluccaEngine::Desc& d) {
     return o.str();
 }
 
-static std::map<std::string, std::string> frozenFacts() {
+// (previous: Felucca 1.0.3, kept beside the current release, its list as 1.0.3 took it: every
+// parameter in each preset's hash. The current one hashes a preset's common parameters that are not
+// at their default, by name, and the engine's eight: parameters a release adds at their defaults
+// leave it as it was)
+static std::map<std::string, std::string> frozenFacts(FeluccaEngine::Release release = FeluccaEngine::Release::Current) {
     std::map<std::string, std::string> out;
-    FeluccaEngine f;
+    const bool prev = release == FeluccaEngine::Release::Previous;
+    FeluccaEngine f{FeluccaEngine::Flavor::Felucca, release};
     std::map<std::string, int> seen;
     for (int id = 0; id < f.firstEngineParam(); ++id) {
         const auto d = f.paramDesc(0, id);
@@ -80,7 +85,19 @@ static std::map<std::string, std::string> frozenFacts() {
             f.applyPreset(0, int(i));
             f.render(l.data(), r.data(), 64);   // (FM6 loads its patch in the main loop)
             uint64_t h = 1469598103934665603ull;
-            for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            if (prev) {
+                for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            } else {
+                auto mix = [&h](const std::string& s) { for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; } };
+                std::map<std::string, int> nth;
+                for (int id = 0; id < f.paramCount(); ++id) {
+                    const auto d = f.paramDesc(0, id);
+                    const bool engine = id >= f.firstEngineParam();
+                    const std::string key = d.label + "#" + std::to_string(++nth[d.label]);
+                    if (!engine && f.param(0, id) == d.def) continue;
+                    mix((engine ? "E" + std::to_string(id - f.firstEngineParam()) : key) + "=" + std::to_string(f.param(0, id)) + ";");
+                }
+            }
             for (auto b : f.fm6Patch(0)) { h ^= b; h *= 1099511628211ull; }
             std::ostringstream o;
             o << names[i] << " " << std::hex << h;
@@ -90,9 +107,10 @@ static std::map<std::string, std::string> frozenFacts() {
     return out;
 }
 
-static void checkFrozen() {
-    const std::string path = std::string(FELUCCA_FROZEN);
-    const auto now = frozenFacts();
+static void checkFrozen(FeluccaEngine::Release release = FeluccaEngine::Release::Current) {
+    const bool prev = release == FeluccaEngine::Release::Previous;
+    const std::string path = std::string(prev ? FELUCCA103_FROZEN : FELUCCA_FROZEN);
+    const auto now = frozenFacts(release);
     std::map<std::string, std::string> kept;
     {
         std::ifstream in(path);
@@ -110,20 +128,21 @@ static void checkFrozen() {
     }
     std::vector<std::string> fresh;
     for (const auto& [k, v] : now) if (!kept.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
-    CHECK(changed == 0 && gone == 0, "Felucca's parameters and presets are as tests/felucca-frozen.txt keeps them "
-                                     "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)");
-    if (added && std::getenv("FELUCCA_APPEND_FROZEN")) {
+    CHECK(changed == 0 && gone == 0, (std::string("Felucca") + (prev ? " 1.0.3" : "") + "'s parameters and presets are as " + path + " keeps them "
+                                      "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)").c_str());
+    if (added && std::getenv("FELUCCA_APPEND_FROZEN") && !prev) {   // (the kept release never changes)
         std::ofstream out(path, std::ios::app);
         for (const auto& line : fresh) out << line << "\n";
         std::printf("  appended %d to %s\n", added, path.c_str());
         added = 0;
     }
     if (added) std::printf("  %d new (FELUCCA_APPEND_FROZEN=1 felucca_test appends them)\n", added);
-    CHECK(added == 0, "nothing new missing from tests/felucca-frozen.txt");
+    CHECK(added == 0, ("nothing new missing from " + path).c_str());
 }
 
 int main() {
     checkFrozen();
+    checkFrozen(FeluccaEngine::Release::Previous);   // (Felucca 1.0.3 kept: exactly as 1.0.3 was)
     // the reference: a copy no instance has used yet, playing a fixed phrase
     uint64_t fresh = 0;
     { FeluccaEngine f; fresh = play(f, 1, 128, 300); }
@@ -247,7 +266,10 @@ int main() {
     {
         FeluccaEngine f;
         const int pe0 = f.firstEngineParam();
-        CHECK(f.paramCount() == 91 && pe0 == 83 && f.globalCount() == 27, "91 parameters per track, 8 of them the engine's; 27 globals");
+        CHECK(f.paramCount() == 111 && pe0 == 103 && f.globalCount() == 27,
+              "111 parameters per track (1.1 to 1.5: the DRUM lanes, LFO 2, SQNT, SPRD, the INSERT, filter TYPE, ESYNC), 8 of them the engine's; 27 globals");
+        FeluccaEngine k{FeluccaEngine::Flavor::Felucca, FeluccaEngine::Release::Previous};
+        CHECK(k.valid() && k.version() == "v1.0.3" && k.paramCount() == 91 && k.firstEngineParam() == 83, "and Felucca 1.0.3 beside it, as it was");
         auto lvl = f.paramDesc(0, 0);
         CHECK(lvl.label == "LVL" || lvl.label == "LEVEL", "the first track parameter is the level");
         f.setParam(0, 0, lvl.max + 50);
@@ -337,10 +359,10 @@ int main() {
         auto info = request({1});   // INFO: version string first
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;   // then NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA v1.0.3" && info[at] == 14 && info[at + 1] == 91
-              && info[at + 4] == 83, "INFO answers, as Felucca 1.0.3 (14 engines, 91 parameters, P_E0 83)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA v1.5.1" && info[at] == 14 && info[at + 1] == 111
+              && info[at + 4] == 103, "INFO answers, as Felucca 1.5.1 (14 engines, 111 parameters, P_E0 103)");
         auto dump = request({4});   // DUMP: engine, preset, P_COUNT + G_COUNT values (2 bytes each)
-        CHECK(dump.size() == size_t(4 + 1 + 2 + 2 * (91 + 27) + 1) && dump[5] == 0, "DUMP gives the whole sound, longer than usb.c's queue");
+        CHECK(dump.size() == size_t(4 + 1 + 2 + 2 * (111 + 27) + 1) && dump[5] == 0, "DUMP gives the whole sound, longer than usb.c's queue");
         // SET part 1's level (scope 0, id 0) to 50 through the protocol; the engine sees it
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
@@ -370,9 +392,9 @@ int main() {
         f.setEngine(2, 6);
         f.setParam(2, 0, 77);
         std::vector<uint8_t> runtime;
-        CHECK(f.object(0, runtime) && runtime.size() == 3584
-              && (runtime[0] | runtime[1] << 8 | runtime[2] << 16 | uint32_t(runtime[3]) << 24) == 0x46554E38u,
-              "the music now is a FUN8 project");
+        CHECK(f.object(0, runtime) && runtime.size() == 3840
+              && (runtime[0] | runtime[1] << 8 | runtime[2] << 16 | uint32_t(runtime[3]) << 24) == 0x46554E41u,
+              "the music now is a FUN10 project (1.5: 3840 bytes, magic FUNA)");
         FeluccaEngine g;
         CHECK(g.putObject(0, runtime) == 0 && g.engineOf(2) == 6 && g.param(2, 0) == 77, "and restores into another instance");
         runtime[100] ^= 0x55;   // its hash no longer matches

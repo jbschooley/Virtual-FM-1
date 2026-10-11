@@ -10,7 +10,7 @@ namespace {
 // pages group them. Ids beyond what a version has are skipped. Not here: P_ED_FX and the
 // DIGITAL engine's operator envelopes (61-80), which 1.0 neither builds nor shows.
 struct GroupDef { const char* title; int first, last, also = -1; };   // also: one more parameter after them
-const GroupDef kTrackGroups[] = {
+const GroupDef kFelucca103Groups[] = {   // (Felucca 1.0.3, kept: its numbering)
     {"Engine", -1, -1},   // the engine's eight: from firstEngineParam()
     {"Envelope", 1, 4},
     {"Envelope to", 5, 7},
@@ -23,6 +23,29 @@ const GroupDef kTrackGroups[] = {
     {"Scale", 25, 28},
     {"Sequencer", 29, 32},
     {"Sends", 33, 36},
+    {"Slicer", 45, 48},
+    {"Mix", 0, 0},
+};
+// Felucca 1.5.1's: 1.0's numbering up to 82, then the DRUM lanes' levels (83..90), LFO 2's SYNC TRIG POL
+// (91..93), QNTZ (94), SPRD (95), the INSERT (96..100), ANALOG's filter TYPE (101), ESYNC (102) and the
+// engine's eight from 103
+const GroupDef kTrackGroups[] = {
+    {"Engine", -1, -1},   // the engine's eight: from firstEngineParam()
+    {"Envelope", 1, 4, 102},
+    {"Envelope to", 5, 7},
+    {"LFO", 9, 12},
+    {"LFO sync", 91, 93},
+    {"LFO to", 13, 16},
+    {"Modulation", 49, 60},
+    {"Voice", 37, 44, 95},
+    {"Chord", 81, 82},
+    {"Arpeggiator", 17, 24},
+    {"Scale", 25, 28},
+    {"Sequencer", 29, 32, 94},
+    {"Sends", 33, 36},
+    {"Insert", 96, 100},
+    {"Filter", 101, 101},
+    {"Drum lanes", 83, 90},
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
@@ -102,11 +125,12 @@ const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 4, 5, 6, 7, 25, 26, 8, 9,
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
 const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10) the drums, any other the selected part (GLO > MIDI sets them).";
-// what renames this part's controls: SLOOP 2.6's INSERT TYPE (its A, B, C) and ENV SYNC (ATK, DEC,
-// REL as note values)
+// what renames this part's controls: SLOOP 2.6's and Felucca 1.5's INSERT TYPE (its A, B, C) and ENV
+// SYNC (ATK, DEC, REL as note values)
 int labelsKeyOf(const FeluccaEngine& f, int track) {
-    if (f.flavor() != FeluccaEngine::Flavor::Sloop || f.paramCount() <= 59) return 0;
-    return f.param(track, 53) * 2 + (f.param(track, 59) != 0);
+    if (f.flavor() == FeluccaEngine::Flavor::Sloop && f.paramCount() > 59) return f.param(track, 53) * 2 + (f.param(track, 59) != 0);
+    if (f.flavor() == FeluccaEngine::Flavor::Felucca && f.paramCount() > 102) return f.param(track, 96) * 2 + (f.param(track, 102) != 0);   // (1.5)
+    return 0;
 }
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
@@ -600,6 +624,7 @@ void FeluccaSoundPage::build() {
     const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
                                      : isMelodee013(f) ? std::vector<GroupDef>(std::begin(kMelodee013Groups), std::end(kMelodee013Groups))
                                      : isMelodee(f) ? std::vector<GroupDef>(std::begin(kMelodeeGroups), std::end(kMelodeeGroups))
+                                     : f->release() == FeluccaEngine::Release::Previous ? std::vector<GroupDef>(std::begin(kFelucca103Groups), std::end(kFelucca103Groups))
                                                     : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
     for (const auto& def : defs) {
         // SLOOP's drum track: its kit, pattern, slicer and filter (its level and reverb are globals, DRLVL
@@ -1001,9 +1026,11 @@ void FeluccaLibraryList::rename(int row) {
     size_t k = 3;
     while (k < a->size() && (*a)[k] != 0) ++k;
     std::vector<uint8_t> rest(a->begin() + std::ptrdiff_t(std::min(a->size(), k + 1)), a->end());
-    // PUT takes the same values and pattern, with the kind only for a drum grid (kind 1 and its 16 bytes)
+    // PUT takes the same values and pattern, with the kind only for a drum grid (kind 1, its 16 bytes and,
+    // from Felucca 1.2, its category); a plain one's kind 0 (and 1.2's category after it) left off: PUT
+    // has no place for a plain preset's category (upreset.c up_parse), so it goes back to the default
     const size_t plain = size_t(2 * f->paramCount() + 32);
-    if (rest.size() == plain + 1) rest.pop_back();
+    if (rest.size() > plain && rest[plain] == 0) rest.resize(plain);
     std::vector<uint8_t> put{uint8_t(row), (*a)[2]};
     for (auto c : name) put.push_back(uint8_t(c));
     put.push_back(0);
