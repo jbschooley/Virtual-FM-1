@@ -36,13 +36,13 @@ static int cz_native_done(track_t *t, voice_t *v)
     const uint8_t *b = cz_patch[(uint32_t)(t - trk) % NTRK].raw;
     uint32_t ls = b[0] & 3u;
     uint32_t a = ls == 1u ? 1u : 0u, z = ls >= 2u ? 1u : a;
-    return c->eg[a][2].stage > (b[CZ_ENV_END[a][2]] & 7u) &&
-        c->eg[z][2].stage > (b[CZ_ENV_END[ls == 2u ? 0u : z][2]] & 7u);
+    return c->native_eg[a][2].stage > (b[CZ_ENV_END[a][2]] & 7u) &&
+        c->native_eg[z][2].stage > (b[CZ_ENV_END[ls == 2u ? 0u : z][2]] & 7u);
 }
 #define CZ_FACTORY_PRESET(n, bank, ptch, pat) \
-    {n, {bank, ptch, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0), PAT(pat)},
+    {n, {bank, ptch, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0)},   /* (pat: unused) */
 static const preset_t CZ_PRESETS[] = {
-    {"INIT TONE", {0, 0, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0), PAT(1)},
+    {"INIT TONE", {0, 0, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0)},
     CZ_FACTORY_PRESETS(CZ_FACTORY_PRESET)   /* Casio's, dry as the CZ-1 (no effects) */
 };
 static const engine_t ENG_CZ = {
@@ -55,7 +55,7 @@ static const engine_t ENG_CZ = {
     },
     .presets = CZ_PRESETS, .npresets = NELEM(CZ_PRESETS),
     .ownenv = 1, .done = cz_native_done, .keep = 0x0fu,
-    .note_on = phase_note_on, .render = cz_native_render,
+    .note_on = cz_native_note_on, .render = cz_native_render,
     .knob = {P_E0, P_E1, P_E7, P_E7},
 };
 

@@ -94,7 +94,12 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t t0;
+#if MELODEE_DUAL_CORE
+    if (audio_worker_online)
+        fm1_core1_bar_set();                          /* one core on every boot until power-off */
+#endif
     fm1_audio_stop();
+    scr_wake_now();
     lcd_fill(0, 0, 240, 240, UI_CRASH_BG);            /* fixed, outside the palettes */
     draw_text_line(0, 8, 240, &AF_M, "MELODEE CRASH", UI_CRASH_INK, UI_CRASH_BG, 1);
     hexs(b, c->vec);
@@ -131,10 +136,8 @@ static void melodee_init(void)
         apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
         t->engine = t->eng_req;
         track_defaults_steps(t);              /* (a sound load never touches them) */
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
-        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
-        pat_last[i] = TRK_DEF[i][2];
+        pat_sig[i] = steps_sig(t);            /* (empty: not the user's) */
+        pat_last[i] = 0;
     }
     undo_depth--;
     song.sel = 0;
@@ -173,6 +176,17 @@ static void fm1_main(void)
     fm1_adc_init();
     panel_init();
     melodee_init();
+#if MELODEE_DUAL_CORE
+    /* One core after a crash in the first 30 s (a second would enter UBOOT),
+     * and until power-off once CPU1 was retired or CPU0 crashed beside it. */
+    if (!bootguard.failed && !fm1_core1_barred())
+        fm1_multicore_start();              /* bounded handshake; failure keeps serial rendering */
+    /* CPU1 starts through mask-ROM before it reaches our RAM worker. Restrict
+     * instruction fetch only after that bootstrap has returned, or stopped
+     * the core on timeout. The captured first-device fault was DBG bit 10
+     * (c1_pc_limit_err_r) while CPU0 waited for the ready handshake. */
+    fm1_guard_enable(FM1_GUARD_PC);
+#endif
     audio_init();
     usb_start();
 #if MELODEE_UART
@@ -239,6 +253,7 @@ static void fm1_main(void)
                 }
             } else if (fm1_ms - t0 > 5000u) {
                 fm1_audio_stop();
+                scr_wake_now();
                 lcd_fill(0, 0, 240, 240, T_BG);
                 draw_text_box(0, 110, 240, &AF_M, "UBOOT", T_THEME, 1);
                 usb_detach();
@@ -281,6 +296,9 @@ static void fm1_main(void)
         ui_input();
         glo_poll();                                     /* a kept GLO value changed: the settings, later */
         settings_poll();                              /* queued settings save: only while stopped */
+#if MELODEE_DUAL_CORE
+        fm1_core1_poll();                             /* a retired CPU1 sits out until power-off */
+#endif
         melodee_dbg.stage = 2;
         ui_leds();
         ui_draw();
@@ -303,6 +321,7 @@ void fm1_cstart(void)
     src = fm1_boot.rst_src;
     wdt = fm1_boot.wdt_con;
     fm1_wdt_arm(0x0D);
+    fm1_core1_stop();                      /* hold CPU1 before clearing/copying application RAM */
     if (bootguard.magic != BOOTGUARD_MAGIC) {
         bootguard.magic = BOOTGUARD_MAGIC;
         bootguard.failed = 0;
@@ -330,7 +349,17 @@ void fm1_cstart(void)
     for (s = _dt_load, d = _dt_start; d < _dt_end; s++, d++)
         *d = *s;                                /* the oscillator correction tables */
     fm1_mailbox_clear();
-    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
+#if MELODEE_CACHE_RAM
+    {   /* XIP-to-SRAM exceeds the direct-call range on pi32v2. */
+        void (*volatile init)(uint32_t) = fm1_cache_init;
+        init(bootguard.failed);             /* copied RAM code; IRQs off, CPU1 held */
+    }
+#endif
+    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS
+#if !MELODEE_DUAL_CORE
+                     | FM1_GUARD_PC
+#endif
+                     );
     fm1_boot.p3_rst = (uint8_t)p3;
     fm1_boot.rst_src = src;
     fm1_boot.wdt_con = (uint8_t)wdt;

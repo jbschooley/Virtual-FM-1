@@ -16,13 +16,12 @@ static uint8_t p5_cached=255;
 static p5_bank_t p5_host[5] __attribute__((section(".pool")));
 #endif
 static uint32_t p5_bank_mask(uint32_t bank) { return (1u<<(bank==4u?24u:26u))-1u; }
-/* Missing storage starts with Sequential's actual programs. A valid saved
- * bank always wins, including intentionally empty slots; no boot-time writes. */
+/* Missing storage starts empty. Sequential's programs already live in the
+ * separate 201-entry factory browser; a valid saved bank always wins. */
 static void p5_bank_defaults(p5_bank_t *b,uint32_t bank)
 {
-    memset(b,0,sizeof *b);b->magic=P5_BANK_MAGIC;b->used=p5_bank_mask(bank);
-    uint32_t count=bank==4u?24u:P5_BANK_SLOTS;
-    memcpy(b->patch,P5_FACTORY+bank*P5_BANK_SLOTS,count*sizeof(p5_patch_t));
+    (void)bank;
+    memset(b,0,sizeof *b);b->magic=P5_BANK_MAGIC;
 }
 static int p5_bank_valid(const p5_bank_t *b,uint32_t bank)
 {
@@ -94,15 +93,34 @@ static int p5_user_put(uint32_t slot,const p5_patch_t *patch)
 }
 static int p5_favorite_has(uint32_t slot,int factory)
 {
-    if(slot>=(factory?1u:P5_USER_SLOTS))return 0;
-    uint32_t bank=factory?0u:slot/P5_BANK_SLOTS,k=factory?31u:slot%P5_BANK_SLOTS;
+    if(factory){
+        const uint8_t *row=favorites.factory[0];
+        if(slot>P5_FACTORY_N)return 0;
+        if(row[28]=='P'&&row[29]=='5'&&row[30]=='F'&&row[31]==1u)
+            return (row[2u+slot/8u]>>(slot%8u))&1u;
+        return slot==0u && (p5_user_bank(0)->favorites>>31);
+    }
+    if(slot>=P5_USER_SLOTS)return 0;
+    uint32_t bank=slot/P5_BANK_SLOTS,k=slot%P5_BANK_SLOTS;
     if(!p5_meta_ready[bank])p5_user_bank(bank);
     return (p5_meta[bank].favorites>>k)&1u;
 }
 static int p5_favorite_set(uint32_t slot,int on,int factory)
 {
-    if(slot>=(factory?1u:P5_USER_SLOTS) || transport_busy() || (!factory&&!p5_user_used(slot)))return 0;
-    uint32_t bank=factory?0u:slot/P5_BANK_SLOTS,k=factory?31u:slot%P5_BANK_SLOTS;
+    if(factory){
+        uint8_t *row=favorites.factory[0];
+        if(slot>P5_FACTORY_N || p5_favorite_has(slot,1)==!!on)return 0;
+        if(row[28]!='P'||row[29]!='5'||row[30]!='F'||row[31]!=1u){
+            int old_init=(p5_user_bank(0)->favorites>>31)&1u;
+            memset(row+2,0,26u);row[2]=(uint8_t)old_init;
+            row[28]='P';row[29]='5';row[30]='F';row[31]=1u;
+        }
+        if(on)row[2u+slot/8u]|=(uint8_t)(1u<<(slot%8u));
+        else row[2u+slot/8u]&=(uint8_t)~(1u<<(slot%8u));
+        return 1;
+    }
+    if(slot>=P5_USER_SLOTS || transport_busy() || !p5_user_used(slot))return 0;
+    uint32_t bank=slot/P5_BANK_SLOTS,k=slot%P5_BANK_SLOTS;
     p5_bank_t *b=p5_user_bank(bank);uint32_t old=b->favorites;
     if(on)b->favorites|=1u<<k;else b->favorites&=~(1u<<k);
     if(old==b->favorites)return 0;

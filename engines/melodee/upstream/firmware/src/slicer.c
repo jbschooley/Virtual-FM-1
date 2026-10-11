@@ -98,7 +98,7 @@ static void sl_enter(const track_t *t, sl_t *s)
 }
 
 /* m samples of one step (no boundary inside) */
-static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, uint32_t m)
+static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, int32_t *sd, uint32_t m)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR], j, nbit = (sl_pattern(t) >> ((s->idx + 1u) & 15u)) & 1u;
     int32_t depth = t->p[P_SLDEPTH] * 258;          /* Q15, 0..32766 */
@@ -113,6 +113,12 @@ static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, uint32_t
         s->gc += clamp(tg - s->gc, -SL_SLOPE, SL_SLOPE);
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         y = s->gc ? x - mulq16(x, (uint32_t)s->gc << 1) : x;
+        if (sd) {
+            int32_t z=sd[j];
+            if (s->gc) z-=mulq16(z,(uint32_t)s->gc<<1);
+            if (s->w) z-=mulq16(z,(uint32_t)s->w<<1);
+            sd[j]=z;
+        }
         if (s->rec_on) {                            /* 2:1, the pair's mean; Q15 >> 2 (the mix's headroom) */
             if ((s->pos + j) & 1u) {
                 buf[s->rec] = (int16_t)clamp((s->half + x) >> 3, -32768, 32767);
@@ -162,7 +168,7 @@ static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
             m = n - i;
         if (!sl_buf[k]) s->rec = s->loop = s->rec_on = 0;
         if (act)
-            sl_seg(t, s, sl_buf[k], b + i, m);
+            sl_seg(t, s, sl_buf[k], b + i, 0, m);
         s->pos += m;
         i += m;
     }
@@ -177,4 +183,31 @@ static int slicer_busy(const track_t *t)
 {
     const sl_t *s = &sl[t - trk];
     return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
+}
+
+static void slicer_track_sd(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
+{
+    uint32_t k = (uint32_t)(t - trk), i = 0;
+    sl_t *s = &sl[k];
+    if (!sl_lent && t->p[P_SLCR] == SL_STUT && !sl_buf[k])
+        sl_buf[k] = resource_get(RES_SLICER0 + k, SL_LEN * sizeof(int16_t));
+    if (!sl_buf[k]) s->rec = s->loop = s->rec_on = 0;
+    int act = b && (t->p[P_SLCR] != SL_OFF || s->gc || s->w);
+    while (i < n) {
+        uint32_t m;
+        if (s->pos >= s->len)
+            sl_enter(t, s);
+        m = s->len - s->pos;
+        if (m > n - i)
+            m = n - i;
+        if (!sl_buf[k]) s->rec = s->loop = s->rec_on = 0;
+        if (act)
+            sl_seg(t, s, sl_buf[k], b + i, sd + i, m);
+        s->pos += m;
+        i += m;
+    }
+    if (t->p[P_SLCR] != SL_STUT && !s->w && sl_buf[k]) {
+        resource_release(RES_SLICER0 + k); sl_buf[k] = 0;
+        s->rec = s->loop = s->rec_on = 0;
+    }
 }

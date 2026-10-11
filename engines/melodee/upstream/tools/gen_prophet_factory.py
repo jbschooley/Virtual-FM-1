@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Exact Sequential v1.03 programs -> factory presets, default native collection and mock data."""
+"""Exact Sequential v1.03 programs -> factory presets and mock data."""
 import argparse
 import hashlib
 import json
@@ -41,8 +41,7 @@ def main():
     lines = ["/* Generated from Sequential's unchanged v1.03 factory SysEx. */",
              "#pragma once",
              f"#define P5_FACTORY_N {len(patches)}u",
-             "/* All 200 programs are the engine's factory presets; the first 128 also seed",
-             " * an empty native user collection (prophet_user.c). */",
+             "/* All 200 programs are engine factory presets. Native user slots start empty. */",
              f"static const p5_patch_t P5_FACTORY[{len(patches)}] = {{"]
     for p in patches:
         lines.append("    {{" + ",".join(map(str, p[:133])) + "}," + ",".join(map(str, p[133:])) + "},")

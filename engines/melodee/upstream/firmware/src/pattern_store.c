@@ -17,25 +17,32 @@
 #define BANK_SIZE_F 20224u
 #define BANK_MAGIC_G 0x474B4246u
 #define BANK_SIZE_G 27200u
-#define BANK_MAGIC 0x484B4246u                  /* FBKG: 1024 notes, extension sectors retain A/B safety */
+#define BANK_MAGIC_H 0x484B4246u
+#define BANK_SIZE_H 27752u
+#define BANK_MAGIC_I 0x494B4246u
+#define BANK_SIZE_I 27784u
+#define BANK_MAGIC_J 0x4A4B4246u
+#define BANK_SIZE_J 27800u
+#define BANK_MAGIC 0x4B4B4246u                  /* FBKK: sound controls and full-precision per-hit pitch/length */
 #define BANK_STORE_SIZE PROJ_BANK_BYTES
 static uint32_t bank_v9;
-#define BANK_PROJ_SIZE (bank_v9==1u ? PROJ_STORE_V8 : bank_v9==2u ? PROJ_LEGACY_CZ_OLD : bank_v9==3u ? PROJ_LEGACY_CZ : bank_v9==7u ? PROJ_STORE_V13 : bank_v9==6u ? PROJ_STORE_V12 : bank_v9 ? PROJ_STORE_V11 : PROJ_STORE_SIZE)
+#define BANK_PROJ_SIZE (bank_v9==10u ? PROJ_STORE_V16 : bank_v9==9u ? PROJ_STORE_V15 : bank_v9==8u ? PROJ_STORE_V14 : bank_v9==1u ? PROJ_STORE_V8 : bank_v9==2u ? PROJ_LEGACY_CZ_OLD : bank_v9==3u ? PROJ_LEGACY_CZ : bank_v9==7u ? PROJ_STORE_V13 : bank_v9==6u ? PROJ_STORE_V12 : bank_v9 ? PROJ_STORE_V11 : PROJ_STORE_SIZE)
 #define BANK_STEP_SIZE (bank_v9 == 1u ? 9u : 8u)
 #define BANK_ACTIVE_OFF (8u + BANK_PROJ_SIZE)
 #define BANK_EXTRA_OFF (BANK_ACTIVE_OFF + NTRK)
 #define BANK_TIMING_OFF (BANK_EXTRA_OFF + NTRK * (NPAT - 1u) * NSTEP * BANK_STEP_SIZE)
-#define BANK_CHAIN_OFF (BANK_TIMING_OFF + NTRK * NPAT * 8u)
+#define BANK_TIME_SIZE (bank_v9 ? 8u : 4u)
+#define BANK_CHAIN_OFF (BANK_TIMING_OFF + NTRK * NPAT * BANK_TIME_SIZE)
 #define BANK_MOTION_OFF (BANK_CHAIN_OFF + CHAIN_ROWS * NTRK)
 #define BANK_FN_OFF (BANK_MOTION_OFF + MOTION_MAX)
 #define BANK_FN_MAGIC 0x31364E46u
 _Static_assert(8u + PROJ_STORE_SIZE + NTRK + NTRK * (NPAT - 1u) * NSTEP * 8u +
-    NTRK * NPAT * 8u + CHAIN_ROWS * NTRK + MOTION_MAX + 4u + NTRK * FM6_NFN <= BANK_STORE_SIZE - 4u,
+    NTRK * NPAT * 4u + CHAIN_ROWS * NTRK + MOTION_MAX + 4u + NTRK * FM6_NFN <= BANK_STORE_SIZE - 4u,
     "bank project extent");
-static int bank_full(uint32_t n) { return n == BANK_STORE_SIZE || n == BANK_SIZE_G || n == BANK_SIZE_F || n == BANK_SIZE_E || n == BANK_SIZE9 || n==BANK_SIZE_CZ_OLD || n==BANK_SIZE_CZ_NEXT; }
+static int bank_full(uint32_t n) { return n == BANK_STORE_SIZE || n == BANK_SIZE_J || n == BANK_SIZE_I || n == BANK_SIZE_H || n == BANK_SIZE_G || n == BANK_SIZE_F || n == BANK_SIZE_E || n == BANK_SIZE9 || n==BANK_SIZE_CZ_OLD || n==BANK_SIZE_CZ_NEXT; }
 static void bank_checksum(uint8_t *raw)
 {
-    uint32_t n=bank_v9==1u?BANK_SIZE9:bank_v9==2u?BANK_SIZE_CZ_OLD:bank_v9==3u?BANK_SIZE_CZ_NEXT:bank_v9==6u?BANK_SIZE_F:bank_v9?BANK_SIZE_E:BANK_STORE_SIZE;
+    uint32_t n=bank_v9==10u?BANK_SIZE_J:bank_v9==9u?BANK_SIZE_I:bank_v9==8u?BANK_SIZE_H:bank_v9==7u?BANK_SIZE_G:bank_v9==1u?BANK_SIZE9:bank_v9==2u?BANK_SIZE_CZ_OLD:bank_v9==3u?BANK_SIZE_CZ_NEXT:bank_v9==6u?BANK_SIZE_F:bank_v9?BANK_SIZE_E:BANK_STORE_SIZE;
     uint32_t sum=proj_hash(raw,n-4u);memcpy(raw+n-4u,&sum,4);
 }
 static int bank_step9_unpack(step_t *s, const uint8_t *b)
@@ -66,12 +73,12 @@ static int bank_step_unpack(step_t *s, const uint8_t *b)
     s->flags = (uint8_t)bank_bits_get(b, &pos, 2u); s->vel = (uint8_t)bank_bits_get(b, &pos, 7u);
     s->hit = (uint8_t)bank_bits_get(b, &pos, 8u); s->acc = (uint8_t)bank_bits_get(b, &pos, 8u);
     s->probability = (uint8_t)bank_bits_get(b, &pos, 7u);
-    if (!bank_v9 || (bank_v9 == 6u || bank_v9 == 7u)) {
+    if (!bank_v9 || (bank_v9 == 6u || bank_v9 == 7u || bank_v9 == 8u || bank_v9 == 9u || bank_v9 == 10u)) {
         s->n = (meta & 7u) < 5u ? meta & 7u : 0u;
         s->time = (meta & 7u) < 5u ? ST_NOTE : (meta & 7u) == 5u ? ST_TIE : ST_REST;
         if (meta & 8u) s->flags |= SF_RECORDED;
     }
-    return (bank_v9 && bank_v9 != 6u ? meta < 15u : (meta & 7u) < 7u) && s->probability <= 101u &&
+    return (bank_v9 && bank_v9 < 6u ? meta < 15u : (meta & 7u) < 7u) && s->probability <= 101u &&
         (bank_v9 && bank_v9 < 5u ? !(s->acc & ~s->hit) : step_acc_valid(s));
 }
 static int bank_step_pack(uint8_t *b, const step_t *s)
@@ -100,7 +107,7 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
             const pattern_t *p = pattern_at(k, b);
             for (uint32_t i = 0; i < 4u; i++) {
                 int16_t v = runtime ? p->timing[i] : (b != active ? TP[P_SLEN + i].def : q->t[k].p[P_SLEN + i]);
-                memcpy(raw + BANK_TIMING_OFF + (k * NPAT + b) * 8u + i * 2u, &v, 2);
+                raw[BANK_TIMING_OFF+(k*NPAT+b)*4u+i]=(uint8_t)v;
             }
             if (b == active) continue;
             for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) {
@@ -129,15 +136,15 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
     if (!bank_full(len)) return 0;
     memcpy(&magic, raw, 4); memcpy(&size, raw + 4, 4); memcpy(&sum, raw + len - 4u, 4);
     if (magic == BANK_MAGIC && len != BANK_STORE_SIZE) return 0;
-    bank_v9 = magic==BANK_MAGIC?0u:magic==BANK_MAGIC_F && len==BANK_SIZE_F?6u:magic==BANK_MAGIC_G && len==BANK_SIZE_G?7u:len==BANK_SIZE9?1u:len==BANK_SIZE_CZ_OLD?2u:len==BANK_SIZE_CZ_NEXT?3u:len==BANK_SIZE_E?(magic==BANK_MAGIC_E?5u:4u):0u; pos = BANK_EXTRA_OFF;
-    if ((magic != (bank_v9==1u ? BANK_MAGIC9 : bank_v9==2u ? 0x424B4246u : bank_v9==3u ? 0x434B4246u : bank_v9==4u ? BANK_MAGIC_D : bank_v9==5u ? BANK_MAGIC_E : bank_v9==6u ? BANK_MAGIC_F : bank_v9==7u ? BANK_MAGIC_G : BANK_MAGIC) && !(bank_v9==4u && magic==0x424B4246u)) || size != len || sum != proj_hash(raw, len - 4u) ||
+    bank_v9 = magic==BANK_MAGIC?0u:magic==BANK_MAGIC_J && len==BANK_SIZE_J?10u:magic==BANK_MAGIC_I && len==BANK_SIZE_I?9u:magic==BANK_MAGIC_H && len==BANK_SIZE_H?8u:magic==BANK_MAGIC_F && len==BANK_SIZE_F?6u:magic==BANK_MAGIC_G && len==BANK_SIZE_G?7u:len==BANK_SIZE9?1u:len==BANK_SIZE_CZ_OLD?2u:len==BANK_SIZE_CZ_NEXT?3u:len==BANK_SIZE_E?(magic==BANK_MAGIC_E?5u:4u):0u; pos = BANK_EXTRA_OFF;
+    if ((magic != (bank_v9==1u ? BANK_MAGIC9 : bank_v9==2u ? 0x424B4246u : bank_v9==3u ? 0x434B4246u : bank_v9==4u ? BANK_MAGIC_D : bank_v9==5u ? BANK_MAGIC_E : bank_v9==6u ? BANK_MAGIC_F : bank_v9==7u ? BANK_MAGIC_G : bank_v9==8u ? BANK_MAGIC_H : bank_v9==9u ? BANK_MAGIC_I : bank_v9==10u ? BANK_MAGIC_J : BANK_MAGIC) && !(bank_v9==4u && magic==0x424B4246u)) || size != len || sum != proj_hash(raw, len - 4u) ||
         !proj_import_any(&proj_scratch, raw + 8u, BANK_PROJ_SIZE)) return 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         if (raw[BANK_ACTIVE_OFF + k] >= NPAT) return 0;
-        if ((!bank_v9 || (bank_v9==6u || bank_v9==7u)) && raw[BANK_ACTIVE_OFF + k] != proj_scratch.pattern[k]) return 0;
+        if ((!bank_v9 || (bank_v9==6u || bank_v9==7u || bank_v9==8u || bank_v9==9u || bank_v9==10u)) && raw[BANK_ACTIVE_OFF + k] != proj_scratch.pattern[k]) return 0;
         for (uint32_t b = 0; b < NPAT; b++) {
             for (uint32_t i = 0; i < 4u; i++) {
-                int16_t v; memcpy(&v, raw + BANK_TIMING_OFF + (k * NPAT + b) * 8u + i * 2u, 2);
+                int16_t v; if(bank_v9)memcpy(&v,raw+BANK_TIMING_OFF+(k*NPAT+b)*8u+i*2u,2); else v=raw[BANK_TIMING_OFF+(k*NPAT+b)*4u+i];
                 if (v < TP[P_SLEN + i].min || v > TP[P_SLEN + i].max) return 0;
                 if (b == raw[BANK_ACTIVE_OFF + k] && v != proj_scratch.t[k].p[P_SLEN + i]) return 0;
             }
@@ -189,7 +196,8 @@ static void bank_restore(const uint8_t *raw)
         trk[k].pattern = raw[BANK_ACTIVE_OFF + k]; trk[k].pattern_next = 0xff; trk[k].pattern_gen++;
         for (uint32_t b = 0; b < NPAT; b++) {
             pattern_t *p = pattern_at(k, b);
-            memcpy(p->timing, raw + BANK_TIMING_OFF + (k * NPAT + b) * 8u, sizeof p->timing);
+            if(bank_v9)memcpy(p->timing,raw+BANK_TIMING_OFF+(k*NPAT+b)*8u,sizeof p->timing);
+            else for(uint32_t i=0;i<4;i++)p->timing[i]=raw[BANK_TIMING_OFF+(k*NPAT+b)*4u+i];
             if (b == trk[k].pattern) memcpy(p->step, trk[k].step, sizeof p->step);
             else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) bank_step_unpack(&p->step[i], raw + pos);
         }
@@ -215,7 +223,8 @@ static void bank_upgrade(uint8_t *raw)
     }
     if(new_start<old_start){for(uint32_t i=0;i<NTRK*(NPAT-1u)*NSTEP*8u;i++)raw[new_start+i]=raw[old_start+i];}
     else for (uint32_t i = NTRK * (NPAT - 1u) * NSTEP * 8u; i-- > 0u;)raw[new_start + i] = raw[old_start + i];
-    memcpy(raw + new_tail, tail, new_fn + 4u + NTRK * FM6_NFN - new_tail);
+    for(uint32_t i=0;i<NTRK*NPAT*4u;i++){int16_t v;memcpy(&v,tail+i*2u,2);raw[new_tail+i]=(uint8_t)v;}
+    memcpy(raw+new_tail+NTRK*NPAT*4u,tail+NTRK*NPAT*8u,new_fn+4u+NTRK*FM6_NFN-new_tail-NTRK*NPAT*4u);
     memcpy(raw + BANK_ACTIVE_OFF, active, sizeof active);
     memcpy(proj_scratch.pattern, active, sizeof active);
     proj_scratch.sum = proj_sum(&proj_scratch);

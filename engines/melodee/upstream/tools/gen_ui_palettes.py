@@ -5,52 +5,62 @@
 
   gen_ui_palettes.py OUT.h [--report]
 
-A palette is five colours: BG (background), SURF (surface: dialogs, menu rows, mixer strips),
-TEXT, THEME (identity colour: values, curves, gauges, selection) and ACCENT (the one active
-thing: hot knob, cursor, playhead, a sounding step). The firmware derives the rest with fixed
-blends at palette_set() time (src/gfx.c, the same integer maths as mix() here):
+Melodee's palettes: NIGHT (the default: warm ink), DAY (light) and CONTRAST (black and white). A palette is BG
+(background), SURF (surface: cards, dialogs, menu rows), TEXT, ACCENT (the one active thing: hot knob, cursor,
+playhead) and four track colours: the selected track's is THEME (values, curves, gauges, selection), so the screen
+takes the colour of the track ALGORITHM picks (src/gfx.c palette_track). The firmware derives the rest with fixed
+blends (src/gfx.c, the same integer maths as mix() here):
   MID  = mix(BG, TEXT, 70 %)    labels, units, secondary text
   DIM  = mix(BG, TEXT, 42 %)    inactive, empty steps, disabled
-  LINE = mix(BG, TEXT, 18 %)    1 px dividers, the faint gauge track
-  SEL  = mix(BG, THEME, 80 %)   selection fill and gauge fill (the "mid" of the theme)
+  LINE = mix(BG, TEXT, 18 %)    1 px dividers, the faint gauge track (NIGHT: 10 %, the design's #2E2939; LINE_PCT)
+  SEL  = mix(BG, THEME, 80 %)   selection fill and gauge fill
   TINT = mix(BG, THEME, 12 %)   a faint area (the selected drum lane)
-  RAISE = mix(SURF, TEXT, 12 %) a raised area on a surface: empty step stubs, guides, the selected drum
-                                lane, fader slots, button wells, chips
-  KEY  = mix(BG, TEXT, 78 %)    a keycap's fill (a mid-light cushion; its label INK, unavailable: a DIM fill)
-  INK  = BG: text on a selection or THEME fill (MONO: a light fill, dark ink)
-Outside the palette: REC, a fixed red (MONO: ACCENT); the QR code's fixed black and white; the crash
-screen's fixed red. MONO is pure grayscale (R = G = B) in every colour and every derived tint.
-Saved settings name palettes by a tagged id (PAL_TAG + index); older firmware saved the index into
-its 20 palettes, mapped by UI_PALETTE_MIGRATE.
---report prints the WCAG contrast of every pairing. The tool fails (exit 1) on any miss.
+  RAISE = mix(SURF, TEXT, 12 %) a raised area on a surface: stubs, guides, slots, chips, button wells
+  KEY  = mix(BG, TEXT, 78 %)    a keycap's fill
+  INK  = BG: text on a selection or THEME fill
+Outside the palette: REC, a fixed red; the QR code's fixed black and white; the crash screen's fixed red.
+GRAY (pure grayscale, R = G = B in every colour and tint) is compiled into the host tests only (UI_TEST_PALETTE):
+every screen drawn in it must stay gray, which proves the drawing takes every colour from the tokens.
+Saved settings name palettes by a tagged id (PAL_TAG + index); earlier ids map by UI_PALETTE_MIGRATE (Felucca's 20
+palettes, ids 0..19) and UI_PALETTE_MIGRATE64 (Melodee 0.13's eight, ids 64..71).
+--report prints the WCAG contrast of every pairing, with each track colour as THEME. The tool fails on any miss.
 """
 import argparse
 import sys
 from pathlib import Path
 
-# name, bg, surf, text, theme, accent (8-bit RGB; stored as RGB565)
+# name, bg, surf, text, accent, (track 1, 2, 3, 4) (8-bit RGB; stored as RGB565)
 PALETTES = [
-    ("MONO",   (14, 14, 14),    (36, 36, 36),    (204, 204, 204), (232, 232, 232), (255, 255, 255)),
-    ("GREEN",  (6, 18, 10),     (16, 40, 26),    (226, 244, 230), (84, 214, 120),  (255, 214, 92)),
-    ("AMBER",  (18, 14, 8),     (42, 32, 18),    (246, 236, 216), (255, 168, 40),  (96, 214, 230)),
-    ("ICE",    (8, 16, 24),     (20, 36, 52),    (228, 240, 248), (80, 184, 236),  (255, 140, 100)),
-    ("VIOLET", (16, 12, 28),    (36, 28, 60),    (240, 232, 252), (178, 136, 246), (110, 228, 168)),
-    ("ROSE",   (24, 10, 18),    (52, 22, 40),    (252, 232, 242), (244, 114, 182), (255, 214, 110)),
-    ("PAPER",  (244, 239, 228), (226, 218, 202), (34, 30, 24),    (10, 84, 70),    (172, 56, 8)),
-    ("HI-CON", (0, 0, 0),       (40, 40, 40),    (255, 255, 255), (255, 232, 0),   (0, 230, 255)),
+    ("NIGHT",    (23, 20, 31),    (36, 32, 46),    (243, 238, 248), (255, 255, 255),
+     ((255, 122, 92), (255, 193, 69), (70, 217, 176), (157, 140, 255))),
+    ("DAY",      (246, 242, 234), (231, 224, 212), (30, 26, 38),    (20, 16, 28),
+     ((160, 42, 22), (116, 68, 0), (0, 92, 72), (78, 56, 184))),
+    ("CONTRAST", (0, 0, 0),       (34, 34, 34),    (255, 255, 255), (255, 255, 255),
+     ((255, 128, 96), (255, 214, 0), (0, 236, 188), (176, 160, 255))),
 ]
-# the 20 palettes of the earlier firmware (index order) -> the new palette
+TEST_GRAY = ("GRAY", (14, 14, 14), (36, 36, 36), (204, 204, 204), (255, 255, 255),
+             ((232, 232, 232), (220, 220, 220), (208, 208, 208), (244, 244, 244)))
+# Felucca's 20 palettes (ids 0..19) and Melodee 0.13's eight (ids 64..71) -> the new palette
 OLD = ["GREEN", "AMBER", "CYAN", "RED", "MONO", "VIOLET", "PINK", "ICE", "WARM", "OCEAN", "DUSK", "HI-CON",
        "LIGHT", "PAPER", "SKY", "MINT", "LILAC", "ROSE", "SAND", "L-HICON"]
-OLD_TO_NEW = {"GREEN": "GREEN", "AMBER": "AMBER", "CYAN": "ICE", "RED": "ROSE", "MONO": "MONO", "VIOLET": "VIOLET",
-              "PINK": "ROSE", "ICE": "ICE", "WARM": "AMBER", "OCEAN": "ICE", "DUSK": "VIOLET", "HI-CON": "HI-CON",
-              "LIGHT": "PAPER", "PAPER": "PAPER", "SKY": "PAPER", "MINT": "PAPER", "LILAC": "PAPER", "ROSE": "PAPER",
-              "SAND": "PAPER", "L-HICON": "HI-CON"}
-PAL_TAG = 64                       # stored id = PAL_TAG + index; below 20: an old id
+OLD_LIGHT = {"LIGHT", "PAPER", "SKY", "MINT", "LILAC", "ROSE", "SAND"}
+OLD64 = ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"]
+
+
+def old_to_new(name, light_rose):
+    if name in ("HI-CON", "L-HICON"):
+        return "CONTRAST"
+    if name == "PAPER" or (light_rose and name in OLD_LIGHT):
+        return "DAY"
+    return "NIGHT"
+
+
+PAL_TAG = 96                       # stored id = PAL_TAG + index (Melodee 0.13: 64 + its index)
 REC_DARK, REC_LIGHT = (255, 72, 72), (190, 24, 40)
 QR_LIGHT, QR_DARK, CRASH_BG, CRASH_INK = (255, 255, 255), (0, 0, 0), (160, 0, 0), (255, 255, 255)
 PCT = {"MID": 70, "DIM": 42, "LINE": 18, "SEL": 80, "TINT": 12, "KEY": 78}
 RAISE_PCT = 12                     # SURF -> TEXT
+LINE_PCT = {"NIGHT": 10}           # a palette's own LINE (else PCT["LINE"]): NIGHT's dividers as faint as the design's
 
 
 def to565(c):
@@ -102,19 +112,20 @@ def contrast(a, b):
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
-def derive(p):
-    name, *cols = p
-    bg, surf, text, theme, accent = map(to565, cols)
-    mono = name == "MONO"
+def derive(p, t):
+    """the derived colours of palette p with track t's colour as THEME"""
+    name, bg, surf, text, accent, trk = p
+    bg, surf, text, accent, theme = to565(bg), to565(surf), to565(text), to565(accent), to565(trk[t])
+    mono = name == "GRAY"
     d = dict(bg=bg, surf=surf, text=text, theme=theme, accent=accent,
              mid=mix(bg, text, PCT["MID"], mono), dim=mix(bg, text, PCT["DIM"], mono),
-             line=mix(bg, text, PCT["LINE"], mono), sel=mix(bg, theme, PCT["SEL"], mono),
+             line=mix(bg, text, LINE_PCT.get(name, PCT["LINE"]), mono), sel=mix(bg, theme, PCT["SEL"], mono),
              tint=mix(bg, theme, PCT["TINT"], mono), raise_=mix(surf, text, RAISE_PCT, mono),
              key=mix(bg, text, PCT["KEY"], mono))
     d["ink"] = bg
     d["light"] = luma(bg) > 128
     d["rec"] = accent if mono else to565(REC_LIGHT if d["light"] else REC_DARK)
-    return name, d
+    return f"{name}/T{t + 1}", d
 
 
 # (foreground, background, minimum contrast, why)
@@ -137,42 +148,55 @@ def main():
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
     fails = []
-    assert PALETTES[0][0] == "MONO" and len(OLD) == 20 and len(PALETTES) <= 63
-    rows = [derive(p) for p in PALETTES]
+    assert PALETTES[0][0] == "NIGHT" and len(OLD) == 20 and len(OLD64) == 8 and len(PALETTES) <= 31
+    rows = [derive(p, t) for p in PALETTES + [TEST_GRAY] for t in range(4)]
     for name, d in rows:
-        if name == "MONO":
+        if name.startswith("GRAY"):
             for k, v in d.items():
                 if k == "light":
                     continue
                 if not (v >> 11 == v & 31 and ((v >> 5) & 63) == (v >> 11) << 1):
-                    fails.append(f"MONO is not grayscale: {k} = {v:#06x}")
+                    fails.append(f"GRAY is not grayscale: {k} = {v:#06x}")
         for f, b, lim, why in CHECKS:
             c = contrast(d[f], d[b])
             if c < lim:
                 fails.append(f"{name}: {f}/{b} {c:.2f} < {lim} ({why})")
     if a.report:
-        print(f"{'palette':8s} " + " ".join(f"{f}/{b}".ljust(12) for f, b, _, _ in CHECKS))
+        print(f"{'palette':12s} " + " ".join(f"{f}/{b}".ljust(12) for f, b, _, _ in CHECKS))
         for name, d in rows:
-            print(f"{name:8s} " + " ".join(f"{contrast(d[f], d[b]):5.1f}".ljust(12) for f, b, _, _ in CHECKS))
-        print("minimum  " + " ".join(f"{lim:<12.2f}" for _, _, lim, _ in CHECKS))
+            print(f"{name:12s} " + " ".join(f"{contrast(d[f], d[b]):5.1f}".ljust(12) for f, b, _, _ in CHECKS))
+        print("minimum      " + " ".join(f"{lim:<12.2f}" for _, _, lim, _ in CHECKS))
     if a.out:
         names = [p[0] for p in PALETTES]
-        out = ["/* generated by tools/gen_ui_palettes.py: the UI palettes (5 colours each, the rest derived) */",
-               "#pragma once", "#include <stdint.h>", "",
-               "/* ui_pal_t {name, bg, surf, text, theme, accent} (src/gfx.c) */",
+
+        def row(p):
+            v = [to565(c) for c in p[1:5]]
+            t = [to565(c) for c in p[5]]
+            return (f'    {{"{p[0]}", ' + ", ".join(f"0x{x:04x}" for x in v) +
+                    ", {" + ", ".join(f"0x{x:04x}" for x in t) + "}},")
+        out = ["/* generated by tools/gen_ui_palettes.py: the UI palettes (4 colours and 4 track colours each, the rest",
+               " * derived) */", "#pragma once", "#include <stdint.h>", "",
+               "/* ui_pal_t {name, bg, surf, text, accent, trk[4]} (src/gfx.c); GRAY: host tests only */",
                "static const ui_pal_t UI_PALETTES[] = {"]
-        for p in PALETTES:
-            v = [to565(c) for c in p[1:]]
-            out.append(f'    {{"{p[0]}", ' + ", ".join(f"0x{x:04x}" for x in v) + "},")
-        out += ["};", f"#define UI_NPALETTES {len(PALETTES)}u", "#define UI_MONO_INDEX 0u",
-                f"#define UI_PAL_TAG {PAL_TAG}u          /* stored id = UI_PAL_TAG + index; below 20: an old id */"]
+        out += [row(p) for p in PALETTES]
+        out += ["#ifdef UI_TEST_PALETTE", row(TEST_GRAY), "#endif", "};",
+                f"#define UI_NPALETTES {len(PALETTES)}u", "#define UI_DEFAULT_INDEX 0u",
+                f"#define UI_GRAY_INDEX {len(PALETTES)}u      /* (UI_TEST_PALETTE only) */",
+                f"#define UI_PAL_TAG {PAL_TAG}u          /* stored id = UI_PAL_TAG + index */"]
         out += [f"#define UI_{k}_PCT {v}" for k, v in PCT.items()] + [f"#define UI_RAISE_PCT {RAISE_PCT}   /* SURF -> TEXT */"]
+        out += ["/* each palette's LINE (BG -> TEXT %), in UI_PALETTES' order */",
+                "static const uint8_t UI_LINE_PCTS[] = {" +
+                ", ".join(str(LINE_PCT.get(p[0], PCT["LINE"])) for p in PALETTES) + ",",
+                "#ifdef UI_TEST_PALETTE", f"    {LINE_PCT.get(TEST_GRAY[0], PCT['LINE'])},", "#endif", "};"]
         out += [f"#define UI_REC_DARK 0x{to565(REC_DARK):04x}u", f"#define UI_REC_LIGHT 0x{to565(REC_LIGHT):04x}u",
                 f"#define UI_QR_LIGHT 0x{to565(QR_LIGHT):04x}u", f"#define UI_QR_DARK 0x{to565(QR_DARK):04x}u",
                 f"#define UI_CRASH_BG 0x{to565(CRASH_BG):04x}u", f"#define UI_CRASH_INK 0x{to565(CRASH_INK):04x}u", "",
-                "/* the 20 palettes of earlier firmware: " + " ".join(OLD) + " */",
+                "/* Felucca's 20 palettes: " + " ".join(OLD) + " */",
                 "static const uint8_t UI_PALETTE_MIGRATE[20] = {" +
-                ", ".join(str(names.index(OLD_TO_NEW[n])) for n in OLD) + "};", ""]
+                ", ".join(str(names.index(old_to_new(n, True))) for n in OLD) + "};",
+                "/* Melodee 0.13's eight (stored 64 + index): " + " ".join(OLD64) + " */",
+                "static const uint8_t UI_PALETTE_MIGRATE64[8] = {" +
+                ", ".join(str(names.index(old_to_new(n, False))) for n in OLD64) + "};", ""]
         Path(a.out).write_text("\n".join(out))
     for f in fails:
         print("FAIL", f)

@@ -15,12 +15,13 @@
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
 #define KB_SILENT 255u
+static volatile uint8_t kb_asleep;
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 static uint8_t last_note = 60;
-/* HOME's played notes, after scale/chord mapping. The ISR owns the held bits per
- * track; the last complete voicing survives release, including a tap between UI frames. */
-static uint32_t live_held[NTRK][4], live_last[4];
+/* Stage's played notes, after scale/chord mapping. The ISR owns the held bits per
+ * track; each track's last complete voicing survives release, including a tap between UI frames. */
+static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
  * the pitch they went to (after the scale layout and the chord), so the UI never guesses after a change */
@@ -52,16 +53,12 @@ static int drum_track(const track_t *t) { return ENGINES[eng_idx(t->eng_req)] ==
 
 static void live_note_on(const track_t *t, uint32_t note)
 {
-    uint32_t i, p;
+    uint32_t i, k = trk_index(t);
     if (drum_track(t))
         return;
-    live_held[trk_index(t)][note >> 5] |= 1u << (note & 31u);
-    for (i = 0; i < 4u; i++) {
-        uint32_t bits = 0;
-        for (p = 0; p < NTRK; p++)
-            bits |= live_held[p][i];
-        live_last[i] = bits;
-    }
+    live_held[k][note >> 5] |= 1u << (note & 31u);
+    for (i = 0; i < 4u; i++)
+        live_last[k][i] = live_held[k][i];
 }
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black
@@ -324,6 +321,79 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 
 #include "recording.c"
 
+/* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
+ * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
+ * keeps them. A ring of 8-byte events (RAM is the audio arena's: kept small); REC held writes the selected track's last
+ * bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step; tr bit 7: still held */
+#define CAP_N 128u
+typedef struct { uint16_t step, dur; uint8_t on, note, vel, tr; } cap_ev_t;
+static cap_ev_t cap_ev[CAP_N];
+static uint32_t cap_w, cap_from;                /* events written; the first of this run of the transport */
+static uint16_t cap_step[NTRK];                 /* the step playing, counted from PLAY (65535 before the first) */
+static uint32_t cap_frac(const track_t *t)      /* RECORD_UNIT fraction of the step playing */
+{
+    uint32_t span = step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    uint32_t on = t->seq_pos >= 0x7FFFFFFFu || !span ? 0u : (uint32_t)(((uint64_t)t->seq_pos * RECORD_UNIT) / span);
+    return on > 65535u ? 65535u : on;
+}
+static uint32_t cap_now(const track_t *t)       /* the place now in 1/256 steps (mod 2^24) */
+{
+    uint32_t k = trk_index(t), st = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
+    return (st << 8) + (cap_frac(t) >> 8);
+}
+static uint32_t cap_len(const cap_ev_t *e, uint32_t now)   /* its length (held: up to now), 1/256 steps */
+{
+    uint32_t d = (e->tr & 128u) ? (now - ((uint32_t)e->step << 8) - e->on) & 0xFFFFFFu : e->dur;
+    return d < 1u ? 1u : d > 65535u ? 65535u : d;
+}
+static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
+{
+    uint32_t k = trk_index(t);
+    cap_ev_t *e = &cap_ev[cap_w % CAP_N];
+    if (!song.playing || chain.running || rec_on(t))
+        return;
+    e->step = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
+    e->on = (uint8_t)(cap_frac(t) >> 8);
+    e->dur = 0;
+    e->note = (uint8_t)note;
+    e->vel = (uint8_t)vel;
+    e->tr = (uint8_t)(k | 128u);
+    cap_w++;
+}
+static void cap_off(const track_t *t, uint32_t note)
+{
+    uint32_t i, k = trk_index(t);
+    for (i = 0; i < 32u && i < cap_w - cap_from && i < CAP_N; i++) {
+        cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
+        if (e->tr == (k | 128u) && e->note == note) {
+            e->dur = (uint16_t)cap_len(e, cap_now(t));
+            e->tr = (uint8_t)k;
+            return;
+        }
+    }
+}
+
+/* Jam -> song: while the transport runs (no song), each time track 1 starts its loop the four tracks' patterns are
+ * a row: the same as the last row: its repeats + 1 (up to 16), else a new row (up to CHAIN_ROWS). From PLAY on;
+ * SEQ > SONG TAKE JAM makes them the song (ui_input.c jam_take) */
+static struct { uint8_t n, pat[CHAIN_ROWS][NTRK], rep[CHAIN_ROWS]; } jam;
+static void jam_loop(void)
+{
+    uint32_t r = jam.n, k, same = r != 0u;
+    for (k = 0; same && k < NTRK; k++)
+        same = jam.pat[r - 1u][k] == trk[k].pattern;
+    if (same && jam.rep[r - 1u] < 16u) {
+        jam.rep[r - 1u]++;
+        return;
+    }
+    if (r >= CHAIN_ROWS)
+        return;
+    for (k = 0; k < NTRK; k++)
+        jam.pat[r][k] = trk[k].pattern;
+    jam.rep[r] = 1;
+    jam.n = (uint8_t)(r + 1u);
+}
+
 /* The STEP overview rounds to the nearest swung onset, with loop wrap.
  * SEQ > STEP follows playback (ui_input.c). Overdub: a step that
  * holds notes gets this one added (a chord of up to 4; when full, the last note is
@@ -514,10 +584,13 @@ static void rec_release(track_t *t, uint32_t note)
         return;                                     /* not one of them, or others still held */
 }
 
+static void countin_note(track_t *t,uint32_t note,uint32_t vel);
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    countin_note(t,note,vel);
     last_note = (uint8_t)note;
     live_note_on(t, note);
+    cap_on(t, note, vel);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
         rec_note(t, note, vel);
     if (t->p[P_AMODE])
@@ -533,6 +606,7 @@ static void input_off(track_t *t, uint32_t note)
     if (midi_note_held(t, note))
         return;
     live_held[trk_index(t)][note >> 5] &= ~(1u << (note & 31u));
+    cap_off(t, note);
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
     if (!recording_owns(t, note)) trk_note_off(t, note); /* other mode (ARP switched while held) */
@@ -543,8 +617,54 @@ static void input_off(track_t *t, uint32_t note)
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
-    return !key_black(k) ? (p < PF_M1 ? p : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
+    return !key_black(k) ? (p < PF_KEYS ? perf_map[p] : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
 }
+
+static uint8_t kb_fx[27];
+static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
+{
+    uint32_t e, j;
+    if (down) {
+        e = perf_key(k);
+        kb_fx[k] = (uint8_t)(e + 1u);
+        perf_press(e, 1);
+        return;
+    }
+    if (!kb_fx[k])
+        return;
+    e = kb_fx[k] - 1u;
+    kb_fx[k] = 0;
+    for (j = 0; j < 27u; j++)
+        if (kb_fx[j] == e + 1u)
+            return;
+    perf_press(e, 0);
+}
+
+/* the map changed (ui_layer.c: PRESETS with a key held, EDIT, a settings load): a white key held takes its new
+ * effect at once (the old one let go); FX LATCH: a latched effect of the key's becomes the new one */
+static __attribute__((noinline)) void perf_key_remap(void)
+{
+    uint32_t k, e, o;
+    perf_remap = 0;
+    for (k = 0; k < 27u; k++) {
+        if (!kb_fx[k] || key_black(k) || (o = kb_fx[k] - 1u) == (e = perf_key(k)))
+            continue;
+        if (!perf_latch_on) {
+            perf_key_press(k, 0);
+            perf_key_press(k, 1);
+            continue;
+        }
+        kb_fx[k] = (uint8_t)(e + 1u);
+        if (o < PF_N && ((perf_latched >> o) & 1u)) {
+            perf_latched &= ~PF_BIT(o);
+            if (e < PF_N) {
+                perf_latched |= PF_BIT(e);
+                perf_ord[e] = ++perf_seq;
+            }
+        }
+    }
+}
+
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
@@ -598,6 +718,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
+    if (perf_remap) perf_key_remap();
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
     if (!ch)
         return;
@@ -606,11 +727,12 @@ static void keyboard_block(void)
             continue;
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
             kb_trk[k] = song.sel;
-            if (fm1_in.buttons & kb_mask) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
+            if (kb_asleep) { kb_note[k]=KB_SILENT; continue; }
+            if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
                 kb_note[k] = KB_SILENT;           /* with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
-                if (fm1_in.buttons & perf_mask)
-                    perf_press(perf_key(k), 1);
+                if ((fm1_in.buttons & perf_mask) || (kb_lock & 2u))
+                    perf_key_press(k, 1);
                 continue;
             }
             if (song.grid == 2u)                  /* NAME (ui_name.c): every key types, none sounds */
@@ -628,7 +750,7 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                perf_press(perf_key(k), 0);
+                perf_key_press(k, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
@@ -639,6 +761,50 @@ static void keyboard_block(void)
     kb_prev = cur;
 }
 
+#include "click.c"
+static volatile uint32_t cin_left;
+static uint32_t cin_pos, cin_total;
+static uint8_t cin_note[NTRK][8],cin_vel[NTRK][8],cin_n[NTRK];
+static void countin_note(track_t *t,uint32_t note,uint32_t vel)
+{
+    if(cin_left!=1u || cin_pos<beat_samples()/2u)return;
+    uint32_t tr=trk_index(t),i;for(i=0;i<cin_n[tr] && cin_note[tr][i]!=note;i++);
+    if(i<8u){cin_note[tr][i]=note;cin_vel[tr][i]=vel;if(i==cin_n[tr])cin_n[tr]++;}
+}
+static int seq_counting(void) { return cin_left != 0; }
+static int click_wanted(void) { return settings_click == CLICK_ON || (settings_click == CLICK_REC && song.rec); }
+/* Preview has its own bounded lifetime and never enters the recording or MIDI-out paths. */
+static volatile uint8_t audition_request;
+static uint8_t audition_track, audition_count, audition_notes[12], audition_vel[12];
+static uint8_t audition_active, audition_owner, audition_n, audition_played[12];
+static uint32_t audition_left, audition_gate;
+static int32_t audition_pitch;
+static void audition_stop(void)
+{
+    track_t *t = &trk[audition_owner % NTRK];
+    for (uint32_t i=0;i<audition_n;i++) {
+        uint32_t note=audition_played[i];
+        if (!(live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) && t->arp_note!=note && !recording_owns(t,note)) trk_note_off(t,note);
+    }
+    audition_active=audition_n=0;
+}
+static __attribute__((noinline)) void audition_tick(uint32_t n)
+{
+    if (song.playing || seq_counting()) { audition_request=0; if(audition_active)audition_stop(); return; }
+    if (audition_request) {
+        audition_stop(); audition_owner=audition_track; audition_left=FS/6u;
+        track_t *t=&trk[audition_owner % NTRK];
+        drum_event_pitch=audition_pitch;drum_event_length=audition_gate;
+        for(uint32_t i=0;i<audition_count;i++) {
+            uint32_t note=audition_notes[i];
+            if ((live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) || t->arp_note==note) continue;
+            audition_played[audition_n++]=(uint8_t)note; trk_note_on(t,note,audition_vel[i]);
+        }
+        drum_event_pitch=0;drum_event_length=0;
+        audition_active=1; audition_request=0;
+    }
+    if(audition_active) { if(n>=audition_left)audition_stop(); else audition_left-=n; }
+}
 /* -------------------------------------------------------- sequencer --- */
 static void seq_start(void)
 {
@@ -650,14 +816,19 @@ static void seq_start(void)
     chain_start();
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
         track_t *t = &trk[i];
+        if (t->p[P_LTRIG] && t->p[P_LSYNC]) t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFF;                   /* step 0 fires on the first block */
         t->rskip_n = 0;
         t->rh_n = 0;
+        cap_step[i] = 0xFFFFu;                     /* (capture: step 0 is the first) */
     }
+    cap_from = cap_w;                              /* capture and the jam log: this run */
+    jam.n = 0;
     song.tick = 0;
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
     song.playing = 1;
+    if (click_wanted()) click_req=2;
     slicer_start();                                /* slicer.c: its step 0 with the sequencer's */
     perf_start();                                  /* perform.c: its 1/16 grid too */
 }
@@ -678,6 +849,7 @@ static void seq_release(track_t *t)
 
 static void seq_stop(void)
 {
+    cin_left=0; click_req=0; clk.env=0; audition_request=0; if(audition_active)audition_stop();
     uint32_t i;
     seq_erase_request = 0;
     seq_erase_transport++;
@@ -792,6 +964,9 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
         }
+        cap_step[trk_index(t)]++;
+        if (!t->seq_idx && t == &trk[0] && !chain.running)
+            jam_loop();
         motion_step(t, t->seq_idx, &motion);
         seq_erase_pass(t, t->seq_idx, 1);
         if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);
@@ -869,6 +1044,7 @@ static void seq_advance(uint32_t n)
     while (beat_pos >= beat) {
         beat_pos -= beat;
         beat_n = (beat_n + 1u) & 3u;
+        if(song.playing && click_wanted())click_req=beat_n?1:2;
     }
 }
 
@@ -902,8 +1078,9 @@ static void events_block(uint32_t n)
     if (transport_req == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
-        else
-            seq_start();
+        else if(settings_countin && song.rec && !chain.armed && !chain.running) {
+            seq_stop(); memset(cin_n,0,sizeof cin_n);cin_total=cin_left=settings_countin*4u; cin_pos=0; click_req=2;
+        } else seq_start();
         transport_req = 0;
     } else if (transport_req == 2u) {
         seq_stop();
@@ -957,6 +1134,7 @@ static void events_block(uint32_t n)
         t->armp = t->p[P_AMODE];
         t->aholdp = t->p[P_AHOLD];
     }
+    audition_tick(n);
     keyboard_block();
     while (mi_r != mi_w) {                            /* USB-MIDI (and TRS) in */
         uint32_t at = mi_r % MQ, pkt = midi_in_q[at], status = (pkt >> 8) & 0xFFu;
@@ -998,7 +1176,24 @@ static void events_block(uint32_t n)
             for (i = 0; i < NPART; i++)
                 arp_step(&trk[i], 0, (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples()));
     } else {
-        seq_advance(n);
+        uint32_t left=n;
+        if(cin_left) {
+            uint32_t beat=beat_samples();if(cin_pos>=beat)cin_pos=beat-1u;
+            while(cin_left && left) {
+                uint32_t take=beat-cin_pos; if(take>left)take=left;
+                cin_pos+=take; left-=take;
+                if(cin_pos>=beat) {
+                    cin_pos=0; cin_left--;
+                    if(cin_left)click_req=((cin_total-cin_left)&3u)?1:2;
+                    else { seq_start(); seq_advance(0);
+                        for(uint32_t tr=0;tr<NTRK;tr++)if(rec_on(&trk[tr]) && !trk[tr].p[P_AMODE])
+                          for(uint32_t i=0;i<cin_n[tr];i++) { uint32_t note=cin_note[tr][i];
+                            if(live_held[tr][note>>5]&(1u<<(note&31u)))rec_note(&trk[tr],note,cin_vel[tr][i]); }
+                        if(!click_wanted())click_req=2; }
+                }
+            }
+        }
+        if(left)seq_advance(left);
     }
     if (song.playing)
         song.tick++;

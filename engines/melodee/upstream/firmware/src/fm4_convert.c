@@ -65,14 +65,14 @@ static const char *const N_RATIO[] = {".5", "1", "2", "3", "4", "5", "6", "7", "
 /* the factory presets (the stores' preset numbers of engine 1 index this table) */
 static const preset_t DIGITAL_PRESETS[] = {
     /* ALG R2 R3 R4 INDEX MODDEC FDBK - */
-    {"E.PIANO", {4, 1, 1, 14, 70, 55, 0, 0}, {0, 80, 40, 60}, 0, 0, FX(0, 50, 25, 35), PAT(6)},
-    {"BELL", {4, 8, 1, 4, 90, 70, 0, 0}, {0, 95, 0, 85}, 0, 0, FX(0, 0, 30, 70), PAT(7)},
-    {"BASS", {0, 1, 1, 1, 48, 40, 8, 0}, {0, 60, 70, 25}, 0, 1, FX(0, 0, 10, 10), PAT(2)},
-    {"BRASS", {0, 1, 1, 1, 70, 40, 20, 0}, {40, 70, 100, 40}, 20, 0, FX(0, 20, 20, 40), PAT(6)},
-    {"ORGAN", {7, 2, 3, 4, 0, 0, 0, 0}, {2, 60, 127, 20}, 0, 0, FX(10, 40, 0, 30), PAT(6)},
-    {"PAD", {5, 2, 1, 3, 40, 90, 10, 0}, {80, 90, 110, 95}, 0, 0, FX(0, 60, 30, 70), PAT(5)},
-    {"MARIMBA", {4, 4, 1, 1, 60, 30, 0, 0}, {0, 80, 0, 60}, 0, 0, FX(0, 0, 25, 40), PAT(3)},
-    {"FUNK KEY", {3, 1, 3, 5, 90, 25, 20, 0}, {0, 45, 30, 30}, 0, 0, FX(0, 20, 30, 20), PAT(6)},
+    {"E.PIANO", {4, 1, 1, 14, 70, 55, 0, 0}, {0, 80, 40, 60}, 0, 0, FX(0, 50, 25, 35)},
+    {"BELL", {4, 8, 1, 4, 90, 70, 0, 0}, {0, 95, 0, 85}, 0, 0, FX(0, 0, 30, 70)},
+    {"BASS", {0, 1, 1, 1, 48, 40, 8, 0}, {0, 60, 70, 25}, 0, 1, FX(0, 0, 10, 10)},
+    {"BRASS", {0, 1, 1, 1, 70, 40, 20, 0}, {40, 70, 100, 40}, 20, 0, FX(0, 20, 20, 40)},
+    {"ORGAN", {7, 2, 3, 4, 0, 0, 0, 0}, {2, 60, 127, 20}, 0, 0, FX(10, 40, 0, 30)},
+    {"PAD", {5, 2, 1, 3, 40, 90, 10, 0}, {80, 90, 110, 95}, 0, 0, FX(0, 60, 30, 70)},
+    {"MARIMBA", {4, 4, 1, 1, 60, 30, 0, 0}, {0, 80, 0, 60}, 0, 0, FX(0, 0, 25, 40)},
+    {"FUNK KEY", {3, 1, 3, 5, 90, 25, 20, 0}, {0, 45, 30, 30}, 0, 0, FX(0, 20, 30, 20)},
 };
 #define FM4_NPRESETS 8u
 _Static_assert(NELEM(DIGITAL_PRESETS) == FM4_NPRESETS, "DIGITAL presets");
@@ -366,7 +366,7 @@ static void fm4_preset_values(int16_t *p, uint32_t k)
     p[P_ED_FLT] = pr->fenv;
     p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
     for (i = 0; i < 4u; i++)
-        p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+        p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     for (i = P_FM1_ATK; i <= P_FM4_LEVEL; i++)
         p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
 }

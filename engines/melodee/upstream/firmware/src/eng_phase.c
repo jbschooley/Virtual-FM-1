@@ -21,7 +21,12 @@ static void cz_init(void) { for (uint32_t k = 0; k < NTRK; k++) cz_patch_init(cz
  * control tick. No exponential asymptote and no extra release after END. */
 typedef struct { uint32_t rate[8]; int32_t level[8]; uint8_t sustain, end; } cz_env_def_t;
 typedef struct { int32_t level; uint8_t stage, gate; } cz_env_t;
-typedef struct { cz_env_t eg[2][3]; uint32_t vib_phase, vib_ticks, noise; } cz_voice_t;
+typedef struct { float level; uint8_t stage, gate; } cz_native_env_t;
+typedef struct {
+    union { cz_env_t eg[2][3]; cz_native_env_t native_eg[2][3]; };
+    uint32_t vib_phase, vib_ticks, noise;
+    float native_dc[2];
+} cz_voice_t;
 typedef struct { cz_voice_t v[NPOLY]; } cz_part_t;
 static cz_part_t *cz_part(uint32_t part);              /* engines.c: shared runtime pool */
 static cz_voice_t *cz_voice(track_t *t, voice_t *v)
@@ -318,12 +323,12 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
 }
 
 static const preset_t PHASE_PRESETS[] = {
-    {"BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, 0, FX(0, 20, 20, 40), PAT(6)},
-    {"ORGAN", {3, 0, 40, 0, 0, 0, 0, 0}, {0, 127, 127, 30}, 0, 0, FX(0, 40, 0, 30), PAT(6)},
-    {"STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {40, 90, 100, 70}, 0, 0, FX(0, 50, 20, 60), PAT(5)},
-    {"RESO", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, 0, FX(0, 0, 40, 40), PAT(1)},
-    {"BELL", {6, 0, 80, 50, 0, 0, 0, 0}, {0, 95, 0, 90}, 0, 0, FX(0, 0, 30, 70), PAT(7)},
-    {"WIRE", {4, 7, 70, 40, 7, 0, 0, 0}, {10, 80, 80, 60}, 0, 0, FX(15, 30, 30, 40), PAT(4)},
+    {"BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, 0, FX(0, 20, 20, 40)},
+    {"ORGAN", {3, 0, 40, 0, 0, 0, 0, 0}, {0, 127, 127, 30}, 0, 0, FX(0, 40, 0, 30)},
+    {"STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {40, 90, 100, 70}, 0, 0, FX(0, 50, 20, 60)},
+    {"RESO", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, 0, FX(0, 0, 40, 40)},
+    {"BELL", {6, 0, 80, 50, 0, 0, 0, 0}, {0, 95, 0, 90}, 0, 0, FX(0, 0, 30, 70)},
+    {"WIRE", {4, 7, 70, 40, 7, 0, 0, 0}, {10, 80, 80, 60}, 0, 0, FX(15, 30, 30, 40)},
 };
 
 static const engine_t ENG_PHASE = {

@@ -121,6 +121,7 @@ static void run_to(uint32_t f) { while (fpos < f) blk(); }
 #define FREE_LONG_S 90
 static const char *const LONG_TAIL[] = {"preset/CZ-1/47_BELLS", "preset/CZ-1/51_SITAR", "preset/CZ-1/62_JET_ROAR"};
 static uint32_t free_cap_s = FREE_CAP_S;         /* this job's (run_job_body) */
+static uint32_t tail_s = TAIL_S;                 /* .. its FX tail (a delay send's: job_sends) */
 static uint32_t release_cap(void) { return free_cap_s; }
 
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
@@ -131,10 +132,10 @@ static void finish(void)
     while (!parts_free() && fpos < cap)
         blk();
     R.free_s = parts_free() ? (double)(fpos - rel_at) / FS : -1;
-    tail_from = fpos + TAIL_S * FS - FS / 4u;
+    tail_from = fpos + tail_s * FS - FS / 4u;
     R.tmin = 0x7FFFFFFF;
     R.tmax = -0x7FFFFFFF;
-    run_to(fpos + TAIL_S * FS);
+    run_to(fpos + tail_s * FS);
     R.tail_peak = (R.tmax - R.tmin + 1) / 2;
     R.tail_dc = (R.tmax + R.tmin) / 2;
     R.frames = fpos;
@@ -212,6 +213,8 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = S[j->arg][i];
+    if (S[j->arg][2])                          /* the delay's repeats (x0x's defaults: TAPE, FDBK 50) ring ~5 s */
+        tail_s = 7;
     phrase(t, 60);
 }
 
@@ -258,7 +261,7 @@ static void job_slicer(const job_t *j)
 }
 
 /* the 4-track mix: T1 ANALOG ACID, T2 the power-on pad (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD
- * before) (tied chords), T3 LOFI lead (12 steps against 16),
+ * before) (tied chords), T3 SID lead (12 steps against 16),
  * T4 808 DRUM drums; 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
  * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
 static void job_song(const job_t *j)
@@ -378,6 +381,7 @@ static int run_job_body(job_t *j)
 {
     memset(&R, 0, sizeof R);
     free_cap_s = FREE_CAP_S;
+    tail_s = TAIL_S;
     for (uint32_t i = 0; i < sizeof LONG_TAIL / sizeof LONG_TAIL[0]; i++)
         if (!strcmp(j->name, LONG_TAIL[i]))
             free_cap_s = FREE_LONG_S;
@@ -481,13 +485,15 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
     midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
 }
 
-/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE, 808 DRUM)
- * play random notes on and off for
+/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE (retired:
+ * SID), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
+#define VCAP_E (MELODEE_LEGACY_EXTRAS ? 5u : 3u)
+#define VCAP (MELODEE_LEGACY_EXTRAS ? 4u : NVOICE)
 static int chk_budget(char *msg, uint32_t n)
 {
-    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {5, 1}, {4, 4}};
+    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {VCAP_E, 1}, {4, 4}};
     uint8_t held[NPART][128] = {{0}};
     uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
     host_tracks_init();
@@ -529,10 +535,10 @@ static int chk_budget(char *msg, uint32_t n)
                 trk_note_off(&trk[p], k);
     rel_at = fpos;
     finish();
-    snprintf(msg, n, "4 POLY parts, random notes: at most %u voices active (budget %u), VOICE part at most %u (cap 4), "
+    snprintf(msg, n, "4 POLY parts, random notes: at most %u voices active (budget %u), part 3 at most %u (cap %u), "
              "%u voices taken, %u still fading after their block, all free %.2f s after the note-offs",
-             worst, NVOICE, vworst, voice_kills - kills0, fading, R.free_s);
-    return worst <= NVOICE && vworst <= 4u && !fading && R.free_s >= 0 && voice_kills > kills0;
+             worst, NVOICE, vworst, VCAP, voice_kills - kills0, fading, R.free_s);
+    return worst <= NVOICE && vworst <= VCAP && !fading && R.free_s >= 0 && voice_kills > kills0;
 }
 
 /* MIDI packets in one audio block can reuse a voice before its stolen tail fades. */
@@ -599,7 +605,8 @@ static int chk_cap_mode_budget(char *msg, uint32_t n)
         trk[0].p[P_VOICE] = MODE[round];
         if (round == 2u) {
             /* A lower cap must not protect old upper slots while the lower extras fade. */
-            host_preset(&trk[0], 5, 0);
+            if (MELODEE_LEGACY_EXTRAS)                  /* (VOICE's cap of 4: retired) */
+                host_preset(&trk[0], 5, 0);
             trk[0].p[P_VOICE] = V_UNISON;
             for (i = 1; i < trk_nvoice(&trk[0]); i++)
                 voice_kill(&trk[0].v[i]);
@@ -1061,7 +1068,8 @@ int main(int argc, char **argv)
     add(J_CHECK, "voices: MONO keeps its note")->check = chk_keep_mono;
     add(J_CHECK, "voices: LEGATO keeps its note")->check = chk_keep_legato;
     add(J_CHECK, "voices: UNISON keeps its note")->check = chk_keep_unison;
-    add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
+    if (MELODEE_LEGACY_EXTRAS)
+        add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
     add(J_CHECK, "routing: no hanging notes")->check = chk_hang;
     run_jobs(J, nj, jobs_at_once);
 
@@ -1201,7 +1209,11 @@ int main(int argc, char **argv)
         const job_t *j = &J[i];
         const char *want = kv_get(cpu, nc, j->name);
         int own = j->e < NENGINES && idle_base > 0;
-        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = fmax(0, j->r.ipc - (own ? idle_base : 0));
+        /* Short native percussion can finish before measurement and cost
+         * less than the recorded idle mix. Clamp both sides consistently:
+         * a negative incremental baseline cannot be a valid CPU budget. */
+        double b = want ? fmax(0, atof(want) - (own ? idle_base : 0)) : 0;
+        double ipc = fmax(0, j->r.ipc - (own ? idle_base : 0));
         if (j->crashed) {
             printf("regress: CRASH  %s\n", j->name);
             crash++;
@@ -1218,7 +1230,7 @@ int main(int argc, char **argv)
             printf("regress: CPU %s: %.0f instructions / sample, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, ipc);
         else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
             printf("regress: CPU OVER BUDGET  %s: %.0f instructions / sample%s, baseline %.0f (+%.0f %%, limit +%.0f %%)\n",
-                   j->name, ipc, own ? " over the idle mix" : "", b, (ipc / b - 1) * 100, CPU_TOL * 100);
+                   j->name, ipc, own ? " over the idle mix" : "", b, b > 0 ? (ipc / b - 1) * 100 : 0, CPU_TOL * 100);
             c_fail++;
         } else if (ipc < b * (1 - CPU_TOL) && ipc < b - CPU_SLACK) {
             printf("regress: CPU note  %s: %.0f instructions / sample, baseline %.0f (%.0f %%): faster? "

@@ -4,9 +4,8 @@
  * slots in four storage objects (the first two at 0xDC000..0xDFFFF,
  * two more at 0xE5000..0xE8FFF), 16 records each. Only names and indexes
  * stay in RAM; one bank is read on demand when loading or editing. A record: engine, name, the instrument parameters, a 16-step
- * pattern (factory PATTERNS[] format). FM6 voices live beside their records
- * (up_fm6.c). Loading one loads the sound only; its pattern
- * is offered by SEQ > PATTERNS ("U07", up_pat_load). The format is unchanged.
+ * pattern (kept in the format, never loaded: the phrases are gone). FM6 voices live beside their records
+ * (up_fm6.c). Loading one loads the sound only.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
  * empty; so does a record with another layout version. A record keeps np =
@@ -39,6 +38,8 @@
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
 #define UP_VER 4u                                /* 2 since 1.0; 1 is read too (PHYS MODEL 2 was DUST) */
+#define UP_VER_DRUM 9u
+#define UP_VER_DRUM_GRID 10u
 #define UP_VER_GRID 5u                           /* 2 with a drum grid as the pattern (see the top) */
 #define UP_BANK_MAGIC 0x31425055u                /* "UPB1" */
 typedef struct {
@@ -100,15 +101,22 @@ static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
     return cz_legacy_tone(raw,p,n);
 }
 static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
+static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
+{
+    uint8_t b[DRUM_WIRE_BYTES];if(r->np>sizeof r->packed-8u)return 0;
+    memcpy(b,r->cz_extra,sizeof r->cz_extra);memcpy(b+sizeof r->cz_extra,r->packed+r->np,8u);return drum_patch_unpack(p,b);
+}
+
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return r->np==P_COUNT && r->name[0] && up_cz_raw(r,raw); }
-    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < USER_GENERAL &&
+    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==100u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
+    if (!(r->used == UP_USED && r->ver >= 1u && (r->ver <= UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
      * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
     if (r->ver == 1u && (r->np == 58u || r->np == 62u)) return 0;
     if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
+    if(r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)){drum_patch_t p;if(!up_drum_raw(r,&p))return 0;}
     return 1;
 }
 
@@ -121,7 +129,7 @@ static int up_used(uint32_t k)
     return up_valid(up_rec(k));
 }
 
-static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
+static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
 static int16_t up_value(const up_rec_t *r, uint32_t k) { if(up_legacy_cz(r)){uint32_t pos=r->ver==6u?977u:983u;for(uint32_t i=0;i<k;i++)pos+=LCZ_PRESET_WIDTH[i];return (int16_t)up_legacy_bits(r,pos,LCZ_PRESET_WIDTH[k])+LCZ_PRESET_MIN[k];} return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
@@ -233,15 +241,6 @@ static void up_pat_from(up_rec_t *r, const step_t *st)   /* the first 16 steps -
     }
 }
 
-static int up_pat_empty(const up_rec_t *r)
-{
-    uint32_t i;
-    for (i = 0; i < 16u; i++)
-        if (r->note[i])
-            return 0;
-    return 1;
-}
-
 /* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi] -> *r (values not
  * yet clamped); 0 ok, 1 bad arguments. *slot gets the slot byte when there is one. kind 1 (and its 16 bytes):
  * a drum grid, the pairs the low 7 bits of each step's hits and accents, hi bit 0 / 1 their bit 7 (lane 8) */
@@ -302,6 +301,8 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     for (i = 0; i < P_COUNT; i++)
         def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
+    if (r->np < P_COUNT)                          /* (before the delay came back: its send inert, so none) */
+        v[P_DLY] = 0;
     if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
         phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)
@@ -444,6 +445,7 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
 /* the selected part's sound -> slot k; name 0 or "": the automatic name (up_auto_name); up_put's result */
 static int up_store(uint32_t k, const char *name)
 {
+    momentary_restore();
     if (k >= UP_SLOTS || TSEL->eng_req == ENGI_PROPHET) return 1;
     up_rec_t r;
     uint32_t i;
@@ -472,6 +474,7 @@ static int up_store(uint32_t k, const char *name)
             }
         }
     }
+    if(r.engine==ENGI_DRUM){uint8_t b[DRUM_WIRE_BYTES];drum_patch_pack(b,&drum_patch[song.sel]);memcpy(r.cz_extra,b,sizeof r.cz_extra);memcpy(r.packed+r.np,b+sizeof r.cz_extra,8u);r.ver=r.ver==UP_VER_GRID?UP_VER_DRUM_GRID:UP_VER_DRUM;}
     if (r.engine == ENGI_FM6) {
         /* A fresh nonce prevents an interrupted save of the same macros from
          * pairing the new record with the previous voice. Renames keep it. */
@@ -506,7 +509,7 @@ static int up_rename(uint32_t k, const char *name)
 
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
  * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay: the record's pattern is
- * loaded only from SEQ > PATTERNS (up_pat_load). 0 ok, 1 empty */
+ * never loaded (the phrases are gone). 0 ok, 1 empty */
 static int up_load(uint32_t k)
 {
     const up_rec_t *r;
@@ -535,6 +538,7 @@ static int up_load(uint32_t k)
                 t->p[i] = v[i];
         t->preset = 0;
         if (up_native_cz(r)||up_legacy_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
+        if(r->engine==ENGI_DRUM){memset(&drum_patch[song.sel],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[song.sel]);}
         cz_track_accept(t);
         fm1_irq_on();
         upf_track_load(t, k); /* FM6: load the preset's actual voice */
@@ -545,54 +549,6 @@ static int up_load(uint32_t k)
     sync_reload = 1;
     ui.force = 1;
     return 0;
-}
-
-/* the patterns of the user presets (SEQ > PATTERNS lists them after the factory ones, ui.c pat_count) */
-static int up_has_pat(uint32_t k) { return up_used(k) && !up_pat_empty(up_rec(k)); }
-
-static uint32_t up_pat_count(void)
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-static uint32_t up_pat_nth(uint32_t n)         /* slot of the n-th one that holds a pattern (n < up_pat_count()) */
-{
-    uint32_t k;
-    for (k = 0; k < UP_SLOTS; k++)
-        if (up_has_pat(k) && !n--)
-            return k;
-    return 0;
-}
-
-static uint32_t up_pat_rank(uint32_t slot)     /* ones that hold a pattern before it */
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < slot && k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-/* slot k's pattern -> track t's steps 1..16 (the rest cleared), with the record's LEN (at most 16), DIV,
- * SWING and GATE; the sound stays (ui.c pat_load: the undo copy) */
-static void up_pat_load(track_t *t, uint32_t k)
-{
-    const up_rec_t *r;
-    int16_t v[P_COUNT];
-    uint32_t i;
-    if (!up_has_pat(k))
-        return;
-    r = up_rec(k);
-    up_values(r, v);
-    if (up_grid(r))
-        load_grid16(t, r->note, r->flags);
-    else
-        load_pat16(t, r->note, r->flags);
-    for (i = P_SDIV; i <= P_SGATE; i++)
-        t->p[i] = v[i];
-    t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without MELODEE_FM4) */
@@ -643,8 +599,6 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
     }
     if (op == 0u) {
         up_load(k);
-        if (up_has_pat(k))                              /* SEQ > PATTERNS starts at its pattern */
-            ui.ppick = (uint8_t)(NPATTERNS + up_pat_rank(k));
         ui_say("LOADED ", l);
         return;
     }

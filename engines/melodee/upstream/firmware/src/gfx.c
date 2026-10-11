@@ -3,8 +3,8 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Inter Tight;
- * tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
+ * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Rubik;
+ * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
  * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
@@ -20,19 +20,24 @@ typedef struct {
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
 } aafont_t;
-typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_pal_t;
+typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
+#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
-#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text, 32 in a scrolled view */
+#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text,
+                                                              * 16 under a question (cv_dim), 32 in a scrolled view */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
+#endif
+#ifndef GFX_HOOK_WHOLE
+#define GFX_HOOK_WHOLE(x, y, r0, fill) ((void)0)   /* what the screen would hold sent whole: canvas rows r0.. at x, y (or a
+                                                     * fill) (tests/ui_render.c: the diff checked against it) */
 #endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
@@ -42,7 +47,7 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 /* Most regions (cards, header, footer) fit the small second canvas. Draw
  * there while SPI reads the first; large graphs reuse the full canvas only
  * after its transfer finishes. No second full-screen-sized allocation. */
-#define CV_ALT_MAX (240u * 32u)
+#define CV_ALT_MAX (240u * 24u)                   /* (240 x 24: the diff's hashes took the rest, below) */
 static uint16_t cv_primary[CV_MAX] __attribute__((section(".pool")));
 static uint16_t cv_alt[CV_ALT_MAX] __attribute__((section(".pool")));
 static uint16_t *cv_px = cv_primary;
@@ -60,13 +65,15 @@ static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 
 static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
+    uint16_t panel, quiet, lift, sec;   /* the redesign's (docs/design): panel, a quiet lane, the selected lane, names */
     uint8_t light, mono;
+    uint8_t pal, trk;            /* the palette, the track whose colour is THEME (palette_track) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
 #define T_TEXT ux.text           /* primary text */
-#define T_THEME ux.theme         /* values, curves, the gauge's end line */
+#define T_THEME ux.theme         /* the selected track's colour: values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
 #define T_MID ux.mid             /* labels, units, secondary text */
 #define T_DIM ux.dim             /* inactive, empty */
@@ -79,7 +86,17 @@ static struct {
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
 #define T_GRID ux.grid           /* the piano roll: a step line (SURF -> TEXT 6 %; beats and C rows: RAISE) */
+#define T_PANEL ux.panel         /* a view's big area (BG -> SURF 55 %) */
+#define T_QUIET ux.quiet         /* a lane not selected (BG -> SURF 25 %) */
+#define T_LIFT ux.lift           /* the selected lane (SURF -> TEXT 3 %) */
+#define T_SEC ux.sec             /* secondary names (BG -> TEXT 80 %) */
 #define NPALETTES UI_NPALETTES
+#ifdef UI_TEST_PALETTE
+#define UI_PAL_ENTRIES (UI_NPALETTES + 1u)   /* + GRAY (host tests: every screen must stay gray in it) */
+#else
+#define UI_PAL_ENTRIES UI_NPALETTES
+#endif
+#define T_TRK(k) UI_PALETTES[ux.pal].trk[(k) & 3u]   /* track k's colour (the mixer, lanes, track chips) */
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
 /* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */
@@ -102,34 +119,62 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
     return ((c >> 11) * 255u / 31u * 54u + ((c >> 5) & 63u) * 255u / 63u * 183u + (c & 31u) * 255u / 31u * 19u) >> 8;
 }
 
+static void palette_theme(void)                    /* THEME and what is mixed from it: the track's colour */
+{
+    const ui_pal_t *p = &UI_PALETTES[ux.pal];
+    ux.theme = p->trk[ux.trk & 3u];
+    ux.sel = ux_mix(p->bg, ux.theme, UI_SEL_PCT);
+    ux.tint = ux_mix(p->bg, ux.theme, UI_TINT_PCT);
+    ux.lane = ux_mix(p->surf, ux.theme, 10);
+    ux.gen++;                                    /* the text ramps follow */
+}
 static void palette_set(uint32_t i)
 {
-    const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
-    ux.mono = i % NPALETTES == UI_MONO_INDEX;
-    ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    const ui_pal_t *p = &UI_PALETTES[ux.pal = (uint8_t)(i < UI_PAL_ENTRIES ? i : UI_DEFAULT_INDEX)];
+#ifdef UI_TEST_PALETTE
+    ux.mono = ux.pal == UI_GRAY_INDEX;
+#else
+    ux.mono = 0;
+#endif
+    ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.accent = p->accent;
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
-    ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
-    ux.sel = ux_mix(p->bg, p->theme, UI_SEL_PCT);
-    ux.tint = ux_mix(p->bg, p->theme, UI_TINT_PCT);
+    ux.line = ux_mix(p->bg, p->text, UI_LINE_PCTS[ux.pal]);     /* (NIGHT's fainter: the design's) */
     ux.ink = p->bg;
     ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
-    ux.lane = ux_mix(p->surf, p->theme, 10);
     ux.grid = ux_mix(p->surf, p->text, 6);
+    ux.panel = ux_mix(p->bg, p->surf, 55);
+    ux.quiet = ux_mix(p->bg, p->surf, 25);
+    ux.lift = ux_mix(p->surf, p->text, 3);
+    ux.sec = ux_mix(p->bg, p->text, 80);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
-    ux.gen++;                                    /* the text ramps change with the coverage curve */
+    palette_theme();
+}
+/* the selected track (ui_draw, every frame): THEME takes its colour; 1 = it changed (redraw everything) */
+static int palette_track(uint32_t t)
+{
+    if (ux.trk == (t & 3u))
+        return 0;
+    ux.trk = (uint8_t)(t & 3u);
+    palette_theme();
+    return 1;
 }
 
-/* settings store a tagged id; ids below 20 are the palettes of earlier firmware */
+/* settings store a tagged id (UI_PAL_TAG + index); 64..71 are Melodee 0.13's eight palettes, ids below 20
+ * Felucca's twenty: both map to the nearest of today's */
 static uint32_t palette_from_stored(uint32_t v)
 {
     if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
-    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_MONO_INDEX;
+    if (v >= 64u && v < 72u) return UI_PALETTE_MIGRATE64[v - 64u];
+    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_DEFAULT_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
-static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }
+static int palette_stored_ok(uint32_t v)
+{
+    return v < 20u || (v >= 64u && v < 72u) || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES);
+}
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 
@@ -157,22 +202,352 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
         cv_px[i] = s;
 }
 
+/* cv_dim: a canvas goes out darkened (72 % toward BG): the page under a question (ui_draw.c); cv_under: the page under
+ * a popup, dimmed or not (a knob's picker: not), its texts covered on purpose (the lint's flag 16) */
+static uint8_t cv_dim, cv_under;
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
+static void cv_dim_rows(uint32_t r0)
+{
+    uint32_t i;
+    for (i = r0 * cv_w; i < cv_w * cv_h; i++)
+        cv_px[i] = swap16(mix565(T_BG, swap16(cv_px[i]), 9u));
+}
+/* ------------------------------------------------------------- diff --- */
+/* The SPI (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms. So a big canvas sent where it was sent
+ * before (the same x, y, w, h) sends only what changed: DF_N such places keep 32-bit hashes of their 4-row bands and
+ * 8-column blocks as last sent, and a blit sends the dirty band runs x the dirty block runs. Anything else written
+ * over a place (another canvas, a fill: gfx_fill) marks the bands and blocks it covered dirty: sent again next time */
+#define DF_N 9u                                         /* (tests/ui_render.c's LCD audit: as much sent as with 14) */
+#ifndef DF_MIN
+#define DF_MIN 2048u                                    /* (smaller canvases: sent whole) */
+#endif
+#define DF_BAND 4u
+#define DF_BLK 8u
+#define DF_NB (240u / DF_BAND)
+#define DF_NK (240u / DF_BLK)
+#define DF_SLOTS 76u                                    /* a canvas's bands, then its blocks: at most 60 + 16 (CV_MAX) */
+#define DF_FITS() ((cv_h + DF_BAND - 1u) / DF_BAND + (cv_w + DF_BLK - 1u) / DF_BLK <= DF_SLOTS)
+static struct { uint64_t pb; uint32_t pk; uint8_t x, y, w, h, on; uint16_t use; } df_key[DF_N];   /* pb, pk: bands and
+                                                                                    * blocks drawn over since (dirty) */
+static uint32_t df_sum[DF_N][DF_SLOTS] __attribute__((section(".pool")));   /* (16 bits: one changed block in 65536
+                                                                             * collided, left stale) */
+static uint32_t df_now[DF_SLOTS] __attribute__((section(".pool")));
+static uint16_t df_clock;
+
+static void df_damage(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t keep)   /* (keep: a place spared) */
+{
+    uint32_t i, j;
+    for (i = 0; i < DF_N; i++) {
+        uint32_t ex = df_key[i].x, ey = df_key[i].y, ex1 = ex + df_key[i].w, ey1 = ey + df_key[i].h, a0, a1, b0, b1;
+        if (i == keep || !df_key[i].on || x >= ex1 || x + w <= ex || y >= ey1 || y + h <= ey)
+            continue;
+        a0 = (y > ey ? y : ey) - ey;                    /* the canvas rows a0 .. a1-1, columns b0 .. b1-1 covered */
+        a1 = (y + h < ey1 ? y + h : ey1) - ey;
+        b0 = (x > ex ? x : ex) - ex;
+        b1 = (x + w < ex1 ? x + w : ex1) - ex;
+        if (!a0 && a1 == ey1 - ey && !b0 && b1 == ex1 - ex) {
+            df_key[i].on = 0;                           /* (all of it: forgotten) */
+            continue;
+        }
+        for (j = a0 / DF_BAND; j <= (a1 - 1u) / DF_BAND; j++)
+            df_key[i].pb |= 1ull << j;
+        for (j = b0 / DF_BLK; j <= (b1 - 1u) / DF_BLK; j++)
+            df_key[i].pk |= 1u << j;
+    }
+}
+static uint32_t df_find(uint32_t x, uint32_t y)        /* the canvas's place (DF_N: none) */
+{
+    uint32_t i;
+    for (i = 0; i < DF_N; i++)
+        if (df_key[i].on && df_key[i].x == x && df_key[i].y == y && df_key[i].w == cv_w && df_key[i].h == cv_h)
+            return i;
+    return DF_N;
+}
+static void df_hash(void)                               /* the canvas's bands, then its blocks, into df_now */
+{
+    uint32_t nb = (cv_h + DF_BAND - 1u) / DF_BAND, nk = (cv_w + DF_BLK - 1u) / DF_BLK, r, k, i, band = 2166136261u;
+    uint32_t blk[DF_NK];
+    for (k = 0; k < nk; k++)
+        blk[k] = 2166136261u;
+    for (r = 0; r < cv_h; r++) {
+        const uint16_t *p = cv_px + r * cv_w;
+        for (k = 0; k < nk; k++) {
+            uint32_t h = 2166136261u, e = (k + 1u) * DF_BLK < cv_w ? (k + 1u) * DF_BLK : cv_w;
+            for (i = k * DF_BLK; i < e; i++)
+                h = (h ^ p[i]) * 16777619u;
+            blk[k] = (blk[k] ^ h) * 16777619u;
+            band = (band ^ h) * 16777619u;
+        }
+        if (r % DF_BAND == DF_BAND - 1u || r + 1u == cv_h) {
+            df_now[r / DF_BAND] = band;
+            band = 2166136261u;
+        }
+    }
+    for (k = 0; k < nk; k++)
+        df_now[nb + k] = blk[k];
+}
+static void df_keep(uint32_t x, uint32_t y)             /* the canvas just sent whole: its place remembered */
+{
+    uint32_t i, at = 0;
+    for (i = 0; i < DF_N; i++) {                        /* a free place, else the one used longest ago */
+        if (!df_key[i].on) {
+            at = i;
+            break;
+        }
+        if ((uint16_t)(df_clock - df_key[i].use) > (uint16_t)(df_clock - df_key[at].use))
+            at = i;
+    }
+    df_key[at].x = (uint8_t)x; df_key[at].y = (uint8_t)y; df_key[at].w = (uint8_t)cv_w; df_key[at].h = (uint8_t)cv_h;
+    df_key[at].on = 1;
+    df_key[at].pb = 0;
+    df_key[at].pk = 0;
+    df_key[at].use = ++df_clock;
+    for (i = 0; i < DF_SLOTS; i++)
+        df_sum[at][i] = df_now[i];
+}
+/* canvas columns c0 .. c0+w-1 of rows r0 .. r0+h-1 to the screen: whole rows straight from the canvas, else gathered
+ * into the small canvas (the canvas is it, or they do not fit: whole rows) */
+static void df_send(uint32_t x, uint32_t y, uint32_t c0, uint32_t w, uint32_t r0, uint32_t h, uint32_t keep)
+{
+    uint32_t r, i;
+    if (w < cv_w && (cv_px == cv_alt || w * h > CV_ALT_MAX)) {
+        c0 = 0;
+        w = cv_w;
+    }
+    df_damage(x + c0, y + r0, w, h, keep);
+    if (w == cv_w) {
+        lcd_blit(x, y + r0, w, h, cv_px + r0 * cv_w);
+        cv_flight = cv_px;
+        return;
+    }
+    if (cv_flight == cv_alt) {
+        lcd_sync();
+        cv_flight = 0;
+    }
+    for (r = 0; r < h; r++)
+        for (i = 0; i < w; i++)
+            cv_alt[r * w + i] = cv_px[(r0 + r) * cv_w + c0 + i];
+    lcd_blit(x + c0, y + r0, w, h, cv_alt);
+    cv_flight = cv_alt;
+}
+/* runs of the dirty marks d[0..n-1] (gaps up to gap joined), up to 6: run k from a[k] to b[k] */
+static uint32_t df_runs(const uint8_t *d, uint32_t n, uint32_t gap, uint8_t *a, uint8_t *b)
+{
+    uint32_t i, nr = 0;
+    for (i = 0; i < n; i++) {
+        if (!d[i])
+            continue;
+        if (nr && i - b[nr - 1u] <= gap + 1u)
+            b[nr - 1u] = (uint8_t)i;
+        else if (nr < 6u) {
+            a[nr] = b[nr] = (uint8_t)i;
+            nr++;
+        } else
+            b[nr - 1u] = (uint8_t)i;
+    }
+    return nr;
+}
+/* the canvas (hashed: df_now) sent where it was before: only what changed. 0: no place known (send it whole) */
+static int df_diff(uint32_t x, uint32_t y)
+{
+    uint32_t e = df_find(x, y), nb = (cv_h + DF_BAND - 1u) / DF_BAND, nk = (cv_w + DF_BLK - 1u) / DF_BLK, i, j, nr, nc;
+    uint32_t anyb = 0, anyk = 0;
+    uint8_t db[DF_NB], dk[DF_NK], ra[6], rb[6], ca[6], cb[6];
+    if (e >= DF_N)
+        return 0;
+    for (i = 0; i < nb; i++)
+        anyb |= db[i] = df_now[i] != df_sum[e][i] || ((df_key[e].pb >> i) & 1u);
+    for (i = 0; i < nk; i++)
+        anyk |= dk[i] = df_now[nb + i] != df_sum[e][nb + i] || ((df_key[e].pk >> i) & 1u);
+    df_key[e].use = ++df_clock;
+    df_key[e].pb = 0;
+    df_key[e].pk = 0;
+    if (!anyb && !anyk)
+        return 1;
+    for (i = 0; i < nb && !anyb; i++)                   /* (one way's hashes collided: all of it that way) */
+        db[i] = 1;
+    for (i = 0; i < nk && !anyk; i++)
+        dk[i] = 1;
+    for (i = 0; i < DF_SLOTS; i++)
+        df_sum[e][i] = df_now[i];
+    nr = df_runs(db, nb, 1u, ra, rb);
+    nc = df_runs(dk, nk, 2u, ca, cb);
+    if (nr * nc > 6u) {                                 /* scattered: their bounding box */
+        rb[0] = rb[nr - 1u]; cb[0] = cb[nc - 1u];
+        nr = nc = 1;
+    }
+    for (j = 0; j < nc; j++) {
+        uint32_t c0 = ca[j] * DF_BLK, c1 = (cb[j] + 1u) * DF_BLK < cv_w ? (cb[j] + 1u) * DF_BLK : cv_w;
+        if ((c1 - c0) * 4u >= cv_w * 3u) {              /* (most of the width: whole rows, no gathering) */
+            c0 = 0;
+            c1 = cv_w;
+        }
+        for (i = 0; i < nr; i++) {
+            uint32_t r0 = ra[i] * DF_BAND, r1 = (rb[i] + 1u) * DF_BAND < cv_h ? (rb[i] + 1u) * DF_BAND : cv_h;
+            df_send(x, y, c0, c1 - c0, r0, r1 - r0, e);
+        }
+        if (c0 == 0 && c1 == cv_w)
+            break;
+    }
+    return 1;
+}
+
+/* While a frame is drawn (ui_draw: gfx_frame) fills wait: a canvas sent over one later takes its place out of it, and
+ * what is left is filled when the frame ends. A page drawn again whole (ui.force: its background filled, then its
+ * canvases) so sends what changed, not the screen */
+#define FQ_N 40u
+static struct { uint8_t x, y, w, h; uint16_t c; } fq[FQ_N] __attribute__((section(".pool")));
+static uint32_t fq_n;
+static uint8_t fq_on;
+static void fq_flush(void)
+{
+    uint32_t i;
+    for (i = 0; i < fq_n; i++) {
+        df_damage(fq[i].x, fq[i].y, fq[i].w, fq[i].h, DF_N);
+        lcd_fill(fq[i].x, fq[i].y, fq[i].w, fq[i].h, fq[i].c);
+    }
+    fq_n = 0;
+}
+static void fq_cover(uint32_t x, uint32_t y, uint32_t w, uint32_t h)   /* a canvas about to go to (x, y, w, h) */
+{
+    uint32_t i = 0, j;
+    while (i < fq_n) {
+        uint32_t fx = fq[i].x, fy = fq[i].y, fx1 = fx + fq[i].w, fy1 = fy + fq[i].h, n = 0, m0, m1;
+        uint8_t p[4][4];
+        uint16_t c = fq[i].c;
+        if (x >= fx1 || x + w <= fx || y >= fy1 || y + h <= fy) {
+            i++;
+            continue;
+        }
+        m0 = y > fy ? y : fy;                           /* the rows they share */
+        m1 = y + h < fy1 ? y + h : fy1;
+        if (y > fy) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)fy; p[n][2] = (uint8_t)(fx1 - fx); p[n][3] = (uint8_t)(y - fy); n++; }
+        if (y + h < fy1) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)(y + h); p[n][2] = (uint8_t)(fx1 - fx); p[n][3] = (uint8_t)(fy1 - y - h); n++; }
+        if (x > fx) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)m0; p[n][2] = (uint8_t)(x - fx); p[n][3] = (uint8_t)(m1 - m0); n++; }
+        if (x + w < fx1) { p[n][0] = (uint8_t)(x + w); p[n][1] = (uint8_t)m0; p[n][2] = (uint8_t)(fx1 - x - w); p[n][3] = (uint8_t)(m1 - m0); n++; }
+        if (fq_n - 1u + n > FQ_N) {                     /* (too many pieces: all the fills now, before the canvas) */
+            fq_flush();
+            return;
+        }
+        if (!n)                                         /* the pieces in its place (the order of the fills kept) */
+            for (j = i + 1u; j < fq_n; j++)
+                fq[j - 1u] = fq[j];
+        else
+            for (j = fq_n; j > i + 1u; j--)
+                fq[j - 2u + n] = fq[j - 1u];
+        for (j = 0; j < n; j++) {
+            fq[i + j].x = p[j][0]; fq[i + j].y = p[j][1]; fq[i + j].w = p[j][2]; fq[i + j].h = p[j][3]; fq[i + j].c = c;
+        }
+        fq_n = fq_n - 1u + n;
+        i += n;
+    }
+}
+static void gfx_frame(int on)                           /* a frame begins (1) / ends (0: what fills are left, sent) */
+{
+    if (!on)
+        fq_flush();
+    fq_on = (uint8_t)on;
+}
+static void gfx_forget(void)                            /* the panel's memory not to be trusted: all sent whole next */
+{
+    uint32_t i;
+    for (i = 0; i < DF_N; i++)
+        df_key[i].on = 0;
+}
+
 static void cv_blit(uint32_t x, uint32_t y)
 {
+    uint32_t big = cv_w * cv_h >= DF_MIN && DF_FITS();
+    if (fq_n)
+        fq_cover(x, y, cv_w, cv_h);
     GFX_HOOK_BLIT(x, y, 0u);
+    if (cv_dim)
+        cv_dim_rows(0);
+    GFX_HOOK_WHOLE(x, y, 0u, 0);
+    if (big) {
+        df_hash();
+        if (df_diff(x, y))
+            return;
+    }
+    df_damage(x, y, cv_w, cv_h, DF_N);
     lcd_blit(x, y, cv_w, cv_h, cv_px);
     cv_flight = cv_px;
+    if (big)
+        df_keep(x, y);
 }
 
 /* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
+    if (fq_n && r0 < cv_h)
+        fq_cover(x, y + r0, cv_w, cv_h - r0);
     GFX_HOOK_BLIT(x, y, r0);
+    if (cv_dim && r0 < cv_h)
+        cv_dim_rows(r0);
+    GFX_HOOK_WHOLE(x, y, r0, 0);
     if (r0 < cv_h) {
+        df_damage(x, y + r0, cv_w, cv_h - r0, DF_N);
         lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
         cv_flight = cv_px;
     }
 }
+
+/* the caller knows only columns a0 .. a0+aw-1 and b0 .. b0+bw-1 changed (bw 0: one span; a playhead moved over a big
+ * view): only they are sent, faster than df_diff finds them (8-column blocks) */
+static void cv_blit_spans(uint32_t x, uint32_t y, uint32_t a0, uint32_t aw, uint32_t b0, uint32_t bw)
+{
+    uint32_t e;
+    if (cv_dim || cv_w * cv_h < DF_MIN || !DF_FITS()) {
+        cv_blit(x, y);
+        return;
+    }
+    if (fq_n)
+        fq_cover(x, y, cv_w, cv_h);
+    GFX_HOOK_WHOLE(x, y, 0u, 0);
+    df_hash();
+    e = df_find(x, y);
+    if (e >= DF_N) {                                    /* (nothing known there: all of it) */
+        GFX_HOOK_BLIT(x, y, 0u);
+        df_damage(x, y, cv_w, cv_h, DF_N);
+        lcd_blit(x, y, cv_w, cv_h, cv_px);
+        cv_flight = cv_px;
+        df_keep(x, y);
+        return;
+    }
+    GFX_HOOK_BLIT(x, y, 0u);
+    if (df_key[e].pb || df_key[e].pk) {                 /* (drawn over since: what changed, found) */
+        df_diff(x, y);
+        return;
+    }
+    for (uint32_t i = 0; i < DF_SLOTS; i++)
+        df_sum[e][i] = df_now[i];
+    df_key[e].use = ++df_clock;
+    if (a0 < cv_w && aw)
+        df_send(x, y, a0, aw < cv_w - a0 ? aw : cv_w - a0, 0, cv_h, e);
+    if (b0 < cv_w && bw)
+        df_send(x, y, b0, bw < cv_w - b0 ? bw : cv_w - b0, 0, cv_h, e);
+}
+
+static void gfx_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)   /* every fill from here on */
+{
+    if (!w || !h || x >= 240u || y >= 240u)
+        return;
+    if (w > 240u - x)
+        w = 240u - x;
+    if (h > 240u - y)
+        h = 240u - y;
+    GFX_HOOK_WHOLE(x, y, w | h << 16, c | 1u << 16);
+    if (!fq_on) {
+        df_damage(x, y, w, h, DF_N);
+        lcd_fill(x, y, w, h, c);
+        return;
+    }
+    if (fq_n == FQ_N)
+        fq_flush();
+    fq[fq_n].x = (uint8_t)x; fq[fq_n].y = (uint8_t)y; fq[fq_n].w = (uint8_t)w; fq[fq_n].h = (uint8_t)h; fq[fq_n].c = c;
+    fq_n++;
+}
+#define lcd_fill gfx_fill
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
 {
@@ -274,6 +649,59 @@ static void cv_rrect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint
         }
 }
 
+/* a disc of diameter d (px) centred on (cx, cy) (odd d: a pixel's centre; even: its corner), anti-aliased over
+ * what is on the canvas (4 x 4 samples a pixel); ring: only its outer 1 px (the patterns' track numbers) */
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
+static void cv_disc(int32_t cx, int32_t cy, int32_t d, uint16_t c, int ring)
+{
+    int32_t qx = cx * 8 + ((d & 1) ? 4 : 0), qy = (cy + cv_oy) * 8 + ((d & 1) ? 4 : 0), r = d * 4, ri = r - 8, x, y;
+    for (y = cy + cv_oy - d / 2 - 1; y <= cy + cv_oy + d / 2 + 1; y++)
+        for (x = cx - d / 2 - 1; x <= cx + d / 2 + 1; x++) {
+            int32_t n = 0, i, j;
+            if ((uint32_t)x >= cv_w || (uint32_t)y >= cv_h) continue;
+            for (j = 0; j < 4; j++)
+                for (i = 0; i < 4; i++) {
+                    int32_t dx = x * 8 + 1 + 2 * i - qx, dy = y * 8 + 1 + 2 * j - qy, q = dx * dx + dy * dy;
+                    n += q <= r * r && !(ring && q < ri * ri);
+                }
+            if (n) {
+                uint16_t *p = &cv_px[(uint32_t)y * cv_w + (uint32_t)x];
+                *p = swap16(mix565(swap16(*p), c, (uint32_t)n * 2u));
+            }
+        }
+}
+static void cv_circle(int32_t cx, int32_t cy, int32_t d, uint16_t c, uint16_t under) { (void)under; cv_disc(cx, cy, d, c, 0); }
+static void cv_ring(int32_t cx, int32_t cy, int32_t d, uint16_t c) { cv_disc(cx, cy, d, c, 1); }
+/* column x from y a to y b (1/16 px, either order) 2 px thick, its ends anti-aliased, blended over the canvas: a
+ * smooth trace drawn a column at a time (Stage's waveform, docs/design) */
+static void cv_vspan_aa(int32_t x, int32_t a, int32_t b, uint16_t c)
+{
+    int32_t lo = a < b ? a : b, hi = (a < b ? b : a) + 32, y;
+    if ((uint32_t)x >= cv_w)
+        return;
+    for (y = lo >> 4; y <= (hi - 1) >> 4; y++) {
+        int32_t py = y + cv_oy, top = y * 16, cov = (hi < top + 16 ? hi : top + 16) - (lo > top ? lo : top);
+        uint16_t *p;
+        if ((uint32_t)py >= cv_h || cov <= 0) continue;
+        p = &cv_px[(uint32_t)py * cv_w + (uint32_t)x];
+        *p = swap16(mix565(swap16(*p), c, (uint32_t)cov * 2u));
+    }
+}
+/* a 1 px dashed outline, 3 on, 2 off (a pattern waiting: the design's dashed chip), its corners rounded (r) and solid */
+static void cv_dashed(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c)
+{
+    int32_t i;
+    for (i = r; i < w - r; i++)
+        if ((i - r) % 5 < 3) { cv_pset(x + i, y, c); cv_pset(x + i, y + h - 1, c); }
+    for (i = r; i < h - r; i++)
+        if ((i - r) % 5 < 3) { cv_pset(x, y + i, c); cv_pset(x + w - 1, y + i, c); }
+    for (i = 0; i < r; i++) {                       /* the corners: the quarter circle's pixels */
+        int32_t j = r - 1 - i;
+        cv_pset(x + i, y + j, c); cv_pset(x + w - 1 - i, y + j, c);
+        cv_pset(x + i, y + h - 1 - j, c); cv_pset(x + w - 1 - i, y + h - 1 - j, c);
+    }
+}
+
 /* ------------------------------------------------- 4-bit alpha blit --- */
 /* coverage curves: a little heavier for light ink on dark, lighter for dark ink on light */
 static const uint8_t CURVE_DARK[16] = {0, 24, 43, 62, 80, 97, 114, 130, 147, 163, 178, 194, 210, 225, 240, 255};
@@ -321,6 +749,29 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     return v;
 }
 
+/* text over a picture (the Stage's notes over the waveform): with cv_over set, a glyph's pixel blends cv_over_fg into
+ * the pixel already on the canvas, with the ramps' coverage curve, instead of taking a ramp's colour over a flat bg */
+static uint8_t cv_over;
+static uint16_t cv_over_fg;
+/* fg over bg, a of 32 (0..32): the three channels at once, spread apart in a word (no division); MONO on the red
+ * channel, so it stays gray */
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a)
+{
+    uint32_t b, f;
+    if (ux.mono) {
+        int32_t x = bg >> 11;
+        return ux_gray((uint32_t)(x + ((((fg >> 11) - x) * (int32_t)a) >> 5)));
+    }
+    b = (bg | (uint32_t)bg << 16) & 0x07E0F81Fu;
+    f = (fg | (uint32_t)fg << 16) & 0x07E0F81Fu;
+    b = (b + (((f - b) * a) >> 5)) & 0x07E0F81Fu;
+    return (uint16_t)(b | b >> 16);
+}
+static uint16_t cv_over_px(uint16_t under, uint32_t v)       /* under: the canvas pixel (byte-swapped), v: 1..15 */
+{
+    return swap16(mix565(swap16(under), cv_over_fg, ((ux.light ? CURVE_LIGHT : CURVE_DARK)[v & 15u] + 4u) >> 3));
+}
+
 /* w x h nibbles, rows back to back, at canvas (x, y) */
 static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
 {
@@ -338,7 +789,7 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
             uint32_t v = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
             int32_t px = x + (int32_t)gx;
             if (v && (uint32_t)px < cv_w)
-                row[px] = rv[v];
+                row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
         }
     }
     GFX_HOOK_PIXELS(w * h);
@@ -414,7 +865,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                 uint32_t k;
                 for (k = 0; k < n; k++, px++)
                     if ((uint32_t)px < cv_w)
-                        row[px] = rv[v];
+                        row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
             }
             gx += n;
             run -= n;
@@ -441,8 +892,8 @@ static int32_t glyph_at(const aafont_t *f, uint32_t ch)
 static uint32_t glyph(const aafont_t *f, uint32_t ch)
 {
     int32_t k;
-    if (ch >= 'a' && ch <= 'z' && f->last < 'a')
-        ch -= 32u;                                   /* L has capitals only */
+    if (ch >= 'a' && ch <= 'z' && f->last < 'a' && glyph_at(f, ch) < 0)
+        ch -= 32u;                                   /* (a face without the small letter: its capital) */
     if ((k = glyph_at(f, ch)) < 0 && (ch != (uint8_t)ELLIPSIS || (k = glyph_at(f, '.')) < 0) &&
         (k = glyph_at(f, '?')) < 0)
         k = 0;
@@ -464,7 +915,10 @@ static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px 
     return 0;
 }
 
-static uint32_t fold(const aafont_t *f, uint32_t c) { return c >= 'a' && c <= 'z' && f->last < 'a' ? c - 32u : c; }
+static uint32_t fold(const aafont_t *f, uint32_t c)
+{
+    return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
+}
 
 static int32_t text_w(const aafont_t *f, const char *s)
 {
@@ -495,6 +949,7 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
+    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
         const aag_t *g;
@@ -535,6 +990,8 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
             if (y0 + cv_oy < cv_cy0) y0 = cv_cy0 - cv_oy;
             if (y1 + cv_oy > cv_cy1) y1 = cv_cy1 - cv_oy;
         }
+        if (cv_dim || cv_under)                      /* (the page under a question: covered on purpose) */
+            flags |= 16u;
         GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
     }
     (void)s0;
@@ -548,6 +1005,23 @@ static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s
 static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg)
 {
     return cv_text_flags(x, y, f, s, fg, cv_bg, 0);
+}
+/* a scrim: the canvas inside (x, y, w, h) a of 32 of the way to c, the last f px towards each edge less (feathered): a
+ * picture calmed behind text (cv_over) and still seen through it. Per pixel a blend of the row's or the column's
+ * alpha (mix565), nothing else */
+static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
+{
+    int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
+    y += cv_oy;
+    for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
+        int32_t dy = j - y < y + h - 1 - j ? j - y : y + h - 1 - j;
+        uint16_t *row = &cv_px[(uint32_t)j * cv_w];
+        for (i = x0; i < x1; i++) {
+            int32_t d = i - x < x + w - 1 - i ? i - x : x + w - 1 - i;
+            if (dy < d) d = dy;
+            row[i] = swap16(mix565(swap16(row[i]), c, d >= f ? a : a * (uint32_t)(d + 1) / (uint32_t)(f + 1)));
+        }
+    }
 }
 /* right-aligned: the advance ends at xr */
 static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
@@ -646,9 +1120,9 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
     const uint16_t *rv = kc_ramp(under, fill, ink);
     cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
     if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u);      /* cut by the canvas */
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u | (cv_dim || cv_under ? 16u : 0u));   /* cut */
     else
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u);
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u | (cv_dim || cv_under ? 16u : 0u));
     return x + k->w;
 }
 

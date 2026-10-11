@@ -31,7 +31,8 @@
 #define P5_OVERSAMPLE 1 /* prototype: benchmark base rate before enabling optional 2x */
 #endif
 #ifndef MELODEE_LEGACY_EXTRAS
-#define MELODEE_LEGACY_EXTRAS 0 /* reference tests only: retired TRIO, WHEEL and PHYS */
+#define MELODEE_LEGACY_EXTRAS 0 /* reference tests only: retired TRIO, WHEEL and PHYS; PHASE, VOICE and NOISE (retired
+                                 * 2026-10-10: the flash for the redesign; CZ-1 keeps PHASE's phase-distortion core) */
 #endif
 #define MELODEE_PROPHET 1
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
@@ -42,7 +43,7 @@
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 256u
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - 7u - !MELODEE_FM4 - !MELODEE_SLICE - 3u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 7u - !MELODEE_FM4 - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS
@@ -91,6 +92,8 @@ enum {                          /* per-track parameters */
     P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL,
     P_CHRD, P_VOIC,                            /* chord keys (chord.c): one key plays a chord; its voicing */
     P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
+    P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
+    P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -107,14 +110,18 @@ enum {                          /* global parameters */
     G_ENGSEL, G_A4,            /* the editor switches the engine with a SET of G_ENGSEL; G_A4 reuses the unused
                                  * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
-    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING (fx.c). Was G_DRCH, the GM drum part's MIDI
+    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (fx.c). Was G_DRCH, the GM drum part's MIDI
                                  * channel (inert since 1.0, never read); projects of formats before FUN7 load it
                                  * as ROOM (project.c proj_rtype_room) */
-    G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
-                                 * because the ids and G_COUNT are fixed by the formats and the protocol (only
-                                 * the import of an old project reads them: proj_drums_to_part) */
+    G_DTYPE, G_DWEAR,           /* DELAY TYPE (DIGI, TAPE, DG-PP, TP-PP) and WEAR (delay.c, x0x's tape delay).
+                                 * Were G_DRLVL / G_DRREV, the GM drum part's level and reverb send (inert since
+                                 * 1.0): ids and G_COUNT are fixed by the formats and the protocol; a project from
+                                 * before 1.0 still gives them to its drum part (project.c proj_drums_to_part), any
+                                 * project from before the delay came back their defaults (proj_delay_off) */
     G_COUNT
 };
+#define G_DRLVL G_DTYPE         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
+#define G_DRREV G_DWEAR
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -149,6 +156,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
 enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL, Q_MPC };  /* P_QUANT (seq.c kb_map, midi_map); 1 = SNAP, the former ON */
 typedef struct {
+    uint8_t side; /* stereo spread side, retained while sounding */
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
     int32_t env;                 /* Q24 */
@@ -184,12 +192,10 @@ typedef struct {
     uint8_t mono;                /* 1 = MONO (bass / lead), 0 = POLY */
     /* the rest of the patch; each value is stored + 1, 0 = the default */
     uint8_t fx[4];               /* DIST, CHORUS, DELAY, REVERB sends */
-    uint8_t pat;                 /* suggested pattern (PATTERNS[pat - 1], 0 = none): only a hint. A sound load
-                                  * never touches the steps; SEQ > PATTERNS loads a pattern (ui.c pat_load). The
-                                  * arp is the track's too: a preset does not set it */
+                                 /* (a sound load never touches the steps; the arp is the track's: a preset does
+                                  * not set it) */
 } preset_t;
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
-#define PAT(n) .pat = (n)
 
 struct track;
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
@@ -248,8 +254,43 @@ enum { ST_NOTE, ST_TIE, ST_REST };
 #define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
 /* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
  * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */
-typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; } recorded_note_t;
-_Static_assert(sizeof(recorded_note_t) == 8u, "timed note layout");
+typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; int8_t pitch; uint8_t length; } recorded_note_t;
+_Static_assert(sizeof(recorded_note_t) == 10u, "timed note layout");
+/* Sound offsets: semitones, decay and voice character; zero preserves the factory kit. */
+typedef struct { int8_t c[16][4]; } drum_patch_t;
+static drum_patch_t drum_patch[NTRK];
+static int drum_patch_valid(const drum_patch_t *p)
+{
+    for(uint32_t i=0;i<16;i++)if(p->c[i][0]<-24 || p->c[i][0]>24 || p->c[i][1]<-64 || p->c[i][1]>63 || p->c[i][2]<-64 || p->c[i][2]>63 || p->c[i][3]<0)return 0;
+    return 1;
+}
+#define DRUM_WIRE_BYTES 54u /* 16 voices x (6-bit tune, 7-bit decay/character/attenuation) */
+static void drum_wire_put(uint8_t *b,uint32_t *pos,uint32_t v,uint32_t n)
+{while(n--){b[*pos>>3]|=(uint8_t)((v&1u)<<(*pos&7u));v>>=1;++*pos;}}
+static uint32_t drum_wire_get(const uint8_t *b,uint32_t *pos,uint32_t n)
+{uint32_t v=0;for(uint32_t i=0;i<n;i++,++*pos)v|=(uint32_t)((b[*pos>>3]>>(*pos&7u))&1u)<<i;return v;}
+static void drum_patch_pack(uint8_t *b,const drum_patch_t *p)
+{
+    memset(b,0,DRUM_WIRE_BYTES);uint32_t pos=0;
+    for(uint32_t i=0;i<16;i++){
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
+        drum_wire_put(b,&pos,(uint32_t)p->c[i][3],7);
+    }
+}
+static int drum_patch_unpack(drum_patch_t *p,const uint8_t *b)
+{
+    uint32_t pos=0;
+    for(uint32_t i=0;i<16;i++){
+        p->c[i][0]=(int8_t)((int32_t)drum_wire_get(b,&pos,6)-24);
+        p->c[i][1]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
+        p->c[i][2]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
+        p->c[i][3]=(int8_t)drum_wire_get(b,&pos,7);
+    }
+    return drum_patch_valid(p);
+}
+
 #define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
 typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits */
     uint8_t note[4];
@@ -295,6 +336,8 @@ typedef struct track {
     int32_t lfo_val;             /* Q15 */
     int32_t lfo_fade;            /* Q15 ramp after note-on */
     uint32_t lfo_rnd;
+    int16_t lfo_prev;
+    uint8_t sp_alt;
     /* keyboard / arp input: held notes in press order */
     uint8_t held[16];
     uint8_t nheld;

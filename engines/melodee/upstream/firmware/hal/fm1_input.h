@@ -25,7 +25,7 @@
  * FM1_DEB_RELEASE frames open in a row (~9 ms): a contact bouncing open on the way down, or
  * chattering on the way up, never ends the note early or plays it twice. A key still bouncing
  * when it is let go (open, closed, open..) holds its note until it has been open for that long.
- * Encoders: stock quadrature decoder (2-sample filter, tables 0x2814/0x4182,
+ * Encoders: stock quadrature decoder (no 2-sample filter, for fast turns; tables 0x2814/0x4182,
  * sign flipped so + = clockwise on the hardware), plus detent counting. An FM-1
  * detent is one full quadrature cycle (4 transitions, M0g) and the knob rests in
  * one state: the one seen at power-on (relearned after FM1_REST_FRAMES still
@@ -36,14 +36,16 @@
  * fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
  * while that column is selected. fm1_led_key/btn helpers address them by id.
- * fm1_led_dim[plane][col] LEDs are lit one frame in (fm1_led_dim_mask[plane] + 1),
- * staggered by column: dimmer levels from the ~900 Hz frame rate, at no cost per
- * tick. Two planes, each with its own level (the UI: idle keys, idle buttons).
+ * fm1_led_dim[plane][col] LEDs have duty 1/(fm1_led_dim_mask[plane] + 1)
+ * within EVERY selected column, using hardware PWM. Three planes, each with its
+ * own level (idle keys, idle buttons, breathing); overlapping planes use the
+ * brightest level. Bright rows stay fully on. PWM continues with IRQs masked.
  */
 #pragma once
 #include <stdint.h>
 #include "fm1_time.h"
 #include "fm1_gpio.h"
+#include "fm1_led_pwm.h"
 
 #ifndef FM1_INPUT_IDLE
 #define FM1_INPUT_IDLE() ((void)0)
@@ -96,8 +98,8 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
-static uint8_t fm1_led_dim[2][FM1_NCOL];
-static uint8_t fm1_led_dim_mask[2];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
+static uint8_t fm1_led_dim[3][FM1_NCOL];
+static uint8_t fm1_led_dim_mask[3];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 duty; 0xff = dark */
 
 /* scan diagnostics (console `inp`, read and cleared by the main loop): the gap between ticks
  * = the on-time of the column lit in it, in TIMER4 ticks (24 MHz) */
@@ -115,17 +117,37 @@ static volatile struct {
 
 static void fm1__led_lines(uint32_t rowmask)       /* row bit 1 PA9, 2 PA10, 3 PH6, 4 PH9 */
 {
-    uint32_t a = FM1_PR(FM1_PA, FM1_OUT) & ~((1u << 9) | (1u << 10));
-    uint32_t h = FM1_PR(FM1_PH, FM1_OUT) & ~((1u << 6) | (1u << 9));
-    FM1_PR(FM1_PA, FM1_OUT) = a | (rowmask & 2u) << 8 | (rowmask & 4u) << 8;
-    FM1_PR(FM1_PH, FM1_OUT) = h | (rowmask & 8u) << 3 | (rowmask & 16u) << 5;
+    if (!fm1_led_pwm_active) {
+        uint32_t a = FM1_PR(FM1_PA, FM1_OUT) & ~((1u << 9) | (1u << 10));
+        uint32_t h = FM1_PR(FM1_PH, FM1_OUT) & ~((1u << 6) | (1u << 9));
+        FM1_PR(FM1_PA, FM1_OUT) = a | (rowmask & 2u) << 8 | (rowmask & 4u) << 8;
+        FM1_PR(FM1_PH, FM1_OUT) = h | (rowmask & 8u) << 3 | (rowmask & 16u) << 5;
+        return;
+    }
+    if (!rowmask)
+        fm1_led_pwm_blank();
+    else
+        fm1_led_pwm_write(rowmask & 2u ? FM1_LED_PWM_PERIOD : 0u,
+                          rowmask & 4u ? FM1_LED_PWM_PERIOD : 0u,
+                          rowmask & 8u ? FM1_LED_PWM_PERIOD : 0u,
+                          rowmask & 16u ? FM1_LED_PWM_PERIOD : 0u);
 }
 
-static uint32_t fm1__led_col(uint32_t p)          /* LED rows of column p in this frame (the dim planes in theirs) */
+static void fm1__led_col(uint32_t p)
 {
-    uint32_t f = fm1_in.frames + p;
-    return fm1_led[p] | ((f & fm1_led_dim_mask[0]) ? 0u : fm1_led_dim[0][p]) |
-           ((f & fm1_led_dim_mask[1]) ? 0u : fm1_led_dim[1][p]);
+    uint8_t dim[3] = {fm1_led_dim[0][p], fm1_led_dim[1][p], fm1_led_dim[2][p]};
+    uint32_t bright = fm1_led[p];
+    if (!fm1_led_pwm_active) {
+        uint32_t f = fm1_in.frames + p;
+        fm1__led_lines(bright | ((f & fm1_led_dim_mask[0]) ? 0u : dim[0]) |
+                       ((f & fm1_led_dim_mask[1]) ? 0u : dim[1]) |
+                       ((f & fm1_led_dim_mask[2]) ? 0u : dim[2]));
+        return;
+    }
+    fm1_led_pwm_write(fm1_led_pwm_level(2u, bright, dim, fm1_led_dim_mask),
+                      fm1_led_pwm_level(4u, bright, dim, fm1_led_dim_mask),
+                      fm1_led_pwm_level(8u, bright, dim, fm1_led_dim_mask),
+                      fm1_led_pwm_level(16u, bright, dim, fm1_led_dim_mask));
 }
 
 static void fm1__sr_word(uint32_t w)
@@ -167,6 +189,8 @@ static void fm1_input_init(void)
     for (i = 0; i < 4u; i++) {
         uint32_t p = LEDP[i][0], m = 1u << LEDP[i][1];
         FM1_PR(p, FM1_DIE) |= m;
+        FM1_PR(p, FM1_PU) &= ~m;
+        FM1_PR(p, FM1_PD) &= ~m;
         FM1_PR(p, FM1_OUT) &= ~m;
         FM1_PR(p, FM1_DIR) &= ~m;
         FM1_PR(p, FM1_HD0) |= m;
@@ -186,6 +210,8 @@ static void fm1_input_init(void)
     FM1_PR(FM1_PA, FM1_OUT) &= ~sr;
     FM1_PR(FM1_PA, FM1_DIR) &= ~sr;
     fm1__sr_word(0xFFFFu);
+    fm1__wait(FM1_SETTLE_US);
+    fm1_led_pwm_init();
     for (i = 0; i < FM1_NENC; i++)
         fm1_in.enc_prev[i] = fm1_in.enc_last[i] = 0xFF;   /* seeded by the first frame */
 }
@@ -242,7 +268,7 @@ static void fm1_input_scan(void)
         fm1__wait(FM1_SETTLE_US);
         fm1_in.raw[p] = (uint8_t)fm1__rows();
         fm1__keys(p);
-        fm1__led_lines(fm1__led_col(p));
+        fm1__led_col(p);
         fm1__wait(FM1_LED_US);
     }
     fm1__led_lines(0);
@@ -257,10 +283,12 @@ static void fm1__frame(void)
         uint32_t cur = ((fm1_in.raw[m[0]] >> m[1]) & 1u) << 1 | ((fm1_in.raw[m[2]] >> m[3]) & 1u);
         uint32_t idx;
         volatile int8_t *sub = &fm1_in.enc_sub[e];
+        /* no two-frame filter (as fm1-x0x): a state had to be seen on two frames running (~2.2 ms) to count, so a
+         * fast turn, whose states last less than that, lost its detents and the knob slowed down or stopped. A frame
+         * (~1.1 ms) is longer than a contact bounce, and a step still needs >= 2 net transitions on the detent */
         if (cur != fm1_in.enc_last[e]) {
             fm1_in.enc_last[e] = (uint8_t)cur;
             fm1_in.enc_still[e] = 0;
-            continue;
         }
         if (fm1_in.enc_prev[e] == 0xFF) {          /* first frame: the knob rests here */
             fm1_in.enc_prev[e] = (uint8_t)cur;
@@ -322,7 +350,7 @@ static void fm1_input_tick(void)
         fm1_in_stat.on_max[p] = g;
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
     fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
-    fm1__led_lines(fm1__led_col(n));
+    fm1__led_col(n);
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
     if (n == 0u)

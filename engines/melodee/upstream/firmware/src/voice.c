@@ -45,13 +45,33 @@ static uint32_t lfo_rand(track_t *t)
     return s;
 }
 
+/* LFO 2 (1.2, #154; params.c N_LSYNC): with SYNC on, one cycle lasts the note value of the tempo (fx.c div_samples:
+ * BPM, or the external clock's measured tempo while it runs), whatever RATE says (the matrix's RATE too): the phase
+ * advances 2^32 x CTL / cycle a block (two 32-bit divides; the 1-bit truncation of 0xFFFFFFFF drifts by less than a
+ * millionth of a cycle a cycle). OFF: RATE's table, as before */
+static uint32_t div_samples(uint32_t div);         /* (fx.c) */
+static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (not inlined: its divides stay out of
+                                                                           * the audio ISR's loop over the tracks) */
+{
+    uint32_t cyc, q, r;
+    cyc = div_samples(LSYNC_DIV[(uint32_t)t->p[P_LSYNC] % NELEM(LSYNC_DIV)]);
+    cyc = cyc ? cyc : 1u;
+    q = 0xFFFFFFFFu / cyc;
+    r = 0xFFFFFFFFu % cyc;
+    return q * CTL + (r * CTL + CTL) / cyc;
+}
+
 static void track_lfo_tick(track_t *t)
 {
     uint32_t old = t->lfo_ph;
-    t->lfo_ph += LFO_INC[t->p[P_LRATE] & 127];
-    if (t->lfo_ph < old)
+    t->lfo_ph += t->p[P_LSYNC] ? lfo_sync_inc(t) : LFO_INC[t->p[P_LRATE] & 127];
+    if (t->lfo_ph < old) {
+        t->lfo_prev = (int16_t)mod_sh(t);               /* mod.c SLEW: it glides on from there */
         t->lfo_rnd = lfo_rand(t);
+    }
     t->lfo_val = lfo_wave(t, t->lfo_ph);
+    if (t->p[P_LPOL])                                   /* UNI: 0..+1 (the depths reach as far, one way only) */
+        t->lfo_val = (t->lfo_val + 32768) >> 1;
     if (t->lfo_fade < 32767) {
         int32_t step = (int32_t)(ENV_LIN[t->p[P_LFADE] & 127] >> 9);
         t->lfo_fade = t->p[P_LFADE] ? clamp(t->lfo_fade + (step ? step : 1), 0, 32767) : 32767;
@@ -290,6 +310,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     if (!sounding) {
         v->env = 0;
         v->env_out = 0;
+        v->side = t->sp_alt; t->sp_alt ^= 1u;
     }                                                   /* sounding: the attack starts from the current level */
     if (!eng_state_prepare(t)) { v->active = v->gate = 0; return; }
     e->note_on(t, v);
@@ -328,6 +349,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
                 continue;                                   /* no room for this extra UNISON voice */
             /* level: about the same sum for 8 or 4 voices at random phases */
             voice_start(t, v, note, nv >= NPOLY ? vel * 36u / 100u : nv > 1u ? vel / 2u : vel, glide);
+            v->side = (uint8_t)(i & 1u);
             if (nv > 1u && i && !ENGINES[t->engine]->sampled) {   /* random start phases: */
                 static uint32_t seed = 0x1234567u;          /* in phase they stack, evenly spread they cancel */
                 seed = seed * 1664525u + 1013904223u;
@@ -391,8 +413,9 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
     mod_note(t, note, vel);                             /* the matrix's VEL / KEY / RAND */
     for (i = 0; i < NVOICE; i++)
         any |= t->v[i].gate;
-    if (!any) {                                        /* fresh phrase: LFO retrigger and fade */
-        t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
+    if (!any) {                                        /* fresh phrase: LFO retrigger (TRIG NOTE) and fade */
+        if (!t->p[P_LTRIG])
+            t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
         t->lfo_fade = 0;
     }
     if (mode == V_POLY) {
@@ -547,6 +570,24 @@ static int32_t env_tick(track_t *t, voice_t *v)
     return v->env >> 9;
 }
 
+/* SPREAD (#148, fx.c mix_spread): while spread_on (mix_part sets it for the part it renders), track_render renders the
+ * voices of side 0 into spread_buf and the others into out, then adds spread_buf to out: out is every voice, as always
+ * (the engines add into either the same way), spread_buf the left ones. A cost per block, none per voice */
+static uint8_t spread_on;
+static int32_t spread_buf[CTL];
+static __attribute__((noinline)) void spread_clear(void)
+{
+    uint32_t i;
+    for (i = 0; i < CTL; i++)
+        spread_buf[i] = 0;
+}
+static __attribute__((noinline)) void spread_sum(int32_t *out)
+{
+    uint32_t i;
+    for (i = 0; i < CTL; i++)
+        out[i] += spread_buf[i];
+}
+
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
@@ -586,6 +627,8 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     for (i=0;i<NVOICE;i++) if(t->v[i].active){live=1;break;}
     int16_t pe_new[8];
     if(live || clear_idle)for (i = 0; i < n; i++)out[i] = 0;
+    if (mod.on && mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);
+    if (spread_on) spread_clear();
     if ((live || e->block || e->post) && !eng_state_prepare(t)) return 0;
     if (fade)                                           /* engine switch: the old engine, its own values */
         for (i = 0; i < 8u; i++) {
@@ -628,9 +671,11 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             if (e->amp)                                 /* the engine's own amplitude curve */
                 env = e->amp(t, v, env);
             m.envq15 = e->ownenv ? 0 : env;
+            if (e == &ENG_SID)                          /* the chip's envelope counter (ENV3): ENV DEST, the matrix */
+                m.envq15 = sid_env_q15(t, v);
             m.amp1 = e->ownenv ? env : mulq15(env, v->vel * 258);
             if (p[P_LD_AMP])
-                m.amp1 = mulq15(m.amp1, 32767 - mulq15((lfo + 32768) >> 1, p[P_LD_AMP] * 258));
+                m.amp1 = mulq15(m.amp1, 32767 - mulq15(p[P_LPOL] ? lfo : (lfo + 32768) >> 1, p[P_LD_AMP] * 258));
             if (fade)                                   /* linear to 0 over the fade */
                 m.amp1 = m.amp1 * (int32_t)(t->xf - 1u) / (int32_t)XF_BLOCKS;
             m.amp0 = v->env_out;
@@ -655,16 +700,18 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
-        if (e == &ENG_PHASE || e == &ENG_CZ)                            /* native DCA remains the matrix's ENV source */
+        if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || e == &ENG_CZ)   /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
         if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
         if (mod.on)                                     /* the modulation matrix (mod.c) */
             mod_voice(t, v, &m, m.fine);
         /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */
         m.plog = (m.pitch16 - tune - bend16 - (int32_t)v->note * 16) * 87381 + (m.fine - tune_fine - bend_fine) * 5909;
-        e->render(t, v, out, n, &m);
+        e->render(t, v, spread_on > v->side ? spread_buf : out, n, &m);
         nr++;
     }
+    if (spread_on) fm6_join();
+    if (spread_on) spread_sum(out);
     if (e->post)
         e->post(t, out, n, nr);
 track_render_done:

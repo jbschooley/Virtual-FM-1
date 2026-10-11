@@ -2,7 +2,7 @@
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
  * releases live here. QNT changes only the playback schedule. */
-static recorded_note_t recording[RECORD_MAX];
+static recorded_note_t recording[RECORD_MAX] __attribute__((section(".pool")));
 static struct { uint32_t held, left; } recording_run[RECORD_MAX];
 static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 2: skip upcoming snapped onset; 4: heard this loop */
 static uint32_t recording_fraction[NTRK];
@@ -12,7 +12,9 @@ static uint16_t recording_head[NTRK * NPAT] = {RECORDING_EMPTY8, RECORDING_EMPTY
 _Static_assert(NTRK * NPAT == 32u, "recording head initializer covers every bank");
 #undef RECORDING_EMPTY8
 static uint16_t recording_next[RECORD_MAX];
-static uint32_t recording_due[RECORD_MAX] __attribute__((section(".pool")));
+/* Keep the onset cache in ordinary RAM: the expanded event payload remains in
+ * the pool, leaving the full audio reserve alongside CPU1's private stacks. */
+static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key; } recording_schedule[NTRK];
 static volatile uint8_t recording_full;
@@ -31,7 +33,7 @@ static uint32_t recording_loop(const track_t *t, uint32_t period)
 }
 static int recording_valid(const recorded_note_t *r)
 {
-    return !r->vel || (r->vel <= 127u && r->duration && r->note <= 127u && ((r->step & 128u) || (r->step & 63u) + ((r->step & 64u) != 0u) < NSTEP));
+    return !r->vel || (r->pitch >= -24 && r->pitch <= 24 && r->length <= 1 && r->vel <= 127u && r->duration && r->note <= 127u && ((r->step & 128u) || (r->step & 63u) + ((r->step & 64u) != 0u) < NSTEP));
 }
 static uint32_t recording_view(const track_t *t, const recorded_note_t *r)
 {
@@ -263,7 +265,9 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     if (chance < 100u && rng() % 100u >= chance) return;
     uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
     if (!gate) gate = 1;
+    drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
     trk_note_on(t, r->note, r->vel);
+    drum_event_pitch=0; drum_event_length=0;
     uint32_t was = recording_run[i].left != 0;
     recording_run[i].left = gate > late ? gate - late : 0u;
     if (recording_run[i].left && !was) recording_refs[trk_index(t)][r->note]++;

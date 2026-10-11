@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol), the
- * factory patterns (SEQ > PATTERNS) and the parts' sounds at power-on. */
+/* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol) and the parts'
+ * sounds at power-on. */
 #include "dsp.c"
 #include "eng_analog.c"
 #if MELODEE_PROPHET
@@ -9,7 +9,7 @@
 #endif
 #include "eng_phase.c"
 #include "eng_cz.c"
-#include "eng_lofi.c"
+#include "eng_sid.c"
 #include "eng_formant.c"
 #include "eng_trio.c"
 #include "eng_wheel.c"
@@ -57,8 +57,12 @@ static uint32_t eng_state_size(uint32_t e)
     case ENGI_PHYS: return sizeof(phys_slot_t) * PHYS_POLY;
     case 7: return sizeof(drw_part_t);
 #endif
-    case 2: case ENGI_CZ: return sizeof(cz_part_t);
-    case ENGI_DRUM: return sizeof(drum_lane_t) * DV_NLANE;
+#if MELODEE_LEGACY_EXTRAS
+    case 2:                                         /* (PHASE: CZ-1's core) */
+#endif
+    case ENGI_CZ: return sizeof(cz_part_t);
+    case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
+    case ENGI_DRUM: return sizeof(drum909_part_t);
     case ENGI_FM6: return sizeof(fm6_part_t);
 #if MELODEE_SLICE
     case ENGI_SLICE: return sizeof(slc_rb_t);
@@ -73,14 +77,16 @@ static void eng_state_clear(uint32_t part)
 static void eng_state_reset(void) { for (uint32_t k = 0; k < NPART; k++) eng_state_clear(k); }
 static int eng_state_prepare(const track_t *t)
 {
-    uint32_t size = eng_state_size(t->engine);
+    uint32_t size = t->engine==ENGI_DRUM?drum_bytes(t):eng_state_size(t->engine);
     return !size || resource_get(RES_ENGINE0 + (uint32_t)(t - trk), size) != 0;
 }
 static phys_slot_t *phys_slots(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(phys_slot_t) * PHYS_POLY); }
+static drum909_part_t *drum909_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(drum909_part_t)); }
 static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(drum_lane_t) * DV_NLANE); }
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
+static sid_part_t *sid_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sid_part_t)); }
 #if MELODEE_PROPHET
 static p5_part_t *p5_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(p5_part_t)); }
 #endif
@@ -100,10 +106,18 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: its sounds convert to FM6, fm4_convert.c) */
 #endif
+#if MELODEE_LEGACY_EXTRAS
     &ENG_PHASE,                  /* 2 */
-    &ENG_LOFI,                   /* 3 */
+#else
+    &ENG_RETIRED,                /* 2: retired PHASE; stored ID reserved (its core: CZ-1's) */
+#endif
+    &ENG_SID,                    /* 3: SID replaces LOFI without reusing a stored ID */
     &ENG_RETIRED,                /* 4: retired SAMPLE; reserved to preserve stored indices */
+#if MELODEE_LEGACY_EXTRAS
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
+#else
+    &ENG_RETIRED,                /* 5: retired VOICE; stored ID reserved */
+#endif
 #if MELODEE_LEGACY_EXTRAS
     &ENG_TRIO,
 #else
@@ -121,7 +135,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 9: retired PHYS; stored ID reserved */
 #endif
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
+#if MELODEE_LEGACY_EXTRAS
     &ENG_NOISE,                  /* 11 */
+#else
+    &ENG_RETIRED,                /* 11: retired NOISE; stored ID reserved */
+#endif
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
 #if MELODEE_SLICE
     &ENG_SLICE,                  /* 13 (ENGI_SLICE) */
@@ -146,32 +164,34 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_FM4
     1,                           /* DIGITAL */
 #endif
-    2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 LOFI VOICE */
 #if MELODEE_LEGACY_EXTRAS
+    2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 SID VOICE */
     6, 7, 9,
-#endif
     11,                          /* NOISE */
+#else
+    ENGI_CZ, 3,                   /* CZ-1 SID */
+#endif
 #if MELODEE_SLICE
     13,                          /* SLICE */
 #endif
     10,                          /* DRUM */
 };
 
-/* the engines one can pick (engine 1 only with MELODEE_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
- * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
-static int eng_ok(uint32_t e)
-{
-    return e < NENGINES && !(e >= 16u && e <= 18u) && (MELODEE_LEGACY_EXTRAS || (e != 6u && e != 7u && e != 9u)) && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
-}
 /* Retired extra synth records retain their stored identity and render silence.
  * DIGITAL keeps its existing FM6 conversion. Never relabel retired records FM6. */
 static int eng_extra_retired(uint32_t e)
 {
-    return !MELODEE_LEGACY_EXTRAS && (e == 6u || e == 7u || e == 9u);
+    return !MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u);
+}
+/* the engines one can pick (engine 1 only with MELODEE_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
+ * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
+static int eng_ok(uint32_t e)
+{
+    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {
-    return e == 6u || e == 7u || e == 9u ? e : eng_ok(e) ? e : ENGI_FM6;
+    return e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u ? e : eng_ok(e) ? e : ENGI_FM6;
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
@@ -188,50 +208,7 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
     return eng_vis((eng_rank(e % NENGINES) + (dir > 0 ? 1u : NENG_SHOWN - 1u)) % NENG_SHOWN);
 }
 
-/* factory sequence patterns: SEQ > PATTERNS loads one into the selected track (ui.c pat_load); a preset
- * only suggests one with PAT(n), loading a sound never touches the steps. Absolute notes, loaded as they
- * are (DRUM and SAMPLE PERC play them as GM drums, SLICE as slices; SCL TRANS and OCT transpose): 0 = rest;
- * flags 1 = accent, 2 = slide, 4 = tie (holds the previous note). Names: at most 8 characters */
-#define T_ 4
-static const struct {
-    const char *name;
-    uint8_t note[16], flags[16];
-} PATTERNS[] = {
-    {"ACID", {45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50},          /* 1 */
-     {1, 0, 2, 0, 0, 0, 1, 2, 0, 0, 1, 0, 0, 2, 0, 1}},
-    {"OFFBEAT", {0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 39, 0, 43},          /* 2 bass */
-     {0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}},
-    {"MELODY", {60, 0, 67, 0, 72, 67, 0, 64, 62, 0, 69, 0, 74, 69, 0, 67},         /* 3 pluck */
-     {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-    {"LEAD", {72, 0, 0, 74, 0, 0, 76, 0, 79, 0, 76, 0, 74, 0, 0, 0},               /* 4 */
-     {1, T_, 0, 2, T_, 0, 0, 0, 1, 0, 2, 0, 0, T_, T_, 0}},
-    {"PAD", {60, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 55, 0, 0, 0},                   /* 5 long notes */
-     {0, T_, T_, T_, T_, T_, T_, 0, 0, T_, T_, 0, 0, T_, T_, 0}},
-    {"KEYS", {0, 0, 60, 0, 0, 63, 0, 0, 0, 0, 60, 0, 0, 65, 0, 63},                /* 6 offbeat stabs */
-     {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}},
-    {"BELL", {72, 0, 0, 79, 0, 0, 84, 0, 0, 0, 76, 0, 0, 0, 0, 0},                 /* 7 sparse */
-     {1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
-    {"SUB", {36, 0, 0, 0, 0, 0, 0, 36, 0, 0, 34, 0, 0, 0, 0, 0},                   /* 8 low, held */
-     {1, T_, T_, T_, 0, 0, 0, 0, 0, 0, 0, T_, T_, T_, 0, 0}},
-    /* SLICE (eng_slice.c): note = C4 + slice */
-    {"CHOP", {60, 61, 62, 67, 64, 65, 60, 69, 68, 70, 62, 67, 72, 72, 74, 64},     /* 9 16 slices re-ordered */
-     {1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}},
-    {"STUTTER", {60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67},    /* 10 8 slices, repeats */
-     {1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}},
-    {"SLICES", {60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75},   /* 11 in order */
-     {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-    /* DRUM, SAMPLE PERC (General MIDI: 36 kick, 38 snare, 42 closed / 46 open hi-hat) */
-    {"BEAT", {36, 42, 42, 42, 38, 42, 36, 42, 36, 42, 42, 36, 38, 42, 46, 42},     /* 12 */
-     {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-    /* 16ths up a C minor arpeggio, twice: the line the ARP presets (RAVE, ARP 8BIT, ARP LEAD) suggest
-     * now that the arpeggiator is the track's and a preset no longer switches it on */
-    {"ARP", {48, 51, 55, 60, 63, 67, 72, 75, 48, 51, 55, 60, 63, 67, 72, 75},       /* 13 */
-     {1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}},
-};
-#undef T_
-#define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
-
-/* the parts at power-on (engine, preset, PATTERNS[n - 1] in the sequencer, 0 = empty: all are): bass, pad, lead, drums */
-static const uint8_t TRK_DEF[NPART][3] = {{0, 4, 0}, {ENGI_FM6, 4, 0}, {3, 0, 0}, {ENGI_DRUM, 0, 0}}; /* ANALOG ACID,
-                                                                       * FM6 PAD (was DIGITAL PAD), LOFI PULSE LD, DRUM KIT */
+/* the parts at power-on (engine, preset; the steps empty): bass, pad, lead, drums */
+static const uint8_t TRK_DEF[NPART][2] = {{0, 4}, {ENGI_FM6, 4}, {3, 0}, {ENGI_DRUM, 0}}; /* ANALOG ACID,
+                                                                       * FM6 PAD (was DIGITAL PAD), SID INIT SID, DRUM KIT */
 static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }

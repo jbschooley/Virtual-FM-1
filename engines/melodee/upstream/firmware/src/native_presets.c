@@ -252,6 +252,7 @@ static int native_load(uint32_t e,uint32_t k,uint32_t tr)
 }
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name)
 {
+    momentary_restore();
     if(tr>=NTRK || trk[tr].eng_req!=e)return 1;
     uint8_t raw[CZ_BYTES];if(e==ENGI_FM6)fm6_pack(fm6_patch[tr],raw);else if(e==ENGI_PROPHET)memcpy(raw,p5_patch_of(&trk[tr]),sizeof(p5_patch_t));else memcpy(raw,cz_patch[tr].raw,CZ_BYTES);
     if(name && name[0]){uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u,n=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name[i];i++)raw[off+i]=(uint8_t)name[i];}

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Eight manual STEP edits of the selected track (SEQ > STEP and CHANCE): note / chord entry with its held length,
+/* Eight manual STEP edits of the selected track (SEQ > NOTES; CHANCE: the note's sheet): note / chord entry with its held length,
  * SCL + SELECT moves, ENV + SELECT lengths, PITCH, LENGTH, VEL, SLIDE and CHANCE turns. SAVE held undoes the last one (with nothing to undo here:
  * the sound / pattern load undo, ui.c undo_swap); OCT- / OCT+ with SAVE or FX held undo further / redo
  * (ui_input.c). The frames of a held entry or move are one edit; a new edit drops the redo. Exact comparisons start
@@ -111,7 +111,7 @@ static void step_history_end(void)
         return;
     }
     if (step_history.has_removed || memcmp(step_history.live, TSEL->step, sizeof step_history.live)) {
-        if (ui.home || cur_page()->scope != SC_STEP) {  /* a pattern load, a clear, the editor: not a STEP edit */
+        if (ui.home || (cur_page()->scope != SC_STEP && cur_page()->scope != SC_DRUMHIT)) {  /* a pattern load, a clear, the editor: not a STEP edit */
             step_history_clear();
             fm1_irq_on();
             return;

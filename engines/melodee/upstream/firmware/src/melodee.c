@@ -7,8 +7,15 @@
 /* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE, MELODEE_FM4
  * (core.h: the SLICE engine, the DIGITAL engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
  * MELODEE_OTA_RAMONLY (ota.c). */
+#include "build_options.h"      /* defaults shared with crt0.S */
+#ifndef MELODEE_CACHE_RAM
+#define MELODEE_CACHE_RAM 1     /* seven data-cache ways as RAM after a boot self-test (MELODEE_CACHE_RAM=0: off) */
+#endif
+#ifndef MELODEE_CORE1_TEST
+#define MELODEE_CORE1_TEST 0    /* editor command 79 injects CPU1 failures (tools/core1_fault_test.py); never release */
+#endif
 #ifndef MELODEE_FLASH
-#define MELODEE_FLASH 1          /* flash driver + storage.c: settings, projects, user presets */
+#define MELODEE_FLASH 1         /* flash driver + storage.c: settings, projects, user presets */
 #endif
 #ifndef MELODEE_OTA
 #define MELODEE_OTA 1            /* M-UPGRADE update entry and the editor SysEx; needs MELODEE_FLASH */
@@ -30,7 +37,7 @@
 #define MELODEE_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
 #ifndef MELODEE_VERSION
-#define MELODEE_VERSION "v0.13" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
+#define MELODEE_VERSION "v1.1.0" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
 #endif
 #if MELODEE_OTA && !MELODEE_FLASH
 #error "MELODEE_OTA needs MELODEE_FLASH"
@@ -40,8 +47,13 @@
 #include <stdint.h>
 #include "fm1_time.h"
 #include "fm1_sys.h"
+#include "fm1_power.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#include "fm1_cache.h"
+#if MELODEE_DUAL_CORE
+#include "fm1_multicore.h"
+#endif
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

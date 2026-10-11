@@ -68,7 +68,10 @@ typedef struct {
     int32_t x[5];                /* the metal voices' output filters (cymbal: two high-passes, its level buffer) */
     int32_t m1[2], m2[2];        /* the metal band-passes */
     dre_t e[2];                  /* envelopes */
+    int32_t color;               /* edited timbre low-pass; neutral path bypasses it */
     uint32_t ph[6];              /* the six square oscillators (running while the lane sounds) */
+    int32_t decay;               /* decay offset, zero preserves original circuit constants */
+    int32_t pitch;               /* per-sound/per-hit pitch in semitones / 16 */
     int32_t nst;                 /* the noise generator */
     uint8_t ins;                 /* DR_*: the circuit struck */
     uint8_t on;                  /* it sounds */
@@ -209,6 +212,17 @@ static inline int32_t dr_pulse(dr8_t *d)
     return s;
 }
 
+static uint32_t dr8_tau(const dr8_t *d,uint32_t tau)
+{return d->decay?(uint32_t)(((uint64_t)tau*(uint32_t)pow2_q16(d->decay*192/24))>>16):tau;}
+static drf_t dr8_filter(const drf_t *base,int32_t pitch)
+{
+    if(!pitch)return *base;
+    float g=(float)base->a2/(float)base->a1;
+    g=fm_clampf(g*fm_exp2f((float)pitch/192.0f),0.001f,8.0f);
+    float k=(float)base->k/8192.0f,a1=1.0f/(1.0f+g*(g+k));
+    drf_t c={(int16_t)(a1*8192.0f),(int16_t)(g*a1*8192.0f),(int16_t)(g*g*a1*8192.0f),base->k};return c;
+}
+
 static void dr_off(dr8_t *d)                     /* silent: the circuit back to rest (the oscillators and the
                                                   * noise run on) */
 {
@@ -224,7 +238,7 @@ static void dr_off(dr8_t *d)                     /* silent: the circuit back to 
 
 static __attribute__((noinline)) void dr_bd(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
-    int32_t f0, q, g, c, tune = (p[P_E1] - 64) * 3, pk = 0, round = p[P_E6] > 0;
+    int32_t f0, q, g, c, tune = (p[P_E1] - 64) * 3 + d->pitch, pk = 0, round = p[P_E6] > 0;
     uint32_t i;
     f0 = dr_tuned(DR_F(49.4), tune);
     q = dr_damp(f0, DR_TAU(dr_exp(300u, p[P_E3] - 64, 24)));           /* DECY: 47 ms .. 1.8 s, 300 ms */
@@ -293,9 +307,9 @@ static const struct { uint16_t hz, ms; uint8_t nz, g; } DR_TOM[6] = {   /* g: le
 static __attribute__((noinline)) void dr_tom(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
     uint32_t k = (uint32_t)(d->ins - DR_LT), i;
-    int32_t tune = (p[P_E1] - 64) * 3, f0, f, q, g, e0, n0, dn, pk = 0;
+    int32_t tune = (p[P_E1] - 64) * 3 + d->pitch, f0, f, q, g, e0, n0, dn, pk = 0;
     f0 = dr_tuned(DR_F(DR_TOM[k].hz), tune);
-    q = dr_damp(f0, DR_TAU(DR_TOM[k].ms));
+    q = dr_damp(f0, dr8_tau(d,DR_TAU(DR_TOM[k].ms)));
     g = (int32_t)(((DR_TOM_G * DR_TOM[k].g >> 8) * 100 / DR_TOM[k].hz * pow2_q16(-tune)) >> 16);
     dre_next(&d->e[0], &e0);                     /* the pitch follows the level (the diodes starve it) */
     f = f0 + (int32_t)(((int64_t)f0 * ((e0 >> 9) * DR_TOM_DROP >> 15)) >> 15);
@@ -370,6 +384,7 @@ static __attribute__((noinline)) void dr_cl(dr8_t *d, int32_t *acc, uint32_t n)
 static __attribute__((noinline)) void dr_cp(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t e0, de = dre_next(&d->e[0], &e0), pk = 0;
+    const drf_t filter={(int16_t)d->f,(int16_t)d->f2,(int16_t)d->q,DRF_CP.k};
     uint32_t i;
     for (i = 0; i < n; i++) {
         int32_t y, w;
@@ -379,7 +394,7 @@ static __attribute__((noinline)) void dr_cp(dr8_t *d, int32_t *acc, uint32_t n)
         }
         d->s[2] -= (d->s[2] >> (d->t < DR_CP_N * DR_CP_GAP ? 7 : 8)) + (d->s[2] > 0);   /* 2.9 ms, the last 5.8 ms */
         w = d->s[2] + ((DRE_AT(e0, de, i) * DR_CP_REV) >> 15);
-        y = (((drf_bp(&DRF_CP, dr_nz[i], d->s) * w) >> 15) * DR_CP_G) >> 12;
+        y = (((drf_bp(&filter, dr_nz[i], d->s) * w) >> 15) * DR_CP_G) >> 12;
         acc[i] += y;
         if (y > pk || -y > pk)
             pk = y < 0 ? -y : y;
@@ -416,6 +431,13 @@ static __attribute__((noinline)) void dr_ma(dr8_t *d, int32_t *acc, uint32_t n)
 static const uint32_t DR_OSC[6] = {              /* phase increments: 205.3, 369.6, 304.4, 522.7, */
     19994485u, 35995916u, 29645987u, 50906562u, 77913239u, 52591436u,   /* 800 (#5), 540 Hz (#6) */
 };
+static uint32_t dr_inc[6];
+/* Block setup stays outside the six-oscillator sample loop. */
+static __attribute__((noinline)) void dr_metal_tune(const dr8_t *d)
+{
+    uint32_t ratio=(uint32_t)pow2_q16(d->pitch);
+    for(uint32_t k=0;k<6;k++)dr_inc[k]=d->pitch?(uint32_t)(((uint64_t)DR_OSC[k]*ratio)>>16):DR_OSC[k];
+}
 #define DR_MV 6                                  /* the swing VCAs' input gain (x) */
 /* the oscillators and what the lane's voice takes from them: the cowbell's two, band 1 (3.44 kHz, the cymbal)
  * and band 2 (7.1 kHz, cymbal and hats) through the clipping of its swing VCAs */
@@ -427,7 +449,7 @@ static __attribute__((noinline)) void dr_metal(dr8_t *d, uint32_t n)
     for (i = 0; i < n; i++) {                    /* the six; their sum in dr_m1 */
         int32_t sum = 0;
         for (k = 0; k < 6u; k++) {
-            ph[k] += DR_OSC[k];
+            ph[k] += dr_inc[k];
             sum += ph[k] < DR_DUTY ? 2048 : -2048;
         }
         dr_cbx[i] = (ph[4] < DR_DUTY ? 8192 : -8192) + (ph[5] < DR_DUTY ? 8192 : -8192);
@@ -511,7 +533,7 @@ static uint32_t dr8_ins(uint32_t note, uint32_t role)
  * instrument than the one ringing starts from rest */
 static void dr8_hit(dr8_t *d, uint32_t ins, uint32_t vel, const int16_t *p)
 {
-    int32_t tune = (p[P_E1] - 64) * 3, lv;
+    int32_t tune = (p[P_E1] - 64) * 3 + d->pitch, lv;
     if (!d->nst)
         d->nst = 0x2F6E2B1 + (int32_t)(ins * 0x9E3779B9u);
     if (d->ins != ins)
@@ -523,50 +545,52 @@ static void dr8_hit(dr8_t *d, uint32_t ins, uint32_t vel, const int16_t *p)
     switch (ins) {
     case DR_SD:
         d->f = dr_tuned(DR_F(173.3), tune);
-        d->q = dr_damp(d->f, DR_MS(18));         /* Q 10 */
+        d->q = dr_damp(d->f, dr8_tau(d,DR_MS(18)));         /* Q 10 */
         d->f2 = dr_tuned(DR_F(336.0), tune);
-        d->q2 = dr_damp(d->f2, DR_MS(9));        /* Q 9.9 */
-        dre_hit(&d->e[0], lv, DR_MS(45));
+        d->q2 = dr_damp(d->f2, dr8_tau(d,DR_MS(9)));        /* Q 9.9 */
+        dre_hit(&d->e[0], lv, dr8_tau(d,DR_MS(45)));
         break;
     case DR_LT: case DR_MT: case DR_HT: case DR_LC: case DR_MC: case DR_HC: {
-        uint32_t tau = DR_TAU(DR_TOM[ins - DR_LT].ms);
+        uint32_t tau = dr8_tau(d,DR_TAU(DR_TOM[ins - DR_LT].ms));
         dre_hit(&d->e[0], lv, tau);
         dre_hit(&d->e[1], lv, tau * 7u / 10u);
         break;
     }
     case DR_RS:
         d->f = dr_tuned(DR_F(455), tune);
-        d->q = dr_damp(d->f, DR_MS(12));
+        d->q = dr_damp(d->f, dr8_tau(d,DR_MS(12)));
         d->f2 = dr_tuned(DR_F(1667), tune);
-        d->q2 = dr_damp(d->f2, DR_MS(6));
-        dre_hit(&d->e[0], lv, DR_TAU(12));
+        d->q2 = dr_damp(d->f2, dr8_tau(d,DR_MS(6)));
+        dre_hit(&d->e[0], lv, dr8_tau(d,DR_TAU(12)));
         break;
     case DR_CL:
         d->f = dr_tuned(DR_F(2500), tune);
-        d->q = dr_damp(d->f, DR_MS(9));
+        d->q = dr_damp(d->f, dr8_tau(d,DR_MS(9)));
         break;
-    case DR_CP:
+    case DR_CP: {
+        drf_t filter=dr8_filter(&DRF_CP,d->pitch);d->f=filter.a1;d->f2=filter.a2;d->q=filter.a3;
         d->s[2] = 0;
         d->s[3] = 0;                              /* the first burst now */
-        dre_hit(&d->e[0], lv, DR_MS(25));
+        dre_hit(&d->e[0], lv, dr8_tau(d,DR_MS(25)));
         break;
+    }
     case DR_MA:
         d->s[2] = 0;
         break;
     case DR_CB:
-        dre_hit(&d->e[0], lv, DR_TAU(50));
-        dre_hit(&d->e[1], lv, DR_TAU(500));
+        dre_hit(&d->e[0], lv, dr8_tau(d,DR_TAU(50)));
+        dre_hit(&d->e[1], lv, dr8_tau(d,DR_TAU(500)));
         break;
     case DR_CY:
         dre_hit(&d->e[0], lv, 64u);              /* (dr_cy: DECY) */
-        dre_hit(&d->e[1], lv, DR_MS(40));
+        dre_hit(&d->e[1], lv, dr8_tau(d,DR_MS(40)));
         break;
     case DR_OH:
         d->choke = 0;
         dre_hit(&d->e[0], lv, 64u);              /* (dr_hat: DECY) */
         break;
     case DR_CH:
-        dre_hit(&d->e[0], lv * 3 / 2, DR_TAU(50));   /* (its level knob above the open hat's) */
+        dre_hit(&d->e[0], lv * 3 / 2, dr8_tau(d,DR_TAU(50)));   /* (its level knob above the open hat's) */
         break;
     }
     d->on = 1;
@@ -583,8 +607,10 @@ static __attribute__((noinline)) void dr8_run(dr8_t *d, const int16_t *p, int32_
     if ((DR_NOISY >> d->ins) & 1u)
         for (i = 0; i < n; i++)
             dr_nz[i] = (int32_t)(noise32(&d->nst) >> 17) - 16384;
-    if ((DR_METAL >> d->ins) & 1u)
+    if ((DR_METAL >> d->ins) & 1u) {
+        dr_metal_tune(d);
         dr_metal(d, n);
+    }
     switch (d->ins) {
     case DR_BD: dr_bd(d, p, y, n); break;
     case DR_SD: dr_sd(d, p, y, n); break;

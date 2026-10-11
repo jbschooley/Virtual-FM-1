@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Pre-rasterise TTF fonts into anti-aliased 4-bit alpha glyph tables for the UI (run by
-tools/build.py generate() with --preset inter-tight).
+tools/build.py generate() with --preset rubik).
 
-  gen_aa_font.py OUT.h --preset standin|inter-tight [--tracking EM] [--gamma G] [--kern-min N]
+  gen_aa_font.py OUT.h --preset rubik|standin|inter-tight [--tracking EM] [--gamma G] [--kern-min N]
   gen_aa_font.py OUT.h --face NAME=FONT[#index]:PX:FIRST-LAST[+0xNN,...] ...   (explicit faces)
 
 Faces of the presets (S labels, M values/headers, L big numerals / titles):
+  rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts): Melodee's face, at 10 / 12 / 15 / 30 px and weights
+              400 / 500 / 600 (its tall x-height reads as Inter Tight's 12 / 15 / 28 at about the same width); X and S
+              on the line metrics of 9 / 11 px (lifted a row).
   standin     an installed Inter (~/Library/Fonts/Inter.ttc, else Inter in fonts/ next to tools/) with
               -2.5 % tracking: a stand-in for Inter Tight, for previews only.
   inter-tight assets/fonts/InterTight[wght].ttf (SIL OFL 1.1, Google Fonts) at weights 400 / 500 / 600.
@@ -42,13 +45,22 @@ PHASES, PHASES_L = 4, 2                # horizontal phases per glyph (aa_raster.
 # faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
 # 2 px per byte, so the labels draw at full speed
 HUFF = [("M", "L")]
-# L draws "MELODEE", the UPDATE MODE countdown digit, the HOME notes / chord roots and the calibration's
-# control names (panel.c B_NAME / E_NAME): a sparse face, the space as its range and the rest as extras
-# (ui_test.c checks that every L string is covered)
-L_CHARS = " #+./-0123456789ABCDEFGHIKLMNOPQRSTUVXY"
+# L draws "Melodee", the UPDATE MODE countdown digit, the HOME notes / chord roots, the calibration's control names
+# (panel.c B_NAME / E_NAME), NAME's name and NEW SONG's key (R6): every letter, the digits and the name's signs; the
+# space as its range and the rest as extras (ui_test.c checks that every L string is covered)
+L_CHARS = " #+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
 def preset(name):
+    if name == "rubik":
+        v = str(FONTS.parent / "assets" / "fonts" / "Rubik[wght].ttf")       # SIL OFL 1.1, Google Fonts
+        # X and S: a pixel larger than the layout's 9 / 11 px, lifted a row so their baselines and line heights stay
+        # the 9 / 11 px faces' (every y and every baseline shared with M and L as it was; the ink grows upwards).
+        # X at 490: at 500 its 'li' lands 0.28 px off (tests/text_spacing_test.py allows 0.25)
+        return [("X", v + "@490", 10, (32, 126), EXTRAS, 0.0, PHASES, 1),     # the redesign's labels (docs/design)
+                ("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES, 1),
+                ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
+                ("L", v + "@500", 30, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L)]
     if name == "inter-tight":
         v = str(FONTS.parent / "assets" / "fonts" / "InterTight[wght].ttf")   # SIL OFL 1.1, Google Fonts
         return [("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES),
@@ -160,9 +172,16 @@ def huff_unpack(hc, data, n):
 
 
 def emit(face, tracking, gamma, kern_min):
-    name, font, px, (first, last), extras, ftrack, phases = face
+    name, font, px, (first, last), extras, ftrack, phases, *lift = face
+    lift = lift[0] if lift else 0              # rows the glyphs move up in the line box (and off its baseline, height)
     chars = [chr(c) for c in range(first, last + 1)] + [chr(c) for c in extras]
     r = ar.raster_font(font, px, chars, tracking if ftrack is None else ftrack, gamma, True, kern_min, phases)
+    if lift:
+        for ch, (adv16, ph) in r["glyphs"].items():
+            assert all(by >= lift for bx, by, bw, bh, b in ph if bh), f"{name} {ch!r}: no room above to lift it"
+            r["glyphs"][ch] = (adv16, [(bx, by - lift if bh else by, bw, bh, b) for bx, by, bw, bh, b in ph])
+        r["asc"] -= lift
+        r["h"] -= lift
     data, table, lines = bytearray(), [], []
     for ch in chars:
         adv16, ph = r["glyphs"][ch]
@@ -225,7 +244,7 @@ def emit(face, tracking, gamma, kern_min):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
-    ap.add_argument("--preset", choices=["standin", "inter-tight"])
+    ap.add_argument("--preset", choices=["rubik", "standin", "inter-tight"])
     ap.add_argument("--face", action="append", default=[])
     ap.add_argument("--tracking", type=float, default=0.0, help="extra advance per glyph in em")
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")

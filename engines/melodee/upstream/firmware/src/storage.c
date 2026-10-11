@@ -20,13 +20,16 @@
 #define ST_BANK_EXT_LO 0xEA000u
 #define ST_BANK_EXT_MAX (2u * ST_PAYLOAD_MAX)
 
-/* Legacy single-pattern projects remain at 0x97000..0x9EFFF for read-only migration.
+/* The Prophet user banks: 0x93000..0x9CFFF (the loader moved them from 0x89000 when the app area grew to 0x93000,
+ * ldr_core.c), in the legacy single-pattern projects' place: those objects are retired (2026-10-10, Kerem: not
+ * wanted), their numbers kept, nothing loads or saves them; 0x9D000..0x9EFFF is free.
  * Bank projects occupy 0xA0000..0xC7FFF, two five-sector copies per slot.
  * Expanded project copies each use two more sectors at 0xEA000..0xF9FFF (unused USR area).
  * User samples are disabled: this area must never accept sample uploads.
- * Existing flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
- * user sample slots 0xA0000..0xDBFFF (sample_data.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
- * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
+ * Flash map: app area 0x4000..0x92FFF; Prophet banks 0x93000..0x9CFFF; free 0x9D000..0x9EFFF; FM6 patch bank
+ * copy A 0x9F000 (B 0xFE000); bank projects 0xA0000..0xC7FFF; CZ banks 0xC8000..0xD7FFF; native FM6 0xD8000..;
+ * user preset banks 0xDC000..0xDFFFF (upreset.c); OTA staging 0xE0000..0xE4FFF; extensions 0xE5000..0xFAFFF;
+ * settings 0xFC000 (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..) */
 /* Object numbers 0..19 stay fixed. U33..U64 use E5000..E8FFF;
  * owned FM6 U01..U32 reuse the old bank pair, U33..U64 use E9000/FA000.
  * E0000..E4FFF remains reserved for OTA loader staging. */
@@ -61,7 +64,8 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
-    if (obj >= OBJ_P5BANK0) return 0x89000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
+    if (obj >= OBJ_P5BANK0) return 0x93000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;   /* (0x89000 before the app area
+                                                                                                * grew: the loader moved them) */
     if (obj >= OBJ_NATIVEFM0) return 0xD8000u + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
     if (obj >= OBJ_UPRESET_EXT0) return 0xE5000u + (obj - OBJ_UPRESET_EXT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
@@ -115,9 +119,12 @@ static int st_read_range(uint32_t obj, uint32_t copy, uint32_t off, void *dst, u
 
 static uint8_t st_buf[256] __attribute__((aligned(4)));
 
+/* the legacy single-pattern projects (OBJ_PROJECT0..+3): retired, their numbers reserved */
+static int st_retired(uint32_t obj) { return obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u; }
+
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */
 {
-    if (obj >= OBJ_COUNT || copy > 1u)
+    if (obj >= OBJ_COUNT || copy > 1u || st_retired(obj))
         return -1;
     if (st_read(st_sector(obj, copy), h, sizeof *h))
         return -1;
@@ -182,7 +189,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     uint32_t seq, base, off;
     int cur, rc;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > st_capacity(obj))
+    if (obj >= OBJ_COUNT || st_retired(obj) || len > st_capacity(obj))
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;

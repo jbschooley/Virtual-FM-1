@@ -37,6 +37,12 @@ static int str_eq(const char *a, const char *b)
     return *a == *b;
 }
 
+static int str_prefix(const char *s,const char *prefix)
+{
+    while(*prefix)if(*s++!=*prefix++)return 0;
+    return 1;
+}
+
 static unsigned str_len(const char *s)
 {
     unsigned n = 0;

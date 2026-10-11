@@ -1,22 +1,24 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* FM6 core: six-operator FM that renders a DX7 voice the samples Dexed renders.
+/* FM6 core: six-operator FM that renders DX7 voices with native fp32 signal arithmetic.
  *
  * The synthesis is Dexed's (Pascal Gauthier; on MSFA by Raph Levien, Google), restated in C: ENGINE (the FM6
- * function settings, fm6_fn) picks Dexed's MODERN (MSFA, 24-bit), MARK I (the DX7's log-sine and exponent
+ * function settings, fm6_fn) picks MODERN (MSFA, native fp32), MARK I (the DX7's log-sine and exponent
  * tables, its 2- and 3-operator feedback loops in algorithms 6 and 4) or OPL resolution. Envelopes in the log
  * domain with the DX7 attack curve and static times, output, level and rate key scaling, velocity, the 32
  * algorithms, the LFO, pitch envelope, pitch bend, portamento and the controllers (wheel, foot, breath,
  * aftertouch to pitch, amplitude and EG bias) follow Dexed's code and its DX7 measurements, at 44.1 kHz in
  * Dexed's 64-sample blocks (two of Melodee's 32-sample control ticks). tests/fm6_parity.sh renders scores
- * through both and compares the samples. Tables: tools/gen_tables.py ("DX7 data": Apache License 2.0 /
+ * through both and reports sample differences; fractional fp32 feedback is not bit-exact. Tables: tools/gen_tables.py ("DX7 data": Apache License 2.0 /
  * GPL-3.0-or-later, see LICENSING.md). The voice handling (which of Dexed's 16 voices a key takes, MONO's
  * hand-over, the voices that run on after their notes) is eng_fm6.c's.
  *
- * Units: logs in Q24 (1 << 24 = one octave or 6 dB); an operator's output is Q24 with 1 << 24 = a unit sine,
- * added to the next operator's phase as 1 << 24 = one cycle (OUTPUT 99 at the top of its envelope: 2.0, a 4 pi
+ * Units: logs in Q24 (1 << 24 = one octave or 6 dB); an operator's output is float with 1.0 = a unit sine,
+ * added to the next operator's phase as 1.0 = one cycle (OUTPUT 99 at the top of its envelope: 2.0, a 4 pi
  * index). The patch is the 155-byte single-voice layout (FP_* below), operator 0 = the sixth operator. */
+
+#include "x0x/fastmath.h"
 
 /* the 155-byte patch: 6 x 21 operator bytes (the sixth operator first), then the voice */
 enum {
@@ -124,138 +126,44 @@ static uint32_t fm6_carriers(uint32_t a)
     return c;
 }
 
-/* ------------------------------------------------ Dexed's lookups (exact) --- */
-static inline int32_t fm6_sin(int32_t ph)                /* Q24 phase -> Q24 (MSFA Sin::lookup) */
+/* The chip's discrete envelopes and ROMs remain integer data. Continuous
+ * gains, signal mixing and AMS use the native single-precision FPU. */
+/* A Q24 log pitch has more significant bits than float. Preserve its exact
+ * phase step with the DX7 frequency table, using two 7-bit partial products
+ * instead of a wide multiply. Otherwise high-ratio notes drift against Dexed. */
+static int32_t fm6_freq(int32_t lf)
 {
-    uint32_t i = ((uint32_t)ph >> 14) & 1023u;
-    int32_t y0 = FM6_SIN[i];
-    return y0 + (int32_t)(((int64_t)(FM6_SIN[i + 1u] - y0) * (ph & 0x3FFF)) >> 14);
+    uint32_t i=((uint32_t)lf&0xFFFFFFu)>>14,f=(uint32_t)lf&0x3FFFu;
+    uint32_t delta=(uint32_t)(FM6_FREQ[i+1u]-FM6_FREQ[i]);
+    int32_t y=FM6_FREQ[i]+(int32_t)((delta*(f>>7)+((delta*(f&127u))>>7))>>7);
+    int32_t sh=20-(lf>>24);
+    return sh<=0?y:sh>31?0:y>>sh;
 }
-
-static int32_t fm6_exp2(int32_t x)                       /* 2^x, Q24 -> Q24 (Exp2::lookup), x > -26 << 24 */
-{
-    uint32_t i = ((uint32_t)x >> 14) & 1023u;
-    int32_t y = (int32_t)FM6_EXP2[i] + (int32_t)(((int64_t)(int32_t)(FM6_EXP2[i + 1u] - FM6_EXP2[i]) * (x & 0x3FFF)) >> 14);
-    return y >> (6 - (x >> 24));
-}
-
-static int32_t fm6_freq(int32_t lf)                      /* log frequency (Q24, Hz) -> phase step (Freqlut) */
-{
-    uint32_t i = ((uint32_t)lf & 0xFFFFFFu) >> 14;
-    int32_t y = FM6_FREQ[i] + (int32_t)(((int64_t)(FM6_FREQ[i + 1u] - FM6_FREQ[i]) * (lf & 0x3FFF)) >> 14);
-    int32_t sh = 20 - (lf >> 24);
-    return sh <= 0 ? y : sh > 31 ? 0 : y >> sh;
-}
-
-/* 2^(x / 65536) in Q16, x from -16 to +15.99 octaves (the FIXED frequency display) */
 static uint32_t fm6_pow2(int32_t x)
 {
-    int32_t ip = x >> 16;
-    uint32_t y = (uint32_t)fm6_exp2((x & 0xFFFF) << 8) << 6;   /* Q30 */
-    if (ip > 15)
-        return 0xFFFFFFFFu;
-    return ip >= 14 ? y << (ip - 14) : ip < -16 ? 0u : y >> (14 - ip);
+    return (uint32_t)fm_minf(fm_exp2f((float)x * (1.0f / 65536.0f)) * 65536.0f, 4294967040.0f);
 }
-
-/* a 32-bit value as the nearest float holds it (Dexed's pitch bend is figured in float) */
-static int32_t fm6_f32(int32_t x)
-{
-    uint32_t a = x < 0 ? (uint32_t)-x : (uint32_t)x, sh = 0, r, q;
-    while ((a >> sh) >= (1u << 24))
-        sh++;
-    if (sh) {
-        r = a & ((1u << sh) - 1u);
-        q = a >> sh;
-        if (r > 1u << (sh - 1u) || (r == 1u << (sh - 1u) && (q & 1u)))
-            q++;
-        a = q << sh;
-    }
-    return x < 0 ? -(int32_t)a : (int32_t)a;
-}
-
-/* AMS: Dexed takes this share of the level, pt / 2^24, pt = exp((float)sa / 262144 * 0.07 + 12.2), in
- * doubles. Figured here exactly (every sa, tests: fm6_ams_test): the argument rounded as Dexed's doubles
- * round it, then e^x = e^(a / 16) e^(b / 256) e^r to 2^-60 */
-static const uint64_t FM6_EXPA[73] = {                   /* e^(a / 16), a = 195..267: Q63 mantissa */
-    0xbfb7f02b61b2beceu, 0xcc15527cd7647e60u, 0xd93edb2321f0312cu, 0xe741b4bfbc5fdb7au,
-    0xf62be35734bc7827u, 0x8306292b2dd32d3fu, 0x8b7971bf77bcbe0fu, 0x94783f655873a4cbu,
-    0x9e0b91aa62b6bf88u, 0xa83cfcad293ab022u, 0xb316b2b2299b4246u, 0xbea38e56ea65fcafu,
-    0xcaef1d6d80358746u, 0xd805ac8b564aa9aau, 0xe5f45356ca62140au, 0xf4c9019fea69488au,
-    0x824946a8b6f3e449u, 0x8ab060a3ee9fb198u, 0x93a2368edf93c407u, 0x9d27bafe4cf114abu,
-    0xa74a7441cd4916b9u, 0xb21485eae56c5b8au, 0xbd90baf17242b974u, 0xc9ca907f86ef32f4u,
-    0xd6ce416f8c041c3du, 0xe4a8d2881edbe8d1u, 0xf3681f81edfaffe1u, 0x818d74724cb66a73u,
-    0x89e871643a923469u, 0x92cd6245f82eb77cu, 0x9c452cc62c5a5005u, 0xa6594979598f8d18u,
-    0xb113cd533c8ac78du, 0xbc7f73bc9722598fu, 0xc8a7a94f7e037c45u, 0xd5989744e68696a8u,
-    0xe35f2f9ee31ca5b1u, 0xf2093a1bb995b8fau, 0x80d2b0ff63b58ab8u, 0x8921a25e7f0bb27cu,
-    0x91f9c0cdd2993006u, 0x9b63e528812fa978u, 0xa5697a5bc48c98c2u, 0xb01486d2a382d5c6u,
-    0xbb6fb67d32e6caedu, 0xc786657d69543779u, 0xd464ab843385094bu, 0xe21767ea2740196bu,
-    0xf0ac4e8fee94d18du, 0x8018fac9a670d97du, 0x885bf1f339e79d1eu, 0x9127506c2065b5f4u,
-    0x9a83e24e764775cau, 0xa47b04f3db5df385u, 0xaf16b053945cfd25u, 0xba6180fb56d0d2ccu,
-    0xc666c2acb93c6363u, 0xd3327ba9e5b2a48fu, 0xe0d178bcdc8eb64fu, 0xef515a054f8e2dcau,
-    0xfec0a099e439d252u, 0x87975e8540010249u, 0x90560f6910c83e7au, 0x99a52263dd391d63u,
-    0xa38de74f3da90b42u, 0xae1a47c38a42cd04u, 0xb954d10246dd1458u, 0xc548be8445a0a268u,
-    0xd20205360f81d45eu, 0xdf8d5f6dcfe5cea2u, 0xedf859a6ba5e1d7du, 0xfd51600ea6f02d97u,
-    0x86d3e679b9d307e5u};
-static const uint8_t FM6_EXPAE[73] = {17, 17, 17, 17, 17, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 24};   /* its scale: 2^17..2^24 */
-static const uint64_t FM6_EXPB[16] = {                   /* e^(b / 256), Q63 */
-    0x8000000000000000u, 0x808040155aabbbe9u, 0x810100ab00222d86u, 0x81824241b103b504u,
-    0x8204055aaef1c8bdu, 0x82864a77bd1036e1u, 0x8309121b2086e8a7u, 0x838c5cc7a104277eu,
-    0x84102b00893f64c7u, 0x84947d49a77c8498u, 0x851954274e0fac0au, 0x859eb01e53e19398u,
-    0x862491b414f45e15u, 0x86aaf96e72e8f4b3u, 0x8731e7d3d584e8bau, 0x87b95d6b2b38db4cu};
-
-static uint64_t fm6_mulhi(uint64_t a, uint64_t b)        /* (a * b) >> 64 */
-{
-    uint32_t a1 = (uint32_t)(a >> 32), a0 = (uint32_t)a, b1 = (uint32_t)(b >> 32), b0 = (uint32_t)b;
-    uint64_t m = (uint64_t)a1 * b0, n = (uint64_t)a0 * b1, l = (uint64_t)a0 * b0;
-    return (uint64_t)a1 * b1 + (m >> 32) + (n >> 32) + (((l >> 32) + (uint32_t)m + (uint32_t)n) >> 32);
-}
-
+static int32_t fm6_f32(int32_t x) { return (int32_t)(float)x; }
 static uint32_t fm6_ams_pt(uint32_t sa)
 {
-    const uint64_t M7 = 5044031582654956u, M12 = 6867989431740006u;   /* 0.07 = M7 2^-56, 12.2 = M12 2^-49 */
-    uint64_t lo = (uint64_t)sa * (uint32_t)M7, mid = (uint64_t)sa * (uint32_t)(M7 >> 32), l, q, x, r, d, m, r2;
-    uint32_t h, s = 0, k, e, t, dd, rem, half;
-    l = lo + (mid << 32);                                /* P = sa M7 in units of 2^-74: h:l, under 2^78 */
-    h = (uint32_t)(mid >> 32) + (l < lo);
-    for (t = h ? h : (uint32_t)(l >> 32); t; t >>= 1)
-        s++;
-    s += h ? 64u : 32u;
-    s = s > 53u ? s - 53u : 0u;                          /* P rounds to 53 bits: q 2^s, s <= 24 */
-    q = l;
-    if (s) {
-        q = (uint64_t)((uint32_t)(l >> 32) >> s | h << (32u - s)) << 32 | ((uint32_t)l >> s | (uint32_t)(l >> 32) << (32u - s));
-        rem = (uint32_t)l & ((1u << s) - 1u);
-        half = 1u << (s - 1u);
-        q += rem > half || (rem == half && (q & 1u));
-    }
-    /* + 12.2, rounded to the double: 2^-49 steps under 16, 2^-48 from 16 (P >= 2^25 (2^53 - M12)) */
-    dd = 25u - s;
-    if (dd <= 10u && q >= (2139264564000986u << dd)) {
-        dd++;
-        x = M12 >> 1;
-    } else {
-        x = M12;
-    }
-    rem = (uint32_t)q & ((1u << dd) - 1u);
-    half = 1u << (dd - 1u);
-    x += (uint64_t)((uint32_t)(q >> 32) >> dd) << 32 | ((uint32_t)q >> dd | (dd < 32u ? (uint32_t)(q >> 32) << (32u - dd) : 0u));
-    x += rem > half || (rem == half && (x & 1u));
-    if (dd > 25u - s)
-        x <<= 1;                                         /* x 2^49 */
-    k = (uint32_t)(x >> 41);                             /* e^x = e^(a / 16) e^(b / 256) e^r */
-    r = (x & ((1ull << 41) - 1u)) << 15;                 /* r, Q64 (under 1 / 256) */
-    r2 = fm6_mulhi(r, r);
-    d = fm6_mulhi(r2, r);                                /* e^r - 1 = r + r^2 / 2 + r^3 / 6 + ... */
-    d = r + (r2 >> 1) + fm6_mulhi(d, 3074457345618258603u) + fm6_mulhi(fm6_mulhi(d, r), 768614336404564651u) +
-        fm6_mulhi(fm6_mulhi(fm6_mulhi(d, r), r), 153722867280912930u);
-    m = fm6_mulhi(FM6_EXPA[(k >> 4) - 195u], FM6_EXPB[k & 15u]);   /* Q62 */
-    e = FM6_EXPAE[(k >> 4) - 195u];
-    if (m >> 63) {
-        m >>= 1;
-        e++;
-    }
-    m += fm6_mulhi(m, d);
-    return (uint32_t)(m >> 32) >> (30u - e);
+    return (uint32_t)fm_expf((float)sa * (0.07f / 262144.0f) + 12.2f);
+}
+/* Keep the exact wrapping phase counter: converting a slow oscillator's
+ * accumulated phase to float would lose low bits on every sample. Modulation
+ * is in cycles; reduce it before converting so large indices cannot overflow. */
+static inline uint32_t fm6_phase(uint32_t ph, float mod)
+{
+    /* Truncate whole cycles in either direction; the counter's mask wraps
+     * signed fractional cycles without a conditional floor operation. */
+    mod -= (float)(int32_t)mod;
+    int32_t offset=(int32_t)(mod*16777216.0f);
+    return (ph+(uint32_t)offset)&0xFFFFFFu;
+}
+static inline float fm6_sin(uint32_t ph)
+{
+    uint32_t i = (ph >> 14) & 1023u;
+    float f = (float)(ph & 0x3FFFu) * (1.0f / 16384.0f);
+    return FM6_SIN[i] + (FM6_SIN[i+1u] - FM6_SIN[i]) * f;
 }
 
 /* -------------------------------------------------- scaling (DX7 rules) --- */
@@ -275,7 +183,7 @@ static int32_t fm6_outlevel(const uint8_t *op, uint32_t note, uint32_t vel)
     l = fm6_scaleout(op[FP_OL]) + (off >= 0 ? fm6_curve((off + 1) / 3, op[FP_RD], op[FP_RC])
                                             : fm6_curve(-(off - 1) / 3, op[FP_LD], op[FP_LC]));
     v = FM6_VELOCITY[(vel > 127u ? 127u : vel) >> 1] - 239;
-    l = ((l > 127 ? 127 : l) << 5) + (((op[FP_KVS] * v + 7) >> 3) << 4);
+    l = (l > 127 ? 127 : l) * 32 + ((op[FP_KVS] * v + 7) >> 3) * 16;
     return l < 0 ? 0 : l;
 }
 
@@ -404,12 +312,13 @@ static int32_t fm6_peg_step(fm6_peg_t *e, int down)      /* pitch envelope, Q24 
 typedef struct fm6_voice {                               /* a voice; operators in Dexed's order: 0 = OP6 */
     fm6_eg_t eg[6];
     uint32_t ph[6];                                      /* phase, Q24 = a cycle */
-    int32_t fq[6], gout[6], g[6], dg[6];                 /* step; gain at the block's end, now, per sample */
+    int32_t fq[6];
+    float gout[6], g[6], dg[6];                 /* step; gain at the block's end, now, per sample */
     int32_t base[6], porta[6];                           /* the note's log frequency; portamento's */
     int16_t ol[6];                                       /* output level (note, velocity), microsteps */
     int8_t rs[6];                                        /* rate scaling */
     uint8_t plan[6];                                     /* this block's routing (FM6_P_*) */
-    int32_t fb[2];                                       /* the feedback operator's last two outputs */
+    float fb[2];                                       /* the feedback operator's last two outputs */
     fm6_peg_t pe;                                        /* the pitch envelope */
     uint8_t down, sub, note, vel, eng, loop, fbs, quiet, played;
     uint8_t frozen;                                      /* stopped as by Dexed's panic: not kept running */
@@ -420,7 +329,7 @@ typedef struct fm6_voice {                               /* a voice; operators i
 enum { FM6_P_ADD = 4, FM6_P_FB = 0x40, FM6_P_RUN = 0x80 };   /* plan: bits 0-1 out bus, 4-5 in bus */
 
 /* ------------------------------------------------------ the operators --- */
-static int32_t fm6_bus[2][CTL], fm6_sum[CTL];
+static float fm6_bus[2][CTL], fm6_sum[CTL];
 
 /* MARK I: a sine from the log-sine and exponent tables (mkiSin); env: attenuation, 1024 an octave.
  * As in Dexed the sum is 16 bits, the sign its top bit (a gain ramp that overshoots wraps it) */
@@ -457,26 +366,26 @@ static inline int32_t fm6_opl(int32_t ph, int32_t env)
                 ph += fq;                                                                          \
             }                                                                                      \
     } while (0)
-#define FM6_SIN_G(x) ((int32_t)(((int64_t)fm6_sin(x) * g) >> 24))
-static void fm6_op(fm6_voice_t *s, uint32_t k, int32_t *out, const int32_t *in, int add, uint32_t eng, uint32_t n)
+#define FM6_SIN_G(x) (fm6_sin(x) * g)
+static void fm6_op(fm6_voice_t *s, uint32_t k, float *out, const float *in, int add, uint32_t eng, uint32_t n)
 {
     uint32_t ph = s->ph[k], i, fq = (uint32_t)s->fq[k];
-    int32_t g = s->g[k], dg = s->dg[k];
+    float g = s->g[k], dg = s->dg[k];
     if (eng == FM6_MODERN) {
         if (in)
-            FM6_LOOP(FM6_SIN_G((int32_t)(ph + (uint32_t)in[i])));
+            FM6_LOOP(FM6_SIN_G((int32_t)fm6_phase(ph, in[i])));
         else
-            FM6_LOOP(FM6_SIN_G((int32_t)ph));
+            FM6_LOOP(FM6_SIN_G((int32_t)(ph & 0xFFFFFFu)));
     } else if (eng == FM6_MARK1) {
         if (in)
-            FM6_LOOP(fm6_mki((int32_t)(ph + (uint32_t)in[i]), g));
+            FM6_LOOP((1.0f / 16777216.0f) * fm6_mki((int32_t)fm6_phase(ph, in[i]), (int32_t)g));
         else
-            FM6_LOOP(fm6_mki((int32_t)ph, g));
+            FM6_LOOP((1.0f / 16777216.0f) * fm6_mki((int32_t)(ph & 0xFFFFFFu), (int32_t)g));
     } else {
         if (in)
-            FM6_LOOP(fm6_opl((int32_t)(ph + (uint32_t)in[i]), g));
+            FM6_LOOP((1.0f / 16777216.0f) * fm6_opl((int32_t)fm6_phase(ph, in[i]), (int32_t)g));
         else
-            FM6_LOOP(fm6_opl((int32_t)ph, g));
+            FM6_LOOP((1.0f / 16777216.0f) * fm6_opl((int32_t)(ph & 0xFFFFFFu), (int32_t)g));
     }
     s->ph[k] = ph;
     s->g[k] = g;
@@ -488,7 +397,7 @@ static void fm6_op(fm6_voice_t *s, uint32_t k, int32_t *out, const int32_t *in, 
         if (add)                                                                                   \
             for (i = 0; i < n; i++) {                                                              \
                 g += dg;                                                                           \
-                m = (y0 + y) >> sh;                                                                \
+                m = (y0 + y) * feedback;                                                                \
                 y0 = y;                                                                            \
                 y = (Y);                                                                           \
                 out[i] += y;                                                                       \
@@ -497,23 +406,24 @@ static void fm6_op(fm6_voice_t *s, uint32_t k, int32_t *out, const int32_t *in, 
         else                                                                                       \
             for (i = 0; i < n; i++) {                                                              \
                 g += dg;                                                                           \
-                m = (y0 + y) >> sh;                                                                \
+                m = (y0 + y) * feedback;                                                                \
                 y0 = y;                                                                            \
                 y = (Y);                                                                           \
                 out[i] = y;                                                                        \
                 ph += fq;                                                                          \
             }                                                                                      \
     } while (0)
-static void fm6_op_fb(fm6_voice_t *s, uint32_t k, int32_t *out, int add, uint32_t eng, uint32_t n)
+static void fm6_op_fb(fm6_voice_t *s, uint32_t k, float *out, int add, uint32_t eng, uint32_t n)
 {
     uint32_t ph = s->ph[k], i, fq = (uint32_t)s->fq[k], sh = s->fbs + 1u;
-    int32_t g = s->g[k], dg = s->dg[k], y0 = s->fb[0], y = s->fb[1], m;
+    float g = s->g[k], dg = s->dg[k], y0 = s->fb[0], y = s->fb[1], m;
+    float feedback = 1.0f / (float)(1u << sh);
     if (eng == FM6_MODERN)
-        FM6_LOOP_FB(FM6_SIN_G((int32_t)(ph + (uint32_t)m)));
+        FM6_LOOP_FB(FM6_SIN_G((int32_t)fm6_phase(ph, m)));
     else if (eng == FM6_MARK1)
-        FM6_LOOP_FB(fm6_mki((int32_t)(ph + (uint32_t)m), g));
+        FM6_LOOP_FB((1.0f / 16777216.0f) * fm6_mki((int32_t)fm6_phase(ph, m), (int32_t)g));
     else
-        FM6_LOOP_FB(fm6_opl((int32_t)(ph + (uint32_t)m), g));
+        FM6_LOOP_FB((1.0f / 16777216.0f) * fm6_opl((int32_t)fm6_phase(ph, m), (int32_t)g));
     s->ph[k] = ph;
     s->g[k] = g;
     s->fb[0] = y0;
@@ -521,18 +431,19 @@ static void fm6_op_fb(fm6_voice_t *s, uint32_t k, int32_t *out, int add, uint32_
 }
 
 /* MARK I, algorithms 4 and 6 with feedback: OP6 -> OP5 (-> OP4) and back to OP6, into the voice */
-static void fm6_op_loop(fm6_voice_t *s, int32_t *out, uint32_t n)
+static void fm6_op_loop(fm6_voice_t *s, float *out, uint32_t n)
 {
     uint32_t i, j, nl = s->loop, sh = s->fbs + 1u;
-    int32_t y0 = s->fb[0], y = s->fb[1], m;
+    float y0 = s->fb[0], y = s->fb[1], m;
+    float feedback = 1.0f / (float)(1u << sh);
     for (i = 0; i < n; i++) {
-        m = (y0 + y) >> sh;
+        m = (y0 + y) * feedback;
         s->g[0] += s->dg[0];
         y0 = y;
-        y = fm6_mki((int32_t)(s->ph[0] + (uint32_t)m), s->g[0]);
+        y = (1.0f / 16777216.0f) * fm6_mki((int32_t)fm6_phase(s->ph[0], m), (int32_t)s->g[0]);
         s->ph[0] += (uint32_t)s->fq[0];
         for (j = 1; j < nl; j++) {
-            y = fm6_mki((int32_t)(s->ph[j] + (uint32_t)y), s->g[j]);
+            y = (1.0f / 16777216.0f) * fm6_mki((int32_t)fm6_phase(s->ph[j], y), (int32_t)s->g[j]);
             s->ph[j] += (uint32_t)s->fq[j];
         }
         out[i] = y;
@@ -546,17 +457,23 @@ static void fm6_op_loop(fm6_voice_t *s, int32_t *out, uint32_t n)
 static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t eng, uint32_t fbshift)
 {
     uint32_t k, has = 1u, fb_on = fbshift < 16u;
+    /* MODERN gains are linear; MARK I/OPL gains are chip attenuation codes.
+     * A live mode switch must not interpolate across these different units. */
+    if(s->eng!=eng){
+        for(k=0;k<6u;k++)s->gout[k]=0.0f;
+        s->fb[0]=s->fb[1]=0.0f;
+    }
     s->eng = (uint8_t)eng;
     s->loop = 0;
     for (k = 0; k < 6u; k++) {
         uint32_t f = FM6_ALG[alg][k], out = f & 3u, in = (f >> 4) & 3u, add = f & 4u, run;
-        int32_t g1, g2;
+        float g1, g2;
         if (eng == FM6_MARK1 && !k && fb_on && (alg == 3u || alg == 5u))
             f = 0xc4u, out = 0, in = 0, add = 4u;        /* MARK I: the loop runs from OP6 */
         if (eng == FM6_MODERN) {
             g1 = s->gout[k];
-            g2 = fm6_exp2(lv[k] - (14 << 24));
-            run = g1 >= 1120 || g2 >= 1120;
+            g2 = fm_exp2f((float)lv[k] * (1.0f / 16777216.0f) - 14.0f);
+            run = g1 >= 1120.0f / 16777216.0f || g2 >= 1120.0f / 16777216.0f;
         } else if (eng == FM6_MARK1) {
             g1 = s->gout[k] ? s->gout[k] : 16383;
             g2 = 16384 - (lv[k] >> 14);
@@ -579,7 +496,8 @@ static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t e
         if (in && !((has >> in) & 1u))
             in = 0;
         s->g[k] = g1;
-        s->dg[k] = (g2 - g1 + (FM6_N >> 1)) >> FM6_LG_N;
+        s->dg[k] = eng == FM6_MODERN ? (g2 - g1) * (1.0f / FM6_N)
+                     : (float)(((int32_t)(g2 - g1) + (FM6_N >> 1)) >> FM6_LG_N);
         s->plan[k] = (uint8_t)(FM6_P_RUN | out | add | in << 4);
         if (!in && (f & 0xc0u) == 0xc0u && fb_on) {
             s->plan[k] |= FM6_P_FB;
@@ -602,14 +520,24 @@ static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t e
     }
 }
 
-static void fm6_run(fm6_voice_t *s, uint32_t n)          /* the planned operators over n samples into fm6_sum */
+/* Scratch belongs to the caller: paired voices must never share operator buses.
+ * Keep the operator kernel separate: surrounding engine additions otherwise
+ * change this old compiler's register allocation and loop layout. */
+#if MELODEE_DUAL_CORE
+static __attribute__((noinline)) void fm6_run_into(fm6_voice_t *s, uint32_t n, float bus[2][CTL], float *sum)
+#else
+static __attribute__((noinline)) void fm6_run(fm6_voice_t *s, uint32_t n)
+#endif
 {
     uint32_t k, eng = s->eng;
+#if !MELODEE_DUAL_CORE
+    float (*bus)[CTL] = fm6_bus, *sum = fm6_sum;
+#endif
     for (k = 0; k < n; k++)
-        fm6_sum[k] = 0;
+        sum[k] = 0;
     for (k = 0; k < 6u; k++) {
         uint32_t pl = s->plan[k], o = pl & 3u, in = (pl >> 4) & 3u;
-        int32_t *out = o ? fm6_bus[o - 1u] : fm6_sum;
+        float *out = o ? bus[o - 1u] : sum;
         if (!(pl & FM6_P_RUN))
             continue;
         if (!k && s->loop)
@@ -617,6 +545,13 @@ static void fm6_run(fm6_voice_t *s, uint32_t n)          /* the planned operator
         else if (pl & FM6_P_FB)
             fm6_op_fb(s, k, out, pl & FM6_P_ADD, eng, n);
         else
-            fm6_op(s, k, out, in ? fm6_bus[in - 1u] : 0, pl & FM6_P_ADD, eng, n);
+            fm6_op(s, k, out, in ? bus[in - 1u] : 0, pl & FM6_P_ADD, eng, n);
     }
 }
+
+#if MELODEE_DUAL_CORE
+static void fm6_run(fm6_voice_t *s, uint32_t n)
+{
+    fm6_run_into(s, n, fm6_bus, fm6_sum);
+}
+#endif

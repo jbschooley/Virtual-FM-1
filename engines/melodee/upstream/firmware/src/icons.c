@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Icons: 4-bit alpha cells of the Fukiai icon font (MIT), 12 px (parameters, lists) and 16 px
- * (header, dialogs, menu): web/fukiai.ttf -> build/gen/ui_icons.h
- * (tools/gen_aa_icons.py; names from assets/icons.json). Which icon a parameter gets is decided
- * here, by its label. MELODEE_ICONS=0 turns the parameter icons off (labels get their full width back). */
+/* Icons: 4-bit alpha cells of Melodee's own drawings (tools/gen_icons.py -> build/gen/ui_icons.h; the enum names
+ * from assets/icons.json), 12 px (lists, cells), 16 px (header, dialogs, menu) and 24 px (the battery, the FX map).
+ * Parameter icons are off (MELODEE_ICONS 0: the labels have their full width, in the track's colour); MELODEE_ICONS=1
+ * brings back the label lookup below, for the parameter icons that have drawings. */
 #include "ui_icons.h"
 #ifndef MELODEE_ICONS
-#define MELODEE_ICONS 1
+#define MELODEE_ICONS 0
 #endif
 #define ICON_CELL 12
 
@@ -29,7 +29,7 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         dat = AI12_DATA;
     }
     cv_alpha(x, y, size, size, dat + (uint32_t)idx[id] * (size * size / 2u), ramp(fg, bg));
-    GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u);
+    GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u | (cv_dim || cv_under ? 16u : 0u));
     return (int32_t)size;
 }
 /* the same, its ink centred on row cy (header icons: each glyph sits differently in its cell) */
@@ -216,7 +216,7 @@ static uint32_t engine_icon(const char *name)
 #if MELODEE_FM4
         {"DIGITAL", ICON_ALGORITHM},
 #endif
-        {"PHASE", ICON_PHASE}, {"LOFI", ICON_BITS},
+        {"PHASE", ICON_PHASE}, {"SID", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},
         {"GRAIN", ICON_GRAIN},
@@ -240,9 +240,7 @@ static uint32_t page_icon(const page_t *pg)
 {
     switch (pg->graph) {
     case GR_TRK: return ICON_X_MIXER;         /* MIXER (GLO): vertical faders */
-    case GR_PATS: return ICON_X_PATTERN;      /* SEQ > PHRASES: the pattern loader */
     case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
-    case GR_CHANCE: return ICON_PROB;         /* CHANCE: the die */
     case GR_MOTION: return motion_icon();
     default: return ICON_NONE;
     }

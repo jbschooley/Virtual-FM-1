@@ -4,13 +4,19 @@
  * routings (ENV DEST, LFO DEST). Runs in the audio ISR (fx.c mix_part, voice.c track_render).
  *
  * Sources, Q15:
- *   LFO   the track LFO with its FADE (as LFO DEST), bipolar
+ *   LFO   the track LFO with its FADE (as LFO DEST), bipolar; with LFO 2 POL UNI 0..1 (1.2)
  *   ENV   the amp envelope of the voice (after the engine's own amp curve, as ENV DEST), 0..1
  *   VEL   the note-on velocity (before UNISON's level scaling), 0..1
  *   KEY   the note relative to C4, bipolar: +-64 semitones = +-1 (an octave = 0.19)
  *   RAND  a new random value per note-on (its own generator: the shared rng is not touched), bipolar
  *   MODW  MIDI CC1, AT channel aftertouch, EXPR CC11 of the track's channel (seq.c), 0..1; until a
  *         controller arrives (and after CC121 RESET ALL CONTROLLERS) MODW and AT are 0, EXPR 1
+ *   S&H   (#132) a random value held for one cycle of the track LFO: the value LFO WAVE S&H steps through
+ *         (voice.c lfo_rand, drawn as each cycle starts, whatever the WAVE), without the LFO's FADE, POL or
+ *         DEPTH; bipolar, 0 until the LFO's first cycle ends. It follows RATE and SYNC (a step per note value)
+ *   SLEW  (#132) S&H slewed: it glides linearly from the cycle before's value to this cycle's over the cycle
+ *         (a smooth random line, one cycle behind S&H, continuous where S&H steps); bipolar
+ *   Both are per track (one value for every voice) and cost no state but the one value kept per cycle.
  * Destinations:
  *   per voice (vmod_t, like the fixed routings):
  *     PITCH  AMT 63 at a full source = +-11.8 semitones (as LFO DEST PIT)
@@ -21,6 +27,11 @@
  *   per track, once per block: PAN, DIST CHO DLY REV (the sends), RATE (LFO rate), VIB (LFO DEST PIT, the
  *     vibrato depth), E1..E8 (the engine's parameters P_E0..P_E7, named by the engine): AMT 64 at a full
  *     source = the parameter's whole range; the sum is clamped to its range
+ *   DEPTH (#132, per track): the depth of the track LFO, a gain <= 1 on it as AMP is on the voice (AMT > 0 the source
+ *     opens it, AMT 64: none at 0, full at 1; AMT < 0 closes it; several DEPTH slots multiply): it scales the LFO
+ *     wherever it goes, the four LFO DEST routings and the matrix's LFO source (not S&H / SLEW). With RATE (the LFO's
+ *     rate) the matrix modulates the modulator: MODW -> DEPTH is a mod-wheel LFO, ENV -> DEPTH an LFO that
+ *     follows the note's envelope. A DEPTH slot whose source is the LFO takes it unscaled
  * A per-voice source on a per-block destination takes the latest note-on's value (VEL, KEY, RAND), ENV the
  * envelope of the latest note-on's voice (one block late, 0 when it has ended).
  *
@@ -30,21 +41,22 @@
  * presets read and write t->p from the main loop, which the ISR preempts; TIMER5 only fills the MIDI rings),
  * and the engines read t->p as before. An engine reads its parameters in note_on (events_block) unmodulated.
  * Nothing active (every slot with SRC, DST or AMT at 0): no work, and the sound is bit-identical. */
-enum { MS_OFF, MS_LFO, MS_ENV, MS_VEL, MS_KEY, MS_RAND, MS_MODW, MS_AT, MS_EXPR, MS_N };
+enum { MS_OFF, MS_LFO, MS_ENV, MS_VEL, MS_KEY, MS_RAND, MS_MODW, MS_AT, MS_EXPR, MS_SH, MS_SLEW, MS_N };
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY, MD_REV, MD_RATE, MD_VIB, MD_E1,
-       MD_N = MD_E1 + 8 };
+       MD_DEPTH = MD_E1 + 8, MD_N };              /* (append-only: the stored values keep their meaning) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
 #define MS_VOICE(s) ((s) >= MS_ENV && (s) <= MS_RAND)             /* a value per voice */
-#define MS_BIPOLAR(s) ((s) == MS_LFO || (s) == MS_KEY || (s) == MS_RAND)
+#define MS_BIPOLAR(s) ((s) == MS_LFO || (s) == MS_KEY || (s) == MS_RAND || (s) >= MS_SH)
+#define MD_ENGINE(d) ((d) >= MD_E1 && (d) < MD_E1 + 8)           /* E1..E8: P_E0..P_E7 */
 
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
 {
     static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_CHOR, [MD_DLY] = P_DLY,
                                       [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
-    return d >= MD_E1 ? P_E0 + d - MD_E1 : ID[d];
+    return MD_ENGINE(d) ? P_E0 + d - MD_E1 : ID[d];
 }
 
 static struct {                  /* the part in mix_part (one at a time) */
@@ -52,6 +64,7 @@ static struct {                  /* the part in mix_part (one at a time) */
     uint8_t amp;                 /* an AMP slot: the voice gain applies */
     uint8_t nv, nk;              /* voice terms, per-block parameters held */
     int32_t pit, cut, shp, gain; /* per voice, from the per-track sources (gain Q15) */
+    int32_t ldep;                /* DEPTH: the track LFO's gain (Q15; 32767 = none, track_render leaves it alone) */
     uint8_t vsrc[NMSLOT], vdst[NMSLOT];
     int8_t vamt[NMSLOT];
     uint8_t kid[NMSLOT];         /* per-block: the parameter, its stored value */
@@ -69,10 +82,17 @@ static int16_t mod_rand(void)    /* RAND of a note-on: xorshift32, bipolar */
 
 static int32_t mod_key(uint32_t note) { return clamp(((int32_t)note - 60) * 512, -32767, 32767); }
 
+/* S&H: the value of the LFO's cycle (voice.c lfo_rand; 0 before its first one ends), bipolar */
+static int32_t mod_sh(const track_t *t) { return t->lfo_rnd ? (int32_t)(t->lfo_rnd >> 16) - 32768 : 0; }
+
 /* source s of the track: the per-track ones, the per-voice ones of the latest note-on */
 static int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
 {
     switch (s) {
+    case MS_SH:
+        return mod_sh(t);
+    case MS_SLEW:                                       /* the cycle before's value .. this one's, by the phase */
+        return t->lfo_prev + (((mod_sh(t) - t->lfo_prev) * (int32_t)(t->lfo_ph >> 17)) >> 15);
     case MS_LFO:
         return lfo;
     case MS_ENV:
@@ -113,6 +133,22 @@ static void mod_voice_add(uint32_t s, uint32_t d, int32_t x, int32_t a, int32_t 
         *gain = mulq15(*gain, mod_gain(s, x, a));
 }
 
+/* DEPTH: the track LFO's gain (Q15) from the DEPTH slots, 32767 = none (lfo: the LFO unscaled; a per-voice source
+ * takes the latest note's value, as on the other per-block destinations). Its own function: mod_begin's loop stays
+ * what it was */
+static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo)
+{
+    const int16_t *p = t->p;
+    int32_t g = 32767;
+    uint32_t k;
+    for (k = 0; k < NMSLOT; k++) {
+        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k];
+        if (p[P_M1DST + 3u * k] == MD_DEPTH && p[P_M1AMT + 3u * k] && s && s < MS_N)
+            g = mulq15(g, mod_gain(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, mod_tsrc(t, s, lfo), p[P_M1AMT + 3u * k]));
+    }
+    return g;
+}
+
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p.
  * 0 = no slot active (then nothing changed) */
 static __attribute__((noinline)) int mod_begin(track_t *t)
@@ -122,7 +158,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     uint32_t k, j;
     mod.on = 0;
     for (k = 0; k < NMSLOT; k++)
-        if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1DST + 3u * k] != MD_DLY && p[P_M1AMT + 3u * k])
+        if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1AMT + 3u * k])
             break;
     if (k == NMSLOT)
         return 0;
@@ -132,10 +168,12 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     mod.nv = mod.nk = 0;
     mod.pit = mod.cut = mod.shp = 0;
     mod.gain = 32767;
+    mod.ldep = mod_depth(t, lfo);
+    if (mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);
     for (; k < NMSLOT; k++) {
         uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
         int32_t a = p[P_M1AMT + 3u * k], x;
-        if (!s || !d || d == MD_DLY || !a || s >= MS_N || d >= MD_N)
+        if (!s || !d || d == MD_DEPTH || !a || s >= MS_N || d >= MD_N)
             continue;
         if (d <= MD_AMP) {                              /* per voice */
             mod.amp |= d == MD_AMP;
@@ -143,8 +181,9 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
                 mod.vsrc[mod.nv] = (uint8_t)s;
                 mod.vdst[mod.nv] = (uint8_t)d;
                 mod.vamt[mod.nv++] = (int8_t)a;
-            } else {
-                mod_voice_add(s, d, mod_tsrc(t, s, lfo), a, &mod.pit, &mod.cut, &mod.shp, &mod.gain);
+            } else {                                    /* (a UNI LFO, 0..1, takes AMP as ENV does) */
+                mod_voice_add(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, d, mod_tsrc(t, s, lfo), a, &mod.pit, &mod.cut,
+                              &mod.shp, &mod.gain);
             }
             continue;
         }
@@ -245,7 +284,7 @@ static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t
 static const char *mod_dst_name(const track_t *t, int32_t v)
 {
     v = clamp(v, 0, MD_N - 1);
-    if (v >= MD_E1) {
+    if (MD_ENGINE(v)) {
         const char *l = track_desc(t, P_E0 + (uint32_t)(v - MD_E1))->label;
         if (l && l[0] && l[0] != '-')
             return l;

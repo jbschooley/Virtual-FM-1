@@ -264,10 +264,8 @@ static int ota_stage(void)                       /* steps 1..6; 0 = host said su
     ota_show(1, 0);
     if ((rc = ota_ufw(hdr, &fl_off, &fl_len, &ota_off, &ota_len)) != 0)
         return rc;
-    /* Official V15 and earlier Melodee packages have a larger app area (0x93000):
-     * installing one overwrites the native Prophet banks at 0x89000, as leaving
-     * or downgrading must allow. Their storage objects then fail their checks
-     * and a later Melodee starts from the factory programs. */
+    /* Any partition installs here: the package's own loader decides (ldr_core.c: this Melodee's moves the
+     * Prophet banks up before its app area, 0x93000, is written; an older one's ends at 0x89000). */
     (void)fl_len;
     if (!fl_off || !ota_off)
         return -3;

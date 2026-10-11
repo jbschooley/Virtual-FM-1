@@ -61,6 +61,7 @@ static void notes_cycle(int32_t delta)
         delta += delta > 0 ? -1 : 1;
     }
     ui.note_pick = (uint16_t)(chosen + 1u);
+    notes_preview();
 }
 static uint32_t notes_span(void) { return 16u >> ui.note_zoom; }
 static uint32_t notes_base(void) { return ui.cursor / notes_span() * notes_span(); }
@@ -118,39 +119,53 @@ static void notes_last(void)
         if (notes_in_step(TSEL, i) && (chosen == RECORD_MAX || notes_before(chosen, i))) chosen = i;
     ui.note_pick = chosen < RECORD_MAX ? (uint16_t)(chosen + 1u) : 0;
 }
-static void notes_next_interval(int dir)
-{
-    uint32_t first = ui.cursor, len = step_pattern_len(TSEL);
-    for (uint32_t n = 0; n < len; n++) {
-        cursor_set(ui.cursor + dir);
-        uint32_t at = notes_manual_start(TSEL);
-        if (notes_selected(TSEL) < RECORD_MAX || (at == ui.cursor && at < NSTEP && TSEL->step[at].n)) {
-            if (dir < 0) {
-                notes_last();
-                if (at < NSTEP && TSEL->step[at].n) ui.note_slot = TSEL->step[at].n - 1u;
-            }
-            return;
-        }
-    }
-    cursor_set((int32_t)first + dir);
-}
-static void notes_jog(int32_t delta)
+/* KNOB 1 on NOTES (SELECT turns the pages, Kerem 2026-10-10): a step's notes one by one, then the next step, an empty
+ * one too; back: the step before, on its last note. Moving never edits */
+static void notes_step_jog(int32_t delta)
 {
     delta = clamp(delta, -64, 64);
     while (delta) {
         int dir = delta > 0 ? 1 : -1;
         uint32_t chosen = notes_selected(TSEL), at = notes_manual_start(TSEL);
-        if (chosen < RECORD_MAX) {
+        delta -= dir;
+        if (chosen < RECORD_MAX) {                      /* recorded notes: the next one in this step */
             notes_cycle(dir);
-            if (notes_selected(TSEL) == chosen) {
-                notes_next_interval(dir);
-            }
+            if (notes_selected(TSEL) != chosen)
+                continue;
         } else if (at < NSTEP && TSEL->step[at].n &&
                    (dir > 0 ? ui.note_slot + 1u < TSEL->step[at].n : ui.note_slot > 0u)) {
-            ui.note_slot = (uint8_t)(ui.note_slot + dir);
-        } else {
-            notes_next_interval(dir);
+            ui.note_slot = (uint8_t)(ui.note_slot + dir);   /* a chord's next note */
+            continue;
         }
-        delta -= dir;
+        cursor_set(ui.cursor + dir);                    /* the next step */
+        if (dir < 0) {
+            at = notes_manual_start(TSEL);
+            notes_last();
+            if (at < NSTEP && TSEL->step[at].n)
+                ui.note_slot = (uint8_t)(TSEL->step[at].n - 1u);
+        }
     }
+    notes_preview();
+}
+
+static void notes_preview(void)
+{
+    if(!settings_preview || song.playing || seq_counting() || ui.home || ui.menu || ui.layer || ui.entry_open) return;
+    const page_t *pg=cur_page(); if(pg->graph!=GR_ROLL && pg->graph!=GR_STEPS && pg->graph!=GR_DRUMHIT) return;
+    uint8_t nn[12],vv[12];uint32_t count=0,chosen=notes_selected(TSEL);
+    if(pg->scope==SC_DRUMHIT)chosen=drum_hit_selected();
+    int32_t pitch=0;uint32_t gate=0;
+    if(chosen<RECORD_MAX) { const recorded_note_t *r=&recording[chosen];nn[count]=r->note;vv[count++]=r->vel;
+        if(drum_track(TSEL)){pitch=r->pitch;if(r->length)gate=(uint32_t)(((uint64_t)r->duration<<(r->owner>>5))*seq_div_samples(TSEL->p[P_SDIV])/RECORD_UNIT);}
+    }
+    else {
+        uint32_t at=step_note_start(TSEL,ui.cursor);
+        if(at<NSTEP) { const step_t *st=&TSEL->step[at];
+            if(pg->graph==GR_ROLL && st->n) { nn[count]=st->note[notes_manual_slot(st)];vv[count++]=st->vel?st->vel:96; }
+            else for(uint32_t i=0;i<st->n;i++){nn[count]=st->note[i];vv[count++]=st->vel?st->vel:96;}
+            if(drum_track(TSEL))for(uint32_t i=0;i<NLANE;i++)if(step_lanes(st)&(1u<<i)){nn[count]=DRUM_LANE_NOTE[i];vv[count++]=(step_accents(st)&(1u<<i))?127:96;}
+        }
+    }
+    fm1_irq_off(); audition_track=song.sel;audition_count=(uint8_t)count;audition_pitch=pitch;audition_gate=gate;
+    memcpy(audition_notes,nn,count);memcpy(audition_vel,vv,count);audition_request=1;fm1_irq_on();
 }

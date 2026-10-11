@@ -92,18 +92,22 @@ static inline uint32_t noise32(int32_t *st)
 /* Trapezoidal SVF (A. Simper), unconditionally stable. Coefficients per
  * block in Q13; signals stay within +-150000 so products fit in 32 bits. */
 typedef struct { int32_t a1, a2, a3; } tsvf_t;
+static inline void tsvf_coef_gk(tsvf_t *c, int32_t g, int32_t k)   /* g = tan(pi fc / FS) Q12, k: damping Q12 */
+{
+    int32_t den = 4096 + ((g * (g + k)) >> 12);
+    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
+    c->a2 = (c->a1 * g) >> 12;
+    c->a3 = (c->a2 * g) >> 12;
+}
 static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..127 << 8, k: damping Q12 */
 {
-    int32_t i, g, den;
+    int32_t i, g;
     cut = clamp(cut, 0, 127 << 8);
     i = cut >> 8;
     g = SVF_G[i];
     if (i < 127)                                       /* between table points: sweeps without 128 steps */
         g += ((SVF_G[i + 1] - g) * (cut & 255)) >> 8;
-    den = 4096 + ((g * (g + k)) >> 12);
-    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
-    c->a2 = (c->a1 * g) >> 12;
-    c->a3 = (c->a2 * g) >> 12;
+    tsvf_coef_gk(c, g, k);
 }
 static inline void tsvf_coef(tsvf_t *c, int32_t cut, int32_t reso)   /* reso 0..127: damping 2.0 .. ~0.15 */
 {
