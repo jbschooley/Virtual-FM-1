@@ -40,8 +40,8 @@ On an iPhone (the iOS app builds from source):
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.96, not tried on
   an FM-1 yet; 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
-  1.0.3 (1.0 to 1.0.2 too), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.5 (2.4 and
-  2.4.1 with less: pull and send, no Live) or
+  1.0.3 (1.0 to 1.0.2 too), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
+  2.5 pulled from only) or
   **[Melodee](https://github.com/keremimo/melodee)** 0.13. On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
@@ -133,13 +133,14 @@ project saves its own current preset, edits, patterns and arpeggiator.
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
   running Felucca: pull everything, send everything, or keep both in step live.
-- **SLOOP 2.5**, built from its source the same way: its twelve engines (FM6,
-  PHYS and NOISE among them) on three parts and a drum track, in the same
-  editor and as host parameters, Library and Device tabs. Its projects, user
-  presets, FM6 bank and SYN drum kits are kept in the library as the file
-  SLOOP's web editor uses for backups (`SLOOP/SLOOP device.json`). With an FM-1
-  running SLOOP 2.5: pull, send and live, as with Felucca; one on 2.4 is pulled
-  from and sent to (without the SYN kits), one still on 2.3 pulled from only.
+- **SLOOP 2.6**, built from its source the same way: its twelve engines (FM6,
+  PHYS and NOISE among them) on three parts and a drum track, each with its
+  INSERT, in the same editor and as host parameters, Library and Device tabs.
+  Its projects, user presets, FM6 bank, SYN drum kits and MIDI setup are kept in
+  the library as the file SLOOP's web editor uses for backups
+  (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.6: pull, send and
+  live, as with Felucca (not yet tried with an FM-1 on 2.6); one on 2.3 to 2.5,
+  which cannot read 2.6's projects, is pulled from only.
 - **Melodee 0.13**, built from its source the same way: its engines on four
   parts, PROPHET (with Sequential's Prophet-5 factory programs) and CZ-1 (with
   Casio's CZ-1 tones) among them, its 32 pattern banks, in the same editor and

@@ -81,8 +81,19 @@ static std::map<std::string, std::string> frozenFacts() {
         for (size_t i = 0; i < names.size(); ++i) {
             if (names[i].empty()) continue;   // an alias: plays another
             f.applyPreset(0, int(i));
+            // its common parameters that are not at their default, by name, and the engine's eight: a
+            // release that adds parameters (at their defaults) leaves the hash as it was, so a change
+            // to the preset itself still shows (2.6 added ten before the engine's eight)
             uint64_t h = 1469598103934665603ull;
-            for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            auto mix = [&h](const std::string& s) { for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; } };
+            std::map<std::string, int> nth;
+            for (int id = 0; id < f.paramCount(); ++id) {
+                const auto d = f.paramDesc(0, id);
+                const bool engine = id >= f.firstEngineParam();
+                const std::string key = d.label + "#" + std::to_string(++nth[d.label]);
+                if (!engine && f.param(0, id) == d.def) continue;
+                mix((engine ? "E" + std::to_string(id - f.firstEngineParam()) : key) + "=" + std::to_string(f.param(0, id)) + ";");
+            }
             std::ostringstream o;
             o << names[i] << " " << std::hex << h;
             out["preset " + en + " " + std::to_string(i)] = o.str();

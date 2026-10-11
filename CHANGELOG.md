@@ -18,7 +18,7 @@ for the code. New work goes under the next version at the top.
   TXSRC" and so on); the FM-1's MIDI settings are synced with Pull, and a Send
   leaves the FM-1's own. An FM-1 still on SLOOP 2.5 or older cannot read 2.6's
   projects: the plugin pulls from it only, and says to update it with SLOOP's
-  installer.
+  installer. Not yet tried with an FM-1 running 2.6.
 
 ## [0.8.0] - 2026-10-09
 

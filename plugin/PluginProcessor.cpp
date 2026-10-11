@@ -1148,11 +1148,11 @@ juce::String FM1Processor::feluccaWritesRefused() const {
 }
 
 // The synth's own objects, kept in the library before anything is written to it.
-static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Dialect& d) {
+static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Dialect& d, const juce::String& release = {}) {
     auto f = LibraryStore::root().getChildFile(d.name).getChildFile("Backups")
                  .getChildFile("FM-1 " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") + ".json");
     f.getParentDirectory().createDirectory();
-    return f.replaceWithText(felucca::backupJson(o, juce::String(d.name).toUpperCase() + " (FM-1)", d), false, false, "\n") ? f.getFullPathName() : juce::String();
+    return f.replaceWithText(felucca::backupJson(o, release.isNotEmpty() ? release : juce::String(d.name).toUpperCase() + " (FM-1)", d), false, false, "\n") ? f.getFullPathName() : juce::String();
 }
 
 // what a full Pull or Send moves, said in the firmware's terms
@@ -1166,13 +1166,15 @@ bool FM1Processor::feluccaPull() {
     auto f = felucca();
     if (!f || !feluccaSynth()) return false;
     const auto& d = felucca::dialectOf(*f);
-    return session.job("Reading everything from the FM-1 running " + juce::String(d.name) + "...", [this, f, &d](fm1::Port& p) {
+    const auto id = session.lastIdentity();   // (its INFO, "FELUCCA SLOOP 2.6": the kept backup names it, as its editor does)
+    const juce::String release = id ? juce::String(id->editor) : juce::String();
+    return session.job("Reading everything from the FM-1 running " + juce::String(d.name) + "...", [this, f, &d, release](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, d);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto objects = felucca::backup(synth, progress, err);
         if (!objects) return Fm1Session::JobResult{false, "Could not read the FM-1: " + err + "."};
-        const auto kept = saveSynthBackup(*objects, d);
+        const auto kept = saveSynthBackup(*objects, d, release);
         // the plugin's settings stay its own, as Send leaves the synth's (a newer Felucca's settings,
         // its LED mode from 1.0.1, would not be taken by the Felucca built in)
         objects->erase(1);
@@ -1187,13 +1189,15 @@ bool FM1Processor::feluccaSend() {
     auto f = felucca();
     if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty()) return false;
     const auto& d = felucca::dialectOf(*f);
-    return session.job("Backing up the FM-1, then sending everything to it...", [f, &d](fm1::Port& p) {
+    const auto id = session.lastIdentity();
+    const juce::String release = id ? juce::String(id->editor) : juce::String();
+    return session.job("Backing up the FM-1, then sending everything to it...", [f, &d, release](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, d);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
         auto theirs = felucca::backup(synth, progress, err);   // first: what the synth has, kept
         if (!theirs) return Fm1Session::JobResult{false, "Nothing sent: could not back up the FM-1 first (" + err + ")."};
-        const auto kept = saveSynthBackup(*theirs, d);
+        const auto kept = saveSynthBackup(*theirs, d, release);
         if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
         if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};

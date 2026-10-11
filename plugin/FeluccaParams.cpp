@@ -55,8 +55,9 @@ const int kGlobalRange[27][3] = {
     {0, 1, 0}, {0, 1, 0}, {0, 13, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
     {0, 1, 0}, {0, 0, 0}, {0, 0, 0}};
 
-// SLOOP 2.4.1's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the
-// slicer (48), then CHORD (49), 2.4's FILT, STRUM, VLEAD (50-52) and the engine's eight from 53. Not
+// SLOOP's (core.h P_*, G_*; ranges and defaults read from it): Felucca 1.0's names up to the slicer
+// (48), then CHORD (49), 2.4's FILT, STRUM, VLEAD (50-52), 2.6's ten (53-62, below) and the engine's
+// eight (from 53 until 2.5, from 63 in 2.6). Not
 // P_ED_FX (8): SLOOP's level trim, which its presets set. Its drum track (4) has its kit (P_E0),
 // pattern, slicer and filter only, as the device shows it; its level and reverb are globals (DRLVL,
 // DRREV). 2.4's three are listed after the rest (their ids added, none moved).

@@ -67,7 +67,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {900, "2.4", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
         {900, "2.4.1", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
         {900, "2.5", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.6", Support::Current, ""},
+        {900, "2.6", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")
