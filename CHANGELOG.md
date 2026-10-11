@@ -26,6 +26,10 @@ for the code. New work goes under the next version at the top.
   play on it; the ones from before keep their names and follow its new numbering.
   An FM-1 on Melodee 0.12 to 1.0.2 is pulled from only, and told to update with
   Melodee's installer. Not yet tried with an FM-1 running 1.1.0.
+- **baud girl's FM-1+VA 97** is the release the plugin syncs with (it was
+  0.96): its sounds and patterns sync as 0.96's did (nothing in her web app
+  for 97 needs more than 96). Not yet tried with an FM-1 on 97; 0.96 stays tested, and her
+  98 beta is synced as 97 and said to be untried.
 - **Felucca 1.5.1** is built in (it was 1.0.3): parameter locks, ratchets,
   nudges and quantize, songs with a lane per track, the INSERT on every track,
   ANALOG's band-pass and high-pass, envelopes in note values, LFO sync, DRUM
