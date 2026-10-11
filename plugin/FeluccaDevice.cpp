@@ -10,7 +10,7 @@ namespace felucca {
 const Dialect& dialectOf(const FeluccaEngine& f) {
     const bool prev = f.release() == FeluccaEngine::Release::Previous;
     return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect()
-         : f.flavor() == FeluccaEngine::Flavor::Melodee ? (prev ? melodee013Dialect() : melodeeDialect()) : feluccaDialect();
+         : f.flavor() == FeluccaEngine::Flavor::Melodee ? (prev ? melodee013Dialect() : melodeeDialect()) : (prev ? felucca103Dialect() : feluccaDialect());
 }
 
 VirtualEndpoint::VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)), dialect_(&dialectOf(*f_)) {}

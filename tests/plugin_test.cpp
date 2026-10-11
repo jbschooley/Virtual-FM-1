@@ -641,6 +641,43 @@ static int checks() {
             old.feluccaChanged(0);
             CHECK(o0 && std::abs(o0->getValue() - 1.0f) < 1e-5f, "0.13: mel_t1_e0 is its engine's first parameter (84), as before");
         }
+        {   // Felucca 1.0.3 kept beside the current Felucca the same way (engines/felucca103): its choice, its
+            // engine and device file; a project whose Felucca music is 1.0.x's (and not the current one's) opens on it
+            using Rl = FeluccaEngine::Release;
+            CHECK(fm1::isFirmwareChoice("felucca_103") && fm1::familyOf("felucca_103") == "felucca" && fm1::isPreviousRelease("felucca_103")
+                  && fm1::firmwareChoice("felucca_103").label() == "Felucca 1.0.3", "Felucca 1.0.3 is a choice of its own, a release of Felucca");
+            const fm1::Identity f103{"FM-1", 910, "FELUCCA v1.0.3"}, f1031{"FM-1", 910, "FELUCCA v1.0.3.1"}, f151{"FM-1", 915, "FELUCCA v1.5.1"},
+                                slp{"FM-1", 900, "FELUCCA SLOOP 2.6"};
+            CHECK(fm1::runs(f103, "felucca_103") && fm1::runs(f1031, "felucca_103") && !fm1::runs(f151, "felucca_103") && !fm1::runs(slp, "felucca_103")
+                  && fm1::runs(f151, "felucca") && fm1::runs(f103, "felucca"), "an FM-1 on 1.0.3 (or 1.0.3.1) syncs with an instance set to 1.0.3; others not");
+            FeluccaEngine prev{Fl::Felucca, Rl::Previous}, cur{Fl::Felucca};
+            CHECK(prev.valid() && prev.release() == Rl::Previous && prev.version() == "v1.0.3" && FeluccaEngine::coreVersion(Fl::Felucca, Rl::Previous) == "v1.0.3"
+                  && felucca::DeviceStore::defaultFile(felucca::dialectOf(prev)) != felucca::DeviceStore::defaultFile(felucca::dialectOf(cur)),
+                  "its engine plays 1.0.3, its own device file");
+            FM1Processor a;
+            a.setFirmware("felucca");
+            juce::MemoryBlock saved;
+            a.getStateInformation(saved);
+            auto tree = juce::ValueTree::readFromData(saved.getData(), saved.getSize());
+            {   // (a project as Felucca 1.0.2 saved one: its music, by hand)
+                std::vector<uint8_t> music;
+                prev.setEngine(2, 6);
+                prev.setParam(2, 0, 88);
+                prev.object(0, music);
+                juce::ValueTree m("Felucca");
+                m.setProperty("version", "v1.0.2", nullptr);
+                m.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
+                tree.removeChild(tree.getChildWithName("Felucca"), nullptr);
+                tree.addChild(m, -1, nullptr);
+                juce::MemoryOutputStream o(saved, false);
+                saved.reset();
+                tree.writeToStream(o);
+            }
+            FM1Processor b;
+            b.setStateInformation(saved.getData(), int(saved.getSize()));
+            CHECK(b.firmwareId() == "felucca_103" && b.felucca() && b.felucca()->release() == Rl::Previous && b.felucca()->engineOf(2) == 6
+                  && b.felucca()->param(2, 0) == 88, "a project with 1.0.2's Felucca music opens on 1.0.3, its music as it was");
+        }
         {   // a Send fitted to an older synth's objects (felucca::fitToSynth)
             auto objs = [](std::initializer_list<int> ids, size_t size = 4) {
                 felucca::Objects o;

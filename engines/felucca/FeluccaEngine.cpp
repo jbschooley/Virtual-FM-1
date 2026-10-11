@@ -13,6 +13,7 @@ extern "C" {
 #include "sloop_core.inc"
 #include "melodee_core.inc"
 #include "melodee013_core.inc"
+#include "felucca103_core.inc"
 #undef FELUCCA_CORE_DECLARE
 }
 
@@ -39,12 +40,17 @@ const FeluccaCopy kMelodee013 =   // (the previous release, kept: engines/melode
 #include "melodee013_core.inc"
 #undef FELUCCA_CORE_TABLE
 ;
+const FeluccaCopy kFelucca103 =   // (engines/felucca103)
+#define FELUCCA_CORE_TABLE
+#include "felucca103_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
 #undef FEL_ENTRY
 
 // (a previous release only where one is kept: else the current one)
 const FeluccaCopy& coreOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
     const bool prev = r == FeluccaEngine::Release::Previous && FeluccaEngine::hasPrevious(f);
-    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? (prev ? kMelodee013 : kMelodee) : kFelucca;
+    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? (prev ? kMelodee013 : kMelodee) : (prev ? kFelucca103 : kFelucca);
 }
 std::atomic<int> gInstances[6];
 int indexOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
@@ -55,6 +61,7 @@ int indexOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
 }  // namespace
 
 int FeluccaEngine::instances(Flavor f, Release r) { return gInstances[indexOf(f, r)].load(); }
+std::string FeluccaEngine::coreVersion(Flavor f, Release r) { return coreOf(f, r).version(); }   // (a constant: no state read)
 
 void FeluccaEngine::Free::operator()(void* p) const {
    #ifdef _WIN32

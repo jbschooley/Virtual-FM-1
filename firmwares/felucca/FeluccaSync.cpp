@@ -60,6 +60,18 @@ const Dialect& feluccaDialect() {
     return d;
 }
 
+// Felucca 1.0.3's, kept beside the current release (engines/felucca103): its own device file
+// ("Felucca/Felucca 1.0.3 device.json")
+const Dialect& felucca103Dialect() {
+    // objects 0..9 (1.0.3: 8 the retired FM6 bank, always empty there, 9 the user presets' FM6
+    // patches; 1.0.2: 0..8; 1.0 and 1.0.1: 0..7): 6 and 7 before 8 (an old archive's bank becomes
+    // the presets' patches on 1.0.3), the music last
+    static const Dialect d{"Felucca", kBackupList, kBackupGet, kBackupPut, true,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34}, {2, 3, 4, 5, 6, 7, 8, 9, 1, 0}, 9, true, "felucca-backup",
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24}, -1, -1, "Felucca 1.0.3"};
+    return d;
+}
+
 // SLOOP 2.3's editor.c: BK_LIST 34, BK_GET 35, BK_PUT 36 (v6), objects 0..7 (no FM6 bank); its web
 // editor restores 6, 7, 2..5, 0, 1 (editor.html BK.RESTORE). Its drum track (3) pushes STEP_CHANGED
 // for a lane edit, but TRACK_STEP there is a four-lane view without levels or ratchets: DRUM_STEP

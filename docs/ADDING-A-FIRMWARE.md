@@ -154,7 +154,8 @@ once and gives every instance its own copy of the state instead:
 ## A previous release kept beside the current one
 
 When a release removes something a project may use (an engine, a drum kit, a stored object), the
-release it replaces stays built in for the projects made with it (Melodee 0.13 beside 1.x):
+release it replaces stays built in for the projects made with it (Melodee 0.13 beside 1.x, Felucca 1.0.3
+beside 1.5):
 
 - its vendored tree is copied unchanged to `engines/<kind><release>/` (`engines/melodee013`), its core
   file renamed to match, and built by its own `fm1_core(<kind><release> <tag>)` and regression;

@@ -218,12 +218,14 @@ if(FM1_BUILD_FELUCCA)
     # multiply-add), so it sounds as its golden renders say
     set(fm1CoreFlags_melodee -ffp-contract=off)
     fm1_core(melodee mel)
-    # the previous releases, kept for the projects made with them (engines/melodee013: Melodee 0.13)
+    # the previous releases, kept for the projects made with them (engines/melodee013: Melodee 0.13;
+    # engines/felucca103: Felucca 1.0.3)
     fm1_core(melodee013 m13)
+    fm1_core(felucca103 f103)
     add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects}
-                ${melodee013Objects})
+                ${melodee013Objects} ${felucca103Objects})
     target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee
-                               ${CMAKE_BINARY_DIR}/melodee013)
+                               ${CMAKE_BINARY_DIR}/melodee013 ${CMAKE_BINARY_DIR}/felucca103)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
 
@@ -263,6 +265,12 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(felucca_regress PRIVATE -w -O2)
         target_link_libraries(felucca_regress PRIVATE m)
         add_test(NAME felucca_regress COMMAND felucca_regress ${CMAKE_SOURCE_DIR}/engines/felucca/upstream/tests/golden.txt no-cpu-budget)
+        # Felucca 1.0.3 (engines/felucca103), kept beside the current one
+        add_executable(felucca103_regress engines/felucca103/upstream/tests/regress.c)
+        target_include_directories(felucca103_regress PRIVATE engines/felucca103/generated engines/felucca103/upstream/firmware/src)
+        target_compile_options(felucca103_regress PRIVATE -w -O2)
+        target_link_libraries(felucca103_regress PRIVATE m)
+        add_test(NAME felucca103_regress COMMAND felucca103_regress ${CMAKE_SOURCE_DIR}/engines/felucca103/upstream/tests/golden.txt no-cpu-budget)
         # Sloop's (engines/sloop: Sloop 2.4.1, a fork of Felucca): its golden renders. Its CPU
         # budget is measured per host, so it is given no baseline (a missing file: notes only)
         add_executable(sloop_regress engines/sloop/upstream/tests/regress.c)

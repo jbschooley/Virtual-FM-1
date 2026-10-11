@@ -213,8 +213,10 @@ private:
     felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
     felucca::DeviceStore melDevice_{felucca::melodeeDialect()};   // (Melodee's, apart)
     felucca::DeviceStore mel013Device_{felucca::melodee013Dialect()};   // (Melodee 0.13's, kept apart from the current one's)
+    felucca::DeviceStore fel103Device_{felucca::felucca103Dialect()};   // (Felucca 1.0.3's)
     felucca::DeviceStore& deviceFor(const FeluccaEngine& f) {
         if (f.flavor() == FeluccaEngine::Flavor::Melodee && f.release() == FeluccaEngine::Release::Previous) return mel013Device_;
+        if (f.flavor() == FeluccaEngine::Flavor::Felucca && f.release() == FeluccaEngine::Release::Previous) return fel103Device_;
         return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : f.flavor() == FeluccaEngine::Flavor::Melodee ? melDevice_ : felDevice_;
     }
     std::atomic<bool> felLive_{false};                // a live mirror job is running

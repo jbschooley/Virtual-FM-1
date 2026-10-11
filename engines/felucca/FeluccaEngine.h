@@ -39,10 +39,11 @@ public:
     // Felucca and behind the same API
     enum class Flavor { Felucca, Sloop, Melodee };
     // Which release of it: the current one, or the previous one kept for the projects made with it
-    // (engines/melodee013: Melodee 0.13)
+    // (engines/melodee013: Melodee 0.13; engines/felucca103: Felucca 1.0.3)
     enum class Release { Current, Previous };
-    static bool hasPrevious(Flavor f) { return f == Flavor::Melodee; }
+    static bool hasPrevious(Flavor f) { return f == Flavor::Melodee || f == Flavor::Felucca; }
     static int instances(Flavor f = Flavor::Felucca, Release r = Release::Current);    // instances alive
+    static std::string coreVersion(Flavor f, Release r = Release::Current);              // what version() says, with no instance
 
     explicit FeluccaEngine(Flavor f = Flavor::Felucca, Release r = Release::Current);
     Flavor flavor() const { return flavor_; }

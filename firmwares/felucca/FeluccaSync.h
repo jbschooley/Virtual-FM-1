@@ -58,6 +58,7 @@ const Dialect& feluccaDialect();
 const Dialect& sloopDialect();
 const Dialect& melodeeDialect();
 const Dialect& melodee013Dialect();         // Melodee 0.13, kept for the projects made with it
+const Dialect& felucca103Dialect();         // Felucca 1.0.3, kept the same way
 bool isMelodee(const Dialect& d);
 
 Bytes frame(int cmd, const std::vector<uint8_t>& args = {});

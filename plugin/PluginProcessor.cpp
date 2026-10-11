@@ -780,6 +780,12 @@ void FM1Processor::setStateInformation(const void* data, int size) {
         melodee = {};
         if (firmware == "melodee") firmware = "melodee_013";
     }
+    juce::ValueTree fel = v.getChildWithName("Felucca"), fel103 = v.getChildWithName("Felucca103");   // (Felucca 1.0.x's: the same)
+    if (needsPrevious(FeluccaEngine::Flavor::Felucca, fel)) {
+        if (!fel103.isValid()) fel103 = fel;
+        fel = {};
+        if (firmware == "felucca") firmware = "felucca_103";
+    }
    #endif
     setFirmware(firmware);
     {   // made for another release of it than the plugin plays now (a project from before versions: none said)
@@ -791,7 +797,8 @@ void FM1Processor::setStateInformation(const void* data, int size) {
                    + (fm1::isFeluccaFamily(choice.id) ? ", which reads its projects as the device does." : "."));
     }
    #if FM1_FELUCCA
-    setFeluccaState(v.getChildWithName("Felucca"), FeluccaEngine::Flavor::Felucca);
+    setFeluccaState(fel, FeluccaEngine::Flavor::Felucca);
+    setFeluccaState(fel103, FeluccaEngine::Flavor::Felucca, FeluccaEngine::Release::Previous);
     setFeluccaState(v.getChildWithName("Sloop"), FeluccaEngine::Flavor::Sloop);
     setFeluccaState(melodee, FeluccaEngine::Flavor::Melodee);
     setFeluccaState(melodee013, FeluccaEngine::Flavor::Melodee, FeluccaEngine::Release::Previous);
@@ -1078,7 +1085,7 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 // (a previous release kept beside the current one has its own: "Melodee013", Melodee 0.13's music)
 static const char* stateName(FeluccaEngine::Flavor f, FeluccaEngine::Release r = FeluccaEngine::Release::Current) {
     const bool prev = r == FeluccaEngine::Release::Previous;
-    return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : f == FeluccaEngine::Flavor::Melodee ? (prev ? "Melodee013" : "Melodee") : "Felucca";
+    return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : f == FeluccaEngine::Flavor::Melodee ? (prev ? "Melodee013" : "Melodee") : (prev ? "Felucca103" : "Felucca");
 }
 static int flavorIndex(FeluccaEngine::Flavor f, FeluccaEngine::Release r = FeluccaEngine::Release::Current) {
     const int i = f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0;
@@ -1093,11 +1100,13 @@ static FeluccaEngine::Release releaseOfChoice(const juce::String& id) {
     return fm1::isPreviousRelease(id.toStdString()) ? FeluccaEngine::Release::Previous : FeluccaEngine::Release::Current;
 }
 // a project's saved music that only a kept previous release reads ("Melodee" saved by 0.13): taken by
-// that release when one is kept
+// that release when one is kept (never music the current release saved)
 static bool needsPrevious(FeluccaEngine::Flavor f, const juce::ValueTree& t) {
     if (!t.isValid() || !FeluccaEngine::hasPrevious(f)) return false;
     const auto v = t.getProperty("version").toString();
-    return f == FeluccaEngine::Flavor::Melodee && v.startsWith("v0.");   // (Melodee 1.0 retired 0.x's engines and objects)
+    if (v == juce::String(FeluccaEngine::coreVersion(f))) return false;
+    return f == FeluccaEngine::Flavor::Melodee ? v.startsWith("v0.")   // (Melodee 1.0 retired 0.x's engines and objects)
+                                               : v.startsWith("v1.0");   // (Felucca 1.0.x: 1.0.5 retired drum kits, 1.1 its formats)
 }
 
 juce::ValueTree FM1Processor::feluccaState(FeluccaEngine::Flavor flavor, FeluccaEngine::Release release) const {

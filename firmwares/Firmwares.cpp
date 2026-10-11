@@ -12,6 +12,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"sloop", "SLOOP", false, false},
         {"melodee", "Melodee", false, false},
         {"melodee_013", "Melodee", false, false},   // 0.13, kept for the projects made with it (engines/melodee013)
+        {"felucca_103", "Felucca", false, false},   // 1.0.3, kept the same way (engines/felucca103)
     };
     return choices;
 }
@@ -34,18 +35,26 @@ std::string firmwareIdFor(const Identity& id) {
     return "baudgirl_fm1va";
 }
 
-std::string familyOf(const std::string& choiceId) { return choiceId == "melodee_013" ? "melodee" : choiceId; }
+std::string familyOf(const std::string& choiceId) {
+    return choiceId == "melodee_013" ? "melodee" : choiceId == "felucca_103" ? "felucca" : choiceId;
+}
 
 // a Melodee release from its INFO ("MELODEE v0.13.1" -> "0.13.1")
 static std::string melodeeRelease(const Identity& id) {
     const auto at = id.editor.find("MELODEE v");
     return at == std::string::npos ? std::string() : id.editor.substr(at + 9);
 }
+// a Felucca release from its INFO ("FELUCCA v1.0.3" -> "1.0.3"; SLOOP's "FELUCCA SLOOP 2.6" is none)
+static std::string feluccaRelease(const Identity& id) {
+    return id.editor.rfind("FELUCCA v", 0) == 0 ? id.editor.substr(9) : std::string();
+}
 
 bool runs(const Identity& synth, const std::string& choiceId) {
-    if (firmwareIdFor(synth) != familyOf(choiceId)) return false;
+    const std::string family = familyOf(choiceId);
+    if (firmwareIdFor(synth) != family) return false;
     if (!isPreviousRelease(choiceId)) return true;
-    const std::string kept = currentVersion(choiceId).label, release = melodeeRelease(synth);   // ("0.13": also 0.13.1, the same formats)
+    // (the release kept: also its fix-only releases, the same formats: 0.13.1, 1.0.3.1)
+    const std::string kept = currentVersion(choiceId).label, release = family == "felucca" ? feluccaRelease(synth) : melodeeRelease(synth);
     return release == kept || release.rfind(kept + ".", 0) == 0;
 }
 
@@ -104,6 +113,8 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // the previous release kept beside it: the one it plays (a synth on it is synced with)
     static const std::vector<KnownVersion> melodee013 = {{9013, "0.13", Support::Current, ""}};
     if (firmwareId == "melodee_013") return melodee013;
+    static const std::vector<KnownVersion> felucca103 = {{910, "1.0.3", Support::Current, ""}};
+    if (firmwareId == "felucca_103") return felucca103;
     return fmva;
 }
 
