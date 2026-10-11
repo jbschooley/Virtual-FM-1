@@ -52,10 +52,12 @@ struct Dialect {
     const char* fileFormat;                    // its editor's backup file: "felucca-backup", "sloop-backup"
     std::vector<int> mirroredGlobals;          // the globals a mirror carries (tempo, swing, tuning, effects)
     int drumTrack = -1, drumStep = -1;         // SLOOP: its drum track's steps go whole by DRUM_STEP (33), not TRACK_STEP
+    const char* device = nullptr;             // the library's device file, if not "<name> device.json" (a previous release kept)
 };
 const Dialect& feluccaDialect();
 const Dialect& sloopDialect();
 const Dialect& melodeeDialect();
+const Dialect& melodee013Dialect();         // Melodee 0.13, kept for the projects made with it
 bool isMelodee(const Dialect& d);
 
 Bytes frame(int cmd, const std::vector<uint8_t>& args = {});

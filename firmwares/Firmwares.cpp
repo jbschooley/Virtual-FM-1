@@ -11,6 +11,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"felucca", "Felucca", false, false},
         {"sloop", "SLOOP", false, false},
         {"melodee", "Melodee", false, false},
+        {"melodee_013", "Melodee", false, false},   // 0.13, kept for the projects made with it (engines/melodee013)
     };
     return choices;
 }
@@ -31,6 +32,21 @@ std::string firmwareIdFor(const Identity& id) {
     if (id.version >= 900 && id.editor.find("SLOOP") != std::string::npos) return "sloop";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
+}
+
+std::string familyOf(const std::string& choiceId) { return choiceId == "melodee_013" ? "melodee" : choiceId; }
+
+// a Melodee release from its INFO ("MELODEE v0.13.1" -> "0.13.1")
+static std::string melodeeRelease(const Identity& id) {
+    const auto at = id.editor.find("MELODEE v");
+    return at == std::string::npos ? std::string() : id.editor.substr(at + 9);
+}
+
+bool runs(const Identity& synth, const std::string& choiceId) {
+    if (firmwareIdFor(synth) != familyOf(choiceId)) return false;
+    if (!isPreviousRelease(choiceId)) return true;
+    const std::string kept = currentVersion(choiceId).label, release = melodeeRelease(synth);   // ("0.13": also 0.13.1, the same formats)
+    return release == kept || release.rfind(kept + ".", 0) == 0;
 }
 
 std::string FirmwareChoice::label() const { return std::string(name) + " " + currentVersion(id).label; }
@@ -79,6 +95,9 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
     if (firmwareId == "melodee") return melodee;
+    // the previous release kept beside it: the one it plays (a synth on it is synced with)
+    static const std::vector<KnownVersion> melodee013 = {{9013, "0.13", Support::Current, ""}};
+    if (firmwareId == "melodee_013") return melodee013;
     return fmva;
 }
 

@@ -12,6 +12,7 @@ extern "C" {
 #include "felucca_core.inc"
 #include "sloop_core.inc"
 #include "melodee_core.inc"
+#include "melodee013_core.inc"
 #undef FELUCCA_CORE_DECLARE
 }
 
@@ -33,17 +34,27 @@ const FeluccaCopy kMelodee =
 #include "melodee_core.inc"
 #undef FELUCCA_CORE_TABLE
 ;
+const FeluccaCopy kMelodee013 =   // (the previous release, kept: engines/melodee013)
+#define FELUCCA_CORE_TABLE
+#include "melodee013_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
 #undef FEL_ENTRY
 
-const FeluccaCopy& coreOf(FeluccaEngine::Flavor f) {
-    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? kMelodee : kFelucca;
+// (a previous release only where one is kept: else the current one)
+const FeluccaCopy& coreOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
+    const bool prev = r == FeluccaEngine::Release::Previous && FeluccaEngine::hasPrevious(f);
+    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? (prev ? kMelodee013 : kMelodee) : kFelucca;
 }
-std::atomic<int> gInstances[3];
-int indexOf(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
+std::atomic<int> gInstances[6];
+int indexOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
+    const int i = f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0;
+    return r == FeluccaEngine::Release::Previous && FeluccaEngine::hasPrevious(f) ? i + 3 : i;
+}
 
 }  // namespace
 
-int FeluccaEngine::instances(Flavor f) { return gInstances[indexOf(f)].load(); }
+int FeluccaEngine::instances(Flavor f, Release r) { return gInstances[indexOf(f, r)].load(); }
 
 void FeluccaEngine::Free::operator()(void* p) const {
    #ifdef _WIN32
@@ -53,8 +64,9 @@ void FeluccaEngine::Free::operator()(void* p) const {
    #endif
 }
 
-FeluccaEngine::FeluccaEngine(Flavor flavor) : flavor_{flavor} {
-    const FeluccaCopy& core = coreOf(flavor_);
+FeluccaEngine::FeluccaEngine(Flavor flavor, Release release)
+    : flavor_{flavor}, release_{hasPrevious(flavor) ? release : Release::Current} {
+    const FeluccaCopy& core = coreOf(flavor_, release_);
     const size_t bytes = size_t(core.state_size());   // (a multiple of 16)
    #ifdef _WIN32
     void* p = _aligned_malloc(bytes, 16);
@@ -66,14 +78,14 @@ FeluccaEngine::FeluccaEngine(Flavor flavor) : flavor_{flavor} {
     state_.reset(p);
     if (!core.state_init(p)) return;   // fel_state's layout check failed: never run it (valid() false)
     core_ = &core;
-    gInstances[indexOf(flavor_)]++;
+    gInstances[indexOf(flavor_, release_)]++;
     ctl_ = int(core_->ctl());
     auto g = bind();
     core_->init();
 }
 
 FeluccaEngine::~FeluccaEngine() {
-    if (core_) gInstances[indexOf(flavor_)]--;
+    if (core_) gInstances[indexOf(flavor_, release_)]--;
 }
 
 // The instance's lock, and the firmware's code pointed at its state on this thread

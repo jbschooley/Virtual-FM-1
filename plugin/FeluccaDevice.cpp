@@ -8,7 +8,9 @@
 namespace felucca {
 
 const Dialect& dialectOf(const FeluccaEngine& f) {
-    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect() : f.flavor() == FeluccaEngine::Flavor::Melodee ? melodeeDialect() : feluccaDialect();
+    const bool prev = f.release() == FeluccaEngine::Release::Previous;
+    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect()
+         : f.flavor() == FeluccaEngine::Flavor::Melodee ? (prev ? melodee013Dialect() : melodeeDialect()) : feluccaDialect();
 }
 
 VirtualEndpoint::VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)), dialect_(&dialectOf(*f_)) {}
@@ -56,7 +58,7 @@ juce::int64 DeviceStore::fileHash() const {
 }
 
 juce::File DeviceStore::defaultFile(const Dialect& d) {
-    return LibraryStore::root().getChildFile(d.name).getChildFile(juce::String(d.name) + " device.json");
+    return LibraryStore::root().getChildFile(d.name).getChildFile(juce::String(d.device ? d.device : d.name) + " device.json");
 }
 
 // The stored objects into the engine, as the web editor restores them: the project slots,

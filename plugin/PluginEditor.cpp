@@ -125,7 +125,7 @@ void FM1Editor::showFirmware() {
 void FM1Editor::chooseFirmware(const juce::String& id) {
     if (id == proc_.firmwareId()) return;
     auto synth = proc_.session.lastIdentity();
-    if (proc_.link.isOpen() && synth && juce::String(fm1::firmwareIdFor(*synth)) != id) {
+    if (proc_.link.isOpen() && synth && !fm1::runs(*synth, id.toStdString())) {
         // the connected synth runs something else: it will not sync with the new choice
         auto name = fm1::firmwareChoice(id.toStdString()).name;
         auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon)

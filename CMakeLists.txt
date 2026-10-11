@@ -204,8 +204,12 @@ if(FM1_BUILD_FELUCCA)
     fm1_core(felucca fel)
     fm1_core(sloop slp)
     fm1_core(melodee mel)
-    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects})
-    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee)
+    # the previous releases, kept for the projects made with them (engines/melodee013: Melodee 0.13)
+    fm1_core(melodee013 m13)
+    add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects}
+                ${melodee013Objects})
+    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee
+                               ${CMAKE_BINARY_DIR}/melodee013)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
 
@@ -242,6 +246,12 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(melodee_regress PRIVATE -w -O2)
         target_link_libraries(melodee_regress PRIVATE m)
         add_test(NAME melodee_regress COMMAND melodee_regress ${CMAKE_SOURCE_DIR}/engines/melodee/upstream/tests/golden.txt no-cpu-budget)
+        # Melodee 0.13 (engines/melodee013), kept beside the current one
+        add_executable(melodee013_regress engines/melodee013/upstream/tests/regress.c)
+        target_include_directories(melodee013_regress PRIVATE engines/melodee013/generated engines/melodee013/upstream/firmware/src)
+        target_compile_options(melodee013_regress PRIVATE -w -O2)
+        target_link_libraries(melodee013_regress PRIVATE m)
+        add_test(NAME melodee013_regress COMMAND melodee013_regress ${CMAKE_SOURCE_DIR}/engines/melodee013/upstream/tests/golden.txt no-cpu-budget)
     endif()
     # the copies: independent, and playing
     add_executable(felucca_test tests/felucca_test.cpp)

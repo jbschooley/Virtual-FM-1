@@ -89,7 +89,16 @@ const Dialect& melodeeDialect() {
                            {0, 1, 3, 8, 9, 10, 11, 21, 24}};
     return d;
 }
-bool isMelodee(const Dialect& d) { return &d == &melodeeDialect(); }
+// Melodee 0.13's, kept beside the current release (engines/melodee013): its own device file in the
+// library ("Melodee/Melodee 0.13 device.json")
+const Dialect& melodee013Dialect() {
+    static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
+                           {0, 1, 3, 8, 9, 10, 11, 21, 24}, -1, -1, "Melodee 0.13"};
+    return d;
+}
+bool isMelodee(const Dialect& d) { return &d == &melodeeDialect() || &d == &melodee013Dialect(); }
 
 // Melodee 0.13: a preset number past 127 (PROPHET has 201) is its low 7 bits where the protocol
 // says "preset", and its high bits last (TRACK_DUMP, RELOAD; PRESET takes them as a third byte).

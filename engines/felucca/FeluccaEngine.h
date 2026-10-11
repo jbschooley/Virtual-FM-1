@@ -38,10 +38,15 @@ public:
     // Which firmware: Felucca, SLOOP (engines/sloop) or Melodee (engines/melodee), both built from
     // Felucca and behind the same API
     enum class Flavor { Felucca, Sloop, Melodee };
-    static int instances(Flavor f = Flavor::Felucca);    // instances alive
+    // Which release of it: the current one, or the previous one kept for the projects made with it
+    // (engines/melodee013: Melodee 0.13)
+    enum class Release { Current, Previous };
+    static bool hasPrevious(Flavor f) { return f == Flavor::Melodee; }
+    static int instances(Flavor f = Flavor::Felucca, Release r = Release::Current);    // instances alive
 
-    explicit FeluccaEngine(Flavor f = Flavor::Felucca);
+    explicit FeluccaEngine(Flavor f = Flavor::Felucca, Release r = Release::Current);
     Flavor flavor() const { return flavor_; }
+    Release release() const { return release_; }
     ~FeluccaEngine();
     FeluccaEngine(const FeluccaEngine&) = delete;
     FeluccaEngine& operator=(const FeluccaEngine&) = delete;
@@ -145,6 +150,7 @@ private:
     void feed(const uint8_t* bytes, int size); // (bind() held) a SysEx message into its USB port
     void drain();                              // (bind() held) what it sent, into sxDone_
     Flavor flavor_ = Flavor::Felucca;
+    Release release_ = Release::Current;
     const FeluccaCopy* core_ = nullptr;
     struct Free { void operator()(void* p) const; };
     std::unique_ptr<void, Free> state_;        // the firmware's state, this instance's (16-aligned)

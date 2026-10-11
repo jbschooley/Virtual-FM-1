@@ -204,14 +204,16 @@ private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
-    juce::ValueTree feluccaSaved_[3];                 // Felucca's, SLOOP's and Melodee's state while they have no engine: kept, saved
+    juce::ValueTree feluccaSaved_[6];                 // Felucca's, SLOOP's and Melodee's state while they have no engine (3.. their kept previous releases'): kept, saved
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
     felucca::DeviceStore felDevice_{felucca::feluccaDialect()};   // the device's stored objects, in the library
     felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
     felucca::DeviceStore melDevice_{felucca::melodeeDialect()};   // (Melodee's, apart)
+    felucca::DeviceStore mel013Device_{felucca::melodee013Dialect()};   // (Melodee 0.13's, kept apart from the current one's)
     felucca::DeviceStore& deviceFor(const FeluccaEngine& f) {
+        if (f.flavor() == FeluccaEngine::Flavor::Melodee && f.release() == FeluccaEngine::Release::Previous) return mel013Device_;
         return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : f.flavor() == FeluccaEngine::Flavor::Melodee ? melDevice_ : felDevice_;
     }
     std::atomic<bool> felLive_{false};                // a live mirror job is running
@@ -225,8 +227,8 @@ private:
     void renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, const juce::AudioPlayHead::PositionInfo* pos);
     // A project's part for Felucca ("Felucca") or SLOOP ("Sloop"): the engine's if it plays that
     // one now, else what was kept
-    juce::ValueTree feluccaState(FeluccaEngine::Flavor flavor) const;
-    void setFeluccaState(const juce::ValueTree& t, FeluccaEngine::Flavor flavor);
+    juce::ValueTree feluccaState(FeluccaEngine::Flavor flavor, FeluccaEngine::Release release = FeluccaEngine::Release::Current) const;
+    void setFeluccaState(const juce::ValueTree& t, FeluccaEngine::Flavor flavor, FeluccaEngine::Release release = FeluccaEngine::Release::Current);
     // false: Felucca could not read it; announce: say so (not again when switching back)
     bool applyFeluccaState(FeluccaEngine& f, const juce::ValueTree& t, bool announce = true);
     // A project's Felucca music this Felucca could not read (from a newer one, or damaged) is

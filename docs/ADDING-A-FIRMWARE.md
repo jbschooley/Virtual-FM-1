@@ -147,6 +147,20 @@ once and gives every instance its own copy of the state instead:
   then refuses to start) must pass on each. CI builds Windows, Linux and
   Android through the same tool.
 
+## A previous release kept beside the current one
+
+When a release removes something a project may use (an engine, a drum kit, a stored object), the
+release it replaces stays built in for the projects made with it (Melodee 0.13 beside 1.x):
+
+- its vendored tree is copied unchanged to `engines/<kind><release>/` (`engines/melodee013`), its core
+  file renamed to match, and built by its own `fm1_core(<kind><release> <tag>)` and regression;
+- `FeluccaEngine::Release::Previous` plays it (`hasPrevious()` says which firmwares have one);
+- it is a firmware choice of its own (`melodee_013`, `familyOf()` its firmware), synced only with an
+  FM-1 running that release (`fm1::runs()`), with its own dialect (`melodee013Dialect()`), device file
+  in the library and saved music ("Melodee013");
+- a project whose music says it is that release ("v0.13" in "Melodee") opens on it (`needsPrevious()`
+  in `PluginProcessor.cpp`), so it plays as it did.
+
 ## Versions
 
 Each firmware's releases the plugin knows are listed in `knownVersions()`

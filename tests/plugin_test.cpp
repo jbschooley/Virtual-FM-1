@@ -515,6 +515,52 @@ static int checks() {
                 felFile.deleteFile();
             }
         }
+        {   // a previous release kept beside the current one (Melodee 0.13, engines/melodee013): its own
+            // choice, engine, saved music and device file; a project whose Melodee music is 0.13's (saved
+            // as "Melodee" before 1.0 was built in) opens on it
+            using Rl = FeluccaEngine::Release;
+            CHECK(fm1::isFirmwareChoice("melodee_013") && fm1::familyOf("melodee_013") == "melodee" && fm1::isPreviousRelease("melodee_013")
+                  && fm1::isFeluccaFamily("melodee_013") && fm1::firmwareChoice("melodee_013").label() == "Melodee 0.13",
+                  "Melodee 0.13 is a choice of its own, a release of Melodee");
+            const fm1::Identity m13{"FM-1", 9013, "MELODEE v0.13"}, m131{"FM-1", 90131, "MELODEE v0.13.1"}, m11{"FM-1", 91010, "MELODEE v1.1.0"};
+            CHECK(fm1::runs(m13, "melodee_013") && fm1::runs(m131, "melodee_013") && !fm1::runs(m11, "melodee_013")
+                  && fm1::runs(m11, "melodee") && fm1::runs(m13, "melodee") && !fm1::runs(m13, "felucca"),
+                  "an FM-1 on 0.13 (or 0.13.1) syncs with an instance set to 0.13; one on another release does not");
+            FeluccaEngine prev{Fl::Melodee, Rl::Previous}, cur{Fl::Melodee};
+            CHECK(prev.valid() && prev.release() == Rl::Previous && cur.release() == Rl::Current && FeluccaEngine::instances(Fl::Melodee, Rl::Previous) >= 1
+                  && std::string(prev.version()) == "v0.13", "its engine plays 0.13");
+            CHECK(felucca::dialectOf(prev).device != nullptr && felucca::DeviceStore::defaultFile(felucca::dialectOf(prev)) != felucca::DeviceStore::defaultFile(felucca::dialectOf(cur))
+                  && felucca::isMelodee(felucca::dialectOf(prev)), "its own device file in the library, a Melodee dialect");
+            FM1Processor a;
+            a.setFirmware("melodee");
+            a.felucca()->setEngine(1, 15);
+            a.felucca()->setParam(1, 0, 66);
+            juce::MemoryBlock saved;
+            a.getStateInformation(saved);
+            auto tree = juce::ValueTree::readFromData(saved.getData(), saved.getSize());
+            const bool old = tree.getChildWithName("Melodee").getProperty("version").toString().startsWith("v0.");
+            if (!old) {   // (once the current release is 1.x: a project as 0.13 saved one, by hand)
+                auto m = tree.getChildWithName("Melodee");
+                std::vector<uint8_t> music;
+                prev.setEngine(1, 15);
+                prev.setParam(1, 0, 66);
+                prev.object(0, music);
+                m.setProperty("version", "v0.13", nullptr);
+                m.setProperty("music", juce::Base64::toBase64(music.data(), music.size()), nullptr);
+                juce::MemoryOutputStream o(saved, false);
+                saved.reset();
+                tree.writeToStream(o);
+            }
+            FM1Processor b;
+            b.setStateInformation(saved.getData(), int(saved.getSize()));
+            CHECK(b.firmwareId() == "melodee_013" && b.felucca() && b.felucca()->release() == Rl::Previous && b.felucca()->engineOf(1) == 15
+                  && b.felucca()->param(1, 0) == 66, "a project with 0.13's Melodee music opens on 0.13, its music as it was");
+            juce::MemoryBlock again;
+            b.getStateInformation(again);
+            auto t2 = juce::ValueTree::readFromData(again.getData(), again.getSize());
+            CHECK(t2.getProperty("firmware").toString() == "melodee_013" && t2.getChildWithName("Melodee013").isValid() && !t2.getChildWithName("Melodee").isValid(),
+                  "and is saved as 0.13's, apart from the current release's");
+        }
         {   // a Send fitted to an older synth's objects (felucca::fitToSynth)
             auto objs = [](std::initializer_list<int> ids, size_t size = 4) {
                 felucca::Objects o;

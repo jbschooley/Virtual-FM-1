@@ -35,7 +35,15 @@ std::string firmwareIdFor(const Identity& id);                // which choice a 
 bool isFirmwareChoice(const std::string& id);                 // a choice an instance can be set to
 // Felucca, SLOOP or Melodee: played by FeluccaEngine (engines/felucca, engines/sloop, engines/melodee),
 // synced through FeluccaSync
-inline bool isFeluccaFamily(const std::string& id) { return id == "felucca" || id == "sloop" || id == "melodee"; }
+// A choice for a firmware's previous release, kept beside the current one for the projects made with
+// it ("melodee_013": Melodee 0.13), and the firmware it is a release of ("melodee")
+std::string familyOf(const std::string& choiceId);
+inline bool isPreviousRelease(const std::string& choiceId) { return familyOf(choiceId) != choiceId; }
+inline bool isFeluccaFamily(const std::string& id) { const auto f = familyOf(id); return f == "felucca" || f == "sloop" || f == "melodee"; }
+// Whether a connected synth runs what an instance set to this choice plays: the same firmware and, for
+// a previous release's choice, that release (the current choice takes any release of it, said by
+// checkVersion)
+bool runs(const Identity& synth, const std::string& choiceId);
 constexpr const char* kDefaultFirmwareId = "baudgirl_fm1va";
 
 // ---- versions -----------------------------------------------------------------------------
