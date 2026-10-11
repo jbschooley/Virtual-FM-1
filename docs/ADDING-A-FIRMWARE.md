@@ -113,12 +113,16 @@ once and gives every instance its own copy of the state instead:
 3. **Clang**, with no `-g` for the core (debug information would name the
    variables the rewrite removes), and Python 3 for the build.
 4. **What `fel_state.py` handles**: any use of a variable inside a function,
-   directly or inside constant expressions; a variable initialized with the
-   address of another (a pointer or an array of pointers); clang's private
-   constants holding such addresses (local aggregate initializers). **What it
+   directly or inside constant expressions (getelementptr, the casts, and integer
+   arithmetic on them, as clang folds a difference of two addresses); a variable
+   initialized with the address of another (a pointer, an array of pointers, or
+   such pointers among the fields of a struct or an array of structs, as a
+   constant table of rows whose label is a buffer); clang's private constants
+   holding such addresses (local aggregate initializers). `fel_state_test`
+   (`tests/fel_state/`) runs a sample of these forms with two states. **What it
    refuses** (the build stops with `fel_state: ...` and the line):
-   `thread_local` variables, other initializers holding a state address (a
-   struct containing a pointer to state, for instance), state named by `switch`,
+   `thread_local` variables, other initializers holding a state address (one in
+   a field that is not a pointer, for instance), state named by `switch`,
    `indirectbr` or `blockaddress`, and state named outside a function (other
    than the cases above). On such an error: change the core if it is the
    core's own code; if it is upstream's, extend `fel_state.py` for that form

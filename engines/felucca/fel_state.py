@@ -24,9 +24,11 @@ It adds, with the copy's prefix:
 What it handles, and refuses otherwise (a firmware update that needs more fails the build, with
 the line, instead of compiling something wrong; docs/ADDING-A-FIRMWARE.md says what to do):
 - a use of a marked global in a function, as an operand or inside constant expressions
-  (getelementptr, ptrtoint, bitcast, inttoptr): they become instructions at the function's entry
+  (getelementptr, the casts, integer arithmetic on them): they become instructions at the function's
+  entry
 - a marked global initialized with the address of another (a pointer, or an array of pointers,
-  plain or into it): set by state_init in each instance's state
+  plain or into it, or such pointers among the elements of a struct or an array of structs): set by
+  state_init in each instance's state
 - a private constant whose initializer holds such an address (clang's local aggregate
   initializers, "__const.<function>.<name>"): moved into the state as well
 Also drops the IR's linker options (the C runtime clang names on Windows: the plugin's build picks it).
@@ -256,7 +258,11 @@ def main():
 
     # ---- functions: each state reference through the base pointer ---------------------------
     counter = [0]
-    cexpr = re.compile(r'(getelementptr(?: inbounds| nuw| nusw)*|ptrtoint|bitcast|inttoptr) \(')
+    # (a constant expression: a getelementptr, a cast, or integer arithmetic on them, as clang folds a
+    # difference of two addresses into a phi's operand: Melodee 1.0)
+    binops = 'add|sub|mul|shl|lshr|ashr|and|or|xor'
+    casts = 'ptrtoint|bitcast|inttoptr|trunc|zext|sext'
+    cexpr = re.compile(r'\b(getelementptr(?: inbounds| nuw| nusw)*|(?:' + casts + r')|(?:' + binops + r')(?: nuw| nsw| exact)*) \(')
 
     def rewrite_function(body):
         used = sorted({x for l in body[1:] for x in names(l, tok) if x in state})
@@ -291,7 +297,14 @@ def main():
             if head.startswith('getelementptr'):
                 parts = split_top(inner)
                 entry.append(f'  {name} = {head} {parts[0]}, {", ".join(operand(p) for p in parts[1:])}')
-            else:   # ptrtoint / bitcast / inttoptr (<ty> <value> to <ty>)
+            elif re.match(r'^(?:' + binops + r')\b', head):   # <op> (<ty> <a>, <ty> <b>): one type, as the instruction takes it
+                parts = split_top(inner)
+                if len(parts) != 2:
+                    fail('unhandled constant expression: ' + expr[:120])
+                a, b = operand(parts[0]), operand(parts[1])
+                ta, va = a.split(' ', 1)
+                entry.append(f'  {name} = {head} {ta} {va}, {b.split(" ", 1)[1]}')
+            else:   # a cast (<ty> <value> to <ty>)
                 m = re.match(r'^(.*) to (\S+)$', inner)
                 if not m:
                     fail('unhandled constant expression: ' + expr[:120])
@@ -381,12 +394,48 @@ def main():
             continue
         am = re.fullmatch(r'\[(\d+) x ptr\]', g['type'])
         bm = re.fullmatch(r'\[(.*)\]', g['init'])
-        if not am or not bm:
-            fail(f'an initializer of {n} the rewrite does not handle (only a pointer, or an array of them): {g["init"][:120]}')
-        for k, el in enumerate(split_top(bm.group(1))):
-            v = address(el, f'{ident(n)}.{k}')
-            init.append(f'  %e.{ident(n)}.{k} = getelementptr inbounds [{am.group(1)} x ptr], ptr {f}, i32 0, i32 {k}')
-            init.append(f'  store ptr {v}, ptr %e.{ident(n)}.{k}, align {ptr_align}')
+        if am and bm:
+            for k, el in enumerate(split_top(bm.group(1))):
+                v = address(el, f'{ident(n)}.{k}')
+                init.append(f'  %e.{ident(n)}.{k} = getelementptr inbounds [{am.group(1)} x ptr], ptr {f}, i32 0, i32 {k}')
+                init.append(f'  store ptr {v}, ptr %e.{ident(n)}.{k}, align {ptr_align}')
+            continue
+        # an aggregate (structs, arrays of them) with state addresses in some of its pointer elements:
+        # its constant copied in with those elements null, then each address stored where it goes
+        # (Melodee 1.0's sheets: a row's label a buffer of state)
+        slots = []
+
+        def walk(t, v, path):   # -> the initializer with the state addresses null; slots: (path, value)
+            v = v.strip()
+            if v in ZEROS or v in ('undef', 'poison') or v.startswith('c"'):
+                return v
+            if v.startswith('{') or v.startswith('<{') or v.startswith('['):
+                open_, close = ('<{', '}>') if v.startswith('<{') else ('{', '}') if v.startswith('{') else ('[', ']')
+                if not v.endswith(close):
+                    fail(f'an initializer of {n} the rewrite does not read: {v[:120]}')
+                parts = []
+                for k, el in enumerate(split_top(v[len(open_):-len(close)])):
+                    el = el.strip()
+                    e = type_end(el)
+                    parts.append(el[:e] + ' ' + walk(el[:e], el[e + 1:], path + [k]))
+                return open_ + ' ' + ', '.join(parts) + ' ' + close if parts else v
+            if any(x in state for x in names(v, tok)):
+                if t.strip() != 'ptr':
+                    fail(f'an initializer of {n} holds a state address in a {t.strip()} element: {v[:120]}')
+                slots.append((path, v))
+                return 'null'
+            return v
+
+        copy = walk(g['type'], g['init'], [])
+        if not slots:
+            fail(f'an initializer of {n} the rewrite does not handle: {g["init"][:120]}')
+        consts.append(f'@fel.init.{ident(n)} = private unnamed_addr constant {g["type"]} {copy}, align {g["align"]}')
+        init.append(f'  call void @llvm.memcpy.p0.p0.i64(ptr align {g["align"]} {f}, ptr align {g["align"]} @fel.init.{ident(n)}, i64 {g["size"]}, i1 false)')
+        for j, (path, v) in enumerate(slots):
+            a = address(v, f'{ident(n)}.s{j}')
+            idx = ', '.join(f'i32 {k}' for k in path)
+            init.append(f'  %e.{ident(n)}.s{j} = getelementptr inbounds {g["type"]}, ptr {f}, i32 0, {idx}')
+            init.append(f'  store ptr {a}, ptr %e.{ident(n)}.s{j}, align 1')
     # each field where its alignment needs it, and the size, as LLVM lays the struct out (the sizes
     # above are this tool's reading of the data layout): checked first, so a block of the wrong size
     # is never written
