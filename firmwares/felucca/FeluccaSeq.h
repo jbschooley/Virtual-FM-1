@@ -113,6 +113,7 @@ std::optional<Chain> readChain(Endpoint& e);
 Bytes chainWrite(const std::vector<std::pair<int, int>>& rows);
 Bytes chainWrite(const Chain& c);                   // (lanes when it has them)
 bool isCurrentFelucca(const Dialect& d);           // Felucca 1.5.1 (not the 1.0.3 kept beside it)
+bool hasLanes(Endpoint& e);                         // a Felucca from 1.2 (INFO): song lanes, whole motion and locks
 
 // Melodee: each track has 8 pattern banks (PATTERN, 73), and its song's rows name a bank per track
 // (BANK_SONG, 74); SONG's rows set every track to one bank

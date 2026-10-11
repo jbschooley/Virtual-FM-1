@@ -1026,11 +1026,16 @@ void FeluccaLibraryList::rename(int row) {
     size_t k = 3;
     while (k < a->size() && (*a)[k] != 0) ++k;
     std::vector<uint8_t> rest(a->begin() + std::ptrdiff_t(std::min(a->size(), k + 1)), a->end());
-    // PUT takes the same values and pattern, with the kind only for a drum grid (kind 1, its 16 bytes and,
-    // from Felucca 1.2, its category); a plain one's kind 0 (and 1.2's category after it) left off: PUT
-    // has no place for a plain preset's category (upreset.c up_parse), so it goes back to the default
+    // PUT takes the same values and pattern, with the kind only for a drum grid (kind 1 and its 16 bytes,
+    // then from Felucca 1.2 its category). A plain one's kind 0 is left off, unless it has 1.2's category
+    // after it: that goes in PUT's long form, kind 0, 16 zeros, the category (upreset.c up_parse)
     const size_t plain = size_t(2 * f->paramCount() + 32);
-    if (rest.size() > plain && rest[plain] == 0) rest.resize(plain);
+    if (rest.size() == plain + 2 && rest[plain] == 0) {
+        const uint8_t cat = rest[plain + 1];
+        rest.resize(plain + 1);
+        rest.insert(rest.end(), 16, uint8_t(0));
+        rest.push_back(cat);
+    } else if (rest.size() > plain && rest[plain] == 0) rest.resize(plain);
     std::vector<uint8_t> put{uint8_t(row), (*a)[2]};
     for (auto c : name) put.push_back(uint8_t(c));
     put.push_back(0);

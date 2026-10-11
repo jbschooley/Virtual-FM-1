@@ -1,5 +1,7 @@
 #include "FeluccaSeq.h"
 
+#include <cstdio>
+
 namespace felucca {
 
 namespace {
@@ -271,8 +273,25 @@ bool copyPatterns(Endpoint& from, Endpoint& to, int tracks, juce::String& error,
 
 bool isCurrentFelucca(const Dialect& d) { return &d == &feluccaDialect(); }
 
+// (the synth's own release, not the instance's: an FM-1 on 1.0 or 1.1 is pulled from with the older
+// commands, which it answers; asked once, from INFO's "FELUCCA vX.Y")
+bool hasLanes(Endpoint& e) {
+    if (!isCurrentFelucca(e.dialect())) return false;
+    if (e.lanes < 0) {
+        auto info = e.ask(frame(kInfo), kAsk);
+        const auto a = info ? argsOf(*info) : std::vector<uint8_t>{};
+        std::string v;
+        for (size_t i = 0; i < a.size() && a[i]; ++i) v += char(a[i]);
+        int major = 0, minor = 0;
+        const bool parsed = std::sscanf(v.c_str(), "FELUCCA v%d.%d", &major, &minor) == 2;
+        if (!info) return false;   // (no answer: asked again next time)
+        e.lanes = parsed && (major > 1 || (major == 1 && minor >= 2)) ? 1 : 0;
+    }
+    return e.lanes == 1;
+}
+
 std::optional<Chain> readChain(Endpoint& e) {
-    const bool lanes = isCurrentFelucca(e.dialect());   // (1.2: op 4, each row a slot per track and its repeat)
+    const bool lanes = hasLanes(e);   // (1.2: op 4, each row a slot per track and its repeat)
     auto r = e.ask(frame(kSong, {uint8_t(lanes ? 4 : 0)}), kAsk);
     if (!r) return std::nullopt;
     auto a = argsOf(*r);
@@ -357,7 +376,7 @@ Bytes bankChainWrite(const std::vector<BankRow>& rows) {
 }
 
 std::optional<Motion> readMotion(Endpoint& e, int track) {
-    if (isCurrentFelucca(e.dialect())) {   // 1.2: all of them (up to 128) and each one's kind (a lock or motion), op 8
+    if (hasLanes(e)) {   // 1.2: all of them (up to 128) and each one's kind (a lock or motion), op 8
         auto r = e.ask(frame(kMotion, {uint8_t(track), 8}), kAsk);
         if (!r) return std::nullopt;
         auto a = argsOf(*r);
@@ -426,7 +445,7 @@ bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, 
         auto song = readBankChain(from);
         if (!song) { err = "no answer to BANK_SONG"; return false; }
         if (int c = rc(to.ask(bankChainWrite(song->rows), 4000)); c != 0) { err = c < 0 ? "no answer to BANK_SONG" : "the song was refused (rc " + juce::String(c) + ")"; return false; }
-    } else if (int c = rc(to.ask(isCurrentFelucca(to.dialect()) ? chainWrite(*chain) : chainWrite(chain->rows), 4000)); c != 0) {
+    } else if (int c = rc(to.ask(hasLanes(to) ? chainWrite(*chain) : chainWrite(chain->rows), 4000)); c != 0) {
         err = c < 0 ? "no answer to SONG" : "the song chain was refused (rc " + juce::String(c) + ")";
         return false;
     }
@@ -443,10 +462,10 @@ bool copySequencer(Endpoint& from, Endpoint& to, int tracks, juce::String& err, 
             return c == 0;
         };
         if (!motion(motionClear(t))) return false;
-        if (isCurrentFelucca(to.dialect()) && !motion(frame(kMotion, {uint8_t(t), 6, 127}))) return false;   // (1.1: its locks too, every step)
+        if (hasLanes(to) && !motion(frame(kMotion, {uint8_t(t), 6, 127}))) return false;   // (1.1: its locks too, every step)
         for (auto& e : src->events) {
             if (e.lock) {   // (a lock goes to a side that keeps locks: Felucca 1.5.1, op 5)
-                if (!isCurrentFelucca(to.dialect())) continue;
+                if (!hasLanes(to)) continue;
                 std::vector<uint8_t> q = {uint8_t(t), 5, uint8_t(e.step & 63), uint8_t(e.param & 127)};
                 v14(q, e.value);
                 if (!motion(frame(kMotion, q))) return false;

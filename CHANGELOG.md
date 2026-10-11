@@ -44,8 +44,7 @@ for the code. New work goes under the next version at the top.
 - **Felucca 1.0.3 is kept** beside it, as Melodee 0.13 is: a project saved with
   Felucca 1.0.x opens on 1.0.3 and plays as it did (1.0.5 retired the HAND, CYM
   and H+CYM kits), and an instance set to Felucca 1.0.3 syncs fully with an FM-1
-  still on 1.0.3. Renaming a plain user preset on Felucca 1.5.1 sets its sound
-  category back to the default (the editor protocol has no place for it there).
+  still on 1.0.3.
 - **Melodee 0.13 is kept** beside it as its own firmware choice: 1.0 retired
   0.13's LOFI, PHASE, VOICE and NOISE engines, so a project saved with 0.13 opens
   on 0.13 and plays as it did, and an instance set to Melodee 0.13 syncs fully

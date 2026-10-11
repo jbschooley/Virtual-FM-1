@@ -262,6 +262,26 @@ int main() {
         (void)h32;
     }
 
+    {   // 1.1's metronome (MENU > CLICK ON: editor command 73, item 12) sounds over a playing, empty song
+        auto loud = [](bool click) {
+            FeluccaEngine f;
+            std::vector<float> l(256), r(256);
+            if (click) {
+                const uint8_t m[] = {0xF0, 0x7D, 0x46, 0x4C, 73, 12, uint8_t((2 + 8192) & 127), uint8_t((2 + 8192) >> 7), 0xF7};
+                f.sysex(m, int(sizeof m));
+            }
+            for (int k = 0; k < 4; ++k) f.render(l.data(), r.data(), 256);
+            for (int t = 0; t < f.tracks(); ++t) f.setParam(t, 0, 0);   // (its default patterns silent: the click alone)
+            f.transport(true);
+            double peak = 0;
+            for (int k = 0; k < 400; ++k) { f.render(l.data(), r.data(), 256); for (float v : l) peak = std::max(peak, double(std::fabs(v))); }
+            return peak;
+        };
+        const double off = loud(false), on = loud(true);
+        std::printf("  metronome: peak %.4f off, %.4f on\n", off, on);
+        CHECK(off < 1e-3 && on > 0.01, "1.1's metronome sounds when it is on (and not when off)");
+    }
+
     // ---- parameters, engines, presets ----
     {
         FeluccaEngine f;

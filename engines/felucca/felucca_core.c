@@ -464,11 +464,17 @@ void FEL(render)(int32_t *out, uint32_t frames)   /* interleaved stereo, frames 
             fel_main_pass();
         }
         mix_block(out + 2u * i, CTL);
-        {   /* the HOME screen's oscilloscope, as audio.c's audio_block feeds it: every other left sample */
+        /* as audio.c's audio_block (1.5.1), without the USB input: MENU > USB LEVEL FIXED gives the speaker
+         * MASTER's level, and so the plugin (its output is the speaker's, not USB's) */
+        if (fx_usb_fixed)
+            usb_fixed_dac(out + 2u * i, CTL);
+        if (!scope_mix) {   /* the HOME screen's oscilloscope: every other left sample, the music before the
+                             * click (SCOPE MIX: fx.c's mix_block took it) */
             uint32_t k;
             for (k = 1u; k < CTL; k += 2u)
                 scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * (i + k)];
         }
+        click_render(out + 2u * i, CTL);   /* (1.1: the metronome and count-in) */
         fel_frames += CTL;
         fel_clock();
     }

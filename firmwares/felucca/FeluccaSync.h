@@ -75,6 +75,7 @@ public:
     // The pushes that arrived since the last call.
     virtual std::vector<Bytes> pushes() = 0;
     int extras = -1;   // SLOOP 2.4's locks, nudges and fill conditions: 1 has them, 0 not (2.3), -1 not asked yet
+    int lanes = -1;    // Felucca 1.2's song lanes and whole motion (SONG ops 4.., MOTION op 8): 1 has them, 0 not, -1 not asked yet
 };
 
 // A real synth over the session's MIDI link. Takes the link's SysEx listener while it lives.

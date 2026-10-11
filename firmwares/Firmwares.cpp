@@ -160,9 +160,10 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
     }
     if (firmwareIdFor(id) == "felucca") {   // 1.5's projects open on no release before 1.5
         const std::string release = feluccaRelease(id);
-        if (release.empty() || !sloopNewer("1.5", release)) return {};
+        const bool before15 = release.empty() ? id.version >= 910 && id.version < 915 : sloopNewer("1.5", release);   // (no INFO: its X.Y)
+        if (!before15) return {};
         const bool kept = release == "1.0.3" || release.rfind("1.0.3.", 0) == 0;
-        return "This FM-1 runs Felucca " + release + ", which does not read Felucca " + std::string(currentVersion("felucca").label)
+        return "This FM-1 runs Felucca " + (release.empty() ? std::string("before 1.5") : release) + ", which does not read Felucca " + std::string(currentVersion("felucca").label)
                + "'s projects: update it with Felucca's installer to send to it or go Live" + (kept ? ", or set this instance to Felucca 1.0.3" : "")
                + ". Pull still works.";
     }

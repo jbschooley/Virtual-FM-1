@@ -229,7 +229,7 @@ public:
         for (auto* b : {&add_, &play_, &stop_}) addAndMakeVisible(b);
         addAndMakeVisible(status_);
         status_.setColour(juce::Label::textColourId, kDim);
-        add_.onClick = [this] { if (rows_.size() < 16) { rows_.push_back({0, 1}); write(); } };
+        add_.onClick = [this] { if (rows_.size() < 16) { rows_.push_back({0, 1}); if (!lanes_.empty()) lanes_.push_back({0, 0, 0, 0}); write(); } };
         play_.onClick = [this] { page_.proc_.feluccaEdit(felucca::chainPlay(true)); read(); };
         stop_.onClick = [this] { page_.proc_.feluccaEdit(felucca::chainPlay(false)); read(); };
         add_.setTooltip("A row: a project slot (A-D, saved on the Library tab) played this many times");
@@ -243,8 +243,9 @@ public:
         if (!c) return;
         status_.setText(c->running ? "Playing row " + juce::String(c->row + 1) + ", " + juce::String(c->remaining) + " repeat(s) left"
                                    : juce::String(c->rows.size()) + " row(s); the last row stops the song", juce::dontSendNotification);
-        if (c->rows == rows_ && !widgets_.empty()) return;
+        if (c->rows == rows_ && c->lanes == lanes_ && !widgets_.empty()) return;
         rows_ = c->rows;
+        lanes_ = c->lanes;   // (Felucca 1.2: each row's slot per track, kept as they are unless the row's slot is chosen)
         build();
     }
     void resized() override {
@@ -295,15 +296,26 @@ private:
                 if (!widgets_[i]->repeat.isMouseButtonDown()) writeLater();
             };
             w->repeat.onDragEnd = [this] { writeLater(); };
-            w->slot.onChange = [this, i] { rows_[i].first = widgets_[i]->slot.getSelectedId() - 1; writeLater(); };
-            w->remove.onClick = [this, i] { rows_.erase(rows_.begin() + long(i)); writeLater(); };
+            w->slot.onChange = [this, i] {   // (a row's one slot: every track on it, as the device's SONG page sets it)
+                rows_[i].first = widgets_[i]->slot.getSelectedId() - 1;
+                if (i < lanes_.size()) lanes_[i] = {rows_[i].first, rows_[i].first, rows_[i].first, rows_[i].first};
+                writeLater();
+            };
+            w->remove.onClick = [this, i] {
+                rows_.erase(rows_.begin() + long(i));
+                if (i < lanes_.size()) lanes_.erase(lanes_.begin() + long(i));
+                writeLater();
+            };
             for (auto* c : std::initializer_list<juce::Component*>{&w->index, &w->slot, &w->repeat, &w->remove}) addAndMakeVisible(c);
             widgets_.push_back(std::move(w));
         }
         resized();
     }
     void write() {
-        page_.proc_.feluccaEdit(felucca::chainWrite(rows_));
+        felucca::Chain c;
+        c.rows = rows_;
+        c.lanes = lanes_;
+        page_.proc_.feluccaEdit(felucca::chainWrite(c));   // (with the lanes when it has them: SONG op 5)
         widgets_.clear();
         read();
     }
@@ -313,6 +325,7 @@ private:
     }
     FeluccaSeqPage& page_;
     std::vector<std::pair<int, int>> rows_;
+    std::vector<std::array<int, 4>> lanes_;
     std::vector<std::unique_ptr<RowWidgets>> widgets_;
     juce::TextButton add_{"Add a row"}, play_{"Play"}, stop_{"Stop"};
     juce::Label status_;
@@ -343,7 +356,9 @@ public:
         if (!m) return;
         on_.setToggleState(m->on, juce::dontSendNotification);
         events_ = m->events;
-        status_.setText(juce::String(int(events_.size())) + " event(s) on this track (" + juce::String(m->max) + " in all, shared by the tracks). "
+        const int locks = int(std::count_if(events_.begin(), events_.end(), [](const auto& ev) { return ev.lock; }));
+        status_.setText(juce::String(int(events_.size()) - locks) + " event(s)" + (locks ? " and " + juce::String(locks) + " lock(s)" : juce::String())
+                        + " on this track (" + juce::String(m->max) + " in all, shared by the tracks). "
                         "Record them on the Device tab: REC, then turn knobs while it plays.", juce::dontSendNotification);
         list_.updateContent();
         list_.repaint();
@@ -369,7 +384,8 @@ private:
             if (auto f = view->page_.engine()) what = juce::String(f->paramDesc(view->page_.track_, e.param).label);
             g.setColour(kText);
             g.setFont(juce::FontOptions(13.0f));
-            g.drawText("Step " + juce::String(e.step + 1) + "   " + what + " = " + juce::String(e.value), 8, 0, w - 90, h, juce::Justification::centredLeft);
+            g.drawText("Step " + juce::String(e.step + 1) + "   " + what + " = " + juce::String(e.value) + (e.lock ? "   (lock)" : ""), 8, 0, w - 90, h,
+                       juce::Justification::centredLeft);   // (Felucca 1.1: a parameter lock, the step's own value)
             g.setColour(kDim);
             g.drawText("delete", w - 70, 0, 60, h, juce::Justification::centredRight);
         }

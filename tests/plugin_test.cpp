@@ -273,7 +273,8 @@ static int checks() {
                                 f15{"FM-1", 915, "FELUCCA v1.5"}, f151{"FM-1", 915, "FELUCCA v1.5.1"}, f152{"FM-1", 915, "FELUCCA v1.5.2"};
             const auto v104 = fm1::checkVersion(f104), v103 = fm1::checkVersion(f103), v141 = fm1::checkVersion(f141);
             CHECK(!v104.newer && v104.support == Support::Older && v104.text.find("Felucca 1.0.4, older than the plugin's 1.5.1; pulled from only") != std::string::npos
-                  && v141.support == Support::Older && !fm1::writesRefused(f141).empty() && !fm1::writesRefused(f104).empty(),
+                  && v141.support == Support::Older && !fm1::writesRefused(f141).empty() && !fm1::writesRefused(f104).empty()
+                  && !fm1::writesRefused(fm1::Identity{"FM-1", 914}).empty() && fm1::writesRefused(fm1::Identity{"FM-1", 915}).empty(),
                   "1.0.x to 1.4.1: older, pulled from only: " + v104.text);
             CHECK(v103.text.find("an instance set to Felucca 1.0.3 syncs with it") != std::string::npos && fm1::writesRefused(f103, "felucca_103").empty()
                   && fm1::checkVersion(f103, "felucca_103").text == "FM-1_910: Felucca 1.0.3", "1.0.3: and synced fully by an instance set to 1.0.3: " + v103.text);
@@ -731,6 +732,23 @@ static int checks() {
             const auto c = felucca::readChain(eb);
             CHECK(c && c->lanes.size() == 2 && c->lanes[0] == (std::array<int, 4>{0, 1, 0, 2}) && c->lanes[1] == (std::array<int, 4>{1, 1, 3, 0})
                   && c->rows[0].second == 2, "the song with each track's slot");
+            {   // a Pull from an FM-1 still on 1.0.3 through the 1.5.1 instance's dialect (as the plugin's link has
+                // it): the commands 1.0.3 answers (SONG op 0, the plain MOTION query), not 1.2's
+                struct As151 : felucca::Endpoint {
+                    felucca::VirtualEndpoint e;
+                    explicit As151(std::shared_ptr<FeluccaEngine> f) : e(std::move(f)) {}
+                    const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
+                    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { return e.ask(q, t); }
+                    std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+                };
+                auto old = std::make_shared<FeluccaEngine>(Fl::Felucca, FeluccaEngine::Release::Previous);
+                As151 synth(old);
+                auto mine = std::make_shared<FeluccaEngine>();
+                felucca::VirtualEndpoint me(mine);
+                juce::String perr;
+                CHECK(!felucca::hasLanes(synth) && felucca::hasLanes(me) && felucca::copySequencer(synth, me, 4, perr),
+                      "patterns pulled from a 1.0.3 FM-1 with the commands it answers (" + perr + ")");
+            }
         }
         {   // a Send fitted to an older synth's objects (felucca::fitToSynth)
             auto objs = [](std::initializer_list<int> ids, size_t size = 4) {
@@ -2899,9 +2917,34 @@ static int feluccaLibrary() {
         int engine = -1;
         juce::String n;
         CHECK(listed(0, engine, n) && n == "MY BASS" && engine == e0, "Save stored PART 1's sound as U01, named (upper case): " + n);
+        // (a record after its name: values, pattern, kind and, from 1.2, the category)
+        auto record = [&](int slot) {
+            auto r = f->ask(felucca::frame(felucca::kUpGet, {uint8_t(slot)}));
+            auto a = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+            size_t k = 3;
+            while (k < a.size() && a[k]) ++k;
+            return std::vector<uint8_t>(a.begin() + std::ptrdiff_t(std::min(a.size(), k + 1)), a.end());
+        };
+        {   // (a category: PAD, as Felucca 1.2 keeps one; written in PUT's long form, kind 0, 16 zeros, the category)
+            auto rec = record(0);
+            const size_t plain = size_t(2 * f->paramCount() + 32);
+            if (rec.size() >= plain) {
+                std::vector<uint8_t> put{0, uint8_t(e0)};
+                for (char c : std::string("MY BASS")) put.push_back(uint8_t(c));
+                put.push_back(0);
+                put.insert(put.end(), rec.begin(), rec.begin() + std::ptrdiff_t(plain));
+                put.push_back(0);
+                put.insert(put.end(), 16, uint8_t(0));
+                put.push_back(3);
+                f->ask(felucca::frame(felucca::kUpPut, put));
+            }
+        }
+        const auto recBefore = record(0);
+        CHECK(!recBefore.empty() && recBefore.back() == 3, "U01 has a category (PAD)");
         name->setText("renamed");
         CHECK(press("Rename"), "the library has Rename");
         CHECK(listed(0, engine, n) && n == "RENAMED" && engine == e0, "Rename renamed U01 and kept its sound: " + n);
+        CHECK(!recBefore.empty() && record(0) == recBefore, "and everything else of it (its sound category too, Felucca 1.2)");
         int other = -1;
         for (int e : f->enginesShown()) if (e != e0) { other = e; break; }
         f->setEngine(0, other);
