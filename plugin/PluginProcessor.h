@@ -144,7 +144,8 @@ public:
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
         auto f = felucca();
         if (!f) return nullptr;
-        const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop, f->flavor() == FeluccaEngine::Flavor::Melodee);
+        const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop, f->flavor() == FeluccaEngine::Flavor::Melodee,
+                                          f->release() == FeluccaEngine::Release::Previous ? 1 : 0);
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
     }
    #endif

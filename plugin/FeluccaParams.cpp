@@ -91,7 +91,7 @@ const struct { const char* name; int index; int range[3]; } kSloopGlobal[] = {
 // them to all, ui.c scale_share): one host parameter each ("mel_scale", ...), on part 1. Its globals:
 // Felucca's without the delay; not TUNE, A4, BOOT or the DRUM channel, which are the device's
 // settings (saved when they change: TUNE by glo_poll, the others at once).
-constexpr int kMelodeeEngineFirst = 84;
+constexpr int kMelodeeEngineFirst = 84, kMelodeeEngineFirst013 = 84;   // (the ids below: 0.13's numbering; indexOn maps them for 1.0)
 const struct { int index; const char* name; int range[3]; } kMelodeeChanged[] = {{8, "pqnt", {0, 10, 0}}};
 const struct { int index; const char* name; int range[3]; } kMelodeeSong[] = {
     {26, "scale", {0, 69, 0}}, {27, "quant", {0, 4, 0}}, {83, "mpcdeg", {1, 12, 1}}};
@@ -155,6 +155,23 @@ std::vector<Entry> build() {
         {"txsrc", 37, {0, 10, 0}}, {"txlvl", 38, {0, 127, 64}}, {"txtone", 39, {-64, 63, 0}}, {"txmove", 40, {0, 127, 40}},
         {"txrate", 41, {0, 4, 2}}, {"txwhen", 42, {0, 1, 0}}, {"txduck", 43, {0, 1, 0}}};
     for (const auto& g : k26g) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true, 7});
+    // Melodee 1.0's (1.1.0 core.h, params.c), on the current release only: the DRUM lanes' levels
+    // (84..91), LFO 2's SYNC TRIG POL (92..94), SPRD (95), the delay send (35) and the shared delay
+    // back (globals 4..7) with its TYPE and WEAR (25, 26)
+    {
+        constexpr int kHint = 8;
+        static const struct { const char* name; int index; int range[3]; } part[] = {
+            {"dly", 35, {0, 127, 0}}, {"kick", 84, {0, 127, 127}}, {"snare", 85, {0, 127, 127}}, {"clap", 86, {0, 127, 127}},
+            {"hatcl", 87, {0, 127, 127}}, {"hatop", 88, {0, 127, 127}}, {"tom", 89, {0, 127, 127}}, {"rim", 90, {0, 127, 127}},
+            {"bell", 91, {0, 127, 127}}, {"lsync", 92, {0, 10, 0}}, {"ltrig", 93, {0, 1, 0}}, {"lpol", 94, {0, 1, 0}}, {"sprd", 95, {0, 127, 0}}};
+        for (int t = 0; t < kParts; ++t)
+            for (const auto& k : part)
+                out.push_back({"mel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, true, false, 0});
+        static const struct { const char* name; int index; int range[3]; } glob[] = {
+            {"dtime", 4, {0, 13, 11}}, {"dfdbk", 5, {0, 120, 50}}, {"dcolor", 6, {0, 127, 51}}, {"dmix", 7, {0, 127, 85}},
+            {"dtype", 25, {0, 3, 1}}, {"dwear", 26, {0, 127, 64}}};
+        for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, 0});
+    }
     return out;
 }
 
@@ -171,10 +188,16 @@ int indexOf(const juce::String& id) {
     return -1;
 }
 
-int entryFor(int track, int index, bool sloop, bool melodee) {
+int indexOn(const Entry& e, int release) {
+    if (e.only >= 0 && e.only != release) return -1;
+    if (e.melodee && e.only < 0 && release == 0 && e.track >= 0 && e.index >= kMelodeeEngineFirst013) return e.index + 12;
+    return e.index;
+}
+
+int entryFor(int track, int index, bool sloop, bool melodee, int release) {
     const auto& all = entries();
     for (size_t i = 0; i < all.size(); ++i)
-        if (all[i].sloop == sloop && all[i].melodee == melodee && all[i].index == index && (all[i].track == track || (all[i].song && track >= 0)))
+        if (all[i].sloop == sloop && all[i].melodee == melodee && indexOn(all[i], release) == index && (all[i].track == track || (all[i].song && track >= 0)))
             return int(i);   // (a song-wide one is every part's)
     return -1;
 }

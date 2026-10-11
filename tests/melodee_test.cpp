@@ -57,9 +57,14 @@ static std::string describe(const FeluccaEngine::Desc& d) {
     return o.str();
 }
 
-static std::map<std::string, std::string> frozenFacts() {
+// (previous: Melodee 0.13, kept beside the current release, its list as 0.13 took it: every
+// parameter in each preset's hash. The current one hashes a preset's common parameters that are
+// not at their default, by name, and the engine's eight: a release that adds parameters at their
+// defaults leaves it as it was)
+static std::map<std::string, std::string> frozenFacts(FeluccaEngine::Release release = FeluccaEngine::Release::Current) {
     std::map<std::string, std::string> out;
-    FeluccaEngine f{kMel};
+    const bool prev = release == FeluccaEngine::Release::Previous;
+    FeluccaEngine f{kMel, release};
     std::map<std::string, int> seen;
     for (int id = 0; id < f.firstEngineParam(); ++id) {
         const auto d = f.paramDesc(0, id);
@@ -83,7 +88,19 @@ static std::map<std::string, std::string> frozenFacts() {
             if (names[i].empty()) continue;   // an alias: plays another
             f.applyPreset(0, int(i));
             uint64_t h = 1469598103934665603ull;
-            for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            if (prev) {
+                for (int id = 0; id < f.paramCount(); ++id) { h ^= uint64_t(uint16_t(f.param(0, id))); h *= 1099511628211ull; }
+            } else {
+                auto mix = [&h](const std::string& s) { for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; } };
+                std::map<std::string, int> nth;
+                for (int id = 0; id < f.paramCount(); ++id) {
+                    const auto d = f.paramDesc(0, id);
+                    const bool engine = id >= f.firstEngineParam();
+                    const std::string key = d.label + "#" + std::to_string(++nth[d.label]);
+                    if (!engine && f.param(0, id) == d.def) continue;
+                    mix((engine ? "E" + std::to_string(id - f.firstEngineParam()) : key) + "=" + std::to_string(f.param(0, id)) + ";");
+                }
+            }
             std::ostringstream o;
             o << names[i] << " " << std::hex << h;
             out["preset " + en + " " + std::to_string(i)] = o.str();
@@ -92,9 +109,10 @@ static std::map<std::string, std::string> frozenFacts() {
     return out;
 }
 
-static void checkFrozen() {
-    const std::string path = std::string(MELODEE_FROZEN);
-    const auto now = frozenFacts();
+static void checkFrozen(FeluccaEngine::Release release = FeluccaEngine::Release::Current) {
+    const bool prev = release == FeluccaEngine::Release::Previous;
+    const std::string path = std::string(prev ? MELODEE013_FROZEN : MELODEE_FROZEN);
+    const auto now = frozenFacts(release);
     std::map<std::string, std::string> kept;
     {
         std::ifstream in(path);
@@ -112,20 +130,21 @@ static void checkFrozen() {
     }
     std::vector<std::string> fresh;
     for (const auto& [k, v] : now) if (!kept.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
-    CHECK(changed == 0 && gone == 0, "Melodee's parameters and presets are as tests/melodee-frozen.txt keeps them "
-                                     "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)");
-    if (added && std::getenv("MELODEE_APPEND_FROZEN")) {
+    CHECK(changed == 0 && gone == 0, (std::string("Melodee") + (prev ? " 0.13" : "") + "'s parameters and presets are as " + path + " keeps them "
+                                      "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)").c_str());
+    if (added && std::getenv("MELODEE_APPEND_FROZEN") && !prev) {   // (the kept release never changes)
         std::ofstream out(path, std::ios::app);
         for (const auto& line : fresh) out << line << "\n";
         std::printf("  appended %d to %s\n", added, path.c_str());
         added = 0;
     }
     if (added) std::printf("  %d new (MELODEE_APPEND_FROZEN=1 melodee_test appends them)\n", added);
-    CHECK(added == 0, "nothing new missing from tests/melodee-frozen.txt");
+    CHECK(added == 0, ("nothing new missing from " + path).c_str());
 }
 
 int main() {
     checkFrozen();
+    checkFrozen(FeluccaEngine::Release::Previous);   // (Melodee 0.13 kept: exactly as 0.13 was)
     uint64_t fresh = 0;
     { Mel f{kMel}; fresh = play(f, 1, 128, 300); }
 
@@ -174,15 +193,19 @@ int main() {
     }
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.6" && mel.version() == "v0.13" && fel.engines() == 14 && mel.engines() == 20,
+        CHECK(fel.version() == "v1.0.3" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.1.0" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
+        // Melodee 0.13, kept beside 1.1 for the projects made with it (engines/melodee013): its own core
+        FeluccaEngine m13{kMel, FeluccaEngine::Release::Previous};
+        CHECK(m13.valid() && m13.version() == "v0.13" && m13.paramCount() == 92 && m13.firstEngineParam() == 84 && m13.enginesShown().size() == 8
+              && m13.engineName(3) == "LOFI" && mel.engineName(3) == "SID", "and Melodee 0.13 beside it, as it was (LOFI where 1.1 has SID)");
     }
 
     // ---- what it is ----
     Mel a{kMel};
     CHECK(a.tracks() == 4 && a.parts() == 4, "four parts, each with any engine");
-    CHECK(a.engines() == 20 && a.enginesShown().size() == 8 && a.enginesShown()[0] == 19,
-          "20 engine numbers (0.13: PROPHET 19 first in the list; PHYS, TRIO, WHEEL retired), eight to pick");
+    CHECK(a.engines() == 20 && a.enginesShown().size() == 5 && a.enginesShown()[0] == 19,
+          "20 engine numbers (1.0: PROPHET 19 first in the list; PHASE, VOICE, NOISE retired beside PHYS, TRIO, WHEEL), five to pick");
     CHECK(a.engineName(0) == "ANALOG" && a.engineName(12) == "FM6" && a.engineName(15) == "CZ-1" && a.engineName(19) == "PROPHET" && a.fm6Engine() == 12,
           "engines by name");
     std::printf("  engines:");
@@ -196,8 +219,8 @@ int main() {
         CHECK(p5.size() == 201 && std::count_if(p5.begin(), p5.end(), [](const std::string& n) { return !n.empty(); }) >= 200,
               "PROPHET: Sequential's 200 factory programs (and its init program)");
     }
-    CHECK(a.engineName(a.engineOf(0)) == "ANALOG" && a.engineName(a.engineOf(1)) == "FM6" && a.engineName(a.engineOf(2)) == "LOFI"
-          && a.engineName(a.engineOf(3)) == "DRUM", "power-on: ANALOG, FM6, LOFI, DRUM");
+    CHECK(a.engineName(a.engineOf(0)) == "ANALOG" && a.engineName(a.engineOf(1)) == "FM6" && a.engineName(a.engineOf(2)) == "SID"
+          && a.engineName(a.engineOf(3)) == "DRUM", "power-on: ANALOG, FM6, SID (1.0: LOFI's number), DRUM");
 
     // ---- sound ----
     double rms = 0;
@@ -246,7 +269,8 @@ int main() {
     // ---- parameters ----
     {
         Mel f{kMel};
-        CHECK(f.paramCount() == 92 && f.firstEngineParam() == 84 && f.globalCount() == 27, "92 parameters per track, the engine's 8 from 84; 27 globals");
+        CHECK(f.paramCount() == 104 && f.firstEngineParam() == 96 && f.globalCount() == 27,
+              "104 parameters per track (1.0: the DRUM lanes' levels, LFO 2's SYNC TRIG POL, SPRD), the engine's 8 from 96; 27 globals");
         const auto lvl = f.paramDesc(0, 0);
         f.setParam(0, 0, lvl.max + 50);
         CHECK(f.param(0, 0) == lvl.max, "values are kept in range");
@@ -279,8 +303,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v0.13" && info[at] == 20 && info[at + 1] == 92 && info[at + 2] == 27 && info[at + 4] == 84,
-              "INFO answers, as Melodee 0.13 (20 engines, 92 parameters, 27 globals, P_E0 84)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v1.1.0" && info[at] == 20 && info[at + 1] == 104 && info[at + 2] == 27 && info[at + 4] == 96,
+              "INFO answers, as Melodee 1.1.0 (20 engines, 104 parameters, 27 globals, P_E0 96)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {

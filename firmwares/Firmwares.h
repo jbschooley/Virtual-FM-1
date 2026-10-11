@@ -75,6 +75,6 @@ struct VersionCheck {
 };
 VersionCheck checkVersion(const Identity& id);
 // Why the plugin only reads from this synth (sends nothing, no Live), or empty: SLOOP before 2.4
-std::string writesRefused(const Identity& id);
+std::string writesRefused(const Identity& id, const std::string& choiceId = {});
 
 }  // namespace fm1

@@ -29,14 +29,20 @@ struct Entry {
     int hint = 0;         // its version hint (0: Felucca's 2, SLOOP's 3); AU orders by it, so an added one has a higher one
     bool melodee = false; // Melodee's ("mel_...")
     bool song = false;    // the same value on every part (Melodee's SCL, QNT, DEG: held on part 1's entry)
+    int only = -1;        // which release of its firmware plays it: -1 every one, 0 the current, 1 a kept previous one
 };
 
 // Felucca's, then SLOOP's, then Melodee's (each added after the others: a project's earlier
 // parameters keep their places)
 const std::vector<Entry>& entries();
 int indexOf(const juce::String& id);   // -1 if not one of these
-// the entry for the parameter (track -1: global) of Felucca, SLOOP or Melodee, or -1
-int entryFor(int track, int index, bool sloop = false, bool melodee = false);
+// the entry for the parameter (track -1: global) of Felucca, SLOOP or Melodee, or -1; release: the
+// one the engine plays (0 current, 1 a kept previous one)
+int entryFor(int track, int index, bool sloop = false, bool melodee = false, int release = 0);
+// The parameter number an entry is on a release of its firmware (0 current, 1 previous), or -1 if
+// that release has no such parameter. Melodee's entries from before 1.0 are 0.13's numbering: on 1.0
+// and later the engine's eight are 12 higher (1.0 added twelve before them)
+int indexOn(const Entry& e, int release);
 
 // What the host shows for an entry at a 0..1 value: set by the instance once it exists.
 struct TextSource { std::function<juce::String(int entry, float value01)> text; };

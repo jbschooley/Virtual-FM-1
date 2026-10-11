@@ -8,8 +8,11 @@
 
 #if FM1_FELUCCA
 // Whether a host parameter is one of the firmware the engine plays: Felucca's, SLOOP's or Melodee's
+static int releaseOf(const FeluccaEngine& f) { return f.release() == FeluccaEngine::Release::Previous ? 1 : 0; }
+// (and the release it plays has it: its number there)
 static bool playsOn(const felparams::Entry& e, const FeluccaEngine& f) {
-    return e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop) && e.melodee == (f.flavor() == FeluccaEngine::Flavor::Melodee);
+    return e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop) && e.melodee == (f.flavor() == FeluccaEngine::Flavor::Melodee)
+        && felparams::indexOn(e, releaseOf(f)) >= 0;
 }
 static bool needsPrevious(FeluccaEngine::Flavor f, const juce::ValueTree& t);   // (below)
 #endif
@@ -93,7 +96,8 @@ FM1Processor::FM1Processor()
         auto f = felucca();
         const auto& e = felparams::entries()[size_t(entry)];
         if (!f || !playsOn(e, *f)) return juce::String(v, 3);   // (the other firmware's)
-        auto d = e.track < 0 ? f->globalDesc(e.index) : f->paramDesc(e.track, e.index);
+        const int index = felparams::indexOn(e, releaseOf(*f));
+        auto d = e.track < 0 ? f->globalDesc(index) : f->paramDesc(e.track, index);
         if (d.max <= d.min) return {};
         const int value = d.min + int(std::lround(v * float(d.max - d.min)));
         if (!d.names.empty() && value - d.min < int(d.names.size())) return d.names[size_t(value - d.min)];
@@ -1180,7 +1184,7 @@ juce::String FM1Processor::feluccaSynthProblem() const {
 juce::String FM1Processor::feluccaWritesRefused() const {
     auto id = session.lastIdentity();
     if (!feluccaSynth() || !id) return {};
-    return fm1::writesRefused(*id);
+    return fm1::writesRefused(*id, firmwareId().toStdString());
 }
 
 // The synth's own objects, kept in the library before anything is written to it.
@@ -1371,11 +1375,12 @@ void FM1Processor::applyHostToFelucca(FeluccaEngine& f) {
         felApplied_[i] = v;
         const auto& e = all[i];
         if (!playsOn(e, f)) continue;   // (the other firmware's: not applied; when it plays, its own state is the truth)
-        if (e.track < 0 && e.index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
+        const int index = felparams::indexOn(e, releaseOf(f));
+        if (e.track < 0 && index == 0 && settings_.hostTempo) continue;   // BPM is the host's then
         int min = 0, max = 0;
-        if (!(e.track < 0 ? f.globalRange(e.index, min, max) : f.paramRange(e.track, e.index, min, max)) || max <= min) continue;
+        if (!(e.track < 0 ? f.globalRange(index, min, max) : f.paramRange(e.track, index, min, max)) || max <= min) continue;
         const int value = min + int(std::lround(v * float(max - min)));
-        if (e.track < 0) f.setGlobal(e.index, value); else f.setParam(e.track, e.index, value);
+        if (e.track < 0) f.setGlobal(index, value); else f.setParam(e.track, index, value);
     }
 }
 
@@ -1386,9 +1391,10 @@ void FM1Processor::feluccaChanged(int track) {
     for (size_t i = 0; i < all.size(); ++i) {
         const auto& e = all[i];
         if (!playsOn(e, *f) || (track >= 0 && e.track != track && !e.song)) continue;   // (a song-wide one: any part's change is its)
+        const int index = felparams::indexOn(e, releaseOf(*f));
         int min = 0, max = 0;
-        if (!(e.track < 0 ? f->globalRange(e.index, min, max) : f->paramRange(e.track, e.index, min, max)) || max <= min) continue;
-        const int value = e.track < 0 ? f->global(e.index) : f->param(e.track, e.index);
+        if (!(e.track < 0 ? f->globalRange(index, min, max) : f->paramRange(e.track, index, min, max)) || max <= min) continue;
+        const int value = e.track < 0 ? f->global(index) : f->param(e.track, index);
         const float v = float(value - min) / float(max - min);
         if (std::abs(felParams_[i]->getValue() - v) > 1.0e-6f) felParams_[i]->setValueNotifyingHost(v);
     }

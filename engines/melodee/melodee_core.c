@@ -1,4 +1,4 @@
-/* melodee_core.c -- Melodee 0.13 (engines/melodee/upstream, GPL-3.0-only, Kerem Kilic, from
+/* melodee_core.c -- Melodee 1.1.0 (engines/melodee/upstream, GPL-3.0-only, Kerem Kilic, from
  * Felucca by Leo Kuroshita / Hügelton Instruments), the whole firmware, as a library the plugin
  * can drive: a virtual FM-1 running Melodee, with its sound, sequencer, screen, front panel,
  * projects, user presets, CZ and FM6 tone banks and editor protocol. Built as
@@ -49,7 +49,10 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define MELODEE_USB_AUDIO 0              /* the FM-1's USB audio device: the plugin is the audio */
 #define MELODEE_CDC 0
 #define MELODEE_UART 1                   /* (its MIDI parser: the plugin's MIDI comes in through it too) */
-#define MELODEE_VERSION "v0.13"
+#define MELODEE_VERSION "v1.1.0"
+#define MELODEE_DUAL_CORE 0              /* (1.0: one core here, as its single-core package; the plugin is the CPU) */
+#define MELODEE_CACHE_RAM 0              /* (no data cache to take as RAM) */
+#define MELODEE_CORE1_TEST 0
 #define memset FEL(memset)
 #define memcpy FEL(memcpy)
 #define memcmp FEL(memcmp)
@@ -268,10 +271,8 @@ static void melodee_init(void)
         apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
         t->engine = t->eng_req;
         track_defaults_steps(t);              /* (a sound load never touches them) */
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
-        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
-        pat_last[i] = TRK_DEF[i][2];
+        pat_sig[i] = steps_sig(t);            /* (empty: not the user's) */
+        pat_last[i] = 0;
     }
     undo_depth--;
     song.sel = 0;
@@ -368,7 +369,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
-const char *FEL(version)(void) { return MELODEE_VERSION; }   /* "v0.13": the release built here */
+const char *FEL(version)(void) { return MELODEE_VERSION; }   /* "v1.1.0": the release built here */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }

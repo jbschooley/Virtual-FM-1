@@ -1,3 +1,11 @@
+engine ANALOG E1	WAVE 0..4 def 0 fmt 8 SAW SQR TRI SIN PWM
+engine ANALOG E2	DTN 0..127 def 10 fmt 0
+engine ANALOG E3	MIX 0..127 def 64 fmt 1
+engine ANALOG E4	NOIS 0..127 def 0 fmt 1
+engine ANALOG E5	CUT 0..127 def 90 fmt 5
+engine ANALOG E6	RES 0..127 def 30 fmt 1
+engine ANALOG E7	DRV 0..127 def 0 fmt 1
+engine ANALOG E8	KTR 0..127 def 64 fmt 1
 engine CZ-1 E1	- 0..7 def 0 fmt 0
 engine CZ-1 E2	- 0..16 def 0 fmt 0
 engine CZ-1 E3	- 0..0 def 0 fmt 0
@@ -6,7 +14,7 @@ engine CZ-1 E5	- 0..0 def 0 fmt 0
 engine CZ-1 E6	- 0..0 def 0 fmt 0
 engine CZ-1 E7	- 0..0 def 0 fmt 0
 engine CZ-1 E8	TONE 2..2 def 2 fmt 0
-engine DRUM E1	KIT 4..4 def 4 fmt 8 808
+engine DRUM E1	KIT 4..5 def 4 fmt 8 808 808
 engine DRUM E2	TUNE 0..127 def 64 fmt 1
 engine DRUM E3	TONE 0..127 def 64 fmt 1
 engine DRUM E4	DECY 0..127 def 64 fmt 1
@@ -22,30 +30,6 @@ engine FM6 E5	MEG -64..63 def 0 fmt 2
 engine FM6 E6	VMOD -7..7 def 0 fmt 0
 engine FM6 E7	DTUN 0..127 def 0 fmt 1
 engine FM6 E8	- 0..0 def 0 fmt 0
-engine LOFI E1	CHIP 0..4 def 0 fmt 8 4BIT 4B/2 8BIT 1BIT STEP
-engine LOFI E2	WAVE 0..4 def 0 fmt 8 PLS TRI SAW NOIS WRAM
-engine LOFI E3	DUTY 0..127 def 64 fmt 0
-engine LOFI E4	CRSH 0..127 def 0 fmt 1
-engine LOFI E5	SWP 0..127 def 0 fmt 1
-engine LOFI E6	VIB 0..127 def 0 fmt 1
-engine LOFI E7	ARP 0..3 def 0 fmt 8 OFF OCT MAJ MIN
-engine LOFI E8	TONE 0..127 def 127 fmt 1
-engine NOISE E1	MODE 0..3 def 0 fmt 8 ANLG DUST LFSR META
-engine NOISE E2	COLR 0..127 def 64 fmt 1
-engine NOISE E3	FREQ 0..127 def 80 fmt 5
-engine NOISE E4	RES 0..127 def 30 fmt 1
-engine NOISE E5	TRK 0..127 def 64 fmt 1
-engine NOISE E6	DENS 0..127 def 0 fmt 1
-engine NOISE E7	DRFT 0..127 def 0 fmt 1
-engine NOISE E8	CRSH 0..127 def 0 fmt 1
-engine PHASE E1	WAVE 0..7 def 0 fmt 8 SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
-engine PHASE E2	WAVE2 0..8 def 0 fmt 8 - SAW SQR PLS DSIN SPLS RSAW RTRI RTRP
-engine PHASE E3	DCW 0..127 def 60 fmt 1
-engine PHASE E4	ENV 0..127 def 64 fmt 1
-engine PHASE E5	DTN 0..127 def 0 fmt 0
-engine PHASE E6	LINE 0..1 def 0 fmt 8 MIX RING
-engine PHASE E7	SUB 0..127 def 0 fmt 1
-engine PHASE E8	EG 0..1 def 0 fmt 8 LINK SPLIT
 engine PROPHET E1	CUT -63..63 def 0 fmt 0
 engine PROPHET E2	RES -63..63 def 0 fmt 0
 engine PROPHET E3	TUNA -24..24 def 0 fmt 7
@@ -54,14 +38,14 @@ engine PROPHET E5	PWA -63..63 def 0 fmt 0
 engine PROPHET E6	PWB -63..63 def 0 fmt 0
 engine PROPHET E7	MIXA -63..63 def 0 fmt 0
 engine PROPHET E8	MIXB -63..63 def 0 fmt 0
-engine VOICE E1	VOWL 0..127 def 0 fmt 0
-engine VOICE E2	VOWL2 0..127 def 64 fmt 0
-engine VOICE E3	TALK 0..127 def 0 fmt 3
-engine VOICE E4	SHIFT -12..12 def 0 fmt 7
-engine VOICE E5	BUZZ 0..127 def 64 fmt 1
-engine VOICE E6	BRTH 0..127 def 10 fmt 1
-engine VOICE E7	Q 0..127 def 64 fmt 1
-engine VOICE E8	RAND 0..127 def 0 fmt 1
+engine SID E1	MODEL 0..1 def 0 fmt 8 6581 8580
+engine SID E2	WAVE 0..7 def 1 fmt 8 TRI SAW PULSE NOISE TRI+SAW TRI+PLS SAW+PLS T+S+P
+engine SID E3	STACK 0..7 def 0 fmt 8 ONE DETUNE OCT FIFTH MAJOR SYNC RING SUB
+engine SID E4	PW 0..127 def 64 fmt 1
+engine SID E5	CUT 0..127 def 127 fmt 1
+engine SID E6	RES 0..15 def 0 fmt 0
+engine SID E7	MODE 0..7 def 0 fmt 8 LP BP HP NOTCH LP+BP BP+HP ALL OFF
+engine SID E8	DRIVE 0..127 def 0 fmt 1
 global A4#1	400..480 def 440 fmt 0
 global BOOT#1	0..4 def 0 fmt 8 OFF A B C D
 global BPM#1	40..240 def 120 fmt 9
@@ -72,18 +56,23 @@ global CPU#1	0..0 def 0 fmt 0
 global CRT#1	0..127 def 40 fmt 4
 global DAMP#1	0..127 def 60 fmt 1
 global DRUM#1	0..16 def 10 fmt 8 OFF 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
-global ENG#1	0..19 def 0 fmt 8 ANALOG - PHASE LOFI - VOICE - - - - DRUM NOISE FM6 - - CZ-1 - - - PROPHET
+global ENG#1	0..19 def 0 fmt 8 ANALOG - - SID - - - - - - DRUM - FM6 - - CZ-1 - - - PROPHET
+global FDBK#1	0..120 def 50 fmt 1
 global INIT#1	0..1 def 0 fmt 8 -- GO
 global LOAD#1	0..1 def 0 fmt 8 -- GO
 global MIDI#1	0..1 def 0 fmt 8 USB TRS
+global MIX#1	0..127 def 85 fmt 1
 global ROUT#1	0..1 def 0 fmt 8 CH1-4 SEL
 global SAVE#1	0..1 def 0 fmt 8 -- GO
 global SIZE#1	0..127 def 90 fmt 1
 global SLOT#1	1..5 def 1 fmt 0
 global SWG#1	0..100 def 0 fmt 1
+global TIME#1	0..13 def 11 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR 1/16. 1/8. 1/4. 4T
+global TONE#1	0..127 def 51 fmt 1
 global TUNE#1	-50..50 def 0 fmt 0
-global TYPE#1	0..1 def 0 fmt 8 ROOM SPRING
-param -#1	0..127 def 0 fmt 1
+global TYPE#1	0..2 def 0 fmt 8 ROOM SPRING HALL
+global TYPE#2	0..3 def 1 fmt 8 DIGI TAPE DG-PP TP-PP
+global WEAR#1	0..127 def 64 fmt 1
 param ALLOC#1	0..1 def 0 fmt 8 ROT REUSE
 param AMP#1	0..127 def 0 fmt 1
 param AMT1#1	-64..63 def 0 fmt 2
@@ -95,8 +84,10 @@ param ATK#2	0..127 def 0 fmt 3
 param ATK#3	0..127 def 0 fmt 3
 param ATK#4	0..127 def 0 fmt 3
 param ATK#5	0..127 def 0 fmt 3
+param BELL#1	0..127 def 127 fmt 1
 param CHO#1	0..127 def 0 fmt 1
 param CHRD#1	0..9 def 0 fmt 8 OFF DIA3 DIA7 MAJ MIN DOM7 MAJ7 MIN7 SUS4 POW
+param CLAP#1	0..127 def 127 fmt 1
 param DEC#1	0..127 def 70 fmt 3
 param DEC#2	0..127 def 0 fmt 3
 param DEC#3	0..127 def 0 fmt 3
@@ -105,11 +96,12 @@ param DEC#5	0..127 def 0 fmt 3
 param DEG#1	1..12 def 1 fmt 0
 param DEPTH#1	0..127 def 127 fmt 1
 param DIV#1	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
+param DLY#1	0..127 def 0 fmt 1
 param DST#1	0..127 def 0 fmt 1
-param DST1#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
-param DST2#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
-param DST3#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
-param DST4#1	0..19 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO - REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8
+param DST1#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST2#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST3#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST4#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
 param DTUNE#1	0..127 def 40 fmt 0
 param FADE#1	0..127 def 0 fmt 3
 param FLT#1	-64..63 def 0 fmt 2
@@ -118,7 +110,10 @@ param GATE#1	1..127 def 64 fmt 1
 param GATE#2	1..127 def 64 fmt 1
 param GLD#1	0..127 def 0 fmt 3
 param GLMOD#1	0..1 def 0 fmt 8 RATE TIME
+param HATCL#1	0..127 def 127 fmt 1
+param HATOP#1	0..127 def 127 fmt 1
 param HOLD#1	0..1 def 0 fmt 8 OFF ON
+param KICK#1	0..127 def 127 fmt 1
 param LEN#1	1..64 def 16 fmt 13
 param LVL#1	0..127 def 104 fmt 6
 param LVL#2	0..127 def 127 fmt 1
@@ -134,6 +129,7 @@ param PAT#1	1..16 def 1 fmt 0
 param PHS#1	0..127 def 0 fmt 0
 param PIT#1	-64..63 def 0 fmt 2
 param PIT#2	-64..63 def 0 fmt 2
+param POL#1	0..1 def 0 fmt 8 BI UNI
 param PRIO#1	0..2 def 0 fmt 8 LAST LOW HIGH
 param PROB#1	0..127 def 127 fmt 1
 param QNT#1	0..10 def 0 fmt 8 OFF 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
@@ -147,15 +143,18 @@ param REL#3	0..127 def 0 fmt 3
 param REL#4	0..127 def 0 fmt 3
 param REL#5	0..127 def 0 fmt 3
 param REV#1	0..127 def 0 fmt 1
+param RIM#1	0..127 def 127 fmt 1
 param ROOT#1	0..11 def 0 fmt 10
 param SCL#1	0..69 def 0 fmt 8 CHR MAJ MIN DOR MIX PEN MPEN HARM PHRY LYD LOC MEL BLUES WHOLE DIMHW DIMWH 5EDO 7EDO 9EDO 10EDO 13EDO 14EDO 15EDO 16EDO 17EDO 18EDO 19EDO 20EDO 21EDO 22EDO 23EDO 24EDO 26EDO 27EDO 29EDO 31EDO 34EDO 36EDO 41EDO 53EDO JI-MAJ JI-MIN JI-12 JI-7L JI-7 HARM8 HARM16 PARTCH HARRIS PYTH MT-1/4 MT-1/3 MT-1/6 WERCK3 KIRN3 VALLOT YOUNG2 RAST-J SABA-J SHRUTI SLENDR PELOG BP-ET BP-JI RAST BAYATI HIJAZ SABA HUSAYN SIKAH
 param SHP#1	-64..63 def 0 fmt 2
 param SHP#2	-64..63 def 0 fmt 2
 param SLCR#1	0..2 def 0 fmt 8 OFF GATE STUT
-param SRC1#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
-param SRC2#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
-param SRC3#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
-param SRC4#1	0..8 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR
+param SNARE#1	0..127 def 127 fmt 1
+param SPRD#1	0..127 def 0 fmt 1
+param SRC1#1	0..10 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR S&H SLEW
+param SRC2#1	0..10 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR S&H SLEW
+param SRC3#1	0..10 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR S&H SLEW
+param SRC4#1	0..10 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR S&H SLEW
 param SUS#1	0..127 def 90 fmt 1
 param SUS#2	0..127 def 127 fmt 1
 param SUS#3	0..127 def 127 fmt 1
@@ -163,337 +162,347 @@ param SUS#4	0..127 def 127 fmt 1
 param SUS#5	0..127 def 127 fmt 1
 param SWG#1	0..100 def 0 fmt 1
 param SWG#2	0..100 def 0 fmt 1
+param SYNC#1	0..10 def 0 fmt 8 OFF 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32
+param TOM#1	0..127 def 127 fmt 1
+param TRIG#1	0..1 def 0 fmt 8 NOTE FREE
 param TRN#1	-24..24 def 0 fmt 7
 param VCE#1	0..3 def 0 fmt 8 POLY MONO LEG UNI
 param VOIC#1	0..4 def 0 fmt 8 CLOSE OPEN INV1 INV2 +OCT
 param WAVE#1	0..4 def 0 fmt 8 SIN TRI SAW SQR S&H
-preset CZ-1 0	INIT TONE f75d44c2db995620
-preset CZ-1 1	BRASS 1 bcafc04d2d6d28fb
-preset CZ-1 10	JAZZ GUITAR 974c2e00c6904e0e
-preset CZ-1 11	ELEC.GUITAR 5c9ea98b186420e9
-preset CZ-1 12	SLAP BASS 373b0f3eb1873864
-preset CZ-1 13	SYNTH.BASS fc8d8ac9035b0b3f
-preset CZ-1 14	ELEC.BASS 1 ac961c2a0ddf997a
-preset CZ-1 15	ELEC.BASS 2 71e897b45fb36c55
-preset CZ-1 16	HARP a2358c1dbe5c2870
-preset CZ-1 17	BRASS 4 5105944194b4d432
-preset CZ-1 18	SAXOPHONE a0fd02e08a3045f7
-preset CZ-1 19	CELLO dbaa8756385c731c
-preset CZ-1 2	BRASS 2 6cb851ae37f1b736
-preset CZ-1 20	FLUTE 10e21a29f395ba1
-preset CZ-1 21	WHISTLE 3bbba6184d6588c6
-preset CZ-1 22	HARMONICA 8bb314b742e0fa8b
-preset CZ-1 23	RECORDER c660992cf10d27b0
-preset CZ-1 24	KOTO 40ebec1e75273de5
-preset CZ-1 25	PIANO 1 7b99709423536b0a
-preset CZ-1 26	PIANO 2 cb90df3318cedccf
-preset CZ-1 27	PIANO 3 63e63a8c6fb09f4
-preset CZ-1 28	ELEC.PIANO 2ba1fdf52dd7f279
-preset CZ-1 29	HONKY-TONK 664f826adc041f9e
-preset CZ-1 3	BRASS 3 320acd3889c58a11
-preset CZ-1 30	FUNKY CLAV 1 b646f109d17f9163
-preset CZ-1 31	FUNKY CLAV 2 f0f4757f7fabbe88
-preset CZ-1 32	HARPSICHORD 6b7fc87103c5d4bd
-preset CZ-1 33	JAZZ ORGAN 1 7eba363b178e9b85
-preset CZ-1 34	JAZZ ORGAN 2 440cadc569626794
-preset CZ-1 35	PIPE ORGAN 1 95f294fbb363a6f
-preset CZ-1 36	PIPE ORGAN 2 a41dcc877e6b7d3e
-preset CZ-1 37	ACCORDION 69704811d03f5019
-preset CZ-1 38	VOICE 1 2ec2bf9c22131c28
-preset CZ-1 39	VOICE 2 f4153b2673e6ef03
-preset CZ-1 4	STRINGS 1 ca732ec22e8a18c
-preset CZ-1 40	VOICE 3 8ed3de5e371c31d2
-preset CZ-1 41	MUSIC BOX 542659e888f004ad
-preset CZ-1 42	VIBRAPHONE 1978d172dac3d0bc
-preset CZ-1 43	XYLOPHONE decb4cfd2c97a397
-preset CZ-1 44	MARIMBA 7989f034efcce666
-preset CZ-1 45	MALLET LOG 3edc6bbf41a0b941
-preset CZ-1 46	AFRO PERC 42ee34993748550
-preset CZ-1 47	BELLS c9815ed3e548582b
-preset CZ-1 48	METALLIC e8f7355e2f7f65a
-preset CZ-1 49	SYN STRINGS 1310022f7ed63924
-preset CZ-1 5	STRINGS 2 d1f9ae7674bc7467
-preset CZ-1 50	FAT ENSEMBLE 4dbd8aa52d026d15
-preset CZ-1 51	SITAR 886b0f1adb2e9a3a
-preset CZ-1 52	SYNTH.LEAD 1 c3188f90895ac093
-preset CZ-1 53	SYNTH.LEAD 2 fdc614063786edb8
-preset CZ-1 54	SYNTH.LEAD 3 38739c7be5b321a9
-preset CZ-1 55	SYNTH.LEAD 4 732120f193df4ece
-preset CZ-1 56	SWEEP 1 adcea167420b7527
-preset CZ-1 57	SYN DRUMS 1 e87c25dcf037a24c
-preset CZ-1 58	SYN DRUMS 2 2329ae529e63d63d
-preset CZ-1 59	CONGA 5dd732c84c900362
-preset CZ-1 6	STRINGS 3 82023fd77f4102a2
-preset CZ-1 60	STEEL DRUM 9884b33dfabc29bb
-preset CZ-1 61	SWEEP 2 d33237b3a8e856e0
-preset CZ-1 62	JET ROAR ddfc02957148ad1
-preset CZ-1 63	MOTORCYCLE 488d449f0540b7f6
-preset CZ-1 64	TYPHOON 833ac514b36cde4f
-preset CZ-1 7	STRINGS 4 4754bb61d114d57d
-preset CZ-1 8	ORCHESTRA 21f121156a37ecf8
-preset CZ-1 9	ACO.GUITAR e7439c9fbc0bbfd3
-preset DRUM 0	808 KIT 98047e5cadd8b6b0
-preset FM6 0	TINE EP 180ec8c70d0ce979
-preset FM6 1	BELL 501d73d79affb6d2
-preset FM6 10	SOLID BASS 92b5dff4d3e64a5e
-preset FM6 11	BELLS a7ce45af6e3d82d8
-preset FM6 12	DX MARIMBA 3864b71a72a97813
-preset FM6 13	CLAVINET 964c426f4b5fb908
-preset FM6 14	DRAWBARS ce9544cb70c78334
-preset FM6 15	STRINGS 6c5c5bbc9b58796c
-preset FM6 16	GLASS PAD 44d85b2a6a3a15c0
-preset FM6 17	SYNC LEAD 2695ce963e081106
-preset FM6 18	HARP 2a1e76d7af578514
-preset FM6 19	KALIMBA 85127ee8cc5895a4
-preset FM6 2	FM BASS 92b5dff4d3e64a5e
-preset FM6 20	FLUTE d8da626e5f1b6ba6
-preset FM6 21	STEEL DRUM 5bff495726fc9846
-preset FM6 22	SAW BASS 85715267f5cb30ca
-preset FM6 23	TUBULAR 6f689639fa53390e
-preset FM6 3	BRASS 3ee1a8886f8124d1
-preset FM6 4	PAD 6c70bfbc9b69cc62
-preset FM6 5	MARIMBA 3864b71a72a97813
-preset FM6 6	ORGAN ce9544cb70c78334
-preset FM6 7	PLUCK 97271e5ed6f2420b
-preset FM6 8	DX TINE 2ed9668e05c9bc9e
-preset FM6 9	BRASS SECT 55692b0c80facfbc
-preset LOFI 0	PULSE LD b6983826772f9292
-preset LOFI 1	WAVE BASS fc82642bc40f5781
-preset LOFI 2	ARP 8BIT 18c9fc604c022f19
-preset LOFI 3	WAVE LEAD 35d9ec4a53b9499c
-preset LOFI 4	STEP LEAD 6747d1cc5335552
-preset NOISE 0	WIND ae4a555c6cf5d4a4
-preset NOISE 1	RAIN 70291864ca651200
-preset NOISE 2	ARCADE df3a29fe80a02307
-preset NOISE 3	METAL 3c58ffa523f82f0c
-preset PHASE 0	BRASS 74e25f2874dc7901
-preset PHASE 1	ORGAN 9ee5b750ce044d90
-preset PHASE 2	STRING 54abaebf86f39ec1
-preset PHASE 3	RESO 85c9a620c54ac120
-preset PHASE 4	BELL e0734b8e14b5dcbc
-preset PHASE 5	WIRE d70d15ad726be666
-preset PROPHET 0	INIT PROPHET 5fd25de5bbe0d896
-preset PROPHET 1	It's a Prophet 5 5fd25de5bbe0d896
-preset PROPHET 10	PDG Organ 5fd25de5bbe0d896
-preset PROPHET 100	Pluck Hollow 5fd25de5bbe0d896
-preset PROPHET 101	Velo Res Lead 2 7023f9ea32e071ef
-preset PROPHET 102	Soft Brass 5fd25de5bbe0d896
-preset PROPHET 103	Regal Movement 5fd25de5bbe0d896
-preset PROPHET 104	Loose Squares 5fd25de5bbe0d896
-preset PROPHET 105	High Strings 5fd25de5bbe0d896
-preset PROPHET 106	Harpsicrud 5fd25de5bbe0d896
-preset PROPHET 107	Rubber Bumper 5fd25de5bbe0d896
-preset PROPHET 108	Galvanized Bucket 5fd25de5bbe0d896
-preset PROPHET 109	Soft Swell 5fd25de5bbe0d896
-preset PROPHET 11	Clavicle 5fd25de5bbe0d896
-preset PROPHET 110	Reverberant Strings 5fd25de5bbe0d896
-preset PROPHET 111	Lagoon Bass 7023f9ea32e071ef
-preset PROPHET 112	Pluckity Duck 5fd25de5bbe0d896
-preset PROPHET 113	Bell Tree 5fd25de5bbe0d896
-preset PROPHET 114	Riser Chord 5fd25de5bbe0d896
-preset PROPHET 115	Timpanally 7023f9ea32e071ef
-preset PROPHET 116	Rod Strike 7023f9ea32e071ef
-preset PROPHET 117	Tuned Percussion 5fd25de5bbe0d896
-preset PROPHET 118	Mystery Bell 5fd25de5bbe0d896
-preset PROPHET 119	FM Clarinet 5fd25de5bbe0d896
-preset PROPHET 12	Blow by Blow 7023f9ea32e071ef
-preset PROPHET 120	Funky Rev1 Bells 5fd25de5bbe0d896
-preset PROPHET 121	Sitarama 5fd25de5bbe0d896
-preset PROPHET 122	FedBack 5fd25de5bbe0d896
-preset PROPHET 123	Nylon Fingers 5fd25de5bbe0d896
-preset PROPHET 124	Gamelan 5fd25de5bbe0d896
-preset PROPHET 125	Sparkle Ponies 5fd25de5bbe0d896
-preset PROPHET 126	Marrakesh Radio C 5fd25de5bbe0d896
-preset PROPHET 127	Faint Memories 5fd25de5bbe0d896
-preset PROPHET 128	Full Hexagon 5fd25de5bbe0d896
-preset PROPHET 129	Old String Machine 5fd25de5bbe0d896
-preset PROPHET 13	TaariChoir 4129143d45d479eb
-preset PROPHET 130	Mantel Clock 5fd25de5bbe0d896
-preset PROPHET 131	Iconic Brass 5fd25de5bbe0d896
-preset PROPHET 132	Sync Swellpad 5fd25de5bbe0d896
-preset PROPHET 133	Pretty Pluck 5fd25de5bbe0d896
-preset PROPHET 134	House Vibez 47416b91246a2f9a
-preset PROPHET 135	Feature My Bass 47416b91246a2f9a
-preset PROPHET 136	ChorusLayer d6160029afb344b3
-preset PROPHET 137	Better Ways 5fd25de5bbe0d896
-preset PROPHET 138	Night Caller 5fd25de5bbe0d896
-preset PROPHET 139	Bassment 7023f9ea32e071ef
-preset PROPHET 14	Digi-Recorder 7023f9ea32e071ef
-preset PROPHET 140	After the Denouement 4129143d45d479eb
-preset PROPHET 141	Rewind 5fd25de5bbe0d896
-preset PROPHET 142	Syncwave b10b9515113a172
-preset PROPHET 143	Organizer 5fd25de5bbe0d896
-preset PROPHET 144	Maneater Ping 5fd25de5bbe0d896
-preset PROPHET 145	Leslied 5fd25de5bbe0d896
-preset PROPHET 146	Bull By The Horns 7023f9ea32e071ef
-preset PROPHET 147	Naive Melody 5fd25de5bbe0d896
-preset PROPHET 148	Poly Morgue 4129143d45d479eb
-preset PROPHET 149	Busted and Dusted 7023f9ea32e071ef
-preset PROPHET 15	Reedy String Pad 5fd25de5bbe0d896
-preset PROPHET 150	Switchback 5fd25de5bbe0d896
-preset PROPHET 151	Tight Bass (556?) 1d23eaa5eb48adcb
-preset PROPHET 152	Pluckyness 5fd25de5bbe0d896
-preset PROPHET 153	80s Sci Fi Drop 7023f9ea32e071ef
-preset PROPHET 154	Catfood 5fd25de5bbe0d896
-preset PROPHET 155	Houndstooth 5fd25de5bbe0d896
-preset PROPHET 156	Cyberian Winds 5fd25de5bbe0d896
-preset PROPHET 157	Ominous Bellfall 5fd25de5bbe0d896
-preset PROPHET 158	FM Pluck 5fd25de5bbe0d896
-preset PROPHET 159	Metal Dronespace 5fd25de5bbe0d896
-preset PROPHET 16	Canned Happiness 5fd25de5bbe0d896
-preset PROPHET 160	End Credits 5fd25de5bbe0d896
-preset PROPHET 161	BRASS 5fd25de5bbe0d896
-preset PROPHET 162	LOW STRINGS 5fd25de5bbe0d896
-preset PROPHET 163	MUTED CLAVINET 5fd25de5bbe0d896
-preset PROPHET 164	PERCUSSIVE E PIANO 5fd25de5bbe0d896
-preset PROPHET 165	FLUTES 5fd25de5bbe0d896
-preset PROPHET 166	HARPSICHORD 5fd25de5bbe0d896
-preset PROPHET 167	SYNC I 5fd25de5bbe0d896
-preset PROPHET 168	PERCUSSIVE ORGAN 5fd25de5bbe0d896
-preset PROPHET 169	UNISON GLIDE W RES 7d544fb23fd0f55d
-preset PROPHET 17	Synchrotrill 5fd25de5bbe0d896
-preset PROPHET 170	HARMONIUM 5fd25de5bbe0d896
-preset PROPHET 171	ORGAN W RESONANCE 5fd25de5bbe0d896
-preset PROPHET 172	TOY PIANO 5fd25de5bbe0d896
-preset PROPHET 173	TRUMPET FLUTE 5fd25de5bbe0d896
-preset PROPHET 174	FILTER MOD 5fd25de5bbe0d896
-preset PROPHET 175	REED ORGAN 5fd25de5bbe0d896
-preset PROPHET 176	BASS IN FIFTHS 5fd25de5bbe0d896
-preset PROPHET 177	PIPE ORGAN FLUTES 5fd25de5bbe0d896
-preset PROPHET 178	SYNC II 5fd25de5bbe0d896
-preset PROPHET 179	ELECTRIC PIANO I 5fd25de5bbe0d896
-preset PROPHET 18	Born in the 80's 5fd25de5bbe0d896
-preset PROPHET 180	HIGH STRINGS 5fd25de5bbe0d896
-preset PROPHET 181	OCTAVE SAWTEETH 5fd25de5bbe0d896
-preset PROPHET 182	RELEASE REPEAT 5fd25de5bbe0d896
-preset PROPHET 183	DELAYED HARMONIC 5fd25de5bbe0d896
-preset PROPHET 184	ECHO REPEAT 5fd25de5bbe0d896
-preset PROPHET 185	PULSE WIDTH MOD 5fd25de5bbe0d896
-preset PROPHET 186	SLOW SYNC SWEEP 5fd25de5bbe0d896
-preset PROPHET 187	FOURTHS W RESONANCE 5fd25de5bbe0d896
-preset PROPHET 188	SWEEPING HARMONICS 5fd25de5bbe0d896
-preset PROPHET 189	SLOW SYNC 5fd25de5bbe0d896
-preset PROPHET 19	Sticky Plucks 7023f9ea32e071ef
-preset PROPHET 190	RANDOM ARPEGGIATOR 5fd25de5bbe0d896
-preset PROPHET 191	SAWTOOTH ARPEGGIATOR 5fd25de5bbe0d896
-preset PROPHET 192	CLANGOROUS BELLS 5fd25de5bbe0d896
-preset PROPHET 193	ALIEN 8def6c3936e52a93
-preset PROPHET 194	NOISE SWEEP 7023f9ea32e071ef
-preset PROPHET 195	DESCENDING BELLS 5fd25de5bbe0d896
-preset PROPHET 196	DESCENDING PWM 5fd25de5bbe0d896
-preset PROPHET 197	HELICOPTER 7023f9ea32e071ef
-preset PROPHET 198	RESONANCE BELLS 5fd25de5bbe0d896
-preset PROPHET 199	HOLLOW SOUND 5fd25de5bbe0d896
-preset PROPHET 2	After Ringer 5fd25de5bbe0d896
-preset PROPHET 20	Watery Plucks 5fd25de5bbe0d896
-preset PROPHET 200	CAT 5fd25de5bbe0d896
-preset PROPHET 21	Bass Face 7023f9ea32e071ef
-preset PROPHET 22	Antique Bell 5fd25de5bbe0d896
-preset PROPHET 23	Whiny Opener 4129143d45d479eb
-preset PROPHET 24	Synctink 5fd25de5bbe0d896
-preset PROPHET 25	Trembling Organ 5fd25de5bbe0d896
-preset PROPHET 26	Sci-Fi Echo 5fd25de5bbe0d896
-preset PROPHET 27	Unicorn Dreams 5fd25de5bbe0d896
-preset PROPHET 28	Cocktail Hour 5fd25de5bbe0d896
-preset PROPHET 29	Nice n Smooth 5fd25de5bbe0d896
-preset PROPHET 3	Forever Keys 5fd25de5bbe0d896
-preset PROPHET 30	Tumescent Bass 5fd25de5bbe0d896
-preset PROPHET 31	Internalized 5fd25de5bbe0d896
-preset PROPHET 32	Blinker Bells 5fd25de5bbe0d896
-preset PROPHET 33	Pickle Pincher 5fd25de5bbe0d896
-preset PROPHET 34	Underwater Trill 5fd25de5bbe0d896
-preset PROPHET 35	Fairy Dust 5fd25de5bbe0d896
-preset PROPHET 36	The Hats 7023f9ea32e071ef
-preset PROPHET 37	Congo Bongo 7023f9ea32e071ef
-preset PROPHET 38	SurdoTaiko 7023f9ea32e071ef
-preset PROPHET 39	Punchy Bells 5fd25de5bbe0d896
-preset PROPHET 4	Funk Bass II 5fd25de5bbe0d896
-preset PROPHET 40	Mindfull 5fd25de5bbe0d896
-preset PROPHET 41	Poly McFat 5fd25de5bbe0d896
-preset PROPHET 42	Tangerine Chrch Thm cd50b87d3464900
-preset PROPHET 43	Reed EP 5fd25de5bbe0d896
-preset PROPHET 44	Cars Strings 4129143d45d479eb
-preset PROPHET 45	Pipe Organisation 5fd25de5bbe0d896
-preset PROPHET 46	Fat Poly Bass 5fd25de5bbe0d896
-preset PROPHET 47	Choral Voices 5fd25de5bbe0d896
-preset PROPHET 48	Small Gong 5fd25de5bbe0d896
-preset PROPHET 49	Another Ocean 5fd25de5bbe0d896
-preset PROPHET 5	Formant Seraphim 5fd25de5bbe0d896
-preset PROPHET 50	Pedaling Sweep 7023f9ea32e071ef
-preset PROPHET 51	Hum-Along Solo 7023f9ea32e071ef
-preset PROPHET 52	Fat Bass Stack 7023f9ea32e071ef
-preset PROPHET 53	Afterblow Horn 5fd25de5bbe0d896
-preset PROPHET 54	Midnight PWM 5fd25de5bbe0d896
-preset PROPHET 55	Hyper Poly 5fd25de5bbe0d896
-preset PROPHET 56	Ripples 4129143d45d479eb
-preset PROPHET 57	Aggro Synth 5fd25de5bbe0d896
-preset PROPHET 58	No Parking Swell 7023f9ea32e071ef
-preset PROPHET 59	Radio Towers 5fd25de5bbe0d896
-preset PROPHET 6	Stabby Brass 5fd25de5bbe0d896
-preset PROPHET 60	Harpsi-Vibe 5fd25de5bbe0d896
-preset PROPHET 61	Instability Pad 5fd25de5bbe0d896
-preset PROPHET 62	Vintage Wurly 4129143d45d479eb
-preset PROPHET 63	Phazy Synth 5fd25de5bbe0d896
-preset PROPHET 64	Robot Hamsters 5fd25de5bbe0d896
-preset PROPHET 65	Pressure Points 4129143d45d479eb
-preset PROPHET 66	80s Horror Strings 5fd25de5bbe0d896
-preset PROPHET 67	NurseryComp 4129143d45d479eb
-preset PROPHET 68	House Mover 7023f9ea32e071ef
-preset PROPHET 69	Carillons 5fd25de5bbe0d896
-preset PROPHET 7	No Whining 47416b91246a2f9a
-preset PROPHET 70	Vocal Pad 5fd25de5bbe0d896
-preset PROPHET 71	Soft Moving Brass 5fd25de5bbe0d896
-preset PROPHET 72	Squarecliff 7023f9ea32e071ef
-preset PROPHET 73	J3 808 47416b91246a2f9a
-preset PROPHET 74	CATS MEOW 5fd25de5bbe0d896
-preset PROPHET 75	Morse Code Lead 47416b91246a2f9a
-preset PROPHET 76	DOG 7023f9ea32e071ef
-preset PROPHET 77	Under The Ice 5fd25de5bbe0d896
-preset PROPHET 78	Distant Future 7023f9ea32e071ef
-preset PROPHET 79	Marimba 5fd25de5bbe0d896
-preset PROPHET 8	Fantastic Five 5fd25de5bbe0d896
-preset PROPHET 80	Duotone 7d544fb23fd0f55d
-preset PROPHET 81	Pulse Pluck 5fd25de5bbe0d896
-preset PROPHET 82	Unisawyer 464523f4bbe7dc39
-preset PROPHET 83	Recorder 5fd25de5bbe0d896
-preset PROPHET 84	Hoof Gelatin 5fd25de5bbe0d896
-preset PROPHET 85	Ghostly Glow 5fd25de5bbe0d896
-preset PROPHET 86	Uptight Bass 5fd25de5bbe0d896
-preset PROPHET 87	Ravecave 7023f9ea32e071ef
-preset PROPHET 88	Dirty Lead 7023f9ea32e071ef
-preset PROPHET 89	Celtic Moon 5fd25de5bbe0d896
-preset PROPHET 9	Velocipeed 5fd25de5bbe0d896
-preset PROPHET 90	Hollow Dreams 5fd25de5bbe0d896
-preset PROPHET 91	Furry Tines 5fd25de5bbe0d896
-preset PROPHET 92	Mouse Blaster 7023f9ea32e071ef
-preset PROPHET 93	Kyoto 5fd25de5bbe0d896
-preset PROPHET 94	Pink Neon Brass 4129143d45d479eb
-preset PROPHET 95	Organ Perc 5fd25de5bbe0d896
-preset PROPHET 96	Skreamer Solo 7023f9ea32e071ef
-preset PROPHET 97	Dream of Orgonon 5fd25de5bbe0d896
-preset PROPHET 98	Bistro 5fd25de5bbe0d896
-preset PROPHET 99	Impact Bass 7023f9ea32e071ef
-preset VOICE 0	CHOIR AAH 77467f8cf65d8b9
-preset VOICE 1	VOX LEAD ed719eb1cda72814
-preset VOICE 2	WOW BASS ecb0130061c387f4
-preset VOICE 3	WHISPER d33f5541e7c57f51
-engine ANALOG E1	WAVE 0..4 def 0 fmt 8 SAW SQR TRI SIN PWM
-engine ANALOG E2	DTN 0..127 def 10 fmt 0
-engine ANALOG E3	MIX 0..127 def 64 fmt 1
-engine ANALOG E4	NOIS 0..127 def 0 fmt 1
-engine ANALOG E5	CUT 0..127 def 90 fmt 5
-engine ANALOG E6	RES 0..127 def 30 fmt 1
-engine ANALOG E7	DRV 0..127 def 0 fmt 1
-engine ANALOG E8	KTR 0..127 def 64 fmt 1
-preset ANALOG 0	SAW LEAD 37f6718b99aca216
-preset ANALOG 1	SOFT PAD b2d75e086a8b885c
-preset ANALOG 10	WIND 24d69f5c54a09639
-preset ANALOG 11	STRINGS d7dba54d6ba92828
-preset ANALOG 2	SQR BASS e6d74067d6b1e1ed
-preset ANALOG 3	PWM STR 773d0a409010b03f
-preset ANALOG 4	ACID 1f6fb93b4bdd00d1
-preset ANALOG 5	SINE KEY 7e95b49825e920f2
-preset ANALOG 6	RAVE 838b9eb17d123c6c
-preset ANALOG 7	SUB BASS a1534e30eb18b922
-preset ANALOG 8	PLUCK f89289d687ac07a0
-preset ANALOG 9	BRASS 61e3710de12c3ab0
+preset ANALOG 0	SAW LEAD c869da94809cd834
+preset ANALOG 1	SOFT PAD 95c61bc0a9016c77
+preset ANALOG 10	WIND 4d98a5a67ae21967
+preset ANALOG 11	STRINGS eb0cb07fe1770e26
+preset ANALOG 2	SQR BASS fbf143694eb6c5c2
+preset ANALOG 3	PWM STR a4189b84a8a4277a
+preset ANALOG 4	ACID 20f7c4c720a66bf1
+preset ANALOG 5	SINE KEY be40cfb908b25d3b
+preset ANALOG 6	RAVE 6132b285ddfbe8b0
+preset ANALOG 7	SUB BASS c8ac421577cd57d9
+preset ANALOG 8	PLUCK 5f445e3b09f1636c
+preset ANALOG 9	BRASS 56ef695b0855defb
+preset CZ-1 0	INIT TONE f1a27a4b3d875528
+preset CZ-1 1	BRASS 1 4698ee92b283eb11
+preset CZ-1 10	JAZZ GUITAR 707931d32d9aae4b
+preset CZ-1 11	ELEC.GUITAR deca433234d95c32
+preset CZ-1 12	SLAP BASS 40b89abbb1e5b251
+preset CZ-1 13	SYNTH.BASS 37e4330f1670b068
+preset CZ-1 14	ELEC.BASS 1 bd03ac7aae38ca3f
+preset CZ-1 15	ELEC.BASS 2 bbacf1e60ad29666
+preset CZ-1 16	HARP db2f76f72ec82d05
+preset CZ-1 17	BRASS 4 34c062b29d454b06
+preset CZ-1 18	SAXOPHONE d3b94ad81794ada5
+preset CZ-1 19	CELLO 30c66f3d707ef06c
+preset CZ-1 2	BRASS 2 c9e4c438ebf3cff2
+preset CZ-1 20	FLUTE 4b085a5b86d6e9eb
+preset CZ-1 21	WHISTLE b34e6876670d0fd2
+preset CZ-1 22	HARMONICA 23ef8e4cce847a71
+preset CZ-1 23	RECORDER 14ec6cf17179a908
+preset CZ-1 24	KOTO 2d709ca782828217
+preset CZ-1 25	PIANO 1 fb0f76dbdd57989e
+preset CZ-1 26	PIANO 2 64d65745cd5ef592
+preset CZ-1 27	PIANO 3 4726a90b32de7ab
+preset CZ-1 28	ELEC.PIANO 909af97abb7d62c8
+preset CZ-1 29	HONKY-TONK 44bf1e5968aa7d31
+preset CZ-1 3	BRASS 3 7b544e920546f00b
+preset CZ-1 30	FUNKY CLAV 1 9e78dfe3f953f8c6
+preset CZ-1 31	FUNKY CLAV 2 4d21b21a34b6589f
+preset CZ-1 32	HARPSICHORD 761df9145370d22c
+preset CZ-1 33	JAZZ ORGAN 1 a7f64c38055860f
+preset CZ-1 34	JAZZ ORGAN 2 1b5948514671f71c
+preset CZ-1 35	PIPE ORGAN 1 1b68bbfc4f3e8e55
+preset CZ-1 36	PIPE ORGAN 2 aed9e9272af44982
+preset CZ-1 37	ACCORDION 30937bb1eb349d1b
+preset CZ-1 38	VOICE 1 be99e10f307b12b8
+preset CZ-1 39	VOICE 2 67c0f2fab264b5a1
+preset CZ-1 4	STRINGS 1 8fae849233f8a30c
+preset CZ-1 40	VOICE 3 b9b83cb79adbd2ce
+preset CZ-1 41	MUSIC BOX 39398b695afd7cc7
+preset CZ-1 42	VIBRAPHONE 3cfe9ff686aa285
+preset CZ-1 43	XYLOPHONE 852d75845cc8dcc
+preset CZ-1 44	MARIMBA e5a41f82e7db3fbf
+preset CZ-1 45	MALLET LOG e44d64ee44750be6
+preset CZ-1 46	AFRO PERC 69590dc3eb8827d1
+preset CZ-1 47	BELLS 6084a617501325e8
+preset CZ-1 48	METALLIC 9919a4db673d23cb
+preset CZ-1 49	SYN STRINGS 94751b170ac0d1dc
+preset CZ-1 5	STRINGS 2 5522512c78cb81c5
+preset CZ-1 50	FAT ENSEMBLE c12c2db669f1a3cf
+preset CZ-1 51	SITAR 86e9de735e4e4876
+preset CZ-1 52	SYNTH.LEAD 1 547701fa79cc0961
+preset CZ-1 53	SYNTH.LEAD 2 de5347d4ba96378
+preset CZ-1 54	SYNTH.LEAD 3 2bd696ccc77509db
+preset CZ-1 55	SYNTH.LEAD 4 e311ad1f73583342
+preset CZ-1 56	SWEEP 1 6b33fc30be27d72d
+preset CZ-1 57	SYN DRUMS 1 593f5a56cb1f4ab4
+preset CZ-1 58	SYN DRUMS 2 d1295b3978f3d8c4
+preset CZ-1 59	CONGA f1ff7e3ca821b03d
+preset CZ-1 6	STRINGS 3 a2271b4a69620c26
+preset CZ-1 60	STEEL DRUM 6620c2a002cf71e
+preset CZ-1 61	SWEEP 2 38c331f5a557e097
+preset CZ-1 62	JET ROAR a142a83e57796000
+preset CZ-1 63	MOTORCYCLE 7a5a08173e7c6d09
+preset CZ-1 64	TYPHOON 3956c6ad6c5cda4a
+preset CZ-1 7	STRINGS 4 b9c68033ca01a7ff
+preset CZ-1 8	ORCHESTRA a7cdc3a36f3c1720
+preset CZ-1 9	ACO.GUITAR 90270d44794fa4a9
+preset DRUM 0	808 KIT 539b86e0c0d5e96b
+preset DRUM 1	909 KIT bef8550d2e930e08
+preset FM6 0	TINE EP 2bbd77ab17dcee61
+preset FM6 1	BELL 2cf9fad59190b8ae
+preset FM6 10	SOLID BASS ace2016e9c8822f5
+preset FM6 11	BELLS e3669a4b848d06f1
+preset FM6 12	DX MARIMBA 9554e1dd216efbf8
+preset FM6 13	CLAVINET f44db22a93a3616c
+preset FM6 14	DRAWBARS 7e15c058e5f3a5c5
+preset FM6 15	STRINGS 88d1a5d47374fe61
+preset FM6 16	GLASS PAD 3fe7af78293724fc
+preset FM6 17	SYNC LEAD c32da2498cdc882d
+preset FM6 18	HARP 49d6f9a9776d9b23
+preset FM6 19	KALIMBA e0c42dd7b52a7e5d
+preset FM6 2	FM BASS ace2016e9c8822f5
+preset FM6 20	FLUTE f49c62ff03b7ceb5
+preset FM6 21	STEEL DRUM 9554e1dd216efbf8
+preset FM6 22	SAW BASS 59cb215c562de890
+preset FM6 23	TUBULAR 33e7bdc0f910620c
+preset FM6 24	INIT VOICE 36ba5d377d42267f
+preset FM6 3	BRASS 68bfd1b3d3b600cb
+preset FM6 4	PAD f5ca1798684f4b66
+preset FM6 5	MARIMBA 9554e1dd216efbf8
+preset FM6 6	ORGAN 7e15c058e5f3a5c5
+preset FM6 7	PLUCK b129257acf0dd931
+preset FM6 8	DX TINE da9ff09efdcbb3d3
+preset FM6 9	BRASS SECT 62a1d229c17e4114
+preset PROPHET 0	INIT PROPHET 8c1b3f0094cd453c
+preset PROPHET 1	It's a Prophet 5 8c1b3f0094cd453c
+preset PROPHET 10	PDG Organ 8c1b3f0094cd453c
+preset PROPHET 100	Pluck Hollow 8c1b3f0094cd453c
+preset PROPHET 101	Velo Res Lead 2 d87d667efe7e3e09
+preset PROPHET 102	Soft Brass 8c1b3f0094cd453c
+preset PROPHET 103	Regal Movement 8c1b3f0094cd453c
+preset PROPHET 104	Loose Squares 8c1b3f0094cd453c
+preset PROPHET 105	High Strings 8c1b3f0094cd453c
+preset PROPHET 106	Harpsicrud 8c1b3f0094cd453c
+preset PROPHET 107	Rubber Bumper 8c1b3f0094cd453c
+preset PROPHET 108	Galvanized Bucket 8c1b3f0094cd453c
+preset PROPHET 109	Soft Swell 8c1b3f0094cd453c
+preset PROPHET 11	Clavicle 8c1b3f0094cd453c
+preset PROPHET 110	Reverberant Strings 8c1b3f0094cd453c
+preset PROPHET 111	Lagoon Bass d87d667efe7e3e09
+preset PROPHET 112	Pluckity Duck 8c1b3f0094cd453c
+preset PROPHET 113	Bell Tree 8c1b3f0094cd453c
+preset PROPHET 114	Riser Chord 8c1b3f0094cd453c
+preset PROPHET 115	Timpanally d87d667efe7e3e09
+preset PROPHET 116	Rod Strike d87d667efe7e3e09
+preset PROPHET 117	Tuned Percussion 8c1b3f0094cd453c
+preset PROPHET 118	Mystery Bell 8c1b3f0094cd453c
+preset PROPHET 119	FM Clarinet 8c1b3f0094cd453c
+preset PROPHET 12	Blow by Blow d87d667efe7e3e09
+preset PROPHET 120	Funky Rev1 Bells 8c1b3f0094cd453c
+preset PROPHET 121	Sitarama 8c1b3f0094cd453c
+preset PROPHET 122	FedBack 8c1b3f0094cd453c
+preset PROPHET 123	Nylon Fingers 8c1b3f0094cd453c
+preset PROPHET 124	Gamelan 8c1b3f0094cd453c
+preset PROPHET 125	Sparkle Ponies 8c1b3f0094cd453c
+preset PROPHET 126	Marrakesh Radio C 8c1b3f0094cd453c
+preset PROPHET 127	Faint Memories 8c1b3f0094cd453c
+preset PROPHET 128	Full Hexagon 8c1b3f0094cd453c
+preset PROPHET 129	Old String Machine 8c1b3f0094cd453c
+preset PROPHET 13	TaariChoir 1338ed917456a443
+preset PROPHET 130	Mantel Clock 8c1b3f0094cd453c
+preset PROPHET 131	Iconic Brass 8c1b3f0094cd453c
+preset PROPHET 132	Sync Swellpad 8c1b3f0094cd453c
+preset PROPHET 133	Pretty Pluck 8c1b3f0094cd453c
+preset PROPHET 134	House Vibez bfece67cbc6fe368
+preset PROPHET 135	Feature My Bass bfece67cbc6fe368
+preset PROPHET 136	ChorusLayer 6648660256356400
+preset PROPHET 137	Better Ways 8c1b3f0094cd453c
+preset PROPHET 138	Night Caller 8c1b3f0094cd453c
+preset PROPHET 139	Bassment d87d667efe7e3e09
+preset PROPHET 14	Digi-Recorder d87d667efe7e3e09
+preset PROPHET 140	After the Denouement 1338ed917456a443
+preset PROPHET 141	Rewind 8c1b3f0094cd453c
+preset PROPHET 142	Syncwave d09f4399fa47a83d
+preset PROPHET 143	Organizer 8c1b3f0094cd453c
+preset PROPHET 144	Maneater Ping 8c1b3f0094cd453c
+preset PROPHET 145	Leslied 8c1b3f0094cd453c
+preset PROPHET 146	Bull By The Horns d87d667efe7e3e09
+preset PROPHET 147	Naive Melody 8c1b3f0094cd453c
+preset PROPHET 148	Poly Morgue 1338ed917456a443
+preset PROPHET 149	Busted and Dusted d87d667efe7e3e09
+preset PROPHET 15	Reedy String Pad 8c1b3f0094cd453c
+preset PROPHET 150	Switchback 8c1b3f0094cd453c
+preset PROPHET 151	Tight Bass (556?) 74610b856058f14a
+preset PROPHET 152	Pluckyness 8c1b3f0094cd453c
+preset PROPHET 153	80s Sci Fi Drop d87d667efe7e3e09
+preset PROPHET 154	Catfood 8c1b3f0094cd453c
+preset PROPHET 155	Houndstooth 8c1b3f0094cd453c
+preset PROPHET 156	Cyberian Winds 8c1b3f0094cd453c
+preset PROPHET 157	Ominous Bellfall 8c1b3f0094cd453c
+preset PROPHET 158	FM Pluck 8c1b3f0094cd453c
+preset PROPHET 159	Metal Dronespace 8c1b3f0094cd453c
+preset PROPHET 16	Canned Happiness 8c1b3f0094cd453c
+preset PROPHET 160	End Credits 8c1b3f0094cd453c
+preset PROPHET 161	BRASS 8c1b3f0094cd453c
+preset PROPHET 162	LOW STRINGS 8c1b3f0094cd453c
+preset PROPHET 163	MUTED CLAVINET 8c1b3f0094cd453c
+preset PROPHET 164	PERCUSSIVE E PIANO 8c1b3f0094cd453c
+preset PROPHET 165	FLUTES 8c1b3f0094cd453c
+preset PROPHET 166	HARPSICHORD 8c1b3f0094cd453c
+preset PROPHET 167	SYNC I 8c1b3f0094cd453c
+preset PROPHET 168	PERCUSSIVE ORGAN 8c1b3f0094cd453c
+preset PROPHET 169	UNISON GLIDE W RES 3619ed35b5bec5b6
+preset PROPHET 17	Synchrotrill 8c1b3f0094cd453c
+preset PROPHET 170	HARMONIUM 8c1b3f0094cd453c
+preset PROPHET 171	ORGAN W RESONANCE 8c1b3f0094cd453c
+preset PROPHET 172	TOY PIANO 8c1b3f0094cd453c
+preset PROPHET 173	TRUMPET FLUTE 8c1b3f0094cd453c
+preset PROPHET 174	FILTER MOD 8c1b3f0094cd453c
+preset PROPHET 175	REED ORGAN 8c1b3f0094cd453c
+preset PROPHET 176	BASS IN FIFTHS 8c1b3f0094cd453c
+preset PROPHET 177	PIPE ORGAN FLUTES 8c1b3f0094cd453c
+preset PROPHET 178	SYNC II 8c1b3f0094cd453c
+preset PROPHET 179	ELECTRIC PIANO I 8c1b3f0094cd453c
+preset PROPHET 18	Born in the 80's 8c1b3f0094cd453c
+preset PROPHET 180	HIGH STRINGS 8c1b3f0094cd453c
+preset PROPHET 181	OCTAVE SAWTEETH 8c1b3f0094cd453c
+preset PROPHET 182	RELEASE REPEAT 8c1b3f0094cd453c
+preset PROPHET 183	DELAYED HARMONIC 8c1b3f0094cd453c
+preset PROPHET 184	ECHO REPEAT 8c1b3f0094cd453c
+preset PROPHET 185	PULSE WIDTH MOD 8c1b3f0094cd453c
+preset PROPHET 186	SLOW SYNC SWEEP 8c1b3f0094cd453c
+preset PROPHET 187	FOURTHS W RESONANCE 8c1b3f0094cd453c
+preset PROPHET 188	SWEEPING HARMONICS 8c1b3f0094cd453c
+preset PROPHET 189	SLOW SYNC 8c1b3f0094cd453c
+preset PROPHET 19	Sticky Plucks d87d667efe7e3e09
+preset PROPHET 190	RANDOM ARPEGGIATOR 8c1b3f0094cd453c
+preset PROPHET 191	SAWTOOTH ARPEGGIATOR 8c1b3f0094cd453c
+preset PROPHET 192	CLANGOROUS BELLS 8c1b3f0094cd453c
+preset PROPHET 193	ALIEN e4cdbef197175588
+preset PROPHET 194	NOISE SWEEP d87d667efe7e3e09
+preset PROPHET 195	DESCENDING BELLS 8c1b3f0094cd453c
+preset PROPHET 196	DESCENDING PWM 8c1b3f0094cd453c
+preset PROPHET 197	HELICOPTER d87d667efe7e3e09
+preset PROPHET 198	RESONANCE BELLS 8c1b3f0094cd453c
+preset PROPHET 199	HOLLOW SOUND 8c1b3f0094cd453c
+preset PROPHET 2	After Ringer 8c1b3f0094cd453c
+preset PROPHET 20	Watery Plucks 8c1b3f0094cd453c
+preset PROPHET 200	CAT 8c1b3f0094cd453c
+preset PROPHET 21	Bass Face d87d667efe7e3e09
+preset PROPHET 22	Antique Bell 8c1b3f0094cd453c
+preset PROPHET 23	Whiny Opener 1338ed917456a443
+preset PROPHET 24	Synctink 8c1b3f0094cd453c
+preset PROPHET 25	Trembling Organ 8c1b3f0094cd453c
+preset PROPHET 26	Sci-Fi Echo 8c1b3f0094cd453c
+preset PROPHET 27	Unicorn Dreams 8c1b3f0094cd453c
+preset PROPHET 28	Cocktail Hour 8c1b3f0094cd453c
+preset PROPHET 29	Nice n Smooth 8c1b3f0094cd453c
+preset PROPHET 3	Forever Keys 8c1b3f0094cd453c
+preset PROPHET 30	Tumescent Bass 8c1b3f0094cd453c
+preset PROPHET 31	Internalized 8c1b3f0094cd453c
+preset PROPHET 32	Blinker Bells 8c1b3f0094cd453c
+preset PROPHET 33	Pickle Pincher 8c1b3f0094cd453c
+preset PROPHET 34	Underwater Trill 8c1b3f0094cd453c
+preset PROPHET 35	Fairy Dust 8c1b3f0094cd453c
+preset PROPHET 36	The Hats d87d667efe7e3e09
+preset PROPHET 37	Congo Bongo d87d667efe7e3e09
+preset PROPHET 38	SurdoTaiko d87d667efe7e3e09
+preset PROPHET 39	Punchy Bells 8c1b3f0094cd453c
+preset PROPHET 4	Funk Bass II 8c1b3f0094cd453c
+preset PROPHET 40	Mindfull 8c1b3f0094cd453c
+preset PROPHET 41	Poly McFat 8c1b3f0094cd453c
+preset PROPHET 42	Tangerine Chrch Thm 756b1f9a2afa210d
+preset PROPHET 43	Reed EP 8c1b3f0094cd453c
+preset PROPHET 44	Cars Strings 1338ed917456a443
+preset PROPHET 45	Pipe Organisation 8c1b3f0094cd453c
+preset PROPHET 46	Fat Poly Bass 8c1b3f0094cd453c
+preset PROPHET 47	Choral Voices 8c1b3f0094cd453c
+preset PROPHET 48	Small Gong 8c1b3f0094cd453c
+preset PROPHET 49	Another Ocean 8c1b3f0094cd453c
+preset PROPHET 5	Formant Seraphim 8c1b3f0094cd453c
+preset PROPHET 50	Pedaling Sweep d87d667efe7e3e09
+preset PROPHET 51	Hum-Along Solo d87d667efe7e3e09
+preset PROPHET 52	Fat Bass Stack d87d667efe7e3e09
+preset PROPHET 53	Afterblow Horn 8c1b3f0094cd453c
+preset PROPHET 54	Midnight PWM 8c1b3f0094cd453c
+preset PROPHET 55	Hyper Poly 8c1b3f0094cd453c
+preset PROPHET 56	Ripples 1338ed917456a443
+preset PROPHET 57	Aggro Synth 8c1b3f0094cd453c
+preset PROPHET 58	No Parking Swell d87d667efe7e3e09
+preset PROPHET 59	Radio Towers 8c1b3f0094cd453c
+preset PROPHET 6	Stabby Brass 8c1b3f0094cd453c
+preset PROPHET 60	Harpsi-Vibe 8c1b3f0094cd453c
+preset PROPHET 61	Instability Pad 8c1b3f0094cd453c
+preset PROPHET 62	Vintage Wurly 1338ed917456a443
+preset PROPHET 63	Phazy Synth 8c1b3f0094cd453c
+preset PROPHET 64	Robot Hamsters 8c1b3f0094cd453c
+preset PROPHET 65	Pressure Points 1338ed917456a443
+preset PROPHET 66	80s Horror Strings 8c1b3f0094cd453c
+preset PROPHET 67	NurseryComp 1338ed917456a443
+preset PROPHET 68	House Mover d87d667efe7e3e09
+preset PROPHET 69	Carillons 8c1b3f0094cd453c
+preset PROPHET 7	No Whining bfece67cbc6fe368
+preset PROPHET 70	Vocal Pad 8c1b3f0094cd453c
+preset PROPHET 71	Soft Moving Brass 8c1b3f0094cd453c
+preset PROPHET 72	Squarecliff d87d667efe7e3e09
+preset PROPHET 73	J3 808 bfece67cbc6fe368
+preset PROPHET 74	CATS MEOW 8c1b3f0094cd453c
+preset PROPHET 75	Morse Code Lead bfece67cbc6fe368
+preset PROPHET 76	DOG d87d667efe7e3e09
+preset PROPHET 77	Under The Ice 8c1b3f0094cd453c
+preset PROPHET 78	Distant Future d87d667efe7e3e09
+preset PROPHET 79	Marimba 8c1b3f0094cd453c
+preset PROPHET 8	Fantastic Five 8c1b3f0094cd453c
+preset PROPHET 80	Duotone 3619ed35b5bec5b6
+preset PROPHET 81	Pulse Pluck 8c1b3f0094cd453c
+preset PROPHET 82	Unisawyer 93cb4605abf6ea76
+preset PROPHET 83	Recorder 8c1b3f0094cd453c
+preset PROPHET 84	Hoof Gelatin 8c1b3f0094cd453c
+preset PROPHET 85	Ghostly Glow 8c1b3f0094cd453c
+preset PROPHET 86	Uptight Bass 8c1b3f0094cd453c
+preset PROPHET 87	Ravecave d87d667efe7e3e09
+preset PROPHET 88	Dirty Lead d87d667efe7e3e09
+preset PROPHET 89	Celtic Moon 8c1b3f0094cd453c
+preset PROPHET 9	Velocipeed 8c1b3f0094cd453c
+preset PROPHET 90	Hollow Dreams 8c1b3f0094cd453c
+preset PROPHET 91	Furry Tines 8c1b3f0094cd453c
+preset PROPHET 92	Mouse Blaster d87d667efe7e3e09
+preset PROPHET 93	Kyoto 8c1b3f0094cd453c
+preset PROPHET 94	Pink Neon Brass 1338ed917456a443
+preset PROPHET 95	Organ Perc 8c1b3f0094cd453c
+preset PROPHET 96	Skreamer Solo d87d667efe7e3e09
+preset PROPHET 97	Dream of Orgonon 8c1b3f0094cd453c
+preset PROPHET 98	Bistro 8c1b3f0094cd453c
+preset PROPHET 99	Impact Bass d87d667efe7e3e09
+preset SID 0	INIT SID e1b0ba48f6a425dc
+preset SID 1	BREADBOX 937d1e84871e517e
+preset SID 10	SYNC LEAD 72bc9ad8e917ad77
+preset SID 11	PULSE LEAD 9c2f5fb7a4fc7513
+preset SID 12	GAME HERO 125d5f64b190cb99
+preset SID 13	LASER LEAD 45776f703ad6765c
+preset SID 14	CHIP SOLO c9278dc45571c3f0
+preset SID 15	8580 LEAD bad2ce96ddd55423
+preset SID 16	PWM PAD d7210a261a4af88b
+preset SID 17	SID STRINGS b45d376f5d5cb35b
+preset SID 18	DREAM CHIP 3f11724048d6946
+preset SID 19	8580 PAD b10e526de035b95
+preset SID 2	RUBBER BASS 5b5656c3034a6716
+preset SID 20	TRI ORGAN d8475f43a5e31129
+preset SID 21	GAME ORGAN 30cc64c1be1bbaab
+preset SID 22	C64 KEYS 38478ba8aaa2081b
+preset SID 23	SID CLAV ffde8e9deda993c8
+preset SID 24	ARP PLUCK 3fd367af1ebc3063
+preset SID 25	COIN PLUCK 9c845fb3c9233913
+preset SID 26	BELL RING 64fe844d85e61891
+preset SID 27	SID BRASS 7f721d4317475f25
+preset SID 28	FILTER HIT 754bb470e780ff5c
+preset SID 29	LASER FX 828ce2188494f7e
+preset SID 3	ARP BASS 790c585efc1ee33b
+preset SID 30	NOISE SWEEP 9376142197852a36
+preset SID 31	DATA STORM eb46842a19fe8ba9
+preset SID 4	SUB PULSE 8650eb9feeb0753a
+preset SID 5	SYNC BASS 26ba90cb16ecba27
+preset SID 6	SAW BASS c4122bbd6c3e25a5
+preset SID 7	DIRTY BASS dd5e5d862ebe776a
+preset SID 8	LEAD 6581 271ad9b326342e21
+preset SID 9	RING LEAD 34d9300a325867c9

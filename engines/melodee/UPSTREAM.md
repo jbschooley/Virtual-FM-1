@@ -3,13 +3,15 @@
 `upstream/` is part of [Melodee](https://github.com/keremimo/melodee), Kerem
 Kilic's firmware for the M-VAVE FM-1, built from
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments) 1.0, at **v0.13** (tag `v0.13`, commit
-`ed42da642be26562dcf5601bd33c5b905733f2d2`, 2026-10-08). It is GPL-3.0-only,
+Instruments) 1.0, at **v1.1.0** (tag `v1.1.0`, commit
+`c0e5f5f8edf06cfae3ed3f3cf92a74f86c630cea`, 2026-10-11: the re-released build, the commit its
+`BUILD_INFO.json` names). Melodee 0.13, which 1.0 replaced (retiring LOFI, PHASE, VOICE and NOISE
+and its project objects), is kept beside it in `engines/melodee013` for the projects made with it. It is GPL-3.0-only,
 with parts under their own licences (`upstream/LICENSING.md`,
 `upstream/LICENSES/`), and Casio's CZ-1 preset tones and Sequential's Prophet-5
 factory programs, for which no licence is granted (below).
 
-Melodee has its own engines (PROPHET, CZ-1, a Dexed-exact FM6; no sample engines),
+Melodee has its own engines (PROPHET, CZ-1, a Dexed-exact FM6, SID from 1.0; no sample engines),
 32 pattern banks, its own project and backup objects and editor commands from
 72, so it is vendored and built apart from `engines/felucca`.
 
@@ -17,9 +19,11 @@ Copied unchanged:
 
 - `firmware/src/` and `firmware/hal/`: the firmware
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: its regression
-  (340 golden renders), run by ctest as `melodee_regress` with no CPU baseline
+  (351 golden renders), run by ctest as `melodee_regress` with no CPU baseline, compiled
+  as its `tests/run_tests.sh` compiles it (`-ffp-contract=off`: 1.0's DSP is single-precision
+  float, and a fused multiply-add changes its renders)
 - `tools/gen_aa_font.py`, `gen_aa_icons.py`, `gen_aa_keycaps.py`,
-  `gen_ui_palettes.py`, `gen_tables.py`, `gen_fm6_patches.py`,
+  `gen_ui_palettes.py`, `gen_tables.py`, `gen_fm6_patches.py`, `gen_icons.py`, `gen_909_tables.py`,
   `gen_cz1_factory.py`, `gen_prophet_factory.py`, `gen_scales.py`,
   `gen_waves.py`, `sampleio.py`: the generators
 - `LICENSE`, `LICENSING.md`, `LICENSES/`, `assets/fonts/OFL.txt`,
@@ -27,10 +31,11 @@ Copied unchanged:
   README) and `assets/prophet5-factory/` (the Prophet-5 programs and their README)
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-export of v0.13 with Python 3 and Pillow (it needs that checkout's `assets/`,
+export of v1.1.0 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not all copied): `ui_fonts.h`, `ui_icons.h`, `ui_keycaps.h`, `ui_palettes.h`,
 `melodee_tables.h`, `melodee_fm6.h`, `melodee_cz1.h` and
-`melodee_prophet_factory.h`. Generating twice gave the same bytes.
+`melodee_prophet_factory.h`; and `x0x_drum_tables.h`, which its `build_app()` makes
+(`tools/gen_909_tables.py`). Generating twice gave the same bytes.
 
 ## The CZ-1 tones and the Prophet-5 programs
 
@@ -46,6 +51,10 @@ same way, unchanged.
 
 ## The plugin's side
 
+- It is built as Melodee's single-core package is (`MELODEE_DUAL_CORE=0`: the second core's worker is
+  the device's; here the plugin is the CPU), with no data cache taken as RAM (`MELODEE_CACHE_RAM=0`),
+  and without fused multiply-adds (`-ffp-contract=off`, CMakeLists.txt `fm1CoreFlags_melodee`), as its
+  host tests are, so it renders as its golden renders say.
 - `melodee_core.c` compiles the whole firmware as one unit, in its
   `melodee.c`'s order, behind the same API as `engines/felucca/felucca_core.c`
   (`felucca_core.h`), and is compiled once the same way, its functions

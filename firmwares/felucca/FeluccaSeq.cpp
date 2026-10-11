@@ -336,18 +336,21 @@ std::optional<Motion> readMotion(Endpoint& e, int track) {
     Motion m;
     m.on = a[2] != 0;
     m.max = a[4];
-    for (size_t i = 5; i + 3 < a.size(); i += 4) m.events.push_back({a[i], a[i + 1], r14(a, i + 2)});
+    // (Melodee 1.0.2: a native synth parameter's id, 112 + a patch byte, has its bit 7 in the step
+    // byte's bit 6, steps being 0..63: as every older event, decoded the same)
+    for (size_t i = 5; i + 3 < a.size(); i += 4) m.events.push_back({a[i] & 63, a[i + 1] | ((a[i] & 64) << 1), r14(a, i + 2)});
     return m;
 }
 
 Bytes motionOn(int track, bool on) { return frame(kMotion, {uint8_t(track), 1, uint8_t(on ? 1 : 0)}); }
 Bytes motionClear(int track) { return frame(kMotion, {uint8_t(track), 2}); }
+static uint8_t wireStep(int step, int param) { return uint8_t((step & 63) | ((param & 128) >> 1)); }
 Bytes motionSet(int track, int step, int param, int value) {
-    std::vector<uint8_t> a = {uint8_t(track), 3, uint8_t(step), uint8_t(param)};
+    std::vector<uint8_t> a = {uint8_t(track), 3, wireStep(step, param), uint8_t(param & 127)};
     v14(a, value);
     return frame(kMotion, a);
 }
-Bytes motionDelete(int track, int step, int param) { return frame(kMotion, {uint8_t(track), 4, uint8_t(step), uint8_t(param)}); }
+Bytes motionDelete(int track, int step, int param) { return frame(kMotion, {uint8_t(track), 4, wireStep(step, param), uint8_t(param & 127)}); }
 
 // Felucca 1.0.2's motion.c motion_param: the sound's parameters only
 bool motionParam(int id) {

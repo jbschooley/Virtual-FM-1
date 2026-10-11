@@ -30,15 +30,20 @@
   Studios VSCO-2 CE and VCSL, Sonic Pi), its font Terminus (SIL OFL 1.1); see
   `engines/sloop/UPSTREAM.md`, which also says how its icon atlas is taken.
 - **Melodee** (`engines/melodee/upstream`, generated tables, fonts, icons, FM6
-  patches and CZ-1 tones in `engines/melodee/generated`): Kerem Kilic's FM-1
-  firmware, v0.13, built from Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita
-  (@kurogedelic), Hügelton Instruments, with modifications copyright 2026 Kerem
-  Kilic. Parts of it come from others under their own licences, listed in its
+  patches, CZ-1 tones and 909 tables in `engines/melodee/generated`): Kerem Kilic's
+  FM-1 firmware, v1.1.0, built from Felucca; and v0.13, kept for the projects made
+  with it (`engines/melodee013`, as it was). GPL-3.0-only, copyright 2026 Leo
+  Kuroshita (@kurogedelic), Hügelton Instruments, with modifications copyright 2026
+  Kerem Kilic. Parts of it come from others under their own licences, listed in its
   `LICENSING.md` with their texts in `upstream/LICENSES/`: msfa (Apache-2.0) and
   Dexed (GPL-3.0-or-later) in the FM6 engine, MAME's uPD933 model (BSD-3-Clause)
-  in the CZ-1 engine, DaisySP and Rings (MIT) in the PHYS engine, the Inter
-  Tight font (SIL OFL 1.1) and the Fukiai icons (MIT). Its microtonal scales
-  come from the Huygens-Fokker Scala archive (`upstream/assets/scales/README.md`).
+  in the CZ-1 engine, DaisySP and Rings (MIT) in the PHYS engine, the Fukiai
+  icons (MIT); in 1.1.0 also reSID (GPL-2.0-or-later, taken under GPL-3.0) in the
+  SID engine, Charles Vestal's fm1-x0x (GPL-3.0-only, its 909 models after 9W9 and
+  ER-99) in the DRUM kits and the delay, schwung-space-delay (MIT) in the delay, and
+  the Rubik font (SIL OFL 1.1) for its screen; 0.13's screen font is Inter Tight
+  (SIL OFL 1.1). Its microtonal scales come from the Huygens-Fokker Scala archive
+  (`upstream/assets/scales/README.md`).
 - **Casio CZ-1 preset tones** (`engines/melodee/upstream/assets/cz1-factory/cz1-factory.syx`,
   compiled into `engines/melodee/generated/melodee_cz1.h`): the CZ-1's 64
   factory sounds (Casio Computer Co., Ltd., 1986), included with Melodee as

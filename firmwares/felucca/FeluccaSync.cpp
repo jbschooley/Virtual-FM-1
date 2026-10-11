@@ -86,7 +86,7 @@ const Dialect& melodeeDialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
                            {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
-                           {0, 1, 3, 8, 9, 10, 11, 21, 24}};
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 24, 25, 26}};   // (1.0: the shared delay back, 4..7, its TYPE and WEAR 25, 26)
     return d;
 }
 // Melodee 0.13's, kept beside the current release (engines/melodee013): its own device file in the
@@ -199,9 +199,10 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         const int id = o.getProperty("id", -1), size = o.getProperty(sloop ? "len" : "size", -1);
         const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
         juce::MemoryOutputStream data;
-        // (as each editor allows: a sample 80 KB; Melodee's music and projects 27752 bytes (0.13), its
+        // (as each editor allows: a sample 80 KB; Melodee's music and projects 27904 bytes (1.0; 0.13: 27752), its
         // PROPHET banks 3600; the rest 3840)
-        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? 27752 : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
+        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? (&d == &melodee013Dialect() ? 27752 : 27904)
+                       : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
         if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
             error = "object " + juce::String(id) + " is damaged";
@@ -467,7 +468,7 @@ uint8_t liveCaps(const std::vector<uint8_t>& a) {
             case 0x4D: case 0x46: len = 2; break;              // motion, FM6 patches (factory, bank count)
             default: return 0;                                 // a block this does not know: stop
         }
-        if (a[k + 1] != 1 || k + 2 + len > a.size()) return 0;
+        if ((a[k + 1] != 1 && !(tag == 0x4D && a[k + 1] == 2)) || k + 2 + len > a.size()) return 0;   // (4D 02: Melodee 1.0.2's motion v2)
         if (tag == 0x53) return a[k + 2];
         k += 2 + len;
     }

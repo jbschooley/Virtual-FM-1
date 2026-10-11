@@ -19,6 +19,17 @@ for the code. New work goes under the next version at the top.
   leaves the FM-1's own. An FM-1 still on SLOOP 2.5 or older cannot read 2.6's
   projects: the plugin pulls from it only, and says to update it with SLOOP's
   installer. Not yet tried with an FM-1 running 2.6.
+- **Melodee 1.1.0** is built in (it was 0.13): the new Stage interface, SID (in
+  place of LOFI), the 808 and 909 DRUM kits with lane levels, the shared delay
+  back (DIGI, TAPE and ping-pong), LFO sync and stereo spread, native synth
+  motion. New host parameters ("Melodee P1 KICK", "Melodee DTYPE" and so on)
+  play on it; the ones from before keep their names and follow its new numbering.
+  An FM-1 on Melodee 0.12 to 1.0.2 is pulled from only, and told to update with
+  Melodee's installer. Not yet tried with an FM-1 running 1.1.0.
+- **Melodee 0.13 is kept** beside it as its own firmware choice: 1.0 retired
+  0.13's LOFI, PHASE, VOICE and NOISE engines, so a project saved with 0.13 opens
+  on 0.13 and plays as it did, and an instance set to Melodee 0.13 syncs fully
+  with an FM-1 still on 0.13.
 
 ## [0.8.0] - 2026-10-09
 

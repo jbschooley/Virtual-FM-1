@@ -87,10 +87,16 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")
+    // (X.Y.Z from 0.13.1: FM-1_9 X YY Z, 1.1.0 FM-1_91010). None before 1.1 is known to read 1.1's projects:
+    // pulled from only. An FM-1 on 0.13 syncs fully with an instance set to Melodee 0.13 (kept)
     static const std::vector<KnownVersion> melodee = {
-        // 0.12 has no PROPHET, and its projects are smaller than 0.13's (Send refuses them up front)
-        {9012, "0.12", Support::Older, "no PROPHET, and it cannot take 0.13's projects: update it to 0.13 with Melodee's installer to send to it or go Live"},
-        {9013, "0.13", Support::Current, ""},
+        {9012, "0.12", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {9013, "0.13", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {90131, "0.13.1", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {91000, "1.0.0", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {91001, "1.0.1", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {91002, "1.0.2", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
+        {91010, "1.1.0", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -122,7 +128,15 @@ static bool sloopNewer(const std::string& a, const std::string& b) {
     return parts(a) > parts(b);
 }
 
-std::string writesRefused(const Identity& id) {
+std::string writesRefused(const Identity& id, const std::string& choiceId) {
+    if (isPreviousRelease(choiceId)) return {};   // (a kept release's choice: only a synth on that release is synced)
+    if (firmwareIdFor(id) == "melodee") {   // before 1.1 none is known to read 1.1's projects (FUN15, FBKI)
+        const std::string release = melodeeRelease(id), current = currentVersion("melodee").label;
+        if (release.empty() || !sloopNewer(current, release)) return {};
+        const bool m013 = release == "0.13" || release.rfind("0.13.", 0) == 0;
+        return "This FM-1 runs Melodee " + release + ", which may not read Melodee " + current + "'s projects: update it to " + current
+               + " with Melodee's installer to send to it or go Live" + (m013 ? ", or set this instance to Melodee 0.13" : "") + ". Pull still works.";
+    }
     if (firmwareIdFor(id) != "sloop") return {};
     const auto at = id.editor.find("SLOOP ");
     const std::string release = at == std::string::npos ? std::string() : id.editor.substr(at + 6);
