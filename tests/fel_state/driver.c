@@ -10,6 +10,8 @@ const char *fst_row_name(int i);
 unsigned fst_row_flags(int i);
 int fst_row_has_act(int i);
 char *fst_label(void);
+const char *fst_named_tag(int i);
+char *fst_named_buf(int i);
 char *fst_plain(void);
 long fst_span(void);
 int *fst_lo(void);
@@ -33,6 +35,8 @@ int main(void) {
     CHECK(!strcmp(fst_row_name(0), "PLAY") && !strcmp(fst_row_name(2), "CLEAR") && fst_row_flags(2) == 2 && fst_row_has_act(0) && !fst_row_has_act(1),
           "the row's other fields as initialized");
     CHECK(fst_plain() == la, "a plain pointer to state");
+    CHECK(!strcmp(fst_named_tag(0), "A,(B)") && fst_named_buf(0) == la && !strcmp(fst_named_tag(1), "[C]{D}") && !fst_named_buf(1),
+          "an inline name with commas and brackets beside a pointer to state");
     const long spanA = fst_span();
     CHECK(spanA == (long)((char *)(fst_hi() + 2) - (char *)(fst_lo() + 1)), "a difference of two state addresses, in this state");
     fst_bind(b);

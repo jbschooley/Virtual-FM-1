@@ -44,14 +44,18 @@ def fail(msg):
 
 
 def split_top(s):
-    """'a, {b, c}, d' -> ['a', '{b, c}', 'd'] (commas outside brackets)"""
-    out, depth, cur = [], 0, ''
+    """'a, {b, c}, d' -> ['a', '{b, c}', 'd'] (commas outside brackets and strings: c"a,b" is one)"""
+    out, depth, cur, quoted = [], 0, '', False
     for c in s:
-        if c in '[{<(':
+        if c == '"':   # (IR strings escape a quote as \22: none inside)
+            quoted = not quoted
+        elif quoted:
+            pass
+        elif c in '[{<(':
             depth += 1
         elif c in ']}>)':
             depth -= 1
-        if c == ',' and depth == 0:
+        if c == ',' and depth == 0 and not quoted:
             out.append(cur.strip())
             cur = ''
         else:
@@ -62,10 +66,14 @@ def split_top(s):
 
 
 def type_end(body):
-    """the index just past the type at the start of body (up to a space outside brackets)"""
-    depth = 0
+    """the index just past the type at the start of body (up to a space outside brackets and strings)"""
+    depth, quoted = 0, False
     for i, c in enumerate(body):
-        if c in '[{<(':
+        if c == '"':
+            quoted = not quoted
+        elif quoted:
+            continue
+        elif c in '[{<(':
             depth += 1
         elif c in ']}>)':
             depth -= 1
