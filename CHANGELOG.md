@@ -18,18 +18,18 @@ for the code. New work goes under the next version at the top.
   TXSRC" and so on); the FM-1's MIDI settings are synced with Pull, and a Send
   leaves the FM-1's own. An FM-1 still on SLOOP 2.5 or older cannot read 2.6's
   projects: the plugin pulls from it only, and says to update it with SLOOP's
-  installer. Not yet tried with an FM-1 running 2.6.
+  installer. Tried with an FM-1 running 2.6.
 - **Melodee 1.1.0** is built in (it was 0.13): the new Stage interface, SID (in
   place of LOFI), the 808 and 909 DRUM kits with lane levels, the shared delay
   back (DIGI, TAPE and ping-pong), LFO sync and stereo spread, native synth
   motion. New host parameters ("Melodee P1 KICK", "Melodee DTYPE" and so on)
   play on it; the ones from before keep their names and follow its new numbering.
   An FM-1 on Melodee 0.12 to 1.0.2 is pulled from only, and told to update with
-  Melodee's installer. Not yet tried with an FM-1 running 1.1.0.
+  Melodee's installer. Tried with an FM-1 running 1.1.0.
 - **baud girl's FM-1+VA 97** is the release the plugin syncs with (it was
   0.96): its sounds and patterns sync as 0.96's did (nothing in her web app
-  for 97 needs more than 96). Not yet tried with an FM-1 on 97; 0.96 stays tested, and her
-  98 beta is synced as 97 and said to be untried.
+  for 97 needs more than 96). Tried with an FM-1 on 97; 0.96 stays tested, and her
+  betas (98, 99) are synced as 97 and said to be untried.
 - **Felucca 1.5.1** is built in (it was 1.0.3): parameter locks, ratchets,
   nudges and quantize, songs with a lane per track, the INSERT on every track,
   ANALOG's band-pass and high-pass, envelopes in note values, LFO sync, DRUM
@@ -40,7 +40,7 @@ for the code. New work goes under the next version at the top.
   before keep their names. The Sequencer tab's Pull and Send carry each step's
   ratchet and nudge, parameter locks as locks, and songs with a slot per track.
   An FM-1 on Felucca 1.0 to 1.4.1 cannot read 1.5's projects: the plugin pulls
-  from it only, and says to update it. Not yet tried with an FM-1 running 1.5.1.
+  from it only, and says to update it. Tried with an FM-1 running 1.5.1.
 - **Felucca 1.0.3 is kept** beside it, as Melodee 0.13 is: a project saved with
   Felucca 1.0.x opens on 1.0.3 and plays as it did (1.0.5 retired the HAND, CYM
   and H+CYM kits), and an instance set to Felucca 1.0.3 syncs fully with an FM-1

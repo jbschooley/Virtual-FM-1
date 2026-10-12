@@ -38,8 +38,8 @@ On an iPhone (the iOS app builds from source):
 - **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
-  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.97, not tried on
-  an FM-1 yet; 0.96, 0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
+  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.97; 0.96, 0.93
+  and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
   1.5.1 (1.5 too; 1.0 to 1.4.1 pulled from only; one on 1.0.3 syncs with an
   instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
   2.5 pulled from only) or
@@ -134,8 +134,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   sequencer, projects and user presets work as on the device. Its projects and
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
-  running Felucca 1.5.1: pull everything, send everything, or keep both in step live
-  (not yet tried with an FM-1 on 1.5.1); the Sequencer tab carries steps' ratchets and
+  running Felucca 1.5.1: pull everything, send everything, or keep both in step live;
+  the Sequencer tab carries steps' ratchets and
   nudges, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
   beside it, its own firmware choice, for the projects made with it: a project saved
   with 1.0.x opens on it, and it syncs fully with an FM-1 still on 1.0.3.
@@ -145,7 +145,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   Its projects, user presets, FM6 bank, SYN drum kits and MIDI setup are kept in
   the library as the file SLOOP's web editor uses for backups
   (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.6: pull, send and
-  live, as with Felucca (not yet tried with an FM-1 on 2.6); one on 2.3 to 2.5,
+  live, as with Felucca; one on 2.3 to 2.5,
   which cannot read 2.6's projects, is pulled from only.
 - **Melodee 1.1.0**, built from its source the same way: its engines on four
   parts, PROPHET (with Sequential's Prophet-5 factory programs), CZ-1 (with
@@ -154,7 +154,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   projects, user presets and CZ, FM6 and PROPHET banks are kept in the library as
   the file Melodee's web editor uses for backups (`Melodee/Melodee device.json`).
   With an FM-1 running Melodee 1.1.0: pull, send and live, a part's own CZ-1 tone
-  or PROPHET patch included (not yet tried with an FM-1 on 1.1.0). **Melodee
+  or PROPHET patch included. **Melodee
   0.13** stays beside it, its own firmware choice, for the projects made with it
   (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE): a project saved with 0.13
   opens on it, and it syncs fully with an FM-1 still on 0.13.

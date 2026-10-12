@@ -78,8 +78,8 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {94, "0.94", Support::Tested, "baud girl's beta: 0.93 with M-VAVE's updater fixed; no 8-Bit presets or parameter locks (FM-1_096)"},
         {96, "0.96", Support::Tested, ""},   // (her release of 2026-10-06; tried on an FM-1 the same day)
         // her current release (baudgirl.com, 2026-10-09): MIDI clock out, P2P Bluetooth clock, the Flow grid
-        // as a view; its web app's protocol is 096's (nothing in it needs more than 96). Not yet tried on an
-        // FM-1 (Jacob chose code first, 2026-10-11). 98 is her beta: synced as 97, said to be untried
+        // as a view; its web app's protocol is 096's (nothing in it needs more than 96). Tried on an FM-1
+        // 2026-10-12 (presets and patterns both ways). 98 and 99 are her betas: synced as 97, said to be untried
         {97, "0.97", Support::Current, ""},
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
@@ -91,7 +91,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {910, "1.0.5.2", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
         {911, "1.1.5.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
         {914, "1.4.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
-        {915, "1.5.1", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
+        {915, "1.5.1", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, Live, the sequencer's ratchets, lanes and locks)
     };
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
@@ -102,7 +102,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {900, "2.4", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
         {900, "2.4.1", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
         {900, "2.5", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.6", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
+        {900, "2.6", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, Live, locks, nudges and conditions)
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")
@@ -115,7 +115,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {91000, "1.0.0", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
         {91001, "1.0.1", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
         {91002, "1.0.2", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {91010, "1.1.0", Support::Current, ""},   // (not yet tried on an FM-1: Jacob chose code first, 2026-10-11)
+        {91010, "1.1.0", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, sound copies, pattern banks, Live)
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
