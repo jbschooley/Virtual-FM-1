@@ -230,6 +230,56 @@ int main(int argc, char** argv) {
         std::printf("%d the same, %d different\n", same, differ);
         return differ == 0 && name == "SEND TEST" ? 0 : 1;
     }
+    if (cmd == "felucca-seq") {   // Felucca 1.5.1: a step's ratchet and nudge, the chain's lanes, a motion lock; sent, pulled, put back (RAM only)
+        struct Mine : felucca::Endpoint {
+            const felucca::Dialect& dialect() const override { return felucca::feluccaDialect(); }
+            std::shared_ptr<FeluccaEngine> f = std::make_shared<FeluccaEngine>();
+            std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f->ask(q); }
+            std::vector<fm1::Bytes> pushes() override { f->takeSysex(); return {}; }
+        } orig, mine, back;
+        felucca::LinkEndpoint synth(link, dl);
+        juce::String err;
+        int fails = 0;
+        auto check = [&](bool ok, const juce::String& what) { std::printf("%s: %s\n", what.toRawUTF8(), ok ? "ok" : "FAILED"); std::fflush(stdout); if (!ok) ++fails; };
+        if (!felucca::hasLanes(synth)) { std::printf("not a Felucca from 1.2\n"); return 1; }
+        check(felucca::copySequencer(synth, orig, 4, err), "the FM-1's sequencer kept (" + err + ")");
+        check(felucca::copySequencer(synth, mine, 4, err), "pull into the plugin's Felucca (" + err + ")");
+        felucca::Step st;
+        st.n = 1; st.note = {60, 0, 0, 0}; st.time = felucca::kNote; st.vel = 100; st.ratchet = 3; st.nudge = -3;
+        mine.ask(felucca::stepWrite(felucca::feluccaDialect(), 0, 5, st), 0);
+        felucca::Chain c;
+        c.rows = {{0, 2}, {1, 1}};
+        c.lanes = {{0, 1, 2, 3}, {1, 0, 3, 2}};
+        mine.ask(felucca::chainWrite(c), 0);
+        int lp = -1;
+        for (int id = 0; id < 128 && lp < 0; ++id) if (felucca::motionParam(id)) lp = id;
+        std::vector<uint8_t> q = {0, 5, 9, uint8_t(lp)};
+        q.push_back(uint8_t((33 + 8192) & 127)); q.push_back(uint8_t(((33 + 8192) >> 7) & 127));   // (v14)
+        mine.ask(felucca::frame(felucca::kMotion, q), 0);
+        auto hasLock = [&](felucca::Endpoint& e) {
+            auto m = felucca::readMotion(e, 0);
+            if (!m) return false;
+            for (auto& ev : m->events) if (ev.lock && ev.step == 9 && ev.param == lp && ev.value == 33) return true;
+            return false;
+        };
+        auto stepOk = [&](felucca::Endpoint& e) { auto s = felucca::readStep(e, 0, 5); return s && s->ratchet == 3 && s->nudge == -3 && s->note[0] == 60; };
+        auto lanesOk = [&](felucca::Endpoint& e) { auto ch = felucca::readChain(e); return ch && ch->rows.size() == 2 && ch->lanes == c.lanes; };
+        check(stepOk(mine) && lanesOk(mine) && hasLock(mine), "set in the plugin's Felucca (lock on parameter " + juce::String(lp) + ")");
+        check(felucca::copySequencer(mine, synth, 4, err), "send (" + err + ")");
+        check(stepOk(synth), "the FM-1's step 6: ratchet 3, nudge -3");
+        check(lanesOk(synth), "the FM-1's chain: its lanes");
+        check(hasLock(synth), "the FM-1's motion: the lock");
+        check(felucca::copySequencer(synth, back, 4, err), "pull into a new Felucca (" + err + ")");
+        check(stepOk(back) && lanesOk(back) && hasLock(back), "pulled: the step, the lanes and the lock");
+        check(felucca::copySequencer(orig, synth, 4, err), "put back (" + err + ")");
+        auto o5 = felucca::readStep(orig, 0, 5), s5 = felucca::readStep(synth, 0, 5);
+        auto oc = felucca::readChain(orig), sc = felucca::readChain(synth);
+        auto om = felucca::readMotion(orig, 0), sm = felucca::readMotion(synth, 0);
+        check(o5 && s5 && *o5 == *s5 && oc && sc && oc->rows == sc->rows && oc->lanes == sc->lanes && om && sm && om->events.size() == sm->events.size(),
+              "the FM-1's step, chain and motion as before");
+        std::printf("%s\n", fails ? "FAILED" : "all ok");
+        return fails ? 1 : 0;
+    }
     if (cmd == "sloop-extras") {   // SLOOP 2.4: part 2's locks, nudges and fill conditions, pulled and sent; put back after (RAM only)
         struct Mine : felucca::Endpoint {
             const felucca::Dialect& dialect() const override { return *d; }
@@ -485,6 +535,18 @@ int main(int argc, char** argv) {
                 return dly == drdly;
             });
             std::printf("plugin -> FM-1: drum delay %d here, the FM-1 has %d: %s\n", drdly, dly, dly == drdly ? "ok" : "NOT CARRIED");
+            // SLOOP 2.6: GLO > TEXTURE's LEVEL (global 38, 0..127), set here, read from the FM-1
+            const int txl = (mine.f->global(38) + 31) % 128;
+            int tx = -1;
+            mine.f->setGlobal(38, txl);
+            until([&] {
+                if (auto rep = synth.ask(felucca::frame(2, {1, 38}), 400); rep && felucca::argsOf(*rep).size() >= 4) {
+                    auto a = felucca::argsOf(*rep);
+                    tx = (int(a[2]) | int(a[3]) << 7) - 8192;
+                }
+                return tx == txl;
+            });
+            std::printf("plugin -> FM-1: TEXTURE LEVEL %d here, the FM-1 has %d: %s\n", txl, tx, tx == txl ? "ok" : "NOT CARRIED");
         }
         std::printf("live for %s s: turn knobs on the FM-1; values seen here are printed\n", argv[2]);
         std::fflush(stdout);
