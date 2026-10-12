@@ -16,6 +16,8 @@ char *fst_plain(void);
 long fst_span(void);
 int *fst_lo(void);
 int *fst_hi(void);
+int fst_io_put(int i, int v);
+int fst_io_get(int i);
 static int fails;
 #define CHECK(c, m) do { if (!(c)) { fails++; printf("FAIL %s\n", m); } } while (0)
 static void *aligned16(size_t n, void **raw) {   /* (portable: no posix_memalign on Windows) */
@@ -44,8 +46,10 @@ int main(void) {
     strcpy(lb, "LANE B");
     CHECK(lb != la && fst_row_name(1) == lb && !strcmp(fst_row_name(1), "LANE B"), "another state: its own label, its own row");
     CHECK(fst_span() == spanA, "and the same layout");
+    CHECK(fst_io_put(2, 0x85) && fst_io_get(2) == 0x85, "a constant pointer into state, tested and written: this state's");
     fst_bind(a);
     CHECK(!strcmp(fst_row_name(1), "LANE A"), "the first state's untouched");
+    CHECK(fst_io_get(2) == 0, "and its own, unwritten");
     printf("%s (%d failed)\n", fails ? "fel_state_test: FAILED" : "fel_state_test: ok", fails);
     free(ra); free(rb);
     return fails != 0;

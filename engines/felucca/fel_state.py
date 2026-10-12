@@ -24,8 +24,8 @@ It adds, with the copy's prefix:
 What it handles, and refuses otherwise (a firmware update that needs more fails the build, with
 the line, instead of compiling something wrong; docs/ADDING-A-FIRMWARE.md says what to do):
 - a use of a marked global in a function, as an operand or inside constant expressions
-  (getelementptr, the casts, integer arithmetic on them): they become instructions at the function's
-  entry
+  (getelementptr, the casts, integer arithmetic and comparisons on them): they become instructions at
+  the function's entry
 - a marked global initialized with the address of another (a pointer, or an array of pointers,
   plain or into it, or such pointers among the elements of a struct or an array of structs): set by
   state_init in each instance's state
@@ -267,10 +267,14 @@ def main():
     # ---- functions: each state reference through the base pointer ---------------------------
     counter = [0]
     # (a constant expression: a getelementptr, a cast, or integer arithmetic on them, as clang folds a
-    # difference of two addresses into a phi's operand: Melodee 1.0)
+    # difference of two addresses into a phi's operand: Melodee 1.0; or a comparison of them, which LLVM
+    # before 19 keeps as one: "icmp ne (ptr <a state address>, ptr null)" for a constant pointer into
+    # state tested before use, Felucca 1.5.1's mpc_io)
     binops = 'add|sub|mul|shl|lshr|ashr|and|or|xor'
     casts = 'ptrtoint|bitcast|inttoptr|trunc|zext|sext'
-    cexpr = re.compile(r'\b(getelementptr(?: inbounds| nuw| nusw)*|(?:' + casts + r')|(?:' + binops + r')(?: nuw| nsw| exact)*) \(')
+    preds = 'eq|ne|ugt|uge|ult|ule|sgt|sge|slt|sle'
+    cexpr = re.compile(r'\b(getelementptr(?: inbounds| nuw| nusw)*|(?:' + casts + r')|(?:' + binops + r')(?: nuw| nsw| exact)*'
+                       r'|icmp (?:' + preds + r')) \(')
 
     def rewrite_function(body):
         used = sorted({x for l in body[1:] for x in names(l, tok) if x in state})
@@ -305,7 +309,7 @@ def main():
             if head.startswith('getelementptr'):
                 parts = split_top(inner)
                 entry.append(f'  {name} = {head} {parts[0]}, {", ".join(operand(p) for p in parts[1:])}')
-            elif re.match(r'^(?:' + binops + r')\b', head):   # <op> (<ty> <a>, <ty> <b>): one type, as the instruction takes it
+            elif re.match(r'^(?:' + binops + r')\b', head) or head.startswith('icmp '):   # <op> (<ty> <a>, <ty> <b>): one type, as the instruction takes it
                 parts = split_top(inner)
                 if len(parts) != 2:
                     fail('unhandled constant expression: ' + expr[:120])

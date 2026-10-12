@@ -14,6 +14,10 @@ typedef struct named { char tag[8]; char *buf; } named_t;
 static const named_t NAMED[2] = {{"A,(B)", label}, {"[C]{D}", 0}};
 static int lo[4], hi[4];                       /* two state arrays */
 static char *plain = label;                    /* (the forms handled before: a pointer to state) */
+/* a constant pointer into a state struct, tested before use (Felucca 1.5.1's midi_control.c mpc_io =
+ * ui.mpc): clang before 19 leaves "icmp ne (ptr <its address>, ptr null)" as a constant expression */
+static struct { char pad[386]; volatile unsigned char mpc[4]; } panel;
+static volatile unsigned char *const panel_io = panel.mpc;
 
 #pragma clang section bss = "" data = ""
 
@@ -29,3 +33,5 @@ char *fst_plain(void) { return plain; }
 long fst_span(void) { return (long)((char *)&hi[2] - (char *)&lo[1]); }
 int *fst_lo(void) { return lo; }
 int *fst_hi(void) { return hi; }
+int fst_io_put(int i, int v) { if (panel_io) { panel_io[i] = (unsigned char)v; return 1; } return 0; }
+int fst_io_get(int i) { return panel.mpc[i]; }

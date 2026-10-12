@@ -113,8 +113,9 @@ once and gives every instance its own copy of the state instead:
 3. **Clang**, with no `-g` for the core (debug information would name the
    variables the rewrite removes), and Python 3 for the build.
 4. **What `fel_state.py` handles**: any use of a variable inside a function,
-   directly or inside constant expressions (getelementptr, the casts, and integer
-   arithmetic on them, as clang folds a difference of two addresses); a variable
+   directly or inside constant expressions (getelementptr, the casts, integer
+   arithmetic on them, as clang folds a difference of two addresses, and comparisons, which LLVM
+   before 19 keeps as constant expressions: a constant pointer into state tested against null); a variable
    initialized with the address of another (a pointer, an array of pointers, or
    such pointers among the fields of a struct or an array of structs, as a
    constant table of rows whose label is a buffer); clang's private constants
