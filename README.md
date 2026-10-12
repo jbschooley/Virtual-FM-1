@@ -43,7 +43,8 @@ On an iPhone (the iOS app builds from source):
   1.5.1 (1.5 too; 1.0 to 1.4.1 pulled from only; one on 1.0.3 syncs with an
   instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
   2.5 pulled from only) or
-  **[Melodee](https://github.com/keremimo/melodee)** 1.1.0 (0.12 to 1.0.2
+  **[Melodee](https://github.com/keremimo/melodee)** 1.1.0 (1.2.1 synced as 1.1.0,
+  untried; its Synth only build is not supported; 0.12 to 1.0.2
   pulled from only; one on 0.13 syncs with an instance set to Melodee 0.13). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.

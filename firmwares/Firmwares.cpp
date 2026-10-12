@@ -29,7 +29,9 @@ std::string firmwareIdFor(const Identity& id) {
     // Melodee (keremimo/melodee, from Felucca 1.0) answers FM-1_900 (development), FM-1_9010 .. FM-1_9012
     // (0.10 .. 0.12) and FM-1_910 from 1.0, as Felucca 1.0 does, and speaks Felucca's editor protocol
     // with other objects and parameters: told apart by its INFO ("MELODEE v0.12"), never synced as Felucca
-    if (id.version >= 900 && id.editor.find("MELODEE") != std::string::npos) return "melodee";
+    // Its Synth only build (an install option beside it: one track, no sequencer or projects, its own
+    // backup objects) answers the same, with no steps in its INFO: known by name, never synced
+    if (id.version >= 900 && id.editor.find("MELODEE") != std::string::npos) return id.noSteps ? "melodee_synth" : "melodee";
     if (id.version >= 900 && id.editor.find("SLOOP") != std::string::npos) return "sloop";
     if (id.version >= 900) return "felucca";   // a Felucca release X.Y reports FM-1_9XY (build.py --release; 0.4 beta: FM-1_904), others FM-1_900
     return "baudgirl_fm1va";
@@ -116,6 +118,9 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {91001, "1.0.1", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
         {91002, "1.0.2", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
         {91010, "1.1.0", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, sound copies, pattern banks, Live)
+        // 1.2.1 (2026-10-12) removed the effects and retired ANALOG and DIGITAL (they play silent); its
+        // release notes say what 1.0 or later saved carries over. Not built in yet: synced as 1.1.0, not tried
+        {91021, "1.2.1", Support::Older, "newer than the plugin's 1.1.0, which it is synced as (not tried): 1.2.1 has no effects, and ANALOG and DIGITAL play silent on it"},
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -178,6 +183,11 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
 VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
+    if (c.firmwareId == "melodee_synth") {   // (not a choice: no instance plays it, none syncs with it)
+        c.support = Support::Older;
+        c.text = id.name() + ": Melodee Synth only, which the plugin does not support yet";
+        return c;
+    }
     if (isPreviousRelease(choiceId) && runs(id, choiceId)) {   // an instance set to a kept release, an FM-1 on it
         c.known = &currentVersion(choiceId);
         c.support = Support::Current;
@@ -321,6 +331,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "felucca") f = makeFeluccaFirmware();
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
     else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
+    else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

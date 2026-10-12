@@ -241,6 +241,17 @@ static int checks() {
                 CHECK(m14.newer && m14.support == fm1::Support::Current && m14.text.find("newer than the plugin's 1.1.0") != std::string::npos
                       && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 1.1.0") != std::string::npos,
                       "a newer one synced as 1.1.0, untried; an older one said to be older");
+                const fm1::Identity m121{"FM-1", 91021, "MELODEE v1.2.1"};
+                const auto m121c = fm1::checkVersion(m121);
+                CHECK(m121c.support == fm1::Support::Older && m121c.known && m121c.text.find("no effects") != std::string::npos && fm1::writesRefused(m121).empty(),
+                      "1.2.1: synced as 1.1.0, said to be untried and what it lacks: " + m121c.text);
+                fm1::Identity synth{"FM-1", 900, "MELODEE synth-4db4f4c"};
+                synth.noSteps = true;
+                const auto sc = fm1::checkVersion(synth);
+                CHECK(fm1::firmwareIdFor(synth) == "melodee_synth" && !fm1::isFirmwareChoice("melodee_synth") && !fm1::isFeluccaFamily("melodee_synth")
+                      && fm1::firmwareFor(synth)->name() == "Melodee Synth only" && !fm1::firmwareFor(synth)->has(fm1::Firmware::Feature::ReadPresets)
+                      && sc.text.find("does not support") != std::string::npos,
+                      "Melodee's Synth only build (no steps in its INFO) is known by name and never synced: " + sc.text);
                 auto prof = fm1::firmwareFor(m12);
                 CHECK(prof->name() == "Melodee" && prof->summary().contains("Pull, Send and Live") && !prof->has(fm1::Firmware::Feature::ReadPresets),
                       "its profile: Pull, Send and Live in its editor, as Felucca's");

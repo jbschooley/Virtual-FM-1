@@ -7,6 +7,7 @@
 //
 // Run: sync_test golden.json   (needs no hardware; macOS only, virtual ports)
 
+#include <cstring>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -31,6 +32,7 @@ class FakeFm1 : private juce::MidiInputCallback {
 public:
     std::array<fm1::Sound, 128> store;
     int identityVersion = 89;
+    fm1::Bytes info;   // FM-1_9XY: its editor protocol's INFO reply (after F0 7D 46 4C 01), if it answers one
     int dropNextReplies = 0;      // simulate lost frames to exercise the retry
     int reads = 0, writes = 0, identities = 0, memReads = 0, patternWrites = 0, lockWrites = 0, stepWrites = 0;
     std::atomic<int> received{0};   // every message, SysEx or not
@@ -86,6 +88,12 @@ private:
         ++received;
         if (!m.isSysEx()) return;
         fm1::Bytes f(m.getRawData(), m.getRawData() + m.getRawDataSize());
+        if (f == fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7} && !info.empty()) {
+            fm1::Bytes r = {0x7D, 0x46, 0x4C, 0x01};
+            r.insert(r.end(), info.begin(), info.end());
+            out_->sendMessageNow(juce::MidiMessage::createSysExMessage(r.data(), int(r.size())));
+            return;
+        }
         if (f == fm1::kIdentityQuery) {
             ++identities;
             std::string text = "FM-1_0" + std::to_string(identityVersion);
@@ -302,6 +310,25 @@ int main(int argc, char** argv) {
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 93})->name() == "FM-1+VA", "FM-1_093 is FM-1+VA");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 94})->has(fm1::Firmware::Feature::ReadGlobals), "FM-1_094 reads GLOBE settings like 093");
     CHECK(fm1::firmwareFor(fm1::Identity{"FM-1", 19})->name() == "M-VAVE", "FM-1_019 is M-VAVE");
+    {   // Melodee answers FM-1_900 with its INFO; its Synth only build lists no steps (NSTEP 0)
+        auto melodeeInfo = [](const char* name, uint8_t nstep) {
+            fm1::Bytes b(name, name + std::strlen(name));
+            b.insert(b.end(), {0, 20, 60, 40, nstep, 16});   // the name, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0
+            return b;
+        };
+        fake.identityVersion = 900;
+        fake.info = melodeeInfo("MELODEE synth-4db4f4c", 0);
+        identity.reset();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && identity->editor == "MELODEE synth-4db4f4c" && identity->noSteps && fm1::firmwareIdFor(*identity) == "melodee_synth",
+              "an FM-1 on Melodee's Synth only build is known as such (no steps in its INFO)");
+        fake.info = melodeeInfo("MELODEE v1.1.0", 64);
+        identity.reset(); progress.clear();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && !identity->noSteps && fm1::firmwareIdFor(*identity) == "melodee", "and one on Melodee itself as Melodee");
+        CHECK(!progress.empty() && progress.back().text.contains("Melodee: Pull"), "with Melodee's profile, not the one before it at the same FM-1_900");
+        fake.info.clear();
+    }
     fake.identityVersion = 904; identity.reset();
     session.identify(); waitIdle(session, 5000);
     CHECK(identity && identity->version == 904 && progress.back().text.contains("Felucca"), "Felucca identity reported");

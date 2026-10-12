@@ -95,15 +95,18 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
         [](const fm1::Bytes& f) { return fm1::parseIdentity(f.data(), f.size()); }, 1000, 3);
     if (id && id->version >= 900) {
         // FM-1_9XY: Felucca, or a firmware made from it that answers alike (Sloop): its editor
-        // protocol's INFO names it (F0 7D 46 4C 01 F7 -> its name, 0-terminated, first)
-        auto name = link_.ask<std::string>(fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7},
-            [](const fm1::Bytes& f) -> std::optional<std::string> {
+        // protocol's INFO names it (F0 7D 46 4C 01 F7 -> its name, 0-terminated, first; then
+        // NENGINES, P_COUNT, G_COUNT, NSTEP: Melodee's Synth only build has no steps)
+        auto info = link_.ask<std::pair<std::string, bool>>(fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7},
+            [](const fm1::Bytes& f) -> std::optional<std::pair<std::string, bool>> {
                 if (f.size() < 7 || f[1] != 0x7D || f[2] != 0x46 || f[3] != 0x4C || f[4] != 0x01) return std::nullopt;
                 std::string s;
-                for (size_t i = 5; i + 1 < f.size() && f[i] != 0; ++i) s += char(f[i]);
-                return s;
+                size_t i = 5;
+                for (; i + 1 < f.size() && f[i] != 0; ++i) s += char(f[i]);
+                const size_t nstep = i + 4;   // (past the name's 0, NENGINES, P_COUNT, G_COUNT)
+                return std::make_pair(s, nstep + 1 < f.size() && f[nstep] == 0);
             }, 500, 2);
-        if (name) id->editor = *name;
+        if (info) { id->editor = info->first; id->noSteps = info->second; }
     }
     if (id && acceptIdentity && !acceptIdentity(*id)) {
         // not this instance's firmware: forget the synth and do nothing more with it
@@ -120,7 +123,9 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
     }
     if (id) {
         // a new profile only for a different firmware, so what it found (a searched edit buffer) is kept
-        if (!firmware_ || !identity_ || identity_->isStock() != id->isStock() || identity_->version != id->version) {
+        // (FM-1_900 is several firmwares: told apart by their INFO)
+        if (!firmware_ || !identity_ || identity_->isStock() != id->isStock() || identity_->version != id->version
+            || fm1::firmwareIdFor(*identity_) != fm1::firmwareIdFor(*id)) {
             auto f = fm1::firmwareFor(*id);
             std::lock_guard<std::mutex> lock(firmwareLock_);
             firmware_ = std::move(f);
