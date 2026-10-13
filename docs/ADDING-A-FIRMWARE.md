@@ -155,17 +155,26 @@ once and gives every instance its own copy of the state instead:
 ## A previous release kept beside the current one
 
 When a release removes something a project may use (an engine, a drum kit, a stored object), the
-release it replaces stays built in for the projects made with it (Melodee 0.13 beside 1.x, Felucca 1.0.3
-beside 1.5):
+release it replaces stays built in for the projects made with it (Melodee 0.13 and 1.1.0 beside 1.3,
+Felucca 1.0.3 beside 1.5):
 
-- its vendored tree is copied unchanged to `engines/<kind><release>/` (`engines/melodee013`), its core
-  file renamed to match, and built by its own `fm1_core(<kind><release> <tag>)` and regression;
-- `FeluccaEngine::Release::Previous` plays it (`hasPrevious()` says which firmwares have one);
-- it is a firmware choice of its own (`melodee_013`, `familyOf()` its firmware), synced only with an
-  FM-1 running that release (`fm1::runs()`), with its own dialect (`melodee013Dialect()`), device file
-  in the library and saved music ("Melodee013");
-- a project whose music says it is that release ("v0.13" in "Melodee") opens on it (`needsPrevious()`
-  in `PluginProcessor.cpp`), so it plays as it did.
+- its vendored tree is copied unchanged to `engines/<kind><release>/` (`engines/melodee110`), its core
+  file renamed to match, and built by its own `fm1_core(<kind><release> <tag>)` and regression; a
+  global the vendored source defines outside the core file (Melodee's `drum909_*` and `x0x_*`) is
+  renamed in each copy with `#define name FEL(name)` in its core file, or the copies collide at link;
+- it is a row of `fm1::keptReleases()` (`firmwares/Firmwares.cpp`): its choice, firmware, release
+  number, label, identity, saved-music name and the versions whose projects open on it;
+- `FeluccaEngine::Release` plays it (`Previous`, `Previous2`: a firmware's second kept release takes
+  the next number; `has()` says which are built in, and `FeluccaEngine.cpp` includes its core);
+- it is a firmware choice of its own (`melodee_110`, `familyOf()` its firmware), synced only with an
+  FM-1 running that release (`fm1::runs()`), with its own dialect (`melodee110Dialect()`), device file
+  in the library and saved music ("Melodee110");
+- a project whose music says it is that release ("v1.1" in "Melodee") opens on it (`keptFor()` in
+  `PluginProcessor.cpp`), so it plays as it did;
+- its host parameters: an entry's `only` (`plugin/FeluccaParams.cpp`) is a mask of the releases it
+  plays on (`1 << release`, -1 all), and `indexOn()` maps the ids that moved between releases (Melodee's
+  engine parameters: 84 on 0.13, 96 on 1.1.0, 111 on 1.3); the Sound page has each release's groups
+  (`plugin/FeluccaPanel.cpp`).
 
 ## Versions
 

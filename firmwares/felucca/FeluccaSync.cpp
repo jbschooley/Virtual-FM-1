@@ -92,13 +92,15 @@ const Dialect& sloopDialect() {
 // ("felucca-backup", its INFO in "firmware"), with objects 0..27 (web/fm1backup.js BACKUP_IDS_P5:
 // 0 the music, 1 the settings, 2..5 the projects, 6, 7, 17, 18 the user preset banks, 8 retired,
 // 9..16 the CZ banks, 19..22 the FM6 and native tone pools, 23..27 the PROPHET user banks; no user
-// samples). Its web editor restores 2..27, then the settings, the music last. Its shared delay is gone (globals 4..7 have no page); Live
-// carries its A4 (21) with the tempo, swing, tuning and effects.
+// samples). Its web editor restores 2..27, then the settings, the music last. Live carries its A4 (21)
+// with the tempo, swing and tuning, and its effects: on 1.3 the shared return's three slots (globals
+// 27..38), RETURN (39) and MODE (40); 1.2 left 4..11 and 24..26, the old effects', as padding. The
+// objects, their order and sizes are 1.1's (1.3's effects live in its projects' spare bytes)
 const Dialect& melodeeDialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
                            {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
-                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 24, 25, 26}};   // (1.0: the shared delay back, 4..7, its TYPE and WEAR 25, 26)
+                           {0, 1, 3, 21, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}};
     return d;
 }
 // Melodee 0.13's, kept beside the current release (engines/melodee013): its own device file in the
@@ -110,10 +112,14 @@ const Dialect& melodee013Dialect() {
                            {0, 1, 3, 8, 9, 10, 11, 21, 24}, -1, -1, "Melodee 0.13", 1};
     return d;
 }
-// Melodee 1.1.0's, kept beside the current release (engines/melodee110): 1.1's objects and globals (as the
-// current dialect had them at 1.1.0), its own device file ("Melodee/Melodee 1.1 device.json")
+// Melodee 1.1.0's, kept beside the current release (engines/melodee110): 1.1's objects, and its globals
+// in Live (the shared delay, 4..7, its TYPE and WEAR 25, 26; the reverb and chorus 8..11, the reverb's
+// TYPE 24), its own device file ("Melodee/Melodee 1.1 device.json")
 const Dialect& melodee110Dialect() {
-    static const Dialect d = [] { Dialect k = melodeeDialect(); k.device = "Melodee 1.1"; k.release = 2; return k; }();
+    static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 24, 25, 26}, -1, -1, "Melodee 1.1", 2};
     return d;
 }
 bool isMelodee(const Dialect& d) { return std::string(d.name) == "Melodee"; }

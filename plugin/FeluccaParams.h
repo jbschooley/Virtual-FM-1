@@ -29,7 +29,8 @@ struct Entry {
     int hint = 0;         // its version hint (0: Felucca's 2, SLOOP's 3); AU orders by it, so an added one has a higher one
     bool melodee = false; // Melodee's ("mel_...")
     bool song = false;    // the same value on every part (Melodee's SCL, QNT, DEG: held on part 1's entry)
-    int only = -1;        // which release of its firmware plays it: -1 every one, 0 the current, 1 a kept previous one
+    int only = -1;        // which releases of its firmware play it: -1 every one, else bit r for release r (0 the current,
+                          // 1 and 2 the kept ones: FeluccaEngine::Release)
 };
 
 // Felucca's, then SLOOP's, then Melodee's (each added after the others: a project's earlier

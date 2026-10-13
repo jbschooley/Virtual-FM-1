@@ -470,18 +470,20 @@ static int checks() {
             }
             CHECK(peak > 0.01f, "channel 1 plays part 1");
             {   // its own host parameters ("mel_..."); Felucca's do not reach it
-                int perTrack[2][4] = {}, globals[2] = {};   // (on 1.1, on 0.13)
+                int perTrack[3][4] = {}, globals[3] = {};   // (on 1.3, on 0.13, on 1.1.0: FeluccaEngine::Release)
                 for (const auto& en : felparams::entries())
                     if (en.melodee)
-                        for (int r = 0; r < 2; ++r)
+                        for (int r = 0; r < 3; ++r)
                             if (felparams::indexOn(en, r) >= 0) { if (en.track >= 0) ++perTrack[r][en.track]; else ++globals[r]; }
                 CHECK(perTrack[1][0] == 71 && perTrack[1][1] == 68 && perTrack[1][3] == 68 && globals[1] == 7
-                      && perTrack[0][0] == 84 && perTrack[0][1] == 81 && perTrack[0][3] == 81 && globals[0] == 13
+                      && perTrack[2][0] == 84 && perTrack[2][1] == 81 && perTrack[2][3] == 81 && globals[2] == 13
+                      && perTrack[0][0] == 98 && perTrack[0][1] == 95 && perTrack[0][3] == 95 && globals[0] == 21
                       && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_mpcdeg")
                       && !p.apvts.getParameter("mel_t2_scale") && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype")
                       && p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4") && !p.apvts.getParameter("mel_tune"),
                       "Melodee's host parameters: on 0.13, 68 a part (its playback QNT, no delay send), the song's SCALE, QUANT and MPCDEG "
-                      "once, seven globals (not TUNE or A4); on 1.1 also the delay send, the DRUM lanes, LFO 2, SPRD and the delay's six");
+                      "once, seven globals (not TUNE or A4); on 1.1 also the delay send, the DRUM lanes, LFO 2, SPRD and the delay's six; "
+                      "on 1.3 the DRUM lanes, LFO 2, SPRD, three inserts and three sends a part, the return's twelve, RETURN and MODE, not the delay");
                 auto* level = p.apvts.getParameter("mel_t1_level");
                 auto* felLevel = p.apvts.getParameter("fel_t1_level");
                 auto* scale = p.apvts.getParameter("mel_scale");
@@ -516,6 +518,9 @@ static int checks() {
                 sp.setSize(900, 700);
                 sp.refresh();
                 CHECK(sp.engineText() == "PROPHET", "the Sound page shows part 1's PROPHET: " + sp.engineText());
+                const auto g = sp.groupTitles();
+                CHECK(g.contains("Insert 1") && g.contains("Insert 3") && g.contains("Sends") && !g.contains("Slicer"),
+                      "1.3's Sound page: its three inserts and sends, not 1.1's slicer: " + g.joinIntoString(", "));
             }
             p.felucca()->setEngine(1, 15);
             p.felucca()->setParam(1, 0, 55);
@@ -623,14 +628,21 @@ static int checks() {
             // eight follow P_E0 (84 on 0.13, 96 on 1.x); 1.x's own (the DRUM lanes, the delay back) play on it only
             const auto& all = felparams::entries();
             auto find = [&](const char* id) { const int i = felparams::indexOf(id); return i >= 0 ? &all[size_t(i)] : nullptr; };
-            const auto *e0 = find("mel_t1_e0"), *lvl = find("mel_t1_level"), *kick = find("mel_t2_kick"), *dtype = find("mel_dtype");
-            CHECK(e0 && lvl && kick && dtype, "Melodee's host parameters found");
-            CHECK(e0 && lvl && kick && dtype && felparams::indexOn(*e0, 0) == 96 && felparams::indexOn(*e0, 1) == 84
-                  && felparams::indexOn(*lvl, 0) == 0 && felparams::indexOn(*lvl, 1) == 0 && felparams::indexOn(*kick, 0) == 84
-                  && felparams::indexOn(*kick, 1) == -1 && felparams::indexOn(*dtype, 0) == 25 && felparams::indexOn(*dtype, 1) == -1,
-                  "Melodee's host parameters: the engine's eight at 96 on 1.1, 84 on 0.13; 1.1's own on 1.1 only");
-            CHECK(felparams::entryFor(0, 96, false, true, 0) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 84, false, true, 1) == felparams::indexOf("mel_t1_e0")
-                  && felparams::entryFor(0, 84, false, true, 0) == felparams::indexOf("mel_t1_kick"), "and back from a parameter number, on each release");
+            const auto *e0 = find("mel_t1_e0"), *lvl = find("mel_t1_level"), *kick = find("mel_t2_kick"), *dtype = find("mel_dtype"),
+                       *fx1 = find("mel_t1_fx1type"), *mode = find("mel_fxmode");
+            CHECK(e0 && lvl && kick && dtype && fx1 && mode, "Melodee's host parameters found");
+            CHECK(e0 && lvl && kick && dtype && fx1 && mode
+                  && felparams::indexOn(*e0, 0) == 111 && felparams::indexOn(*e0, 1) == 84 && felparams::indexOn(*e0, 2) == 96
+                  && felparams::indexOn(*lvl, 0) == 0 && felparams::indexOn(*lvl, 1) == 0 && felparams::indexOn(*lvl, 2) == 0
+                  && felparams::indexOn(*kick, 0) == 84 && felparams::indexOn(*kick, 2) == 84 && felparams::indexOn(*kick, 1) == -1
+                  && felparams::indexOn(*dtype, 2) == 25 && felparams::indexOn(*dtype, 0) == -1 && felparams::indexOn(*dtype, 1) == -1
+                  && felparams::indexOn(*fx1, 0) == 96 && felparams::indexOn(*fx1, 2) == -1 && felparams::indexOn(*mode, 0) == 40 && felparams::indexOn(*mode, 2) == -1,
+                  "Melodee's host parameters: the engine's eight at 111 on 1.3, 96 on 1.1.0, 84 on 0.13; the DRUM lanes on 1.1.0 and 1.3, "
+                  "the delay on 1.1.0 only, the effects on 1.3 only");
+            CHECK(felparams::entryFor(0, 111, false, true, 0) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 96, false, true, 2) == felparams::indexOf("mel_t1_e0")
+                  && felparams::entryFor(0, 84, false, true, 1) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 84, false, true, 0) == felparams::indexOf("mel_t1_kick")
+                  && felparams::entryFor(0, 96, false, true, 0) == felparams::indexOf("mel_t1_fx1type") && felparams::entryFor(-1, 40, false, true, 0) == felparams::indexOf("mel_fxmode"),
+                  "and back from a parameter number, on each release");
             {   // 1.0.2's INFO says motion is version 2 (4D 02 40 01); Melodee advertises no live-sync caps (53),
                 // in 0.13 or 1.1: Live works the same with both
                 FeluccaEngine m11{Fl::Melodee}, m13{Fl::Melodee, FeluccaEngine::Release::Previous};
@@ -651,35 +663,61 @@ static int checks() {
                 if (m) for (const auto& ev : m->events) found = found || (ev.step == 5 && ev.param == 142);
                 CHECK(a.size() >= 2 && a[1] == 0 && found, "a CZ-1 motion event (id 142) goes to Melodee 1.1 and comes back at its step and id");
             }
-            {   // sync between two Melodee 1.1 instances (as with an FM-1 on 1.1): a full backup restored into the
+            {   // sync between two Melodee 1.3 instances (as with an FM-1 on 1.3): a full backup restored into the
                 // other, and Live (a mirror) carrying an edit
                 auto fa = std::make_shared<FeluccaEngine>(Fl::Melodee), fb = std::make_shared<FeluccaEngine>(Fl::Melodee);
                 fa->setEngine(1, 15);
                 fa->setParam(1, 0, 77);
                 std::vector<uint8_t> music;
                 fa->object(0, music);
-                CHECK(fa->putObject(4, music) == 0, "a 1.1 project into slot 3");
+                CHECK(fa->putObject(4, music) == 0, "a 1.3 project into slot 3");
                 felucca::VirtualEndpoint ea(fa), eb(fb);
                 juce::String err;
                 auto objs = felucca::backup(ea, {}, err);
-                CHECK(objs && objs->count(4) && (*objs)[4] == music && felucca::restore(eb, *objs, {}, err), "a full 1.1 backup, restored into another 1.1 (" + err + ")");
+                CHECK(objs && objs->count(4) && (*objs)[4] == music && felucca::restore(eb, *objs, {}, err), "a full 1.3 backup, restored into another 1.3 (" + err + ")");
                 std::vector<uint8_t> slot;
                 CHECK(fb->object(4, slot) && slot == music && fb->engineOf(1) == 15 && fb->param(1, 0) == 77, "the other has its project and its music");
                 felucca::Mirror live(ea, eb);
-                CHECK(live.start(err), "Live starts between two 1.1s (" + err + ")");
+                CHECK(live.start(err), "Live starts between two 1.3s (" + err + ")");
                 const auto set = felucca::frame(felucca::kTrackParam, {2, 0, uint8_t((61 + 8192) & 127), uint8_t((61 + 8192) >> 7)});   // (part 3's LEVEL)
                 eb.ask(set, 400);
                 CHECK(live.forward(set, err) && fa->param(2, 0) == 61 && fb->param(2, 0) == 61, "and carries an edit to the other side (" + err + ")");
+                // 1.3's effects: part 1's first insert (96) and the shared return's RETURN (global 39), changed on the synth
+                // (as its panel would: the editor's own writes are never pushed back), reach the plugin's: Live polls the
+                // synth's pushes
+                std::vector<float> l(256), r(256);
+                auto run = [&] { for (int k = 0; k < 40; ++k) { fa->render(l.data(), r.data(), 256); fb->render(l.data(), r.data(), 256); live.tick(err); } };
+                fa->setParam(0, 96, 4);
+                fa->setGlobal(39, 33);
+                run();
+                CHECK(fa->param(0, 96) == 4 && fa->global(39) == 33 && fb->param(0, 96) == 4 && fb->global(39) == 33,
+                      "and 1.3's insert and RETURN, set on the synth, reach the other side (" + err + ")");
                 live.stop();
             }
             FM1Processor cur, old;
             cur.setFirmware("melodee");
             old.setFirmware("melodee_013");
             auto* p0 = cur.apvts.getParameter("mel_t1_e0");
-            const auto d = cur.felucca()->paramDesc(0, 96);
-            cur.felucca()->setParam(0, 96, d.max);
+            const auto d = cur.felucca()->paramDesc(0, 111);
+            cur.felucca()->setParam(0, 111, d.max);
             cur.feluccaChanged(0);
-            CHECK(p0 && std::abs(p0->getValue() - 1.0f) < 1e-5f, "1.1: mel_t1_e0 follows its engine's first parameter (96)");
+            CHECK(p0 && std::abs(p0->getValue() - 1.0f) < 1e-5f, "1.3: mel_t1_e0 follows its engine's first parameter (111)");
+            {   // and 1.1.0 kept: its engine's first parameter at 96
+                FM1Processor k11;
+                k11.setFirmware("melodee_110");
+                auto* q0 = k11.apvts.getParameter("mel_t1_e0");
+                const auto d11 = k11.felucca()->paramDesc(0, 96);
+                k11.felucca()->setParam(0, 96, d11.max);
+                k11.feluccaChanged(0);
+                CHECK(k11.felucca()->release() == FeluccaEngine::Release::Previous2 && q0 && std::abs(q0->getValue() - 1.0f) < 1e-5f,
+                      "1.1.0 kept: mel_t1_e0 follows its engine's first parameter (96)");
+                FeluccaSoundPage sp(k11);
+                sp.setSize(900, 700);
+                sp.refresh();
+                const auto g = sp.groupTitles();
+                CHECK(g.contains("Slicer") && g.contains("Sends") && !g.contains("Insert 1"),
+                      "1.1.0 kept: its own Sound page (its sends and slicer, no inserts): " + g.joinIntoString(", "));
+            }
             auto* o0 = old.apvts.getParameter("mel_t1_e0");
             const auto d13 = old.felucca()->paramDesc(0, 84);
             old.felucca()->setParam(0, 84, d13.max);

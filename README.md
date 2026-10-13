@@ -43,9 +43,9 @@ On an iPhone (the iOS app builds from source):
   1.5.1 (1.5 too; 1.0 to 1.4.1 pulled from only; one on 1.0.3 syncs with an
   instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
   2.5 pulled from only) or
-  **[Melodee](https://github.com/keremimo/melodee)** 1.1.0 (1.2.1 synced as 1.1.0,
-  untried; its Synth only build is not supported; 0.12 to 1.0.2
-  pulled from only; one on 0.13 syncs with an instance set to Melodee 0.13). On M-VAVE's own
+  **[Melodee](https://github.com/keremimo/melodee)** 1.3.4 (1.3.0 to 1.3.3 synced as
+  1.3.4, untried; its Synth only build is not supported; 0.12 to 1.2.1 pulled from
+  only; one on 0.13 or 1.1.0 syncs with an instance set to that release). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -148,17 +148,19 @@ project saves its own current preset, edits, patterns and arpeggiator.
   (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.6: pull, send and
   live, as with Felucca; one on 2.3 to 2.5,
   which cannot read 2.6's projects, is pulled from only.
-- **Melodee 1.1.0**, built from its source the same way: its engines on four
+- **Melodee 1.3.4**, built from its source the same way: its engines on four
   parts, PROPHET (with Sequential's Prophet-5 factory programs), CZ-1 (with
-  Casio's CZ-1 tones), FM6, SID and the 808 and 909 DRUM kits, its 32 pattern
-  banks, in the same editor and as host parameters, Library and Device tabs. Its
+  Casio's CZ-1 tones), FM6, SID and the 808 and 909 DRUM kits, three insert
+  effects and three sends on each part into a shared return of three effects,
+  its 32 pattern banks, in the same editor and as host parameters, Library and Device tabs. Its
   projects, user presets and CZ, FM6 and PROPHET banks are kept in the library as
   the file Melodee's web editor uses for backups (`Melodee/Melodee device.json`).
-  With an FM-1 running Melodee 1.1.0: pull, send and live, a part's own CZ-1 tone
-  or PROPHET patch included. **Melodee
-  0.13** stays beside it, its own firmware choice, for the projects made with it
-  (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE): a project saved with 0.13
-  opens on it, and it syncs fully with an FM-1 still on 0.13.
+  With an FM-1 running Melodee 1.3.4: pull, send and live, a part's own CZ-1 tone
+  or PROPHET patch included (not yet tried with an FM-1 on 1.3.4). **Melodee
+  0.13** and **Melodee 1.1.0** stay beside it, each its own firmware choice, for
+  the projects made with them (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE;
+  1.2 removed 1.1's delay, reverb, chorus and slicer): a project saved with one
+  opens on it, and it syncs fully with an FM-1 still on that release.
 
 ## Not done yet
 

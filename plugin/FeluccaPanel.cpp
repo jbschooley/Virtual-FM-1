@@ -91,9 +91,9 @@ const GroupDef kMelodee013Groups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
-// Melodee 1.0's (1.1.0): 0.13's numbering up to DEG (83), then the DRUM lanes' levels (84..91), LFO 2's
-// SYNC, TRIG, POL (92..94), SPRD (95) and the engine's eight from 96; its delay send (35) is back
-const GroupDef kMelodeeGroups[] = {
+// Melodee 1.0's (1.1.0, kept): 0.13's numbering up to DEG (83), then the DRUM lanes' levels (84..91),
+// LFO 2's SYNC, TRIG, POL (92..94), SPRD (95) and the engine's eight from 96; its delay send (35) is back
+const GroupDef kMelodee110Groups[] = {
     {"Engine", -1, -1},
     {"Envelope", 1, 4},
     {"Envelope to", 5, 7},
@@ -111,6 +111,29 @@ const GroupDef kMelodeeGroups[] = {
     {"Slicer", 45, 48},
     {"Mix", 0, 0},
 };
+// Melodee 1.3's: 1.1's without its effects (33..36 and the SLICER, 45..48, are padding since 1.2), with
+// three inserts a part (TYPE MIX RATE CHAR: 96..107) and its three sends (108..110); the engine's eight
+// from 111
+const GroupDef kMelodeeGroups[] = {
+    {"Engine", -1, -1},
+    {"Envelope", 1, 4},
+    {"Envelope to", 5, 7},
+    {"LFO", 9, 12},
+    {"LFO sync", 92, 94},
+    {"LFO to", 13, 16},
+    {"Modulation", 49, 60},
+    {"Voice", 37, 44, 95},
+    {"Chord", 81, 82},
+    {"Arpeggiator", 17, 24},
+    {"Scale", 25, 28, 83},
+    {"Sequencer", 29, 32, 8},
+    {"Insert 1", 96, 99},
+    {"Insert 2", 100, 103},
+    {"Insert 3", 104, 107},
+    {"Sends", 108, 110},
+    {"Drum lanes", 84, 91},
+    {"Mix", 0, 0},
+};
 // the global settings worth editing here (the rest are the device's own pages and actions)
 const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 // SLOOP's: the same up to the chorus, then its drum level, reverb and (2.5) delay sends and master bus
@@ -118,9 +141,10 @@ const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 32, 27, 28, 29,
                                        37, 38, 39, 40, 41, 42, 43};   // (2.6: GLO > TEXTURE, the bed under the mix)
 // Melodee's: its A4 reference (21); 0.13 no shared delay (4..7), 1.0 the delay back with its TYPE
-// and WEAR (25, 26)
+// and WEAR (25, 26); 1.3 none of those, its shared return's three slots (27..38), RETURN and MODE
 const std::vector<int> kMelodee013Globals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
-const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 4, 5, 6, 7, 25, 26, 8, 9, 10, 11, 24};
+const std::vector<int> kMelodee110Globals = {0, 1, 3, 21, 4, 5, 6, 7, 25, 26, 8, 9, 10, 11, 24};
+const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
@@ -135,6 +159,7 @@ int labelsKeyOf(const FeluccaEngine& f, int track) {
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
 bool isMelodee013(const FeluccaEngine* f) { return isMelodee(f) && f->release() == FeluccaEngine::Release::Previous; }
+bool isMelodee110(const FeluccaEngine* f) { return isMelodee(f) && f->release() == FeluccaEngine::Release::Previous2; }
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
@@ -623,6 +648,7 @@ void FeluccaSoundPage::build() {
     };
     const std::vector<GroupDef> defs = sloop ? std::vector<GroupDef>(std::begin(kSloopGroups), std::end(kSloopGroups))
                                      : isMelodee013(f) ? std::vector<GroupDef>(std::begin(kMelodee013Groups), std::end(kMelodee013Groups))
+                                     : isMelodee110(f) ? std::vector<GroupDef>(std::begin(kMelodee110Groups), std::end(kMelodee110Groups))
                                      : isMelodee(f) ? std::vector<GroupDef>(std::begin(kMelodeeGroups), std::end(kMelodeeGroups))
                                      : f->release() == FeluccaEngine::Release::Previous ? std::vector<GroupDef>(std::begin(kFelucca103Groups), std::end(kFelucca103Groups))
                                                     : std::vector<GroupDef>(std::begin(kTrackGroups), std::end(kTrackGroups));
@@ -649,7 +675,7 @@ void FeluccaSoundPage::build() {
         g.title = "Global";
         g.global = true;
         addHeader(g);
-        for (int id : sloop ? kSloopGlobals : isMelodee013(f) ? kMelodee013Globals : isMelodee(f) ? kMelodeeGlobals : kGlobals)
+        for (int id : sloop ? kSloopGlobals : isMelodee013(f) ? kMelodee013Globals : isMelodee110(f) ? kMelodee110Globals : isMelodee(f) ? kMelodeeGlobals : kGlobals)
             if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }

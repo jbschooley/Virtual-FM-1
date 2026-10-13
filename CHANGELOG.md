@@ -4,6 +4,24 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **Melodee 1.3.4** is built in (it was 1.1.0): three insert effects on every
+  part (PHASER, WIDTH, FORMANT, TAPE, SPIT, ECHO, ROOM, REVERB, CHORUS) and three
+  sends into a shared return of three more, chained or split, in place of 1.1's
+  delay, reverb, chorus and slicer. The Sound page and the host parameters have
+  them ("Melodee P1 FX1TYPE", "Melodee P1 SEND", "Melodee RFX1TYPE", "Melodee
+  FRETURN" and so on); the ones from before keep their names and follow its new
+  numbering, and 1.1's delay parameters play only on Melodee 1.1.0. An FM-1 on
+  Melodee 1.2.1 or older cannot read 1.3's projects: the plugin pulls from it
+  only, and says to update it with Melodee's installer. 1.3.0 to 1.3.3 are
+  synced as 1.3.4. Not yet tried with an FM-1 running 1.3.
+- **Melodee 1.1.0** stays built in beside it, its own firmware choice, as 0.13
+  does: a project saved with 1.0 or 1.1 opens on it and plays as it did, and an
+  FM-1 still on 1.1.0 syncs fully with an instance set to it.
+
 ## [0.9.0] - 2026-10-12
 
 ### Changed

@@ -155,22 +155,25 @@ std::vector<Entry> build() {
         {"txsrc", 37, {0, 10, 0}}, {"txlvl", 38, {0, 127, 64}}, {"txtone", 39, {-64, 63, 0}}, {"txmove", 40, {0, 127, 40}},
         {"txrate", 41, {0, 4, 2}}, {"txwhen", 42, {0, 1, 0}}, {"txduck", 43, {0, 1, 0}}};
     for (const auto& g : k26g) out.push_back({"slp_" + juce::String(g.name), -1, g.index, defaultOf(g.range), true, 7});
-    // Melodee 1.0's (1.1.0 core.h, params.c), on the current release only: the DRUM lanes' levels
-    // (84..91), LFO 2's SYNC TRIG POL (92..94), SPRD (95), the delay send (35) and the shared delay
-    // back (globals 4..7) with its TYPE and WEAR (25, 26)
+    // Melodee 1.0's (1.1.0 core.h, params.c): the DRUM lanes' levels (84..91), LFO 2's SYNC TRIG POL
+    // (92..94) and SPRD (95), on 1.1.0 and 1.3 (the same ids); the delay send (35) and the shared delay
+    // (globals 4..7) with its TYPE and WEAR (25, 26) on 1.1.0 only (1.2 removed them)
     {
         constexpr int kHint = 8;
-        static const struct { const char* name; int index; int range[3]; } part[] = {
-            {"dly", 35, {0, 127, 0}}, {"kick", 84, {0, 127, 127}}, {"snare", 85, {0, 127, 127}}, {"clap", 86, {0, 127, 127}},
-            {"hatcl", 87, {0, 127, 127}}, {"hatop", 88, {0, 127, 127}}, {"tom", 89, {0, 127, 127}}, {"rim", 90, {0, 127, 127}},
-            {"bell", 91, {0, 127, 127}}, {"lsync", 92, {0, 10, 0}}, {"ltrig", 93, {0, 1, 0}}, {"lpol", 94, {0, 1, 0}}, {"sprd", 95, {0, 127, 0}}};
+        constexpr int k11 = 1 << 2, k13 = 1 << 0;   // (releases: 1.1.0 kept, Previous2; 1.3 the current one)
+        static const struct { const char* name; int index; int range[3]; int releases; } part[] = {
+            {"dly", 35, {0, 127, 0}, k11}, {"kick", 84, {0, 127, 127}, k11 | k13}, {"snare", 85, {0, 127, 127}, k11 | k13},
+            {"clap", 86, {0, 127, 127}, k11 | k13}, {"hatcl", 87, {0, 127, 127}, k11 | k13}, {"hatop", 88, {0, 127, 127}, k11 | k13},
+            {"tom", 89, {0, 127, 127}, k11 | k13}, {"rim", 90, {0, 127, 127}, k11 | k13}, {"bell", 91, {0, 127, 127}, k11 | k13},
+            {"lsync", 92, {0, 10, 0}, k11 | k13}, {"ltrig", 93, {0, 1, 0}, k11 | k13}, {"lpol", 94, {0, 1, 0}, k11 | k13},
+            {"sprd", 95, {0, 127, 0}, k11 | k13}};
         for (int t = 0; t < kParts; ++t)
             for (const auto& k : part)
-                out.push_back({"mel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, true, false, 0});
+                out.push_back({"mel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, true, false, k.releases});
         static const struct { const char* name; int index; int range[3]; } glob[] = {
             {"dtime", 4, {0, 13, 11}}, {"dfdbk", 5, {0, 120, 50}}, {"dcolor", 6, {0, 127, 51}}, {"dmix", 7, {0, 127, 85}},
             {"dtype", 25, {0, 3, 1}}, {"dwear", 26, {0, 127, 64}}};
-        for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, 0});
+        for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, k11});
     }
     // Felucca 1.1 to 1.5's (1.5.1 core.h, params.c), on the current release only: the DRUM lanes' levels
     // (83..90), LFO 2's SYNC TRIG POL (91..93), QNTZ (94), SPRD (95), the INSERT (96..100), ANALOG's
@@ -185,7 +188,27 @@ std::vector<Entry> build() {
             {"ftype", 101, {0, 2, 0}}, {"esync", 102, {0, 1, 0}}};
         for (int t = 0; t < kParts; ++t)
             for (const auto& k : part)
-                out.push_back({"fel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, false, false, 0});
+                out.push_back({"fel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, false, false, 1 << 0});
+    }
+    // Melodee 1.3's (1.3.4 core.h, params.c), on 1.3 only: each part's three inserts (TYPE MIX RATE CHAR,
+    // 96..107) and its three sends (108..110); the shared return's three slots (globals 27..38), its
+    // RETURN (39) and MODE (40, a serial chain or independent sends)
+    {
+        constexpr int kHint = 10;
+        static const struct { const char* name; int index; int range[3]; } part[] = {
+            {"fx1type", 96, {0, 9, 0}}, {"fx1mix", 97, {0, 127, 0}}, {"fx1rate", 98, {0, 127, 60}}, {"fx1char", 99, {0, 127, 64}},
+            {"fx2type", 100, {0, 9, 0}}, {"fx2mix", 101, {0, 127, 0}}, {"fx2rate", 102, {0, 127, 60}}, {"fx2char", 103, {0, 127, 64}},
+            {"fx3type", 104, {0, 9, 0}}, {"fx3mix", 105, {0, 127, 0}}, {"fx3rate", 106, {0, 127, 60}}, {"fx3char", 107, {0, 127, 64}},
+            {"send", 108, {0, 127, 0}}, {"send2", 109, {0, 127, 0}}, {"send3", 110, {0, 127, 0}}};
+        for (int t = 0; t < kParts; ++t)
+            for (const auto& k : part)
+                out.push_back({"mel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, true, false, 1 << 0});
+        static const struct { const char* name; int index; int range[3]; } glob[] = {
+            {"rfx1type", 27, {0, 9, 0}}, {"rfx1mix", 28, {0, 127, 127}}, {"rfx1rate", 29, {0, 127, 60}}, {"rfx1char", 30, {0, 127, 64}},
+            {"rfx2type", 31, {0, 9, 0}}, {"rfx2mix", 32, {0, 127, 127}}, {"rfx2rate", 33, {0, 127, 60}}, {"rfx2char", 34, {0, 127, 64}},
+            {"rfx3type", 35, {0, 9, 0}}, {"rfx3mix", 36, {0, 127, 127}}, {"rfx3rate", 37, {0, 127, 60}}, {"rfx3char", 38, {0, 127, 64}},
+            {"freturn", 39, {0, 127, 100}}, {"fxmode", 40, {0, 1, 0}}};
+        for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, 1 << 0});
     }
     return out;
 }
@@ -204,14 +227,13 @@ int indexOf(const juce::String& id) {
 }
 
 int indexOn(const Entry& e, int release) {
-    // (Melodee 1.1.0 kept, release 2, numbers its parameters as the current release, 1.1.0 too)
-    if (e.melodee && release == 2) release = 0;
-    if (e.only >= 0 && e.only != release) return -1;
-    // (the ids from before a release added parameters before the engine's eight: on the current release
-    // those eight are that many higher. Melodee 1.0: twelve from 84; Felucca 1.1 to 1.5: twenty from 83)
-    if (e.only < 0 && release == 0 && e.track >= 0 && !e.sloop) {
-        if (e.melodee && e.index >= kMelodeeEngineFirst013) return e.index + 12;
-        if (!e.melodee && e.index >= kEngineFirst) return e.index + 20;
+    if (e.only >= 0 && !(e.only & (1 << release))) return -1;
+    // (the ids from before a release added parameters before the engine's eight, in their first release's
+    // numbering: on a later release those eight are that many higher. Melodee 1.0: twelve from 84, and 1.3
+    // fifteen more (its inserts and sends); Felucca 1.1 to 1.5: twenty from 83)
+    if (e.only < 0 && e.track >= 0 && !e.sloop) {
+        if (e.melodee && e.index >= kMelodeeEngineFirst013) return release == 2 ? e.index + 12 : release == 0 ? e.index + 12 + 15 : e.index;
+        if (!e.melodee && release == 0 && e.index >= kEngineFirst) return e.index + 20;
     }
     return e.index;
 }
