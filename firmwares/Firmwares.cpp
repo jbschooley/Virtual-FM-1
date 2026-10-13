@@ -154,11 +154,12 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {91010, "1.1.0", Support::Older, "pulled from only (an instance set to Melodee 1.1.0 syncs with it): update it to 1.3.4 with Melodee's installer to send to it or go Live"},
         // 1.2.1 removed the effects and retired ANALOG and DIGITAL
         {91021, "1.2.1", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
-        // 1.3.1 to 1.3.4 changed the device's clock and its recovery tools only: the same formats and parameters
-        {91030, "1.3.0", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock; update it with Melodee's installer if it fails to start"},
-        {91031, "1.3.1", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock; update it with Melodee's installer if it fails to start"},
-        {91032, "1.3.2", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock"},
-        {91033, "1.3.3", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock"},
+        // later 1.3 releases changed the FM-1's clock (1.3.1 also its loader and recovery tools) and a
+        // diagnostic field of the editor's: not its parameters, stored objects or projects (compared upstream)
+        {91030, "1.3.0", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock and loader, not its sounds or projects; update it with Melodee's installer if it fails to start"},
+        {91031, "1.3.1", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects; update it with Melodee's installer if it fails to start"},
+        {91032, "1.3.2", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects"},
+        {91033, "1.3.3", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects"},
         {91034, "1.3.4", Support::Current, ""},   // (not yet tried on an FM-1)
     };
     if (firmwareId == "felucca") return felucca;
