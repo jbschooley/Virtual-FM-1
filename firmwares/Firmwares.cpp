@@ -140,19 +140,26 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")
-    // (X.Y.Z from 0.13.1: FM-1_9 X YY Z, 1.1.0 FM-1_91010). None before 1.1 is known to read 1.1's projects:
-    // pulled from only. An FM-1 on 0.13 syncs fully with an instance set to Melodee 0.13 (kept)
+    // (X.Y.Z from 0.13.1: FM-1_9 X YY Z, 1.1.0 FM-1_91010). Every 1.3 release saves FUN20 projects, which
+    // no release before 1.3 reads (1.1.0 and 1.2.1 read up to FUN16): those are pulled from only. An FM-1 on
+    // 0.13 or 1.1.0 syncs fully with an instance set to that release (kept)
     static const std::vector<KnownVersion> melodee = {
-        {9012, "0.12", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {9013, "0.13", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {90131, "0.13.1", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {91000, "1.0.0", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {91001, "1.0.1", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {91002, "1.0.2", Support::Older, "pulled from only: update it to 1.1.0 with Melodee's installer to send to it or go Live"},
-        {91010, "1.1.0", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, sound copies, pattern banks, Live)
-        // 1.2.1 (2026-10-12) removed the effects and retired ANALOG and DIGITAL (they play silent); its
-        // release notes say what 1.0 or later saved carries over. Not built in yet: synced as 1.1.0, not tried
-        {91021, "1.2.1", Support::Older, "newer than the plugin's 1.1.0, which it is synced as (not tried): 1.2.1 has no effects, and ANALOG and DIGITAL play silent on it"},
+        {9012, "0.12", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        {9013, "0.13", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        {90131, "0.13.1", Support::Older, "pulled from only (an instance set to Melodee 0.13 syncs with it): update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        {91000, "1.0.0", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        {91001, "1.0.1", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        {91002, "1.0.2", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        // (tried on an FM-1 2026-10-11 as the current release: Pull, Send, sound copies, pattern banks, Live)
+        {91010, "1.1.0", Support::Older, "pulled from only (an instance set to Melodee 1.1.0 syncs with it): update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        // 1.2.1 removed the effects and retired ANALOG and DIGITAL
+        {91021, "1.2.1", Support::Older, "pulled from only: update it to 1.3.4 with Melodee's installer to send to it or go Live"},
+        // 1.3.1 to 1.3.4 changed the device's clock and its recovery tools only: the same formats and parameters
+        {91030, "1.3.0", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock; update it with Melodee's installer if it fails to start"},
+        {91031, "1.3.1", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock; update it with Melodee's installer if it fails to start"},
+        {91032, "1.3.2", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock"},
+        {91033, "1.3.3", Support::Older, "synced as 1.3.4 (not tried): 1.3.4 changed only the FM-1's clock"},
+        {91034, "1.3.4", Support::Current, ""},   // (not yet tried on an FM-1)
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
@@ -192,12 +199,16 @@ static bool sloopNewer(const std::string& a, const std::string& b) {
 
 std::string writesRefused(const Identity& id, const std::string& choiceId) {
     if (isPreviousRelease(choiceId)) return {};   // (a kept release's choice: only a synth on that release is synced)
-    if (firmwareIdFor(id) == "melodee") {   // before 1.1 none is known to read 1.1's projects (FUN15, FBKI)
+    if (firmwareIdFor(id) == "melodee") {   // none before 1.3 reads 1.3's projects (FUN20; 1.1.0 and 1.2.1 read up to FUN16)
         const std::string release = melodeeRelease(id), current = currentVersion("melodee").label;
-        if (release.empty() || !sloopNewer(current, release)) return {};
-        const bool m013 = release == "0.13" || release.rfind("0.13.", 0) == 0;
-        return "This FM-1 runs Melodee " + release + ", which may not read Melodee " + current + "'s projects: update it to " + current
-               + " with Melodee's installer to send to it or go Live" + (m013 ? ", or set this instance to Melodee 0.13" : "") + ". Pull still works.";
+        if (release.empty() || !sloopNewer("1.3", release)) return {};
+        const auto* kept = [&]() -> const KeptRelease* {
+            for (const auto& k : keptReleases())
+                if (std::string(k.family) == "melodee" && (release == k.label || release.rfind(std::string(k.label) + ".", 0) == 0)) return &k;
+            return nullptr;
+        }();
+        return "This FM-1 runs Melodee " + release + ", which does not read Melodee " + current + "'s projects: update it to " + current
+               + " with Melodee's installer to send to it or go Live" + (kept ? ", or set this instance to Melodee " + std::string(kept->label) : "") + ". Pull still works.";
     }
     if (firmwareIdFor(id) == "felucca") {   // 1.5's projects open on no release before 1.5
         const std::string release = feluccaRelease(id);

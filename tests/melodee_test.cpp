@@ -195,15 +195,16 @@ int main() {
     }
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.1.0" && fel.engines() == 14 && mel.engines() == 20,
+        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.3.4" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
-        // Melodee 0.13, kept beside 1.1 for the projects made with it (engines/melodee013): its own core
+        // Melodee 0.13, kept beside 1.3 for the projects made with it (engines/melodee013): its own core
         FeluccaEngine m13{kMel, FeluccaEngine::Release::Previous};
         CHECK(m13.valid() && m13.version() == "v0.13" && m13.paramCount() == 92 && m13.firstEngineParam() == 84 && m13.enginesShown().size() == 8
-              && m13.engineName(3) == "LOFI" && mel.engineName(3) == "SID", "and Melodee 0.13 beside it, as it was (LOFI where 1.1 has SID)");
+              && m13.engineName(3) == "LOFI" && mel.engineName(3) == "SID", "and Melodee 0.13 beside it, as it was (LOFI where 1.3 has SID)");
         // Melodee 1.1.0, kept the same way (engines/melodee110): its own core, its own state
         FeluccaEngine m110{kMel, FeluccaEngine::Release::Previous2};
         CHECK(m110.valid() && m110.release() == FeluccaEngine::Release::Previous2 && m110.version() == "v1.1.0" && m110.engineName(3) == "SID"
+              && m110.engineName(0) == "ANALOG" && mel.engineName(0) != "ANALOG" && m110.paramCount() == 104 && m110.firstEngineParam() == 96
               && FeluccaEngine::instances(kMel, FeluccaEngine::Release::Previous2) == 1,
               "and Melodee 1.1.0 kept beside them, its own core");
     }
@@ -232,8 +233,9 @@ int main() {
     CHECK(a.tracks() == 4 && a.parts() == 4, "four parts, each with any engine");
     CHECK(a.engines() == 20 && a.enginesShown().size() == 5 && a.enginesShown()[0] == 19,
           "20 engine numbers (1.0: PROPHET 19 first in the list; PHASE, VOICE, NOISE retired beside PHYS, TRIO, WHEEL), five to pick");
-    CHECK(a.engineName(0) == "ANALOG" && a.engineName(12) == "FM6" && a.engineName(15) == "CZ-1" && a.engineName(19) == "PROPHET" && a.fm6Engine() == 12,
-          "engines by name");
+    CHECK(a.engineName(0) == "-" && a.engineName(3) == "SID" && a.engineName(10) == "DRUM" && a.engineName(12) == "FM6" && a.engineName(15) == "CZ-1"
+          && a.engineName(19) == "PROPHET" && a.fm6Engine() == 12,
+          "engines by name (1.2: ANALOG retired, its number kept)");
     std::printf("  engines:");
     for (int e : a.enginesShown()) std::printf(" %s(%zu)", a.engineName(e).c_str(), a.presetNames(e).size());
     std::printf("\n");
@@ -245,8 +247,8 @@ int main() {
         CHECK(p5.size() == 201 && std::count_if(p5.begin(), p5.end(), [](const std::string& n) { return !n.empty(); }) >= 200,
               "PROPHET: Sequential's 200 factory programs (and its init program)");
     }
-    CHECK(a.engineName(a.engineOf(0)) == "ANALOG" && a.engineName(a.engineOf(1)) == "FM6" && a.engineName(a.engineOf(2)) == "SID"
-          && a.engineName(a.engineOf(3)) == "DRUM", "power-on: ANALOG, FM6, SID (1.0: LOFI's number), DRUM");
+    CHECK(a.engineName(a.engineOf(0)) == "PROPHET" && a.engineName(a.engineOf(1)) == "FM6" && a.engineName(a.engineOf(2)) == "SID"
+          && a.engineName(a.engineOf(3)) == "DRUM", "power-on: PROPHET (1.2: in ANALOG's place), FM6, SID, DRUM");
 
     // ---- sound ----
     double rms = 0;
@@ -295,8 +297,12 @@ int main() {
     // ---- parameters ----
     {
         Mel f{kMel};
-        CHECK(f.paramCount() == 104 && f.firstEngineParam() == 96 && f.globalCount() == 27,
-              "104 parameters per track (1.0: the DRUM lanes' levels, LFO 2's SYNC TRIG POL, SPRD), the engine's 8 from 96; 27 globals");
+        CHECK(f.paramCount() == 119 && f.firstEngineParam() == 111 && f.globalCount() == 41,
+              "119 parameters per track (1.3: three inserts, FX MIX RATE CHAR each, and three sends from 96), the engine's 8 from 111; "
+              "41 globals (1.3: the shared return's three slots, RETURN and MODE from 27)");
+        CHECK(f.paramDesc(0, 96).label == "FX" && f.paramDesc(0, 108).label == "SEND" && f.globalDesc(27).label == "TYPE" && f.globalDesc(39).label == "RETURN"
+              && f.globalDesc(40).label == "MODE" && f.globalDesc(4).label.empty() && f.globalDesc(25).label.empty(),
+              "1.3's effects where its core.h has them; the old effects' ids blank (format padding)");
         const auto lvl = f.paramDesc(0, 0);
         f.setParam(0, 0, lvl.max + 50);
         CHECK(f.param(0, 0) == lvl.max, "values are kept in range");
@@ -329,8 +335,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v1.1.0" && info[at] == 20 && info[at + 1] == 104 && info[at + 2] == 27 && info[at + 4] == 96,
-              "INFO answers, as Melodee 1.1.0 (20 engines, 104 parameters, 27 globals, P_E0 96)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v1.3.4" && info[at] == 20 && info[at + 1] == 119 && info[at + 2] == 41 && info[at + 4] == 111,
+              "INFO answers, as Melodee 1.3.4 (20 engines, 119 parameters, 41 globals, P_E0 111)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {

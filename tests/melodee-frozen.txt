@@ -1,11 +1,3 @@
-engine ANALOG E1	WAVE 0..4 def 0 fmt 8 SAW SQR TRI SIN PWM
-engine ANALOG E2	DTN 0..127 def 10 fmt 0
-engine ANALOG E3	MIX 0..127 def 64 fmt 1
-engine ANALOG E4	NOIS 0..127 def 0 fmt 1
-engine ANALOG E5	CUT 0..127 def 90 fmt 5
-engine ANALOG E6	RES 0..127 def 30 fmt 1
-engine ANALOG E7	DRV 0..127 def 0 fmt 1
-engine ANALOG E8	KTR 0..127 def 64 fmt 1
 engine CZ-1 E1	- 0..7 def 0 fmt 0
 engine CZ-1 E2	- 0..16 def 0 fmt 0
 engine CZ-1 E3	- 0..0 def 0 fmt 0
@@ -49,30 +41,33 @@ engine SID E8	DRIVE 0..127 def 0 fmt 1
 global A4#1	400..480 def 440 fmt 0
 global BOOT#1	0..4 def 0 fmt 8 OFF A B C D
 global BPM#1	40..240 def 120 fmt 9
-global CDP#1	0..127 def 60 fmt 1
+global CHAR#1	0..127 def 64 fmt 1
+global CHAR#2	0..127 def 64 fmt 1
+global CHAR#3	0..127 def 64 fmt 1
 global CLK#1	0..2 def 0 fmt 8 INT USB TRS
 global CLRSQ#1	0..1 def 0 fmt 8 -- GO
 global CPU#1	0..0 def 0 fmt 0
-global CRT#1	0..127 def 40 fmt 4
-global DAMP#1	0..127 def 60 fmt 1
 global DRUM#1	0..16 def 10 fmt 8 OFF 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
-global ENG#1	0..19 def 0 fmt 8 ANALOG - - SID - - - - - - DRUM - FM6 - - CZ-1 - - - PROPHET
-global FDBK#1	0..120 def 50 fmt 1
+global ENG#1	0..19 def 0 fmt 8 - - - SID - - - - - - DRUM - FM6 - - CZ-1 - - - PROPHET
 global INIT#1	0..1 def 0 fmt 8 -- GO
 global LOAD#1	0..1 def 0 fmt 8 -- GO
 global MIDI#1	0..1 def 0 fmt 8 USB TRS
-global MIX#1	0..127 def 85 fmt 1
+global MIX#1	0..127 def 127 fmt 1
+global MIX#2	0..127 def 127 fmt 1
+global MIX#3	0..127 def 127 fmt 1
+global MODE#1	0..1 def 0 fmt 8 CHAIN SPLIT
+global RATE#1	0..127 def 60 fmt 4
+global RATE#2	0..127 def 60 fmt 4
+global RATE#3	0..127 def 60 fmt 4
+global RETURN#1	0..127 def 100 fmt 1
 global ROUT#1	0..1 def 0 fmt 8 CH1-4 SEL
 global SAVE#1	0..1 def 0 fmt 8 -- GO
-global SIZE#1	0..127 def 90 fmt 1
 global SLOT#1	1..5 def 1 fmt 0
 global SWG#1	0..100 def 0 fmt 1
-global TIME#1	0..13 def 11 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR 1/16. 1/8. 1/4. 4T
-global TONE#1	0..127 def 51 fmt 1
 global TUNE#1	-50..50 def 0 fmt 0
-global TYPE#1	0..2 def 0 fmt 8 ROOM SPRING HALL
-global TYPE#2	0..3 def 1 fmt 8 DIGI TAPE DG-PP TP-PP
-global WEAR#1	0..127 def 64 fmt 1
+global TYPE#1	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
+global TYPE#2	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
+global TYPE#3	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
 param ALLOC#1	0..1 def 0 fmt 8 ROT REUSE
 param AMP#1	0..127 def 0 fmt 1
 param AMT1#1	-64..63 def 0 fmt 2
@@ -85,7 +80,9 @@ param ATK#3	0..127 def 0 fmt 3
 param ATK#4	0..127 def 0 fmt 3
 param ATK#5	0..127 def 0 fmt 3
 param BELL#1	0..127 def 127 fmt 1
-param CHO#1	0..127 def 0 fmt 1
+param CHAR#1	0..127 def 64 fmt 1
+param CHAR#2	0..127 def 64 fmt 1
+param CHAR#3	0..127 def 64 fmt 1
 param CHRD#1	0..9 def 0 fmt 8 OFF DIA3 DIA7 MAJ MIN DOM7 MAJ7 MIN7 SUS4 POW
 param CLAP#1	0..127 def 127 fmt 1
 param DEC#1	0..127 def 70 fmt 3
@@ -94,18 +91,18 @@ param DEC#3	0..127 def 0 fmt 3
 param DEC#4	0..127 def 0 fmt 3
 param DEC#5	0..127 def 0 fmt 3
 param DEG#1	1..12 def 1 fmt 0
-param DEPTH#1	0..127 def 127 fmt 1
 param DIV#1	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
-param DLY#1	0..127 def 0 fmt 1
-param DST#1	0..127 def 0 fmt 1
-param DST1#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST2#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST3#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST4#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST1#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN     RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST2#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN     RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST3#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN     RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
+param DST4#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN     RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
 param DTUNE#1	0..127 def 40 fmt 0
 param FADE#1	0..127 def 0 fmt 3
 param FLT#1	-64..63 def 0 fmt 2
 param FLT#2	-64..63 def 0 fmt 2
+param FX#1	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
+param FX#2	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
+param FX#3	0..9 def 0 fmt 8 OFF PHASER WIDTH FORMANT TAPE SPIT ECHO ROOM REVERB CHORUS
 param GATE#1	1..127 def 64 fmt 1
 param GATE#2	1..127 def 64 fmt 1
 param GLD#1	0..127 def 0 fmt 3
@@ -120,12 +117,14 @@ param LVL#2	0..127 def 127 fmt 1
 param LVL#3	0..127 def 127 fmt 1
 param LVL#4	0..127 def 127 fmt 1
 param LVL#5	0..127 def 127 fmt 1
+param MIX#1	0..127 def 0 fmt 1
+param MIX#2	0..127 def 0 fmt 1
+param MIX#3	0..127 def 0 fmt 1
 param MODE#1	0..6 def 0 fmt 8 OFF UP DN UPDN RND ORD REPEAT
 param MUTE#1	0..1 def 0 fmt 8 OFF ON
 param OCT#1	1..4 def 1 fmt 0
 param ORD#1	0..1 def 0 fmt 8 NOTE PLAY
 param PAN#1	-64..63 def 0 fmt 2
-param PAT#1	1..16 def 1 fmt 0
 param PHS#1	0..127 def 0 fmt 0
 param PIT#1	-64..63 def 0 fmt 2
 param PIT#2	-64..63 def 0 fmt 2
@@ -136,19 +135,22 @@ param QNT#1	0..10 def 0 fmt 8 OFF 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
 param QNT#2	0..4 def 0 fmt 8 OFF SNAP WHITE ALL MPC
 param RATE#1	0..127 def 60 fmt 4
 param RATE#2	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
-param RATE#3	0..5 def 1 fmt 8 1/8 1/16 1/32 8T 16T 32T
+param RATE#3	0..127 def 60 fmt 4
+param RATE#4	0..127 def 60 fmt 4
+param RATE#5	0..127 def 60 fmt 4
 param REL#1	0..127 def 60 fmt 3
 param REL#2	0..127 def 0 fmt 3
 param REL#3	0..127 def 0 fmt 3
 param REL#4	0..127 def 0 fmt 3
 param REL#5	0..127 def 0 fmt 3
-param REV#1	0..127 def 0 fmt 1
 param RIM#1	0..127 def 127 fmt 1
 param ROOT#1	0..11 def 0 fmt 10
 param SCL#1	0..69 def 0 fmt 8 CHR MAJ MIN DOR MIX PEN MPEN HARM PHRY LYD LOC MEL BLUES WHOLE DIMHW DIMWH 5EDO 7EDO 9EDO 10EDO 13EDO 14EDO 15EDO 16EDO 17EDO 18EDO 19EDO 20EDO 21EDO 22EDO 23EDO 24EDO 26EDO 27EDO 29EDO 31EDO 34EDO 36EDO 41EDO 53EDO JI-MAJ JI-MIN JI-12 JI-7L JI-7 HARM8 HARM16 PARTCH HARRIS PYTH MT-1/4 MT-1/3 MT-1/6 WERCK3 KIRN3 VALLOT YOUNG2 RAST-J SABA-J SHRUTI SLENDR PELOG BP-ET BP-JI RAST BAYATI HIJAZ SABA HUSAYN SIKAH
+param SEND 2#1	0..127 def 0 fmt 1
+param SEND 3#1	0..127 def 0 fmt 1
+param SEND#1	0..127 def 0 fmt 1
 param SHP#1	-64..63 def 0 fmt 2
 param SHP#2	-64..63 def 0 fmt 2
-param SLCR#1	0..2 def 0 fmt 8 OFF GATE STUT
 param SNARE#1	0..127 def 127 fmt 1
 param SPRD#1	0..127 def 0 fmt 1
 param SRC1#1	0..10 def 0 fmt 8 OFF LFO ENV VEL KEY RAND MODW AT EXPR S&H SLEW
@@ -169,18 +171,6 @@ param TRN#1	-24..24 def 0 fmt 7
 param VCE#1	0..3 def 0 fmt 8 POLY MONO LEG UNI
 param VOIC#1	0..4 def 0 fmt 8 CLOSE OPEN INV1 INV2 +OCT
 param WAVE#1	0..4 def 0 fmt 8 SIN TRI SAW SQR S&H
-preset ANALOG 0	SAW LEAD c869da94809cd834
-preset ANALOG 1	SOFT PAD 95c61bc0a9016c77
-preset ANALOG 10	WIND 4d98a5a67ae21967
-preset ANALOG 11	STRINGS eb0cb07fe1770e26
-preset ANALOG 2	SQR BASS fbf143694eb6c5c2
-preset ANALOG 3	PWM STR a4189b84a8a4277a
-preset ANALOG 4	ACID 20f7c4c720a66bf1
-preset ANALOG 5	SINE KEY be40cfb908b25d3b
-preset ANALOG 6	RAVE 6132b285ddfbe8b0
-preset ANALOG 7	SUB BASS c8ac421577cd57d9
-preset ANALOG 8	PLUCK 5f445e3b09f1636c
-preset ANALOG 9	BRASS 56ef695b0855defb
 preset CZ-1 0	INIT TONE f1a27a4b3d875528
 preset CZ-1 1	BRASS 1 4698ee92b283eb11
 preset CZ-1 10	JAZZ GUITAR 707931d32d9aae4b
@@ -246,33 +236,33 @@ preset CZ-1 64	TYPHOON 3956c6ad6c5cda4a
 preset CZ-1 7	STRINGS 4 b9c68033ca01a7ff
 preset CZ-1 8	ORCHESTRA a7cdc3a36f3c1720
 preset CZ-1 9	ACO.GUITAR 90270d44794fa4a9
-preset DRUM 0	808 KIT 539b86e0c0d5e96b
-preset DRUM 1	909 KIT bef8550d2e930e08
-preset FM6 0	TINE EP 2bbd77ab17dcee61
-preset FM6 1	BELL 2cf9fad59190b8ae
-preset FM6 10	SOLID BASS ace2016e9c8822f5
-preset FM6 11	BELLS e3669a4b848d06f1
-preset FM6 12	DX MARIMBA 9554e1dd216efbf8
-preset FM6 13	CLAVINET f44db22a93a3616c
-preset FM6 14	DRAWBARS 7e15c058e5f3a5c5
-preset FM6 15	STRINGS 88d1a5d47374fe61
-preset FM6 16	GLASS PAD 3fe7af78293724fc
-preset FM6 17	SYNC LEAD c32da2498cdc882d
-preset FM6 18	HARP 49d6f9a9776d9b23
-preset FM6 19	KALIMBA e0c42dd7b52a7e5d
-preset FM6 2	FM BASS ace2016e9c8822f5
-preset FM6 20	FLUTE f49c62ff03b7ceb5
-preset FM6 21	STEEL DRUM 9554e1dd216efbf8
-preset FM6 22	SAW BASS 59cb215c562de890
-preset FM6 23	TUBULAR 33e7bdc0f910620c
+preset DRUM 0	808 KIT af40d7c9865f3782
+preset DRUM 1	909 KIT c8b16301155a0005
+preset FM6 0	TINE EP 36ba5d377d42267f
+preset FM6 1	BELL 36ba5d377d42267f
+preset FM6 10	SOLID BASS b09a46dc1a4731c5
+preset FM6 11	BELLS 36ba5d377d42267f
+preset FM6 12	DX MARIMBA 36ba5d377d42267f
+preset FM6 13	CLAVINET 36ba5d377d42267f
+preset FM6 14	DRAWBARS 36ba5d377d42267f
+preset FM6 15	STRINGS 36ba5d377d42267f
+preset FM6 16	GLASS PAD 36ba5d377d42267f
+preset FM6 17	SYNC LEAD b09a46dc1a4731c5
+preset FM6 18	HARP 36ba5d377d42267f
+preset FM6 19	KALIMBA 36ba5d377d42267f
+preset FM6 2	FM BASS b09a46dc1a4731c5
+preset FM6 20	FLUTE b09a46dc1a4731c5
+preset FM6 21	STEEL DRUM 36ba5d377d42267f
+preset FM6 22	SAW BASS b09a46dc1a4731c5
+preset FM6 23	TUBULAR 36ba5d377d42267f
 preset FM6 24	INIT VOICE 36ba5d377d42267f
-preset FM6 3	BRASS 68bfd1b3d3b600cb
-preset FM6 4	PAD f5ca1798684f4b66
-preset FM6 5	MARIMBA 9554e1dd216efbf8
-preset FM6 6	ORGAN 7e15c058e5f3a5c5
-preset FM6 7	PLUCK b129257acf0dd931
-preset FM6 8	DX TINE da9ff09efdcbb3d3
-preset FM6 9	BRASS SECT 62a1d229c17e4114
+preset FM6 3	BRASS 36ba5d377d42267f
+preset FM6 4	PAD 93bf192848dd48ac
+preset FM6 5	MARIMBA 36ba5d377d42267f
+preset FM6 6	ORGAN 36ba5d377d42267f
+preset FM6 7	PLUCK 36ba5d377d42267f
+preset FM6 8	DX TINE 36ba5d377d42267f
+preset FM6 9	BRASS SECT 36ba5d377d42267f
 preset PROPHET 0	INIT PROPHET 8c1b3f0094cd453c
 preset PROPHET 1	It's a Prophet 5 8c1b3f0094cd453c
 preset PROPHET 10	PDG Organ 8c1b3f0094cd453c
@@ -475,34 +465,34 @@ preset PROPHET 97	Dream of Orgonon 8c1b3f0094cd453c
 preset PROPHET 98	Bistro 8c1b3f0094cd453c
 preset PROPHET 99	Impact Bass d87d667efe7e3e09
 preset SID 0	INIT SID e1b0ba48f6a425dc
-preset SID 1	BREADBOX 937d1e84871e517e
-preset SID 10	SYNC LEAD 72bc9ad8e917ad77
-preset SID 11	PULSE LEAD 9c2f5fb7a4fc7513
-preset SID 12	GAME HERO 125d5f64b190cb99
-preset SID 13	LASER LEAD 45776f703ad6765c
-preset SID 14	CHIP SOLO c9278dc45571c3f0
-preset SID 15	8580 LEAD bad2ce96ddd55423
-preset SID 16	PWM PAD d7210a261a4af88b
-preset SID 17	SID STRINGS b45d376f5d5cb35b
-preset SID 18	DREAM CHIP 3f11724048d6946
-preset SID 19	8580 PAD b10e526de035b95
+preset SID 1	BREADBOX bec67cababdb5cc0
+preset SID 10	SYNC LEAD 279e4623222ed99c
+preset SID 11	PULSE LEAD 6c4cde0b005b307e
+preset SID 12	GAME HERO 5f24a8bc9238cb8c
+preset SID 13	LASER LEAD 98c96d120fad8b68
+preset SID 14	CHIP SOLO 947fad1649fffa47
+preset SID 15	8580 LEAD 29c4ad94684fa100
+preset SID 16	PWM PAD 3d3e9a5d6f3d781a
+preset SID 17	SID STRINGS c17ea7c15bc58ea7
+preset SID 18	DREAM CHIP d7af6b7aeeec0ad6
+preset SID 19	8580 PAD 2ec051c43f37f135
 preset SID 2	RUBBER BASS 5b5656c3034a6716
-preset SID 20	TRI ORGAN d8475f43a5e31129
-preset SID 21	GAME ORGAN 30cc64c1be1bbaab
-preset SID 22	C64 KEYS 38478ba8aaa2081b
-preset SID 23	SID CLAV ffde8e9deda993c8
-preset SID 24	ARP PLUCK 3fd367af1ebc3063
-preset SID 25	COIN PLUCK 9c845fb3c9233913
-preset SID 26	BELL RING 64fe844d85e61891
-preset SID 27	SID BRASS 7f721d4317475f25
-preset SID 28	FILTER HIT 754bb470e780ff5c
-preset SID 29	LASER FX 828ce2188494f7e
+preset SID 20	TRI ORGAN dc9e693f2cdbe501
+preset SID 21	GAME ORGAN 6e81676b86cff679
+preset SID 22	C64 KEYS a01cf1f4c4291024
+preset SID 23	SID CLAV b8dd31a322bfdb64
+preset SID 24	ARP PLUCK fba6a41bb078d16c
+preset SID 25	COIN PLUCK 9a3843b9b6d9e295
+preset SID 26	BELL RING fdf8500c905a223b
+preset SID 27	SID BRASS 74378e03892fc9c2
+preset SID 28	FILTER HIT 33bb1f16e797ee10
+preset SID 29	LASER FX 153d9f351d761340
 preset SID 3	ARP BASS 790c585efc1ee33b
-preset SID 30	NOISE SWEEP 9376142197852a36
-preset SID 31	DATA STORM eb46842a19fe8ba9
+preset SID 30	NOISE SWEEP f455e85aa3f1b7ee
+preset SID 31	DATA STORM ecd74194342d2713
 preset SID 4	SUB PULSE 8650eb9feeb0753a
 preset SID 5	SYNC BASS 26ba90cb16ecba27
 preset SID 6	SAW BASS c4122bbd6c3e25a5
 preset SID 7	DIRTY BASS dd5e5d862ebe776a
-preset SID 8	LEAD 6581 271ad9b326342e21
-preset SID 9	RING LEAD 34d9300a325867c9
+preset SID 8	LEAD 6581 2217ffcc07aa2094
+preset SID 9	RING LEAD ad1edc1880c528
