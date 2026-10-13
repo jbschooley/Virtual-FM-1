@@ -32,6 +32,20 @@
 #define panel FEL(panel)
 #define settings FEL(settings)
 #define proj_slot FEL(proj_slot)
+/* (and its x0x drums' functions and tables that are not static: one name per copy, as two Melodee
+ * releases are built in, Melodee 1.1.0 kept beside the current one) */
+#define drum909_active FEL(drum909_active)
+#define drum909_get FEL(drum909_get)
+#define drum909_init FEL(drum909_init)
+#define drum909_nparams FEL(drum909_nparams)
+#define drum909_pan_settle FEL(drum909_pan_settle)
+#define drum909_param FEL(drum909_param)
+#define drum909_render FEL(drum909_render)
+#define drum909_render_st FEL(drum909_render_st)
+#define drum909_set FEL(drum909_set)
+#define drum909_trigger FEL(drum909_trigger)
+#define x0x_pot_exp FEL(x0x_pot_exp)
+#define x0x_tanh_tab FEL(x0x_tanh_tab)
 
 #if !defined(__clang__) || !defined(FEL_BSS_SECTION)
 #error "the firmware cores are built with Clang through fel_state.py (CMakeLists.txt fm1_core)"

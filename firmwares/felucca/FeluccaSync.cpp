@@ -110,11 +110,17 @@ const Dialect& melodee013Dialect() {
                            {0, 1, 3, 8, 9, 10, 11, 21, 24}, -1, -1, "Melodee 0.13", 1};
     return d;
 }
+// Melodee 1.1.0's, kept beside the current release (engines/melodee110): 1.1's objects and globals (as the
+// current dialect had them at 1.1.0), its own device file ("Melodee/Melodee 1.1 device.json")
+const Dialect& melodee110Dialect() {
+    static const Dialect d = [] { Dialect k = melodeeDialect(); k.device = "Melodee 1.1"; k.release = 2; return k; }();
+    return d;
+}
 bool isMelodee(const Dialect& d) { return std::string(d.name) == "Melodee"; }
 
 const Dialect& dialectFor(const std::string& family, int release) {
     if (family == "sloop") return sloopDialect();
-    if (family == "melodee") return release == 1 ? melodee013Dialect() : melodeeDialect();
+    if (family == "melodee") return release == 1 ? melodee013Dialect() : release == 2 ? melodee110Dialect() : melodeeDialect();
     return release == 1 ? felucca103Dialect() : feluccaDialect();
 }
 

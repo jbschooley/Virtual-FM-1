@@ -39,8 +39,8 @@ public:
     // Felucca and behind the same API
     enum class Flavor { Felucca, Sloop, Melodee };
     // Which release of it: the current one, or one kept for the projects made with it (fm1::keptReleases:
-    // Previous is engines/melodee013, Melodee 0.13, and engines/felucca103, Felucca 1.0.3; Previous2 the
-    // next one kept). The numbers are saved with projects and host parameters: never renumbered
+    // Previous is engines/melodee013, Melodee 0.13, and engines/felucca103, Felucca 1.0.3; Previous2
+    // engines/melodee110, Melodee 1.1.0). The numbers are saved with projects and host parameters: never renumbered
     enum class Release { Current = 0, Previous = 1, Previous2 = 2 };
     static constexpr int kReleases = 3;
     static bool has(Flavor f, Release r);                       // whether that release of it is built in

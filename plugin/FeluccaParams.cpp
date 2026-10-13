@@ -204,6 +204,8 @@ int indexOf(const juce::String& id) {
 }
 
 int indexOn(const Entry& e, int release) {
+    // (Melodee 1.1.0 kept, release 2, numbers its parameters as the current release, 1.1.0 too)
+    if (e.melodee && release == 2) release = 0;
     if (e.only >= 0 && e.only != release) return -1;
     // (the ids from before a release added parameters before the engine's eight: on the current release
     // those eight are that many higher. Melodee 1.0: twelve from 84; Felucca 1.1 to 1.5: twenty from 83)

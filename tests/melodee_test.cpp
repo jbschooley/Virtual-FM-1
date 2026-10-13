@@ -110,29 +110,30 @@ static std::map<std::string, std::string> frozenFacts(FeluccaEngine::Release rel
 }
 
 static void checkFrozen(FeluccaEngine::Release release = FeluccaEngine::Release::Current) {
-    const bool prev = release == FeluccaEngine::Release::Previous;
-    const std::string path = std::string(prev ? MELODEE013_FROZEN : MELODEE_FROZEN);
+    const bool prev = release == FeluccaEngine::Release::Previous;   // (0.13's list: every parameter hashed)
+    const bool kept = release != FeluccaEngine::Release::Current;
+    const std::string path = std::string(prev ? MELODEE013_FROZEN : kept ? MELODEE110_FROZEN : MELODEE_FROZEN);
     const auto now = frozenFacts(release);
-    std::map<std::string, std::string> kept;
+    std::map<std::string, std::string> listed;
     {
         std::ifstream in(path);
         std::string line;
         while (std::getline(in, line)) {
             const auto tab = line.find('\t');
-            if (tab != std::string::npos) kept[line.substr(0, tab)] = line.substr(tab + 1);
+            if (tab != std::string::npos) listed[line.substr(0, tab)] = line.substr(tab + 1);
         }
     }
     int changed = 0, gone = 0, added = 0;
-    for (const auto& [k, v] : kept) {
+    for (const auto& [k, v] : listed) {
         auto it = now.find(k);
         if (it == now.end()) { ++gone; std::printf("  gone: %s\n", k.c_str()); }
         else if (it->second != v) { ++changed; std::printf("  changed: %s\n    was %s\n    now %s\n", k.c_str(), v.c_str(), it->second.c_str()); }
     }
     std::vector<std::string> fresh;
-    for (const auto& [k, v] : now) if (!kept.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
-    CHECK(changed == 0 && gone == 0, (std::string("Melodee") + (prev ? " 0.13" : "") + "'s parameters and presets are as " + path + " keeps them "
+    for (const auto& [k, v] : now) if (!listed.count(k)) { ++added; fresh.push_back(k + "\t" + v); }
+    CHECK(changed == 0 && gone == 0, (std::string("Melodee") + (prev ? " 0.13" : kept ? " 1.1.0" : "") + "'s parameters and presets are as " + path + " keeps them "
                                       "(a change or removal: keep the old release beside this one, docs/ADDING-A-FIRMWARE.md)").c_str());
-    if (added && std::getenv("MELODEE_APPEND_FROZEN") && !prev) {   // (the kept release never changes)
+    if (added && std::getenv("MELODEE_APPEND_FROZEN") && !kept) {   // (a kept release never changes)
         std::ofstream out(path, std::ios::app);
         for (const auto& line : fresh) out << line << "\n";
         std::printf("  appended %d to %s\n", added, path.c_str());
@@ -145,6 +146,7 @@ static void checkFrozen(FeluccaEngine::Release release = FeluccaEngine::Release:
 int main() {
     checkFrozen();
     checkFrozen(FeluccaEngine::Release::Previous);   // (Melodee 0.13 kept: exactly as 0.13 was)
+    checkFrozen(FeluccaEngine::Release::Previous2);  // (Melodee 1.1.0 kept: exactly as 1.1.0 was)
     uint64_t fresh = 0;
     { Mel f{kMel}; fresh = play(f, 1, 128, 300); }
 
@@ -199,6 +201,11 @@ int main() {
         FeluccaEngine m13{kMel, FeluccaEngine::Release::Previous};
         CHECK(m13.valid() && m13.version() == "v0.13" && m13.paramCount() == 92 && m13.firstEngineParam() == 84 && m13.enginesShown().size() == 8
               && m13.engineName(3) == "LOFI" && mel.engineName(3) == "SID", "and Melodee 0.13 beside it, as it was (LOFI where 1.1 has SID)");
+        // Melodee 1.1.0, kept the same way (engines/melodee110): its own core, its own state
+        FeluccaEngine m110{kMel, FeluccaEngine::Release::Previous2};
+        CHECK(m110.valid() && m110.release() == FeluccaEngine::Release::Previous2 && m110.version() == "v1.1.0" && m110.engineName(3) == "SID"
+              && FeluccaEngine::instances(kMel, FeluccaEngine::Release::Previous2) == 1,
+              "and Melodee 1.1.0 kept beside them, its own core");
     }
 
     {   // 1.0's metronome (CLICK ON: editor command 35, item 4) sounds over a playing, empty song

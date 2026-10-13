@@ -59,6 +59,7 @@ const Dialect& feluccaDialect();
 const Dialect& sloopDialect();
 const Dialect& melodeeDialect();
 const Dialect& melodee013Dialect();         // Melodee 0.13, kept for the projects made with it
+const Dialect& melodee110Dialect();         // Melodee 1.1.0, kept the same way
 const Dialect& felucca103Dialect();         // Felucca 1.0.3, kept the same way
 bool isMelodee(const Dialect& d);           // any release of Melodee
 // a firmware's dialect ("felucca", "sloop", "melodee") for one of its releases (0 the current one, else

@@ -13,6 +13,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"melodee", "Melodee", false, false},
         {"melodee_013", "Melodee", false, false},   // 0.13, kept for the projects made with it (engines/melodee013)
         {"felucca_103", "Felucca", false, false},   // 1.0.3, kept the same way (engines/felucca103)
+        {"melodee_110", "Melodee", false, false},   // 1.1.0, kept for the projects made with it (engines/melodee110)
     };
     return choices;
 }
@@ -43,6 +44,9 @@ const std::vector<KeptRelease>& keptReleases() {
         {"melodee_013", "melodee", 1, "0.13", 9013, "Melodee013", {"v0."}},
         // Felucca 1.0.5 retired the HAND, CYM and H+CYM kits, 1.1 its formats (engines/felucca103)
         {"felucca_103", "felucca", 1, "1.0.3", 910, "Felucca103", {"v1.0"}},
+        // Melodee 1.2 removed 1.1's effects and retired ANALOG and DIGITAL; 1.3's effects are new ones
+        // (engines/melodee110). Projects saved by 1.0.x or 1.1.x
+        {"melodee_110", "melodee", 2, "1.1.0", 91010, "Melodee110", {"v1.0", "v1.1"}},
     };
     return kept;
 }

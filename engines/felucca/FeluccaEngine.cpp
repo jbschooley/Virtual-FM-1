@@ -13,6 +13,7 @@ extern "C" {
 #include "sloop_core.inc"
 #include "melodee_core.inc"
 #include "melodee013_core.inc"
+#include "melodee110_core.inc"
 #include "felucca103_core.inc"
 #undef FELUCCA_CORE_DECLARE
 }
@@ -40,6 +41,11 @@ const FeluccaCopy kMelodee013 =   // (the previous release, kept: engines/melode
 #include "melodee013_core.inc"
 #undef FELUCCA_CORE_TABLE
 ;
+const FeluccaCopy kMelodee110 =   // (engines/melodee110)
+#define FELUCCA_CORE_TABLE
+#include "melodee110_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
 const FeluccaCopy kFelucca103 =   // (engines/felucca103)
 #define FELUCCA_CORE_TABLE
 #include "felucca103_core.inc"
@@ -51,7 +57,7 @@ const FeluccaCopy kFelucca103 =   // (engines/felucca103)
 const FeluccaCopy* const kCores[3][FeluccaEngine::kReleases] = {
     {&kFelucca, &kFelucca103, nullptr},   // Felucca
     {&kSloop, nullptr, nullptr},          // SLOOP
-    {&kMelodee, &kMelodee013, nullptr},   // Melodee
+    {&kMelodee, &kMelodee013, &kMelodee110},   // Melodee
 };
 int flavorRow(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
 int releaseCol(FeluccaEngine::Release r) { const int i = int(r); return i >= 0 && i < FeluccaEngine::kReleases ? i : 0; }

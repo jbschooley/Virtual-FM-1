@@ -553,7 +553,8 @@ static int checks() {
             {   // the kept releases' table: by choice, by family and number, and by the version a project's music was saved with
                 const auto* k = fm1::keptRelease("melodee_013");
                 CHECK(k && k->release == 1 && std::string(k->stateName) == "Melodee013" && fm1::keptRelease("melodee", 1) == k
-                      && fm1::keptReleaseFor("melodee", "v0.13") == k && fm1::keptReleaseFor("melodee", "v1.1.0") == nullptr
+                      && fm1::keptReleaseFor("melodee", "v0.13") == k && fm1::keptReleaseFor("melodee", "v1.1.0") == fm1::keptRelease("melodee_110")
+                      && fm1::keptRelease("melodee", 2) == fm1::keptRelease("melodee_110") && fm1::keptReleaseFor("melodee", "v1.3.4") == nullptr
                       && fm1::keptReleaseFor("felucca", "v1.0.3")->release == 1 && fm1::keptReleaseFor("felucca", "v1.5.1") == nullptr
                       && fm1::keptRelease("melodee", 3) == nullptr && fm1::keptRelease("sloop") == nullptr
                       && fm1::currentVersion("melodee_013").label == std::string("0.13") && fm1::currentVersion("felucca_103").identity == 910,
@@ -728,6 +729,21 @@ static int checks() {
                 else { curStore.load(cur); curFile.replaceWithText(felucca::backupJson(felucca::objectsOf(cur), "MELODEE v1.1.0 (Virtual FM-1)", felucca::melodeeDialect())); keptStore.load(old); }
                 CHECK(keptFile.existsAsFile() && keptFile.loadFileAsString() == made,
                       "a 0.13 library device file seeds 0.13's own (" + juce::String(order == 1 ? "0.13 first" : order == 2 ? "the current one first, then writing" : "the current one first") + ")");
+                keptFile.deleteFile();
+                curFile.deleteFile();
+            }
+            {   // and one 1.1.0 wrote seeds 1.1.0's
+                const auto keptFile = felucca::DeviceStore::defaultFile(felucca::melodee110Dialect());
+                const auto curFile = felucca::DeviceStore::defaultFile(felucca::melodeeDialect());
+                keptFile.deleteFile();
+                CHECK(keptFile != curFile && keptFile.getFileName() == "Melodee 1.1 device.json", "Melodee 1.1.0's device file is its own: " + keptFile.getFileName());
+                FeluccaEngine m110{Fl::Melodee, FeluccaEngine::Release::Previous2};
+                const auto made = felucca::backupJson(felucca::objectsOf(m110), "MELODEE v1.1.0 (Virtual FM-1)", felucca::melodee110Dialect());
+                curFile.replaceWithText(made);
+                FeluccaEngine cur{Fl::Melodee};
+                felucca::DeviceStore curStore{felucca::melodeeDialect()};
+                curStore.load(cur);
+                CHECK(keptFile.existsAsFile() && keptFile.loadFileAsString() == made, "a 1.1.0 library device file seeds 1.1.0's own");
                 keptFile.deleteFile();
                 curFile.deleteFile();
             }
