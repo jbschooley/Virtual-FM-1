@@ -431,6 +431,18 @@ int main(int argc, char** argv) {
         settle(1500);
         auto d = dumpOf(synth, sel);
         check(d.size() > 3 + 2 * 9 + 1 && ((int(d[3 + 18]) | int(d[4 + 18]) << 7) - 8192) == mine.f->param(sel, 9), "live: a value to the FM-1");
+        if (mine.f->paramCount() > 110) {   // Melodee 1.3: an insert's MIX (96..107) and the shared RETURN (global 39)
+            auto get = [&](int scope, int id) {   // (GET: scope 0 the selected part, 1 the globals -> scope, id, v14)
+                const auto g = args(synth.ask(felucca::frame(2, {uint8_t(scope), uint8_t(id)}), 1000));
+                return g.size() >= 4 ? (int(g[2]) | int(g[3]) << 7) - 8192 : -1;
+            };
+            const int mix = (mine.f->param(sel, 97) + 37) % 128, ret = (mine.f->global(39) + 29) % 128;
+            mine.f->setParam(sel, 97, mix);
+            mine.f->setGlobal(39, ret);
+            settle(1500);
+            check(get(0, 97) == mix && get(1, 39) == ret, "live: 1.3's INSERT 1 MIX and the return's RETURN reach the FM-1 ("
+                  + juce::String(get(0, 97)) + " " + juce::String(get(1, 39)) + ", sent " + juce::String(mix) + " " + juce::String(ret) + ")");
+        }
         mine.f->setEngine(sel, 19);
         mine.f->applyPreset(sel, 170);
         settle(2500);
@@ -551,8 +563,9 @@ int main(int argc, char** argv) {
         std::printf("live for %s s: turn knobs on the FM-1; values seen here are printed\n", argv[2]);
         std::fflush(stdout);
         std::vector<float> l(256), r(256);
-        std::vector<int> last(91, -99999);
-        int lastBpm = mine.f->global(0);
+        std::vector<int> last(size_t(mine.f->paramCount()), -99999);   // (Melodee 1.3: 119 a part)
+        std::vector<int> lastG;
+        for (int id = 0; id < mine.f->globalCount(); ++id) lastG.push_back(mine.f->global(id));
         auto stepsOf = [&](int t) {   // the plugin's side's steps of a part, as TRACK_STEP gives them
             std::vector<fm1::Bytes> out;
             for (int i = 0; i < 64; ++i) {
@@ -574,7 +587,11 @@ int main(int argc, char** argv) {
                     std::printf("  part %d %s = %d\n", sel + 1, mine.f->paramDesc(sel, id).label.c_str(), v);
                 last[size_t(id)] = v;
             }
-            if (mine.f->global(0) != lastBpm) { lastBpm = mine.f->global(0); std::printf("  BPM = %d\n", lastBpm); }
+            for (int id = 0; id < mine.f->globalCount(); ++id)
+                if (mine.f->global(id) != lastG[size_t(id)]) {
+                    lastG[size_t(id)] = mine.f->global(id);
+                    std::printf("  global %d %s = %d\n", id, mine.f->globalDesc(id).label.c_str(), lastG[size_t(id)]);
+                }
             static int every = 0;
             if (++every % 20 == 0)   // about once a second: which steps changed
                 for (int t = 0; t < 4; ++t) {
