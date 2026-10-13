@@ -550,6 +550,20 @@ static int checks() {
             // choice, engine, saved music and device file; a project whose Melodee music is 0.13's (saved
             // as "Melodee" before 1.0 was built in) opens on it
             using Rl = FeluccaEngine::Release;
+            {   // the kept releases' table: by choice, by family and number, and by the version a project's music was saved with
+                const auto* k = fm1::keptRelease("melodee_013");
+                CHECK(k && k->release == 1 && std::string(k->stateName) == "Melodee013" && fm1::keptRelease("melodee", 1) == k
+                      && fm1::keptReleaseFor("melodee", "v0.13") == k && fm1::keptReleaseFor("melodee", "v1.1.0") == nullptr
+                      && fm1::keptReleaseFor("felucca", "v1.0.3")->release == 1 && fm1::keptReleaseFor("felucca", "v1.5.1") == nullptr
+                      && fm1::keptRelease("melodee", 3) == nullptr && fm1::keptRelease("sloop") == nullptr
+                      && fm1::currentVersion("melodee_013").label == std::string("0.13") && fm1::currentVersion("felucca_103").identity == 910,
+                      "the kept releases' table answers by choice, by release and by saved version");
+                CHECK(FeluccaEngine::has(FeluccaEngine::Flavor::Melodee, FeluccaEngine::Release::Previous) && !FeluccaEngine::has(FeluccaEngine::Flavor::Sloop, FeluccaEngine::Release::Previous)
+                      && FeluccaEngine::has(FeluccaEngine::Flavor::Sloop, FeluccaEngine::Release::Current)
+                      && &felucca::dialectFor("melodee", 1) == &felucca::melodee013Dialect() && &felucca::dialectFor("felucca", 1) == &felucca::felucca103Dialect()
+                      && &felucca::dialectFor("melodee", 0) == &felucca::melodeeDialect() && felucca::isMelodee(felucca::melodee013Dialect()),
+                      "the engine and the dialects by release");
+            }
             CHECK(fm1::isFirmwareChoice("melodee_013") && fm1::familyOf("melodee_013") == "melodee" && fm1::isPreviousRelease("melodee_013")
                   && fm1::isFeluccaFamily("melodee_013") && fm1::firmwareChoice("melodee_013").label() == "Melodee 0.13",
                   "Melodee 0.13 is a choice of its own, a release of Melodee");

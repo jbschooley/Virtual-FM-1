@@ -68,7 +68,7 @@ const Dialect& felucca103Dialect() {
     // the presets' patches on 1.0.3), the music last
     static const Dialect d{"Felucca", kBackupList, kBackupGet, kBackupPut, true,
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34}, {2, 3, 4, 5, 6, 7, 8, 9, 1, 0}, 9, true, "felucca-backup",
-                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24}, -1, -1, "Felucca 1.0.3"};
+                           {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24}, -1, -1, "Felucca 1.0.3", 1};
     return d;
 }
 
@@ -107,10 +107,16 @@ const Dialect& melodee013Dialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
                            {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
-                           {0, 1, 3, 8, 9, 10, 11, 21, 24}, -1, -1, "Melodee 0.13"};
+                           {0, 1, 3, 8, 9, 10, 11, 21, 24}, -1, -1, "Melodee 0.13", 1};
     return d;
 }
-bool isMelodee(const Dialect& d) { return &d == &melodeeDialect() || &d == &melodee013Dialect(); }
+bool isMelodee(const Dialect& d) { return std::string(d.name) == "Melodee"; }
+
+const Dialect& dialectFor(const std::string& family, int release) {
+    if (family == "sloop") return sloopDialect();
+    if (family == "melodee") return release == 1 ? melodee013Dialect() : melodeeDialect();
+    return release == 1 ? felucca103Dialect() : feluccaDialect();
+}
 
 // Melodee 0.13: a preset number past 127 (PROPHET has 201) is its low 7 bits where the protocol
 // says "preset", and its high bits last (TRACK_DUMP, RELOAD; PRESET takes them as a third byte).

@@ -38,6 +38,25 @@ bool isFirmwareChoice(const std::string& id);                 // a choice an ins
 // A choice for a firmware's previous release, kept beside the current one for the projects made with
 // it ("melodee_013": Melodee 0.13), and the firmware it is a release of ("melodee")
 std::string familyOf(const std::string& choiceId);
+// The releases kept beside a firmware's current one, each its own choice and its own compiled core.
+// release: which of the firmware's kept releases (FeluccaEngine::Release: 1 Previous, 2 Previous2;
+// the current release is 0), fixed once given: projects and host parameters go by it. savedBy: the
+// starts of the "version" a project's music was saved with that this release, not the current one,
+// reads ("v0." for Melodee 0.13). stateName: the project's child for its music ("Melodee013").
+struct KeptRelease {
+    const char* choiceId;     // "melodee_013"
+    const char* family;       // "melodee"
+    int release;              // 1, 2
+    const char* label;        // "0.13": the release it plays and syncs with
+    int identity;             // its FM-1_9XY
+    const char* stateName;    // "Melodee013"
+    std::vector<const char*> savedBy;   // "v0."
+};
+const std::vector<KeptRelease>& keptReleases();
+const KeptRelease* keptRelease(const std::string& choiceId);                 // null: not a kept release
+const KeptRelease* keptRelease(const std::string& family, int release);
+// the kept release a project's music saved with this version is for (null: the current one)
+const KeptRelease* keptReleaseFor(const std::string& family, const std::string& savedVersion);
 inline bool isPreviousRelease(const std::string& choiceId) { return familyOf(choiceId) != choiceId; }
 inline bool isFeluccaFamily(const std::string& id) { const auto f = familyOf(id); return f == "felucca" || f == "sloop" || f == "melodee"; }
 // Whether a connected synth runs what an instance set to this choice plays: the same firmware and, for

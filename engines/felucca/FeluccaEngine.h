@@ -38,10 +38,13 @@ public:
     // Which firmware: Felucca, SLOOP (engines/sloop) or Melodee (engines/melodee), both built from
     // Felucca and behind the same API
     enum class Flavor { Felucca, Sloop, Melodee };
-    // Which release of it: the current one, or the previous one kept for the projects made with it
-    // (engines/melodee013: Melodee 0.13; engines/felucca103: Felucca 1.0.3)
-    enum class Release { Current, Previous };
-    static bool hasPrevious(Flavor f) { return f == Flavor::Melodee || f == Flavor::Felucca; }
+    // Which release of it: the current one, or one kept for the projects made with it (fm1::keptReleases:
+    // Previous is engines/melodee013, Melodee 0.13, and engines/felucca103, Felucca 1.0.3; Previous2 the
+    // next one kept). The numbers are saved with projects and host parameters: never renumbered
+    enum class Release { Current = 0, Previous = 1, Previous2 = 2 };
+    static constexpr int kReleases = 3;
+    static bool has(Flavor f, Release r);                       // whether that release of it is built in
+    static bool hasPrevious(Flavor f) { return has(f, Release::Previous); }
     static int instances(Flavor f = Flavor::Felucca, Release r = Release::Current);    // instances alive
     static std::string coreVersion(Flavor f, Release r = Release::Current);              // what version() says, with no instance
 

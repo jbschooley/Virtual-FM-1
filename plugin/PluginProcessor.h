@@ -145,7 +145,7 @@ public:
         auto f = felucca();
         if (!f) return nullptr;
         const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop, f->flavor() == FeluccaEngine::Flavor::Melodee,
-                                          f->release() == FeluccaEngine::Release::Previous ? 1 : 0);
+                                          int(f->release()));
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
     }
    #endif
@@ -205,20 +205,17 @@ private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
-    juce::ValueTree feluccaSaved_[6];                 // Felucca's, SLOOP's and Melodee's state while they have no engine (3.. their kept previous releases'): kept, saved
+    // Felucca's, SLOOP's and Melodee's state while they have no engine, each release apart (flavorIndex):
+    // kept, saved
+    juce::ValueTree feluccaSaved_[3 * FeluccaEngine::kReleases];
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block
-    felucca::DeviceStore felDevice_{felucca::feluccaDialect()};   // the device's stored objects, in the library
-    felucca::DeviceStore slpDevice_{felucca::sloopDialect()};     // (SLOOP's, apart)
-    felucca::DeviceStore melDevice_{felucca::melodeeDialect()};   // (Melodee's, apart)
-    felucca::DeviceStore mel013Device_{felucca::melodee013Dialect()};   // (Melodee 0.13's, kept apart from the current one's)
-    felucca::DeviceStore fel103Device_{felucca::felucca103Dialect()};   // (Felucca 1.0.3's)
-    felucca::DeviceStore& deviceFor(const FeluccaEngine& f) {
-        if (f.flavor() == FeluccaEngine::Flavor::Melodee && f.release() == FeluccaEngine::Release::Previous) return mel013Device_;
-        if (f.flavor() == FeluccaEngine::Flavor::Felucca && f.release() == FeluccaEngine::Release::Previous) return fel103Device_;
-        return f.flavor() == FeluccaEngine::Flavor::Sloop ? slpDevice_ : f.flavor() == FeluccaEngine::Flavor::Melodee ? melDevice_ : felDevice_;
-    }
+    // The device's stored objects, in the library: one store per firmware and built-in release (Melodee
+    // 0.13's apart from the current Melodee's ...), by flavorIndex
+    std::vector<std::unique_ptr<felucca::DeviceStore>> devices_ = makeDevices();
+    static std::vector<std::unique_ptr<felucca::DeviceStore>> makeDevices();
+    felucca::DeviceStore& deviceFor(const FeluccaEngine& f);
     std::atomic<bool> felLive_{false};                // a live mirror job is running
     std::mutex felEditsLock_;
     std::vector<fm1::Bytes> felEdits_;                // the tab's edits for the live job to carry to the FM-1

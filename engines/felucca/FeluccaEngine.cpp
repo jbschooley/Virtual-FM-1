@@ -47,19 +47,27 @@ const FeluccaCopy kFelucca103 =   // (engines/felucca103)
 ;
 #undef FEL_ENTRY
 
-// (a previous release only where one is kept: else the current one)
+// Each firmware's built-in releases, by FeluccaEngine::Release (null: none kept)
+const FeluccaCopy* const kCores[3][FeluccaEngine::kReleases] = {
+    {&kFelucca, &kFelucca103, nullptr},   // Felucca
+    {&kSloop, nullptr, nullptr},          // SLOOP
+    {&kMelodee, &kMelodee013, nullptr},   // Melodee
+};
+int flavorRow(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
+int releaseCol(FeluccaEngine::Release r) { const int i = int(r); return i >= 0 && i < FeluccaEngine::kReleases ? i : 0; }
+// (a release that is not built in: the current one)
 const FeluccaCopy& coreOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
-    const bool prev = r == FeluccaEngine::Release::Previous && FeluccaEngine::hasPrevious(f);
-    return f == FeluccaEngine::Flavor::Sloop ? kSloop : f == FeluccaEngine::Flavor::Melodee ? (prev ? kMelodee013 : kMelodee) : (prev ? kFelucca103 : kFelucca);
+    const auto* c = kCores[flavorRow(f)][releaseCol(r)];
+    return c ? *c : *kCores[flavorRow(f)][0];
 }
-std::atomic<int> gInstances[6];
+std::atomic<int> gInstances[3 * FeluccaEngine::kReleases];
 int indexOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
-    const int i = f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0;
-    return r == FeluccaEngine::Release::Previous && FeluccaEngine::hasPrevious(f) ? i + 3 : i;
+    return flavorRow(f) * FeluccaEngine::kReleases + (FeluccaEngine::has(f, r) ? releaseCol(r) : 0);
 }
 
 }  // namespace
 
+bool FeluccaEngine::has(Flavor f, Release r) { return kCores[flavorRow(f)][releaseCol(r)] != nullptr && int(r) >= 0 && int(r) < kReleases; }
 int FeluccaEngine::instances(Flavor f, Release r) { return gInstances[indexOf(f, r)].load(); }
 std::string FeluccaEngine::coreVersion(Flavor f, Release r) { return coreOf(f, r).version(); }   // (a constant: no state read)
 
@@ -72,7 +80,7 @@ void FeluccaEngine::Free::operator()(void* p) const {
 }
 
 FeluccaEngine::FeluccaEngine(Flavor flavor, Release release)
-    : flavor_{flavor}, release_{hasPrevious(flavor) ? release : Release::Current} {
+    : flavor_{flavor}, release_{has(flavor, release) ? release : Release::Current} {
     const FeluccaCopy& core = coreOf(flavor_, release_);
     const size_t bytes = size_t(core.state_size());   // (a multiple of 16)
    #ifdef _WIN32

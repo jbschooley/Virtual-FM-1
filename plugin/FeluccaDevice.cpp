@@ -3,15 +3,15 @@
 #include "FeluccaDevice.h"
 
 #include "FeluccaEngine.h"
+#include "Firmwares.h"
 #include "FeluccaSeq.h"
 #include "LibraryStore.h"
 
 namespace felucca {
 
 const Dialect& dialectOf(const FeluccaEngine& f) {
-    const bool prev = f.release() == FeluccaEngine::Release::Previous;
-    return f.flavor() == FeluccaEngine::Flavor::Sloop ? sloopDialect()
-         : f.flavor() == FeluccaEngine::Flavor::Melodee ? (prev ? melodee013Dialect() : melodeeDialect()) : (prev ? felucca103Dialect() : feluccaDialect());
+    const char* family = f.flavor() == FeluccaEngine::Flavor::Sloop ? "sloop" : f.flavor() == FeluccaEngine::Flavor::Melodee ? "melodee" : "felucca";
+    return dialectFor(family, int(f.release()));
 }
 
 VirtualEndpoint::VirtualEndpoint(std::shared_ptr<FeluccaEngine> f) : f_(std::move(f)), dialect_(&dialectOf(*f_)) {}
@@ -79,18 +79,21 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     return {};
 }
 
-// A kept previous release's device file (Melodee 0.13's, Felucca 1.0.3's) starts as the one that
-// release wrote before the current release was built in, if the library has it ("Melodee device.json"
-// made by 0.13): copied before either reads, so the current release cannot have written over it yet
+// A kept release's device file (Melodee 0.13's, Felucca 1.0.3's) starts as the one that release wrote
+// before the current release was built in, if the library has it ("Melodee device.json" made by 0.13):
+// copied before either reads, so the current release cannot have written over it yet. Which release wrote
+// the file: its "firmware" ("MELODEE v0.13 (Virtual FM-1)", "v1.0.3 (Virtual FM-1)") without the name,
+// matched against the versions each kept release takes (fm1::KeptRelease::savedBy)
 static void seedKept(const Dialect& d, const juce::File& mine) {
-    const bool mel = isMelodee(d);
-    if (isSloop(d) || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
-    const Dialect& kept = mel ? melodee013Dialect() : felucca103Dialect();
-    const Dialect& current = mel ? melodeeDialect() : feluccaDialect();
-    const juce::String made = mel ? "MELODEE v0.13" : "v1.0";   // ("MELODEE v0.13 (Virtual FM-1)", "v1.0.3 (Virtual FM-1)")
-    const auto keptFile = DeviceStore::defaultFile(kept), currentFile = DeviceStore::defaultFile(current);
+    if (isSloop(d) || d.release == 0 || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
+    const std::string family = isMelodee(d) ? "melodee" : "felucca";
+    const Dialect& current = dialectFor(family, 0);
+    const auto keptFile = DeviceStore::defaultFile(d), currentFile = DeviceStore::defaultFile(current);
     if (keptFile.existsAsFile() || !currentFile.existsAsFile()) return;
-    if (!juce::JSON::parse(currentFile).getProperty("firmware", {}).toString().startsWith(made)) return;
+    juce::String made = juce::JSON::parse(currentFile).getProperty("firmware", {}).toString();
+    if (made.startsWith("MELODEE ")) made = made.substring(8);
+    const auto* k = fm1::keptReleaseFor(family, made.toStdString());
+    if (!k || k->release != d.release) return;
     keptFile.getParentDirectory().createDirectory();
     currentFile.copyFileTo(keptFile);
 }

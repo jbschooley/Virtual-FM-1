@@ -37,8 +37,36 @@ std::string firmwareIdFor(const Identity& id) {
     return "baudgirl_fm1va";
 }
 
+const std::vector<KeptRelease>& keptReleases() {
+    static const std::vector<KeptRelease> kept = {
+        // Melodee 1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE and its project objects (engines/melodee013)
+        {"melodee_013", "melodee", 1, "0.13", 9013, "Melodee013", {"v0."}},
+        // Felucca 1.0.5 retired the HAND, CYM and H+CYM kits, 1.1 its formats (engines/felucca103)
+        {"felucca_103", "felucca", 1, "1.0.3", 910, "Felucca103", {"v1.0"}},
+    };
+    return kept;
+}
+
+const KeptRelease* keptRelease(const std::string& choiceId) {
+    for (const auto& k : keptReleases()) if (choiceId == k.choiceId) return &k;
+    return nullptr;
+}
+
+const KeptRelease* keptRelease(const std::string& family, int release) {
+    for (const auto& k : keptReleases()) if (family == k.family && release == k.release) return &k;
+    return nullptr;
+}
+
+const KeptRelease* keptReleaseFor(const std::string& family, const std::string& savedVersion) {
+    for (const auto& k : keptReleases())
+        if (family == k.family)
+            for (const char* p : k.savedBy) if (savedVersion.rfind(p, 0) == 0) return &k;
+    return nullptr;
+}
+
 std::string familyOf(const std::string& choiceId) {
-    return choiceId == "melodee_013" ? "melodee" : choiceId == "felucca_103" ? "felucca" : choiceId;
+    const auto* k = keptRelease(choiceId);
+    return k ? k->family : choiceId;
 }
 
 // a Melodee release from its INFO ("MELODEE v0.13.1" -> "0.13.1")
@@ -125,11 +153,15 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
     if (firmwareId == "melodee") return melodee;
-    // the previous release kept beside it: the one it plays (a synth on it is synced with)
-    static const std::vector<KnownVersion> melodee013 = {{9013, "0.13", Support::Current, ""}};
-    if (firmwareId == "melodee_013") return melodee013;
-    static const std::vector<KnownVersion> felucca103 = {{910, "1.0.3", Support::Current, ""}};
-    if (firmwareId == "felucca_103") return felucca103;
+    // a release kept beside it: the one it plays (a synth on it is synced with)
+    if (const auto* k = keptRelease(firmwareId)) {
+        static const std::vector<std::vector<KnownVersion>> lists = [] {   // (one each, in keptReleases' order)
+            std::vector<std::vector<KnownVersion>> v;
+            for (const auto& r : keptReleases()) v.push_back({{r.identity, r.label, Support::Current, ""}});
+            return v;
+        }();
+        return lists[size_t(k - keptReleases().data())];
+    }
     return fmva;
 }
 
