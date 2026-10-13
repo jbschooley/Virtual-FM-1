@@ -84,16 +84,19 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
 // copied before either reads, so the current release cannot have written over it yet. Which release wrote
 // the file: its "firmware" ("MELODEE v0.13 (Virtual FM-1)", "v1.0.3 (Virtual FM-1)") without the name,
 // matched against the versions each kept release takes (fm1::KeptRelease::savedBy)
+// Done whichever of the firmware's stores loads first (the current release's included: it would write
+// over the file).
 static void seedKept(const Dialect& d, const juce::File& mine) {
-    if (isSloop(d) || d.release == 0 || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
+    if (isSloop(d) || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
     const std::string family = isMelodee(d) ? "melodee" : "felucca";
-    const Dialect& current = dialectFor(family, 0);
-    const auto keptFile = DeviceStore::defaultFile(d), currentFile = DeviceStore::defaultFile(current);
-    if (keptFile.existsAsFile() || !currentFile.existsAsFile()) return;
+    const auto currentFile = DeviceStore::defaultFile(dialectFor(family, 0));
+    if (!currentFile.existsAsFile()) return;
     juce::String made = juce::JSON::parse(currentFile).getProperty("firmware", {}).toString();
     if (made.startsWith("MELODEE ")) made = made.substring(8);
     const auto* k = fm1::keptReleaseFor(family, made.toStdString());
-    if (!k || k->release != d.release) return;
+    if (!k) return;
+    const auto keptFile = DeviceStore::defaultFile(dialectFor(family, k->release));
+    if (keptFile.existsAsFile() || keptFile == currentFile) return;
     keptFile.getParentDirectory().createDirectory();
     currentFile.copyFileTo(keptFile);
 }

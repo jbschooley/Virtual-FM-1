@@ -712,7 +712,8 @@ static int checks() {
         }
         {   // the library's device file as 0.13 (or Felucca 1.0.x) wrote it seeds the kept release's, whichever
             // instance opens first (the current release would write over it)
-            for (int order = 0; order < 2; ++order) {
+            // (order 2: the current release loads first and writes the file before 0.13 loads at all)
+            for (int order = 0; order < 3; ++order) {
                 const auto keptFile = felucca::DeviceStore::defaultFile(felucca::melodee013Dialect());
                 const auto curFile = felucca::DeviceStore::defaultFile(felucca::melodeeDialect());
                 keptFile.deleteFile();
@@ -722,8 +723,11 @@ static int checks() {
                 curFile.replaceWithText(made);
                 FeluccaEngine cur{Fl::Melodee}, old{Fl::Melodee, FeluccaEngine::Release::Previous};
                 felucca::DeviceStore curStore{felucca::melodeeDialect()}, keptStore{felucca::melodee013Dialect()};
-                if (order == 0) { curStore.load(cur); keptStore.load(old); } else { keptStore.load(old); curStore.load(cur); }
-                CHECK(keptFile.existsAsFile() && keptFile.loadFileAsString() == made, "a 0.13 library device file seeds 0.13's own (" + juce::String(order ? "0.13" : "1.1") + " first)");
+                if (order == 0) { curStore.load(cur); keptStore.load(old); }
+                else if (order == 1) { keptStore.load(old); curStore.load(cur); }
+                else { curStore.load(cur); curFile.replaceWithText(felucca::backupJson(felucca::objectsOf(cur), "MELODEE v1.1.0 (Virtual FM-1)", felucca::melodeeDialect())); keptStore.load(old); }
+                CHECK(keptFile.existsAsFile() && keptFile.loadFileAsString() == made,
+                      "a 0.13 library device file seeds 0.13's own (" + juce::String(order == 1 ? "0.13 first" : order == 2 ? "the current one first, then writing" : "the current one first") + ")");
                 keptFile.deleteFile();
                 curFile.deleteFile();
             }
