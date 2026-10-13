@@ -12,7 +12,7 @@
  * EP3 bulk data) for the console in console.c.
  * MELODEE_USB_AUDIO=1 instead adds two UAC1 functions (usb_audio.c), a stereo
  * output device "Melodee Out" (EP2 OUT, explicit feedback on EP3) and a separate
- * four-track input device "Melodee In" (EP2 IN), 16 or 24 bit at 44.1 kHz.
+ * stereo master or four-track input device "Melodee In" (EP2 IN), 16 or 24 bit at 44.1 kHz.
  * Their endpoints are served from the TIMER5 ISR by elapsed time (ua_service,
  * main.c), nested in the render too; usb_poll never runs nested, so the two
  * never interleave. Either can be left out of the configuration (ua_off, the
@@ -355,7 +355,8 @@ static void e0_send(const uint8_t *p, uint16_t len, uint16_t wlen)
 #include "usb_audio.c"
 static int ua_capture_active(void)
 {
-    return usb.up && usb.config && !usb.suspended && ua.cap_alt;
+    /* Only track mode needs the mixer to collect a second set of samples. */
+    return usb.up && usb.config && !usb.suspended && ua.cap_alt && ua_cap_channels == 4u;
 }
 #endif
 
@@ -967,11 +968,20 @@ static void ua_off_set(uint32_t bit, int on, uint32_t now_ms)
     }
 }
 
+static void ua_tracks_set(int tracks, uint32_t now_ms)
+{
+    if (ua_tracks_want != !!tracks) {
+        ua_tracks_want = (uint8_t)!!tracks;
+        ua_off_ms = now_ms;
+    }
+}
+
 static int ua_off_apply(uint32_t now_ms)
 {
-    if (ua_off_want == ua_off || now_ms - ua_off_ms < 600u)
+    if ((ua_off_want == ua_off && ua_tracks_want == ua_tracks) || now_ms - ua_off_ms < 600u)
         return 0;
     ua_off = ua_off_want;
+    ua_tracks = ua_tracks_want;
     usb_replug(now_ms);
     return 1;
 }

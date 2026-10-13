@@ -388,8 +388,8 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
 
 /* {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK, DRV}; every kit suggests the BEAT pattern (GM notes) */
 static const preset_t DRUM_PRESETS[] = {
-    {"808 KIT", {DK_808, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
-    {"909 KIT", {DK_909, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"808 KIT", {DK_808, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0},
+    {"909 KIT", {DK_909, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0},
 };
 
 static const engine_t ENG_DRUM = {

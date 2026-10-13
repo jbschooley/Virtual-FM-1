@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
- * releases live here. QNT changes only the playback schedule. */
+ * releases live here. QNT commits a grid to the new take when it finishes. */
 static recorded_note_t recording[RECORD_MAX] __attribute__((section(".pool")));
 static struct { uint32_t held, left; } recording_run[RECORD_MAX];
-static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 2: skip upcoming snapped onset; 4: heard this loop */
+static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 4: heard this loop; 8: captured in this take */
 static uint32_t recording_fraction[NTRK];
 /* Index by bank and cache onset arithmetic outside the steady audio tick. */
 #define RECORDING_EMPTY8 RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX
@@ -20,6 +20,8 @@ static struct { uint32_t period, key; } recording_schedule[NTRK];
 static volatile uint8_t recording_full;
 static uint8_t recording_tracks;
 static volatile uint32_t recording_generation; /* ISR or UI changed event storage */
+static volatile uint8_t recording_quant_blocked;
+static void recording_prune(track_t *t);
 
 static uint32_t recording_owner(const track_t *t) { return trk_index(t) * NPAT + t->pattern; }
 static uint32_t recording_prefix(const track_t *t, uint32_t period, uint32_t idx)
@@ -103,6 +105,7 @@ static void recording_reset(void)
     memset(recording_flags, 0, sizeof recording_flags);
     memset(recording_fraction, 0, sizeof recording_fraction);
     recording_full = 0;
+    recording_quant_blocked = 0;
     recording_reindex();
 }
 static recorded_note_t recording_snapshot(uint32_t i)
@@ -125,10 +128,20 @@ static void recording_finish(uint32_t i)
 static void recording_stop(track_t *t)
 {
     uint32_t owner = recording_owner(t);
+    uint8_t clear = 4u | (!song.playing && !t->p[P_RECQ] ? 8u : 0u);
     for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_finish(i);
         recording_end(t, i);
-        recording_flags[i] &= (uint8_t)~6u;
+        recording_flags[i] &= (uint8_t)~clear;
+    }
+}
+/* Punch-out finishes the take without releasing the pattern's playback voices. */
+static void recording_seal(track_t *t)
+{
+    uint8_t clear = t->p[P_RECQ] ? 0u : 8u;
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
+        if (recording_flags[i] & 1u) recording_finish(i);
+        recording_flags[i] &= (uint8_t)~clear;
     }
 }
 /* Onsets are fractions within their original swung step. Durations are
@@ -140,10 +153,9 @@ static uint32_t recording_raw_on(const track_t *t, const recorded_note_t *r, uin
     uint32_t span = step_samples(t, period, r->step & 63u);
     return (recording_prefix(t, period, r->step & 63u) + (uint32_t)(((uint64_t)r->on * span + RECORD_UNIT / 2u) / RECORD_UNIT)) % loop;
 }
-static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_t period)
+static uint32_t recording_quant_on(const track_t *t, const recorded_note_t *r, uint32_t period, uint32_t q)
 {
     uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
-    uint32_t q = (uint32_t)t->p[P_RECQ];
     if (!q) return at;
     uint32_t grid = seq_div_samples(q - 1u), a = step_samples(t, grid, 0), b = step_samples(t, grid, 1);
     uint32_t base = at / (a + b) * (a + b), best = 0, distance = at;
@@ -156,19 +168,30 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
     }
     return best == loop ? 0u : best;
 }
+static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_t period)
+{
+    return recording_raw_on(t, r, period);
+}
 static void recording_sync(track_t *t, uint32_t period)
 {
-    uint32_t tr = trk_index(t), key = (uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 |
+    uint32_t tr = trk_index(t), q = (uint32_t)t->p[P_RECQ], key = q | (uint32_t)t->p[P_SSWING] << 4 |
         (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25;
     if (recording_schedule[tr].period == period && recording_schedule[tr].key == key) return;
     recording_schedule[tr].period = period; recording_schedule[tr].key = key;
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        recording_due[i] = recording_on(t, &recording[i], period);
+        /* Prepare the end-of-take target while capturing. It does not affect
+         * live or pre-finish playback; punch-out reuses this cached arithmetic. */
+        recording_due[i] = (recording_flags[i] & 8u) && q ? recording_quant_on(t, &recording[i], period, q) : recording_on(t, &recording[i], period);
+}
+static uint32_t recording_play_on(const track_t *t, uint32_t i, uint32_t period)
+{
+    return (recording_flags[i] & 8u) && t->p[P_RECQ] ? recording_raw_on(t, &recording[i], period) : recording_due[i];
 }
 static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step)
 {
+    /* Retire overwritten overview cells before a new take can own them again. */
+    recording_prune(t);
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
-    uint32_t at = t->seq_pos >= 0x7FFFFFFFu ? 0u : recording_prefix(t, period, t->seq_idx) + t->seq_pos;
     uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
     uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
     uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX;
@@ -190,9 +213,7 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     recording_next[free] = recording_head[owner]; recording_head[owner] = (uint16_t)free;
     recording_schedule[trk_index(t)].period = 0;
     memset(&recording_run[free], 0, sizeof recording_run[free]);
-    recording_flags[free] = 5;
-    uint32_t target = recording_on(t, r, period);
-    if (t->p[P_RECQ] && (target > at || (!target && at > recording_loop(t, period) / 2u))) recording_flags[free] |= 2u;
+    recording_flags[free] = 13;
     t->step[step].flags |= SF_RECORDED;
     recording_tracks |= (uint8_t)(1u << trk_index(t));
     recording_generation++;
@@ -210,6 +231,26 @@ static void recording_remove(track_t *t, uint32_t i)
     recording_flags[i] = 0;
     recording_schedule[trk_index(t)].period = 0;
     recording_generation++;
+}
+/* Clearing a bank must erase its events too, including dormant events outside
+ * LEN. A cleared overview alone is not a deletion: the next take can revive it. */
+static void recording_clear(track_t *t)
+{
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
+        uint32_t next = recording_next[i];
+        recording_remove(t, i);
+        i = next;
+    }
+    t->rh_n = t->rh_ties = t->rskip_n = 0;
+    t->rh_elapsed = 0;
+}
+static void recording_prune(track_t *t)
+{
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
+        uint32_t next = recording_next[i];
+        if (!recording_present(&recording[i])) recording_remove(t, i);
+        i = next;
+    }
 }
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
@@ -259,7 +300,6 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     recorded_note_t *r = &recording[i];
     if (recording_flags[i] & 4u) return;
     recording_flags[i] |= 4u;
-    if ((recording_flags[i] & 2u)) { recording_flags[i] &= (uint8_t)~2u; return; }
     if ((recording_flags[i] & 1u)) return;
     uint32_t chance = step_chance(&t->step[recording_view(t, r)]);
     if (chance < 100u && rng() % 100u >= chance) return;
@@ -284,7 +324,7 @@ static void recording_zero(track_t *t)
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         recording_flags[i] &= (uint8_t)~4u;
         if (recording_active(t, i)) {
-            uint32_t on = recording_due[i];
+            uint32_t on = recording_play_on(t, i, period);
             if (on <= phase) recording_fire(t, i, period, phase - on);
         }
     }
@@ -293,9 +333,18 @@ static void recording_tick(track_t *t, uint32_t n)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), tr = trk_index(t);
     uint32_t a = recording_prefix(t, period, t->seq_idx) + t->seq_pos, b = a + n;
-    uint64_t ticks = (uint64_t)n * RECORD_UNIT + recording_fraction[tr];
-    recording_fraction[tr] = (uint32_t)(ticks % period);
-    uint32_t elapsed = (uint32_t)(ticks / period);
+    uint32_t elapsed;
+    if (n <= CTL) {
+        /* At most CTL * 65536 plus one sequencer period: the ordinary
+         * audio tick fits 32 bits, including the slowest supported division. */
+        uint32_t ticks = n * RECORD_UNIT + recording_fraction[tr];
+        recording_fraction[tr] = ticks % period;
+        elapsed = ticks / period;
+    } else {
+        uint64_t ticks = (uint64_t)n * RECORD_UNIT + recording_fraction[tr];
+        recording_fraction[tr] = (uint32_t)(ticks % period);
+        elapsed = (uint32_t)(ticks / period);
+    }
     recording_sync(t, period);
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
@@ -304,9 +353,11 @@ static void recording_tick(track_t *t, uint32_t n)
                 recording_end(t, i);
             } else recording_run[i].left -= n;
         }
-        if (!(recording_flags[i] & 4u) && recording_active(t, i)) {
-            uint32_t on = recording_due[i];
-            if (on > a && on <= b) recording_fire(t, i, period, b - on);
+        if (!(recording_flags[i] & 4u)) {
+            uint32_t on = recording_play_on(t, i, period);
+            /* Most retained events are nowhere near this block. Avoid
+             * looking up their STEP ownership until their onset is due. */
+            if (on > a && on <= b && recording_active(t, i)) recording_fire(t, i, period, b - on);
         }
     }
 }

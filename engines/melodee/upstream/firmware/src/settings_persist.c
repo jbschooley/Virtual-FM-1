@@ -2,13 +2,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Shared PER5 layout: each feature updates only its own fields, preserving
  * the other feature's saved preferences when either is built independently.
- * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites (Felucca 1.0); PER5 added Melodee's ext block:
+ * Only PER5 is read (1.2; older records are protected until replacement). Its ext block:
  * usb_off (the USB audio devices left out, USB AUDIO in the menu), boot (BOOT: 0 OFF, 1..4 the project power-on
  * loads), glo (CLK TUNE MIDI ROUT as last used, GLO_KEPT: restored at power-on, a project's own win), drumch
  * (GLO > SYSTEM DRUM: 0 channel 10, 1..16, 17 OFF), lights (the menu's LIGHTS: 0 MID, else OFF..FULL + 1); every
  * field 0 = the default, so spare words can take new ones. spare[1] holds tagged A4 concert pitch (0 = 440 Hz).
  * A saved template (project.c tmpl_t) follows the record.
- * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
+ * palette: UI_PAL_TAG + index (any other id: the default).
+ * favorites.factory[15][28]: tagged AUTOSAVE OFF; zero/unknown keeps autosave ON.
  * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c). */
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
@@ -20,33 +21,18 @@ typedef struct {
                                                                                                 * else level + 1 */
 } persist_t;
 #define PERSIST_MAGIC 0x50455235u
-#define PERSIST_MAGIC4 0x50455234u                  /* Felucca 1.0: no ext */
-#define PERSIST_LEN4 (sizeof(persist_t) - sizeof(((persist_t *)0)->ext))
 _Static_assert(sizeof(((persist_t *)0)->ext) == 32u, "ext: 8 words, new fields take spare ones");
 _Static_assert(sizeof(persist_t) == 604u, "the record's layout: new settings take spare bytes (favorites.c)");
 
 static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KEPT (glo_restore, glo_poll) */
 #define RECORD_PREF_TAG 0x52500000u /* RP, high half of the old zoom word */
 #define A4_TAG 0x41340000u                          /* "A4": old spare contents are not tuning */
+#define AUTOSAVE_OFF_TAG 0xA1u                     /* CZ row byte 28: only this tag disables autosave */
 
-/* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
+/* Normalize in place; 1 = read, 0 = invalid. */
 static int settings_import(persist_t *p, int n)
 {
-    int current = n == (int)sizeof *p && p->magic == PERSIST_MAGIC;
-    int old4 = n == (int)PERSIST_LEN4 && p->magic == PERSIST_MAGIC4;
-    int old3 = n == (int)(PERSIST_LEN4 - sizeof p->favorites) && p->magic == 0x50455233u;
-    int old2 = n == (int)(PERSIST_LEN4 - sizeof p->favorites - sizeof p->bold) && p->magic == 0x50455232u;
-    int old1 = n == (int)(8u + sizeof(panel_t)) && p->magic == 0x50455231u;
-    if (!(current || old4 || old3 || old2 || old1)) return 0;
-    if (old1) {
-        panel_t old;
-        memcpy(&old, (uint8_t *)p + 8, sizeof old);
-        p->panel = old;
-        p->lowcut = p->zoom = 0;
-    }
-    if (old1 || old2) p->bold = 0;
-    if (!current && !old4) memset(&p->favorites, 0, sizeof p->favorites);
-    if (!current) memset(&p->ext, 0, sizeof p->ext);
+    if (n != (int)sizeof *p || p->magic != PERSIST_MAGIC) return 0;
     p->ext.usb_off &= 3u;
     if (p->ext.boot > 4u)
         p->ext.boot = 0;
@@ -62,15 +48,17 @@ static int settings_import(persist_t *p, int n)
     }
     memcpy(settings_glo, p->ext.glo, sizeof settings_glo);
 #if MELODEE_USB_AUDIO
+    uint8_t tracks = p->favorites.factory[15][26] == 0xA1u;
+    if (usb.up) ua_tracks_set(tracks, fm1_ms);    /* live backup restore: re-enumerate before changing stride */
+    else ua_tracks = ua_tracks_want = tracks;
     ua_off = ua_off_want = (uint8_t)p->ext.usb_off;    /* (usb_start, after this, builds the configuration) */
 #endif
-    p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(palette_from_stored(p->palette));
     settings_screen=p->favorites.factory[15][27] < 8u ? p->favorites.factory[15][27] : 0u;
-    settings_latch=p->favorites.factory[15][30] & 1u;
+    settings_autosave = p->favorites.factory[15][28] != AUTOSAVE_OFF_TAG;
     settings.magic = SETTINGS_MAGIC;
     settings.palette = palette_from_stored(p->palette);
-    settings.lowcut = p->lowcut;
+    settings.lowcut = 0;
     settings.zoom = p->zoom & 0xFFu;
     uint32_t rp = (p->zoom & 0xFFFF0000u) == RECORD_PREF_TAG ? (p->zoom >> 8) & 0xFFu : 0u;
     settings_click = (uint8_t)((rp & 3u) < 3u ? rp & 3u : 0u);
@@ -82,21 +70,11 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
 #ifdef MELODEE_FAVORITES
     memcpy(&favorites, &p->favorites, sizeof favorites);
-    fx_keys_take();                                     /* (an old record: settled after up_boot, favorites.c) */
     favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
-#if defined(FM4_NPRESETS) && !MELODEE_FM4
-    {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
-        uint32_t k;
-        for (k = 0; k < FM4_NPRESETS; k++)
-            if ((favorites.factory[ENGI_DIGITAL][0] >> k) & 1u)
-                favorites.factory[ENGI_FM6][FM4_TO_FM6[k] / 8u] |= (uint8_t)(1u << (FM4_TO_FM6[k] % 8u));
-        memset(favorites.factory[ENGI_DIGITAL], 0, sizeof favorites.factory[ENGI_DIGITAL]);
-    }
-#endif
 #endif
     if (p->panel.magic == PANEL_MAGIC) panel = p->panel;
-    return current ? 1 : 2;
+    return 1;
 }
 
 /* Start with the last imported/saved object, including fields owned by a
@@ -105,23 +83,22 @@ static void settings_export(persist_t *p)
 {
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(settings.palette);
-    p->lowcut = settings.lowcut;
+    p->lowcut = 0;
     uint32_t rp = settings_click % 3u | (settings_click_level == 0u ? 1u : settings_click_level == 2u ? 2u : 0u) << 2 |
                   (settings_countin % 3u) << 4 | (settings_preview != 0u) << 6 | (settings_chord_add != 0u) << 7;
     p->zoom = (settings.zoom & 0xFFu) | (rp ? RECORD_PREF_TAG | rp << 8 : 0u);
     p->panel = panel;
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
-    fx_keys_settle();
     memcpy(&p->favorites, &favorites, sizeof favorites);
-    fx_keys_tag(p->favorites.factory[FX_KEYS_ROW]);     /* (a device with no record before: its map is there too) */
     p->ext.spare[0] = favorites_user_hi;
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
+    p->favorites.factory[15][26] = ua_tracks ? 0xA1u : 0u; /* tagged; old/unknown bytes default to stereo */
 #endif
     p->favorites.factory[15][27]=settings_screen;
-    p->favorites.factory[15][30]=(p->favorites.factory[15][30]&~1u) | settings_latch;
+    p->favorites.factory[15][28] = settings_autosave ? 0u : AUTOSAVE_OFF_TAG;
     p->ext.boot = settings_boot;
     p->ext.drumch = settings_drumch == 10u ? 0u : !settings_drumch ? 17u : settings_drumch;
     p->ext.lights = settings_lights == LIGHTS_MID ? 0u : settings_lights + 1u;

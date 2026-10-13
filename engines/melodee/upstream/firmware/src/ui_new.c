@@ -16,9 +16,10 @@ static struct {
     int16_t bpm;
 } nw;
 static int new_on(void) { return nw.on != 0; }
-static void new_close(void) { if (nw.on) { nw.on = 0; ui.force = 1; } }
+static void new_close(void) { if (nw.on) { nw.on = 0; ui.new_active=0; ui.force = 1; } }
 static void new_open(void)
 {
+    ui.new_active=1;
     uint32_t r = (uint32_t)TSEL->p[P_ROOT], s = (uint32_t)TSEL->p[P_SCALE];
     int32_t b = song.g[G_BPM];
     template_key(&r, &s, &b);                       /* (the template's, when there is one) */
@@ -83,7 +84,7 @@ static void new_create(void)
     scale_share(TSEL);
     song.g[G_BPM] = nw.bpm;
     undo_clear();
-    nw.on = 0;
+    nw.on = 0; ui.new_active = 0;
     go_home();
     sync_reload = 1;
     ui_message("NEW SONG");

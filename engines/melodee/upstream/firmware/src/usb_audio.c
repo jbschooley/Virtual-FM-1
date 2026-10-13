@@ -13,6 +13,7 @@
 #define UA_OFF_IN 2u
 #define UA_NO_IF 0xFFu
 static uint8_t ua_off;                          /* what the host is given (ua_cfg_build at usb_start) */
+static uint8_t ua_tracks, ua_tracks_want;       /* 0 stereo master (default), 1 four mono stems */
 static uint8_t ua_off_want;                     /* GLO > SYSTEM (ua_off_set); ua_off_apply makes it ua_off */
 static uint32_t ua_off_ms;                      /* its last change */
 static uint8_t ua_if_play = UA_IF_PLAY, ua_if_cap = UA_IF_CAP, ua_nif = 6;   /* as sent (ua_cfg_build) */
@@ -26,12 +27,14 @@ static uint16_t ua_frame;
 static uint8_t ua_frame_valid, ua_paused;
 static uint8_t ua_rate_pending, ua_rate_reply[3];
 
-/* CFG_DESC without the functions in ua_off. Interfaces after a missing one
- * move down to stay contiguous: IADs, interface descriptors and the AC
+/* CFG_DESC with the chosen capture channels, without the functions in ua_off.
+ * Interfaces after a missing one move down to stay contiguous: IADs and the AC
  * header's streaming interface list. Absent streams get UA_NO_IF. */
 static void ua_cfg_build(void)
 {
     uint32_t i, k, n = 0, nif = 0, shift = 0, skip = 0, ac = 0;
+    uint32_t original_if = UA_NO_IF, cap_width = 2u;
+    ua_cap_channels = ua_tracks ? 4u : 2u;
     ua_if_play = ua_if_cap = UA_NO_IF;
     for (i = 0; i < sizeof CFG_DESC; i += CFG_DESC[i]) {
         const uint8_t *d = CFG_DESC + i;
@@ -50,6 +53,7 @@ static void ua_cfg_build(void)
             o[2] = (uint8_t)(d[2] - shift);
         } else if (d[1] == 4u) {
             o[2] = (uint8_t)(d[2] - shift);
+            original_if = d[2];
             ac = d[5] == 1u && d[6] == 1u;      /* audio control: its header lists the streams */
             nif += d[3] == 0u;
             if (d[2] == UA_IF_PLAY)
@@ -59,6 +63,17 @@ static void ua_cfg_build(void)
         } else if (ac && d[1] == 0x24u && d[2] == 1u) {
             for (k = 0; k < d[7]; k++)
                 o[8 + k] = (uint8_t)(d[8 + k] - shift);
+        }
+        if (!ua_tracks) {
+            if (original_if == UA_IF_CAP - 1u && d[1] == 0x24u && d[2] == 2u) {
+                o[7] = 2; o[8] = 3;             /* stereo L/R terminal */
+            } else if (original_if == UA_IF_CAP && d[1] == 0x24u && d[2] == 2u) {
+                o[4] = 2;                      /* PCM format channels */
+                cap_width = d[5];
+            } else if (original_if == UA_IF_CAP && d[1] == 5u) {
+                uint32_t bytes = UA_MAX_FRAMES * 2u * cap_width;
+                o[4] = (uint8_t)bytes; o[5] = (uint8_t)(bytes >> 8);
+            }
         }
     }
     ua_cfg[2] = (uint8_t)n;

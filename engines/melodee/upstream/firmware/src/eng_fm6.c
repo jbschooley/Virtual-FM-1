@@ -41,7 +41,6 @@ typedef struct {
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_NFAC (FM6_NFACTORY + FM6_NROM)        /* F1..F24: the factory patches */
-#define FM6_BANK_N 32u           /* patch bank slots (fm6_bank.c): a DX7 cartridge */
 #define FM6_PACKED 128u
 #define FM6_ON_ALL 0x3Fu
 
@@ -435,12 +434,12 @@ static void fm6_ctl_block(track_t *t, const uint8_t *ed)
 
 /* ------------------------------------------------------------ the voice --- */
 static fm6_voice_t *fm6_state(const track_t *t, const voice_t *v) { return &FM6P(t)->v[v - t->v]; }
-static const uint8_t *fm6_ed(const track_t *t) { return fm6_eff[(uint32_t)(t - trk) % NTRK].p; }
+static inline __attribute__((always_inline)) const uint8_t *fm6_ed(const track_t *t) { return fm6_eff[(uint32_t)(t - trk) % NTRK].p; }
 static uint32_t fm6_note(const track_t *t, const voice_t *v)   /* the note the DX7 rules see: + TRANSPOSE */
 {
     return (uint32_t)clamp((int32_t)v->note + fm6_ed(t)[FP_TRNSP] - 24, 0, 127);
 }
-static int fm6_op_on(const track_t *t, uint32_t k) { return (fm6_on[(uint32_t)(t - trk) % NTRK] >> k) & 1u; }
+static inline __attribute__((always_inline)) int fm6_op_on(const track_t *t, uint32_t k) { return (fm6_on[(uint32_t)(t - trk) % NTRK] >> k) & 1u; }
 
 /* the operators' pitch, level and rate scaling for the voice's note and velocity (Dx7Note::init / update) */
 static void fm6_keyed(fm6_voice_t *s, const uint8_t *ed, uint32_t note)
@@ -684,14 +683,13 @@ static void fm6_legato(track_t *t, voice_t *v)
 static int fm6_done(track_t *t, voice_t *v) { return fm6_state(t, v)->quiet >= 2u; }
 
 /* a new Dexed block: key-up, the envelopes, pitch and gains (Dx7Note::compute), the routing */
-static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
+static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m, fm6_part_t *P, int32_t tune)
 {
-    fm6_part_t *P = FM6P(t);
     uint32_t tr = (uint32_t)(t - trk) % NTRK, alg, k, dead = 1;
     const uint8_t *ed = fm6_ed(t);
-    int32_t lv[6], lfo = P->lfo.val, dly = P->lfo.depth, pm, sens, pbase, amd, a1, a2, tune, fbv;
+    int32_t lv[6], lfo = P->lfo.val, dly = P->lfo.depth, pm, sens, pbase, amd, a1, a2, fbv;
     /* MLVL and FLT: the modulators' level, 0.75 dB / 32 steps (microsteps, as the output levels), Q24 */
-    int32_t mod = (clamp(t->p[P_E2], -64, 63) * 24 + clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
+    int32_t mod = (fm6_clamp(t->p[P_E2], -64, 63) * 24 + fm6_clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
     uint32_t pmd = ((uint32_t)ed[FP_LPMD] * 165u) >> 6;
     alg = (uint32_t)ed[FP_ALG] & 31u;
     if (!v->gate && s->down) {                           /* key up: every envelope to its fourth segment */
@@ -710,7 +708,6 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
         pm = p1 > p2 ? p1 : p2;
         pm = fm6_peg_step(&s->pe, s->down) + (sens < 0 ? -pm : pm);
     }
-    tune = song.g[G_TUNE] * 13981 + tuning_log();        /* cents + A4 reference, Q24 octaves */
     pbase = P->pt.pb + tune;
     pm += pbase + m->plog;                               /* + Melodee's glide, LFO / ENV pitch, unison */
     /* amplitude: the LFO (AMD, after the delay) or a controller's, at least the EG bias */
@@ -760,7 +757,7 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
             level -= (int32_t)((float)level * ((float)pt * (1.0f / 16777216.0f)));
         }
         if (!car && mod)
-            level = clamp(level + mod, 0, 20 << 24);
+            level = fm6_clamp(level + mod, 0, 20 << 24);
         lv[k] = level;
     }
     for (k = 0; k < 6u; k++) {                           /* the output operators all gone for good? */
@@ -771,8 +768,16 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
             dead = 0;
     }
     s->quiet = dead ? (uint8_t)(s->quiet + (s->quiet < 2u)) : 0;
-    fbv = clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
+    fbv = fm6_clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
     fm6_plan(s, lv, alg, FM6F(t)[FN_ENGINE], fbv ? 8u - (uint32_t)fbv : 16u);
+}
+
+/* Part-state lookup stays on CPU0's control path; the repeated per-voice
+ * envelope, frequency and operator planning work shares resident code. */
+static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
+{
+    void (*volatile run)(track_t *, voice_t *, fm6_voice_t *, const vmod_t *, fm6_part_t *, int32_t) = fm6_control_ram;
+    run(t, v, s, m, FM6P(t), song.g[G_TUNE] * 13981 + tuning_log());
 }
 
 /* nothing moves a voice at rest: no LFO or controller pitch (PMS 0, or no depth), no amplitude
@@ -820,13 +825,28 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     }
 }
 
-static void fm6_output(const float *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
+/* Keep the same signed rounding as amp_at, inside the RAM output loop. */
+static inline __attribute__((always_inline)) int32_t fm6_output_amp(const vmod_t *m, uint32_t i)
+{
+    int32_t x = (m->amp1 - m->amp0) * (int32_t)i;
+    return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> CTL_LOG2);
+}
+static inline __attribute__((always_inline)) float fm6_output_clip(float x)
+{ return x < -16.0f ? -16.0f : x > 16.0f ? 16.0f : x; }
+
+static __attribute__((noinline,section(".dsp_text"))) void fm6_output(const float *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
 {
     float scale = (float)gain * (1.0f / 131072.0f);
     for (uint32_t i = 0; i < n; i++) {
-        int32_t y = (int32_t)(fm_clampf(sum[i], -16.0f, 16.0f) * (float)amp_at(m, i) * scale);
+        int32_t y = (int32_t)(fm6_output_clip(sum[i]) * (float)fm6_output_amp(m, i) * scale);
         if (add) out[i] += y; else out[i] = y;
     }
+}
+
+static inline void fm6_output_run(const float *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
+{
+    void (*volatile run)(const float *, int32_t *, uint32_t, const vmod_t *, int32_t, int) = fm6_output;
+    run(sum, out, n, m, gain, add);
 }
 
 #if MELODEE_DUAL_CORE
@@ -847,8 +867,9 @@ static int32_t *fm6_pending_out;
 static void fm6_worker_kernel(void *unused)
 {
     (void)unused;
-    fm6_run_into(fm6_job.voice, fm6_job.n, fm6_job.bus, fm6_job.sum);
-    fm6_output(fm6_job.sum, fm6_job.pcm, fm6_job.n, &fm6_job.modulation, fm6_job.gain, 0);
+    void (*volatile run)(fm6_voice_t *, uint32_t, float [2][CTL], float *) = fm6_run_into;
+    run(fm6_job.voice, fm6_job.n, fm6_job.bus, fm6_job.sum);
+    fm6_output_run(fm6_job.sum, fm6_job.pcm, fm6_job.n, &fm6_job.modulation, fm6_job.gain, 0);
 }
 static void fm6_join(void)
 {
@@ -881,16 +902,21 @@ static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
         }
     }
 #endif
-    fm6_run(s, n);
+#if MELODEE_DUAL_CORE
+    fm6_run(s, n);                                      /* wrapper makes the far call into RAM */
+#else
+    void (*volatile run)(fm6_voice_t *, uint32_t) = fm6_run;
+    run(s, n);
+#endif
 #ifdef FM6_TAP
     FM6_TAP(fm6_sum, n);
 #endif
 #if MELODEE_DUAL_CORE
     if (fm6_pending) fm6_pairs++;
     fm6_join();
-    fm6_output(fm6_sum, out, n, m, k, 1);
+    fm6_output_run(fm6_sum, out, n, m, k, 1);
 #else
-    fm6_output(fm6_sum, out, n, m, k, 1);
+    fm6_output_run(fm6_sum, out, n, m, k, 1);
 #endif
 }
 
@@ -946,18 +972,12 @@ static void fm6_block(track_t *t)                        /* per part and block: 
     fm6_ctl_block(t, fm6_ed(t));
 }
 
-/* the part after its voices: Dexed's DC filter on the voices' sum (PluginFx: y = x - x' + (1 - 126 / FS) y',
- * about 20 Hz); with no voice it starts afresh */
-static void fm6_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
+/* The DC filter runs once per sample even when the operator envelopes have
+ * decayed. Keep its original wide arithmetic in the resident sample path. */
+static __attribute__((noinline,section(".dsp_text"))) void fm6_dc_samples(fm6_part_t *P, int32_t *out, uint32_t n)
 {
-    fm6_join();
-    fm6_part_t *P = FM6P(t);
     uint32_t i;
     int32_t x1 = P->dc_x1, y = P->dc_y1;
-    if (!nr) {
-        P->dc_x1 = P->dc_y1 = 0;
-        return;
-    }
     for (i = 0; i < n; i++) {
         int32_t x = out[i];
         y = (int32_t)(((int64_t)(x - x1) * 256 + (((int64_t)y * 1070673990) >> 30)));
@@ -966,6 +986,20 @@ static void fm6_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
     }
     P->dc_x1 = x1;
     P->dc_y1 = y;
+}
+
+/* the part after its voices: Dexed's DC filter on the voices' sum (PluginFx: y = x - x' + (1 - 126 / FS) y',
+ * about 20 Hz); with no voice it starts afresh */
+static void fm6_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
+{
+    fm6_join();
+    fm6_part_t *P = FM6P(t);
+    if (!nr) {
+        P->dc_x1 = P->dc_y1 = 0;
+        return;
+    }
+    void (*volatile run)(fm6_part_t *, int32_t *, uint32_t) = fm6_dc_samples;
+    run(P, out, n);
 }
 
 /* ------------------------------------------------------ DX7 SysEx in --- */
@@ -1008,33 +1042,33 @@ static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7"
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
 /* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, unused}: neutral macros, DTUN on the pad. */
-#define FM6_PR(name, mono, fx) {name, {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, mono, fx}
+#define FM6_PR(name, mono) {name, {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, mono}
 static const preset_t FM6_PRESETS[] = {
-    {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 45, 25, 35)},
-    {"BELL", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70)},
-    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 1, FX(0, 0, 10, 10)},
-    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 25, 20, 40)},
-    {"PAD", {0, 0, 0, 0, 0, 0, 30, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 60, 30, 70)},
-    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 0, 25, 40)},
-    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(10, 40, 0, 30)},
-    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 35, 30)},
-    FM6_PR("DX TINE", 0, FX(0, 50, 25, 35)),
-    FM6_PR("BRASS SECT", 0, FX(0, 20, 20, 40)),
-    FM6_PR("SOLID BASS", 1, FX(0, 0, 10, 10)),
-    FM6_PR("BELLS", 0, FX(0, 0, 30, 70)),
-    FM6_PR("DX MARIMBA", 0, FX(0, 0, 25, 40)),
-    FM6_PR("CLAVINET", 0, FX(10, 20, 30, 20)),
-    FM6_PR("DRAWBARS", 0, FX(10, 40, 0, 30)),
-    FM6_PR("STRINGS", 0, FX(0, 60, 30, 70)),
-    FM6_PR("GLASS PAD", 0, FX(0, 60, 40, 80)),
-    FM6_PR("SYNC LEAD", 1, FX(10, 20, 40, 30)),
-    FM6_PR("HARP", 0, FX(0, 30, 30, 60)),
-    FM6_PR("KALIMBA", 0, FX(0, 0, 35, 45)),
-    FM6_PR("FLUTE", 1, FX(0, 20, 30, 50)),
-    FM6_PR("STEEL DRUM", 0, FX(0, 0, 30, 40)),
-    FM6_PR("SAW BASS", 1, FX(20, 0, 10, 10)),
-    FM6_PR("TUBULAR", 0, FX(0, 0, 30, 80)),
-    FM6_PR("INIT VOICE", 0, FX(0, 0, 0, 0)),          /* the DX7's init voice, dry (after F24: the stores keep the
+    {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    {"BELL", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 1},
+    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    {"PAD", {0, 0, 0, 0, 0, 0, 30, 0}, {0, 0, 127, 0}, 0, 0},
+    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0},
+    FM6_PR("DX TINE", 0),
+    FM6_PR("BRASS SECT", 0),
+    FM6_PR("SOLID BASS", 1),
+    FM6_PR("BELLS", 0),
+    FM6_PR("DX MARIMBA", 0),
+    FM6_PR("CLAVINET", 0),
+    FM6_PR("DRAWBARS", 0),
+    FM6_PR("STRINGS", 0),
+    FM6_PR("GLASS PAD", 0),
+    FM6_PR("SYNC LEAD", 1),
+    FM6_PR("HARP", 0),
+    FM6_PR("KALIMBA", 0),
+    FM6_PR("FLUTE", 1),
+    FM6_PR("STEEL DRUM", 0),
+    FM6_PR("SAW BASS", 1),
+    FM6_PR("TUBULAR", 0),
+    FM6_PR("INIT VOICE", 0),          /* the DX7's init voice, dry (after F24: the stores keep the
                                                          * factory's numbers) */
 };
 #undef FM6_PR

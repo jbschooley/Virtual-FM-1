@@ -86,7 +86,18 @@ static int32_t dr_m2[CTL] __attribute__((section(".pool")));
 static int32_t dr_cbx[CTL] __attribute__((section(".pool")));
 
 /* ------------------------------------------------------------ helpers --- */
-static int32_t dr_freq(uint32_t hz16)            /* 2 sin(pi fc / FS), Q30; fc in Hz * 16 (<= 4 kHz) */
+/* Keep these inside the RAM sample loops even with the old target compiler.
+ * Their arithmetic is identical to dsp.c's shared integer helpers. */
+static inline __attribute__((always_inline)) int32_t dr_clamp(int32_t v, int32_t lo, int32_t hi)
+{ return v < lo ? lo : v > hi ? hi : v; }
+static inline __attribute__((always_inline)) int32_t dr_softclip(int32_t x)
+{
+    int32_t a = x < 0 ? -x : x, i = a >> 8, y;
+    if (i >= 256) y = TANH_Q15[256];
+    else y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
+    return x < 0 ? -y : y;
+}
+static inline __attribute__((always_inline)) int32_t dr_freq(uint32_t hz16) /* 2 sin(pi fc / FS), Q30 */
 {
     int32_t x = (int32_t)(hz16 * 4781u);         /* pi fc / FS, Q30 */
     int32_t x3 = (int32_t)(((((int64_t)x * x) >> 30) * x) >> 30);
@@ -96,7 +107,7 @@ static int32_t dr_freq(uint32_t hz16)            /* 2 sin(pi fc / FS), Q30; fc i
 
 /* damping of a resonator ringing with time constant tau samples: f q = 2 / tau, q = 2^61 / (f tau) in
  * Q30. No 64-bit division on the target: f tau normalized to m 2^e (m in [2^30, 2^31)), 2^47 / m */
-static int32_t dr_damp(int32_t f, uint32_t tau)
+static inline __attribute__((always_inline)) int32_t dr_damp(int32_t f, uint32_t tau)
 {
     uint64_t p = (uint64_t)(uint32_t)f * (tau ? tau : 1u);
     int32_t e = 0;
@@ -117,15 +128,22 @@ static int32_t dr_damp(int32_t f, uint32_t tau)
     return r >= (3u << 29) >> (14 - e) ? 3 << 29 : (int32_t)(r << (14 - e));
 }
 
-static int32_t dr_lp1(uint32_t hz)               /* one-pole low-pass coefficient ~ 1 - exp(-2 pi fc / FS), Q14 */
+static inline __attribute__((always_inline)) int32_t dr_lp1(uint32_t hz) /* one-pole coefficient, Q14 */
 {
     int32_t w = (int32_t)((hz * 2390u) >> 10);   /* 2 pi fc / FS, Q14 */
     return w * 16384 / (16384 + w / 2);
 }
 
-static uint32_t dr_exp(uint32_t base, int32_t v, int32_t oct)   /* base * 2^(v / oct) */
+/* Block-rate pitch setup may use XIP; the sample loops below stay in RAM.
+ * Use a far call for this shared helper, outside every sample loop. */
+static inline __attribute__((always_inline)) uint32_t dr_pow2(int32_t pitch)
 {
-    return (uint32_t)(((uint64_t)base * pow2_q16(v * 192 / oct)) >> 16);
+    uint32_t (*volatile ratio)(int32_t) = pow2_q16;
+    return ratio(pitch);
+}
+static inline __attribute__((always_inline)) uint32_t dr_exp(uint32_t base, int32_t v, int32_t oct) /* base * 2^(v / oct) */
+{
+    return (uint32_t)(((uint64_t)base * dr_pow2(v * 192 / oct)) >> 16);
 }
 
 /* the level of a hit at velocity vel (Q15): 1 at 127, down to 1 - ACC / 127 at 0 */
@@ -134,10 +152,10 @@ static int32_t dr8_level(uint32_t vel, int32_t acc)
     return 32767 - clamp(acc, 0, 127) * (127 - (int32_t)(vel > 127u ? 127u : vel)) * 32767 / (127 * 127);
 }
 
-static int32_t dr_tuned(int32_t f, int32_t tune) { return (int32_t)(((int64_t)f * pow2_q16(tune)) >> 16); }
+static inline __attribute__((always_inline)) int32_t dr_tuned(int32_t f, int32_t tune) { return (int32_t)(((int64_t)f * dr_pow2(tune)) >> 16); }
 
 /* one Chamberlin state-variable step, band-pass out; f, q Q30, rounded (no DC creep) */
-static inline int32_t dr_res(int32_t *lp, int32_t *bp, int32_t f, int32_t q, int32_t x)
+static inline __attribute__((always_inline)) int32_t dr_res(int32_t *lp, int32_t *bp, int32_t f, int32_t q, int32_t x)
 {
     int32_t b = *bp, l = *lp + (int32_t)(((int64_t)f * b + (1 << 29)) >> 30), h;
     h = x - l - (int32_t)(((int64_t)q * b + (1 << 29)) >> 30);
@@ -147,14 +165,14 @@ static inline int32_t dr_res(int32_t *lp, int32_t *bp, int32_t f, int32_t q, int
 }
 
 /* trapezoidal SVF: band-pass (gain Q at fc) or high-pass; signals within +-2^16 */
-static inline int32_t drf_bp(const drf_t *c, int32_t x, int32_t *s)
+static inline __attribute__((always_inline)) int32_t drf_bp(const drf_t *c, int32_t x, int32_t *s)
 {
     int32_t v3 = x - s[1], v1 = (c->a1 * s[0] + c->a2 * v3) >> 13, v2 = s[1] + ((c->a2 * s[0] + c->a3 * v3) >> 13);
     s[0] = 2 * v1 - s[0];
     s[1] = 2 * v2 - s[1];
     return v1;
 }
-static inline int32_t drf_hp(const drf_t *c, int32_t x, int32_t *s)
+static inline __attribute__((always_inline)) int32_t drf_hp(const drf_t *c, int32_t x, int32_t *s)
 {
     int32_t v3 = x - s[1], v1 = (c->a1 * s[0] + c->a2 * v3) >> 13, v2 = s[1] + ((c->a2 * s[0] + c->a3 * v3) >> 13);
     s[0] = 2 * v1 - s[0];
@@ -173,7 +191,7 @@ static const drf_t DRF_CYB = {3110, 2886, 2677, 6827};          /* cymbal band 2
 static const drf_t DRF_HAT = {4449, 2423, 1320, 8192};          /* hi-hat high-pass 7 kHz, Q 1 */
 static const drf_t DRF_RS = {7558, 431, 25, 11587};             /* rim shot high-pass 800 Hz */
 
-static int32_t dr_blk(uint32_t tau)              /* exp(-CTL / tau), Q16; tau in samples */
+static inline __attribute__((always_inline)) int32_t dr_blk(uint32_t tau) /* exp(-CTL / tau), Q16 */
 {
     uint32_t x, x2;
     if (tau < 2u * CTL)
@@ -188,7 +206,7 @@ static void dre_hit(dre_t *e, int32_t level, uint32_t tau)   /* charged to level
         e->e = level;
     e->k = dr_blk(tau);
 }
-static inline int32_t dre_next(dre_t *e, int32_t *e0)   /* this block's start (*e0) and its step << CTL_LOG2 */
+static inline __attribute__((always_inline)) int32_t dre_next(dre_t *e, int32_t *e0) /* start and step */
 {
     int32_t a = e->e;
     e->e = (int32_t)(((int64_t)a * e->k) >> 16);
@@ -202,7 +220,7 @@ static inline int32_t dre_next(dre_t *e, int32_t *e0)   /* this block's start (*
 
 /* the trigger pulse (1 ms at the trigger level) through the BD's pulse shaper: a low shelf passes
  * the edges and 0.044 of the level; D53 keeps the falling edge above a diode drop (0.71 V) */
-static inline int32_t dr_pulse(dr8_t *d)
+static inline __attribute__((always_inline)) int32_t dr_pulse(dr8_t *d)
 {
     int32_t p = d->t < DR_P1 ? d->v : 0, s;
     d->px += ((p - d->px) * 6650) >> 15;         /* 0.1 ms */
@@ -212,8 +230,8 @@ static inline int32_t dr_pulse(dr8_t *d)
     return s;
 }
 
-static uint32_t dr8_tau(const dr8_t *d,uint32_t tau)
-{return d->decay?(uint32_t)(((uint64_t)tau*(uint32_t)pow2_q16(d->decay*192/24))>>16):tau;}
+static inline __attribute__((always_inline)) uint32_t dr8_tau(const dr8_t *d,uint32_t tau)
+{return d->decay?(uint32_t)(((uint64_t)tau*(uint32_t)dr_pow2(d->decay*192/24))>>16):tau;}
 static drf_t dr8_filter(const drf_t *base,int32_t pitch)
 {
     if(!pitch)return *base;
@@ -223,10 +241,11 @@ static drf_t dr8_filter(const drf_t *base,int32_t pitch)
     drf_t c={(int16_t)(a1*8192.0f),(int16_t)(g*a1*8192.0f),(int16_t)(g*g*a1*8192.0f),base->k};return c;
 }
 
-static void dr_off(dr8_t *d)                     /* silent: the circuit back to rest (the oscillators and the
+static inline __attribute__((always_inline)) void dr_off(dr8_t *d) /* silent: the circuit back to rest (the oscillators and the
                                                   * noise run on) */
 {
-    memset(d, 0, (uint32_t)((uint8_t *)d->ph - (uint8_t *)d));
+    __typeof__(&memset) volatile clear = memset;
+    clear(d, 0, (uint32_t)((uint8_t *)d->ph - (uint8_t *)d));
     d->on = d->choke = 0;
 }
 
@@ -236,13 +255,13 @@ static void dr_off(dr8_t *d)                     /* silent: the circuit back to 
 #define DR_SIGHS 1                               /* by (swing - DR_SIGH0) >> DR_SIGHS (Q15) */
 #define DR_LEAK 7                                /* the shaped pulse past the network (the click) >> */
 
-static __attribute__((noinline)) void dr_bd(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_bd(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
     int32_t f0, q, g, c, tune = (p[P_E1] - 64) * 3 + d->pitch, pk = 0, round = p[P_E6] > 0;
     uint32_t i;
     f0 = dr_tuned(DR_F(49.4), tune);
     q = dr_damp(f0, DR_TAU(dr_exp(300u, p[P_E3] - 64, 24)));           /* DECY: 47 ms .. 1.8 s, 300 ms */
-    g = (int32_t)(((int64_t)DR_BD_G * pow2_q16(-tune)) >> 16);         /* the same level at any pitch */
+    g = (int32_t)(((int64_t)DR_BD_G * dr_pow2(-tune)) >> 16);         /* the same level at any pitch */
     c = dr_lp1(dr_exp(1000u, p[P_E2] - 64, 21));                       /* TONE: 120 Hz .. 8 kHz, 1 kHz */
     for (i = 0; i < n; i++) {
         int32_t x = 0, m, y;
@@ -256,7 +275,7 @@ static __attribute__((noinline)) void dr_bd(dr8_t *d, const int16_t *p, int32_t 
         if (d->s[3] > DR_SIGH0)
             m += (d->s[3] - DR_SIGH0) >> DR_SIGHS;
         y = dr_res(&d->lp, &d->bp, f0 + (int32_t)(((int64_t)f0 * m) >> 15), q, x);
-        y = clamp((int32_t)(((int64_t)y * g) >> 16), -65535, 65535);
+        y = dr_clamp((int32_t)(((int64_t)y * g) >> 16), -65535, 65535);
         d->s[3] = y;
         y += x >> DR_LEAK;
         d->s[1] += ((y - d->s[1]) * c) >> 14;    /* TONE */
@@ -273,7 +292,7 @@ static __attribute__((noinline)) void dr_bd(dr8_t *d, const int16_t *p, int32_t 
 
 #define DR_SD_G 1950                             /* tone */
 #define DR_SD_N 18000                            /* noise at SNAP 64, Q15 */
-static __attribute__((noinline)) void dr_sd(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_sd(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
     int32_t m = p[P_E2] * 256, sn = p[P_E4] * DR_SD_N / 64;              /* TONE: 173 -> 336 Hz; SNAP */
     int32_t gl = (int32_t)(((int64_t)DR_SD_G * 2 * (32768 - m)) >> 15), gh = (int32_t)(((int64_t)DR_SD_G * m) >> 15);
@@ -304,13 +323,13 @@ static const struct { uint16_t hz, ms; uint8_t nz, g; } DR_TOM[6] = {   /* g: le
 #define DR_TOM_G 5700                            /* at 100 Hz (Q16; congas 0.8 of it), the same level at any pitch */
 #define DR_TOM_N 2400                            /* toms' noise, Q15 */
 #define DR_TOM_DROP 3932                         /* pitch at the hit: + 12 %, falling with the level */
-static __attribute__((noinline)) void dr_tom(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_tom(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
     uint32_t k = (uint32_t)(d->ins - DR_LT), i;
     int32_t tune = (p[P_E1] - 64) * 3 + d->pitch, f0, f, q, g, e0, n0, dn, pk = 0;
     f0 = dr_tuned(DR_F(DR_TOM[k].hz), tune);
     q = dr_damp(f0, dr8_tau(d,DR_TAU(DR_TOM[k].ms)));
-    g = (int32_t)(((DR_TOM_G * DR_TOM[k].g >> 8) * 100 / DR_TOM[k].hz * pow2_q16(-tune)) >> 16);
+    g = (int32_t)(((DR_TOM_G * DR_TOM[k].g >> 8) * 100 / DR_TOM[k].hz * dr_pow2(-tune)) >> 16);
     dre_next(&d->e[0], &e0);                     /* the pitch follows the level (the diodes starve it) */
     f = f0 + (int32_t)(((int64_t)f0 * ((e0 >> 9) * DR_TOM_DROP >> 15)) >> 15);
     dn = dre_next(&d->e[1], &n0);
@@ -337,7 +356,7 @@ static __attribute__((noinline)) void dr_tom(dr8_t *d, const int16_t *p, int32_t
 #define DR_RS_G 5000
 #define DR_RS_V 24                               /* into the swing VCA (Q4) */
 #define DR_RS_O 15200                            /* out, Q15 */
-static __attribute__((noinline)) void dr_rs(dr8_t *d, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_rs(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t e0, de = dre_next(&d->e[0], &e0), pk = 0;
     uint32_t i;
@@ -346,7 +365,7 @@ static __attribute__((noinline)) void dr_rs(dr8_t *d, int32_t *acc, uint32_t n)
         if (d->t < DR_PEND)
             x = dr_pulse(d) * 16;
         y = dr_res(&d->lp, &d->bp, d->f, d->q, x) + (dr_res(&d->lp2, &d->bp2, d->f2, d->q2, x) >> 1);
-        y = softclip(clamp((int32_t)(((int64_t)y * DR_RS_G) >> 16) * DR_RS_V >> 4, -200000, 200000));
+        y = dr_softclip(dr_clamp((int32_t)(((int64_t)y * DR_RS_G) >> 16) * DR_RS_V >> 4, -200000, 200000));
         y = (drf_hp(&DRF_RS, (y * DRE_AT(e0, de, i)) >> 15, d->s) * DR_RS_O) >> 15;
         acc[i] += y;
         if (y > pk || -y > pk)
@@ -358,7 +377,7 @@ static __attribute__((noinline)) void dr_rs(dr8_t *d, int32_t *acc, uint32_t n)
 }
 
 #define DR_CL_G 414
-static __attribute__((noinline)) void dr_cl(dr8_t *d, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_cl(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t pk = 0;
     uint32_t i;
@@ -381,7 +400,7 @@ static __attribute__((noinline)) void dr_cl(dr8_t *d, int32_t *acc, uint32_t n)
 #define DR_CP_N 3u                               /* this many fast ones, then a slower last one */
 #define DR_CP_REV 9000                           /* the reverb envelope, Q15 */
 #define DR_CP_G 10445                            /* out, Q12 */
-static __attribute__((noinline)) void dr_cp(dr8_t *d, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_cp(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t e0, de = dre_next(&d->e[0], &e0), pk = 0;
     const drf_t filter={(int16_t)d->f,(int16_t)d->f2,(int16_t)d->q,DRF_CP.k};
@@ -406,7 +425,7 @@ static __attribute__((noinline)) void dr_cp(dr8_t *d, int32_t *acc, uint32_t n)
 
 #define DR_MA_RISE 662u                          /* 15 ms */
 #define DR_MA_G 23900                            /* out, Q15 */
-static __attribute__((noinline)) void dr_ma(dr8_t *d, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_ma(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t step = ((d->v * 151) >> 10) / (int32_t)DR_MA_RISE, pk = 0;
     uint32_t i;
@@ -441,7 +460,7 @@ static __attribute__((noinline)) void dr_metal_tune(const dr8_t *d)
 #define DR_MV 6                                  /* the swing VCAs' input gain (x) */
 /* the oscillators and what the lane's voice takes from them: the cowbell's two, band 1 (3.44 kHz, the cymbal)
  * and band 2 (7.1 kHz, cymbal and hats) through the clipping of its swing VCAs */
-static __attribute__((noinline)) void dr_metal(dr8_t *d, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_metal(dr8_t *d, uint32_t n)
 {
     uint32_t i, k, ph[6];
     for (k = 0; k < 6u; k++)
@@ -459,7 +478,7 @@ static __attribute__((noinline)) void dr_metal(dr8_t *d, uint32_t n)
         d->ph[k] = ph[k];
     if ((DR_BANDS >> d->ins) & 1u)
         for (i = 0; i < n; i++)
-            dr_m2[i] = softclip(clamp(drf_bp(&DRF_M2, dr_m1[i], d->m2) * DR_MV, -200000, 200000));
+            dr_m2[i] = dr_softclip(dr_clamp(drf_bp(&DRF_M2, dr_m1[i], d->m2) * DR_MV, -200000, 200000));
     if (d->ins == DR_CY)
         for (i = 0; i < n; i++)
             dr_m1[i] = drf_bp(&DRF_M1, dr_m1[i], d->m1);
@@ -467,12 +486,12 @@ static __attribute__((noinline)) void dr_metal(dr8_t *d, uint32_t n)
 
 #define DR_CB_G 26000
 #define DR_CB_FAST 24576                         /* the two envelopes: 50 ms and 500 ms, Q15 */
-static __attribute__((noinline)) void dr_cb(dr8_t *d, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_cb(dr8_t *d, int32_t *acc, uint32_t n)
 {
     int32_t e0, de = dre_next(&d->e[0], &e0), t0, dt = dre_next(&d->e[1], &t0);
     uint32_t i;
     for (i = 0; i < n; i++) {
-        int32_t y = softclip(clamp(drf_bp(&DRF_CB, dr_cbx[i], d->x), -200000, 200000));
+        int32_t y = dr_softclip(dr_clamp(drf_bp(&DRF_CB, dr_cbx[i], d->x), -200000, 200000));
         int32_t w = ((DRE_AT(e0, de, i) * DR_CB_FAST) >> 15) + ((DRE_AT(t0, dt, i) * (32767 - DR_CB_FAST)) >> 15);
         acc[i] += (((y * w) >> 15) * DR_CB_G) >> 15;
     }
@@ -482,7 +501,7 @@ static __attribute__((noinline)) void dr_cb(dr8_t *d, int32_t *acc, uint32_t n)
 }
 
 #define DR_CY_G 50000
-static __attribute__((noinline)) void dr_cy(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void dr_cy(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)
 {
     int32_t a0, da, b0, db;
     int32_t *s = d->x;
@@ -491,7 +510,7 @@ static __attribute__((noinline)) void dr_cy(dr8_t *d, const int16_t *p, int32_t 
     da = dre_next(&d->e[0], &a0);
     db = dre_next(&d->e[1], &b0);
     for (i = 0; i < n; i++) {
-        int32_t a = softclip(clamp(dr_m1[i] * DR_MV, -200000, 200000));
+        int32_t a = dr_softclip(dr_clamp(dr_m1[i] * DR_MV, -200000, 200000));
         int32_t b = dr_m2[i], y;
         a = drf_hp(&DRF_CYA, (a * DRE_AT(a0, da, i)) >> 15, s);
         b = drf_hp(&DRF_CYB, (b * DRE_AT(b0, db, i)) >> 15, s + 2);
@@ -505,7 +524,7 @@ static __attribute__((noinline)) void dr_cy(dr8_t *d, const int16_t *p, int32_t 
 }
 
 #define DR_HAT_G 27000
-static __attribute__((noinline)) void dr_hat(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)   /* open or closed: band 2, a VCA, a high-pass */
+static __attribute__((noinline, section(".dsp_text"))) void dr_hat(dr8_t *d, const int16_t *p, int32_t *acc, uint32_t n)   /* open or closed: band 2, a VCA, a high-pass */
 {
     int32_t e0, de;
     uint32_t i;
@@ -609,20 +628,26 @@ static __attribute__((noinline)) void dr8_run(dr8_t *d, const int16_t *p, int32_
             dr_nz[i] = (int32_t)(noise32(&d->nst) >> 17) - 16384;
     if ((DR_METAL >> d->ins) & 1u) {
         dr_metal_tune(d);
-        dr_metal(d, n);
+        void (*volatile metal)(dr8_t *, uint32_t) = dr_metal;
+        metal(d, n);
     }
+    /* Both signatures cross the XIP/RAM distance through a register call. */
+#define DR8_KNOBS(fn) do { void (*volatile run)(dr8_t *, const int16_t *, int32_t *, uint32_t) = fn; run(d,p,y,n); } while (0)
+#define DR8_HIT(fn) do { void (*volatile run)(dr8_t *, int32_t *, uint32_t) = fn; run(d,y,n); } while (0)
     switch (d->ins) {
-    case DR_BD: dr_bd(d, p, y, n); break;
-    case DR_SD: dr_sd(d, p, y, n); break;
-    case DR_RS: dr_rs(d, y, n); break;
-    case DR_CL: dr_cl(d, y, n); break;
-    case DR_CP: dr_cp(d, y, n); break;
-    case DR_MA: dr_ma(d, y, n); break;
-    case DR_CB: dr_cb(d, y, n); break;
-    case DR_CY: dr_cy(d, p, y, n); break;
-    case DR_OH: case DR_CH: dr_hat(d, p, y, n); break;
-    default: dr_tom(d, p, y, n); break;
+    case DR_BD: DR8_KNOBS(dr_bd); break;
+    case DR_SD: DR8_KNOBS(dr_sd); break;
+    case DR_RS: DR8_HIT(dr_rs); break;
+    case DR_CL: DR8_HIT(dr_cl); break;
+    case DR_CP: DR8_HIT(dr_cp); break;
+    case DR_MA: DR8_HIT(dr_ma); break;
+    case DR_CB: DR8_HIT(dr_cb); break;
+    case DR_CY: DR8_KNOBS(dr_cy); break;
+    case DR_OH: case DR_CH: DR8_KNOBS(dr_hat); break;
+    default: DR8_KNOBS(dr_tom); break;
     }
+#undef DR8_KNOBS
+#undef DR8_HIT
     for (i = 0; i < n; i++)
         y[i] = (y[i] * DR8_OUT) >> 12;
     if (d->t > DR_LIFE)

@@ -43,7 +43,7 @@ static void ed_ui_state(void)
     ed_u28(sig);
     ed_u28(up_gen);
     ed_b(settings_click);ed_b(settings_click_level);ed_b(settings_countin);ed_b(settings_preview);ed_b(settings_chord_add);
-    ed_b(settings_latch); ed_b(scr_get());
+    ed_b(127); ed_b(scr_get());
 }
 /* Writes use the same flash path as the panel. rc 3 means applied in RAM,
  * but not saved (absent flash or a failed write); rc 4 means queued until STOP.
@@ -74,7 +74,7 @@ static uint32_t ed_ui_set(const uint8_t *a, uint32_t n)
     if (!(ed_ui_caps() & (a[0]>=9u?ED_UI_PERFORMANCE:a[0]>=4u?ED_UI_RECORDING:1u << a[0]))) return 2;
     if (a[1] >= (a[0] == 0 ? NPALETTES : a[0]==10u ? 5u : a[0] == 2 || (a[0]>=4 && a[0]<=6) ? 3u : 2u)) return 1;
     switch (a[0]) {
-    case 9:settings_latch=a[1]; perf_latch_on=a[1]; if(!a[1])perf_latched=0; break;
+    case 9:return 2; /* retired preference */
     case 10:scr_put(a[1]);break;
     case 4:settings_click=a[1];break;
     case 5:settings_click_level=a[1];break;

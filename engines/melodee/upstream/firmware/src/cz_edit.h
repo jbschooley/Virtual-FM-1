@@ -2,12 +2,12 @@
 #ifndef MELODEE_CZ_EDIT_H
 #define MELODEE_CZ_EDIT_H
 /* On-device editing of a native CZ-1 tone (the SC_CZ1 pages). The track keeps
- * Casio's 144 bytes; a page shows them as panel values (cz_legacy.h's flat
+ * Casio's 144 bytes; a page shows them as panel values (cz_panel.h's flat
  * layout) and an edit writes back only the bytes whose encoding changed, so an
  * imported tone keeps its exact rates and levels until that value is turned.
  * Function settings (bend, wheel, aftertouch, portamento, glide, chorus) are
  * not part of a Casio tone and have no page here. */
-#include "cz_legacy.h"
+#include "cz_panel.h"
 #define CZ_NAME_LEN 16u
 static const char *const CZ_LINES[]={"LINE1","LINE2","1+2","1+1"};
 static const char *const CZ_MODES[]={"OFF","RING","NOISE"};

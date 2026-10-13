@@ -3,6 +3,14 @@
  * Envelope state and note reset utilities are shared with the phase family. */
 #include "cz_native.c"
 #include "melodee_cz1.h"            /* Casio's 64 CZ-1 preset tones (tools/gen_cz1_factory.py) */
+/* Casio's tone k (0..CZ_FACTORY_N-1) into raw (CZ_BYTES), unpacked against CZ_DICT (tools/gen_cz1_factory.py) */
+static void cz_factory(uint32_t k, uint8_t *raw)
+{
+    uint8_t b[2u * CZ_BYTES];
+    memcpy(b, CZ_DICT, CZ_BYTES);
+    lz_unpack(b + CZ_BYTES, CZ_LZ + CZ_LZ_AT[k % CZ_FACTORY_N], CZ_BYTES);
+    memcpy(raw, b + CZ_BYTES, CZ_BYTES);
+}
 /* A factory preset: Casio's tone at its BANK A..D / PTCH 1..16 (the CZ-1's A-1 .. H-8, as the default
  * banks hold them, cz_bank.c), INIT TONE the init voice. Restored and imported tones bypass this hook */
 static void cz_factory_loaded(track_t *t)
@@ -11,7 +19,7 @@ static void cz_factory_loaded(track_t *t)
     if (t->eng_req != ENGI_CZ || t->p[P_E7] != CZ_NATIVE)
         return;
     if (t->p[P_E1] > 0 && k < CZ_FACTORY_N)
-        memcpy(cz_patch[(uint32_t)(t - trk) % NTRK].raw, CZ_FACTORY[k], CZ_BYTES);
+        cz_factory(k, cz_patch[(uint32_t)(t - trk) % NTRK].raw);
     else
         cz_patch_init(cz_patch[(uint32_t)(t - trk) % NTRK].raw);
 }
@@ -39,12 +47,26 @@ static int cz_native_done(track_t *t, voice_t *v)
     return c->native_eg[a][2].stage > (b[CZ_ENV_END[a][2]] & 7u) &&
         c->native_eg[z][2].stage > (b[CZ_ENV_END[ls == 2u ? 0u : z][2]] & 7u);
 }
-#define CZ_FACTORY_PRESET(n, bank, ptch, pat) \
-    {n, {bank, ptch, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0)},   /* (pat: unused) */
-static const preset_t CZ_PRESETS[] = {
-    {"INIT TONE", {0, 0, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0)},
-    CZ_FACTORY_PRESETS(CZ_FACTORY_PRESET)   /* Casio's, dry as the CZ-1 (no effects) */
-};
+/* INIT TONE, then Casio's tones (BANK A..D, PTCH 1..16), dry as the CZ-1 (no effects); named as their LCD shows
+ * them, or shorter (CZ_SHORT) */
+static void cz_preset_make(uint32_t k, preset_t *pr, char *name)
+{
+    uint8_t raw[CZ_BYTES];
+    uint32_t i, a = 128u, z = CZ_BYTES;
+    pr->e[7] = CZ_NATIVE;
+    pr->env[1] = 70; pr->env[2] = 127; pr->env[3] = 60;
+    if (!k) { str_cpy(name, "INIT TONE", 21); return; }
+    k--;
+    pr->e[0] = (int8_t)(k / 16u);
+    pr->e[1] = (int8_t)(k % 16u + 1u);
+    for (i = 0; i < NELEM(CZ_SHORT); i++)
+        if (CZ_SHORT[i].k == k) { str_cpy(name, CZ_SHORT[i].name, 21); return; }
+    cz_factory(k, raw);
+    while (a < z && raw[a] == ' ') a++;
+    while (z > a && raw[z - 1u] == ' ') z--;
+    for (i = 0; a < z; ) name[i++] = (char)raw[a++];
+    name[i] = 0;
+}
 static const engine_t ENG_CZ = {
     .name = "CZ-1", .page_title = {"CZ-1", "TONE"},
     .edit = {
@@ -53,7 +75,7 @@ static const engine_t ENG_CZ = {
         {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"TONE", F_INT, CZ_NATIVE, CZ_NATIVE, CZ_NATIVE, 0, 0},
     },
-    .presets = CZ_PRESETS, .npresets = NELEM(CZ_PRESETS),
+    .preset_make = cz_preset_make, .npresets = CZ_FACTORY_N + 1u,
     .ownenv = 1, .done = cz_native_done, .keep = 0x0fu,
     .note_on = cz_native_note_on, .render = cz_native_render,
     .knob = {P_E0, P_E1, P_E7, P_E7},

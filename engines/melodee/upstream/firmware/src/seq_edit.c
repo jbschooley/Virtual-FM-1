@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* A note's length on SEQ > STEP (ui_input.c): its onset step and the TIE steps after it, as the sequencer plays
- * them: no project or protocol changes. ENV + SELECT resizes it, SCL + SELECT moves it, FX or EDIT deletes it with its
+ * them: no project or protocol changes. ENV + SELECT resizes it, SCL + SELECT moves it, EDIT deletes it with its
  * ties. Hold keys or MIDI notes, turn SELECT, then release to advance past the note. Wraps over the pattern's loop (LEN). UI only;
  * the caller keeps an edit whole for the audio ISR (seq_undo.c). A note: a NOTE step with notes (ui.c step_on) */
 

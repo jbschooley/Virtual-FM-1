@@ -3,7 +3,7 @@
 /* Editor protocol: the FM6 patches (EDITOR_PROTOCOL.md "FM6 patches", cmds 68..71). A patch travels as the
  * 128-byte packed record (every byte 7-bit: no pack7). Targets: 0 a track's own patch (index 0..3), 1 the patch bank
  * (retired in 1.0.3: GET / PUT / ERASE answer rc 3, "no bank"; LIST counts 0 bank slots), 2 a factory patch
- * (0..FM6_NFAC-1, read only), 3 a user preset's patch (0..UP_SLOTS-1: an FM6 user preset; up_fm6.c). */
+ * (0..FM6_NFAC-1, read only), 3 a user preset's patch (0..UP_SLOTS-1: an FM6 user preset; native_presets.c). */
 enum { ED_FM6_GET = 68, ED_FM6_PUT, ED_FM6_LIST, ED_FM6_ERASE };
 enum { ED_FM6_TRACK, ED_FM6_BANK, ED_FM6_FACTORY, ED_FM6_USER };
 #define ED_FM6_NOBANK 3u                                   /* rc: this firmware has no patch bank */
@@ -36,7 +36,7 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             else if (a[0] == ED_FM6_FACTORY && a[1] < FM6_NFAC)
                 fm6_factory(a[1], pk);
             else if (a[0] == ED_FM6_USER && a[1] < UP_SLOTS)
-                {if(native_used(ENGI_FM6,a[1]))memcpy(pk,native_raw(ENGI_FM6,a[1]),FM6_PACKED);else rc=upf_get(a[1],pk)?2u:0u;}
+                {if(native_used(ENGI_FM6,a[1]))memcpy(pk,native_raw(ENGI_FM6,a[1]),FM6_PACKED);else rc=2u;}
             else
                 rc = 1;
         }
@@ -53,12 +53,13 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             ui.force = 1;
         } else if (!rc && a[0] == ED_FM6_BANK) {
             rc = ED_FM6_NOBANK;
-        } else if (!rc && a[0] == ED_FM6_USER && a[1] < UP_SLOTS && upf_fm6(a[1])) {
+        } else if (!rc && a[0] == ED_FM6_USER && a[1] < UP_SLOTS && up_used(a[1]) && up_rec(a[1])->engine == ENGI_FM6) {
+            uint8_t v[FP_SIZE + 1u];
             int r = 2;
-            if (!ed_flash_stop()) {
-                if(native_fm_active())r=native_put(ENGI_FM6,a[1],a+2);
-                else {upf_set(a[1], a + 2);r=upf_save_bank(a[1] / UPF_SLOTS);}
-            }
+            fm6_unpack(a + 2, v);                          /* (every value into its range) */
+            fm6_pack(v, pk);
+            if (!ed_flash_stop())
+                r = native_put(ENGI_FM6, a[1], pk);
             rc = r == 2 ? 2u : 0u;                         /* (3, no flash: kept in RAM) */
         } else {
             rc = 1;

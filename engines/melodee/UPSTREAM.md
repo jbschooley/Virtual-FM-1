@@ -3,10 +3,12 @@
 `upstream/` is part of [Melodee](https://github.com/keremimo/melodee), Kerem
 Kilic's firmware for the M-VAVE FM-1, built from
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments) 1.0, at **v1.1.0** (tag `v1.1.0`, commit
-`c0e5f5f8edf06cfae3ed3f3cf92a74f86c630cea`, 2026-10-11: the re-released build, the commit its
-`BUILD_INFO.json` names). Melodee 0.13, which 1.0 replaced (retiring LOFI, PHASE, VOICE and NOISE
-and its project objects), is kept beside it in `engines/melodee013` for the projects made with it. It is GPL-3.0-only,
+Instruments) 1.0, at **v1.3.4** (tag `v1.3.4`, commit
+`f7cd3eafd593d9e585895bfaf2c9550a03662ac7`, 2026-10-13, the commit its `BUILD_INFO.json` names).
+Two earlier releases are kept beside it for the projects made with them: Melodee 0.13 in
+`engines/melodee013` (1.0 retired its LOFI, PHASE, VOICE and NOISE and its project objects) and
+Melodee 1.1.0 in `engines/melodee110` (1.2 removed its effects and retired ANALOG and DIGITAL; 1.3's
+effects are new ones). It is GPL-3.0-only,
 with parts under their own licences (`upstream/LICENSING.md`,
 `upstream/LICENSES/`), and Casio's CZ-1 preset tones and Sequential's Prophet-5
 factory programs, for which no licence is granted (below).
@@ -19,19 +21,18 @@ Copied unchanged:
 
 - `firmware/src/` and `firmware/hal/`: the firmware
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: its regression
-  (351 golden renders), run by ctest as `melodee_regress` with no CPU baseline, compiled
+  (its golden renders), run by ctest as `melodee_regress` with no CPU baseline, compiled
   as its `tests/run_tests.sh` compiles it (`-ffp-contract=off`: 1.0's DSP is single-precision
   float, and a fused multiply-add changes its renders)
-- `tools/gen_aa_font.py`, `gen_aa_icons.py`, `gen_aa_keycaps.py`,
-  `gen_ui_palettes.py`, `gen_tables.py`, `gen_fm6_patches.py`, `gen_icons.py`, `gen_909_tables.py`,
-  `gen_cz1_factory.py`, `gen_prophet_factory.py`, `gen_scales.py`,
-  `gen_waves.py`, `sampleio.py`: the generators
+- `tools/gen_aa_font.py`, `gen_aa_keycaps.py`, `gen_icons.py`, `aa_raster.py` (what those three
+  import), `gen_ui_palettes.py`, `gen_tables.py`, `gen_fm6_patches.py`, `gen_909_tables.py`,
+  `gen_cz1_factory.py`, `gen_prophet_factory.py`, `gen_scales.py`: the generators
 - `LICENSE`, `LICENSING.md`, `LICENSES/`, `assets/fonts/OFL.txt`,
   `assets/scales/README.md`, `assets/cz1-factory/` (the CZ-1 tones and their
   README) and `assets/prophet5-factory/` (the Prophet-5 programs and their README)
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-export of v1.1.0 with Python 3 and Pillow (it needs that checkout's `assets/`,
+export of v1.3.4 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not all copied): `ui_fonts.h`, `ui_icons.h`, `ui_keycaps.h`, `ui_palettes.h`,
 `melodee_tables.h`, `melodee_fm6.h`, `melodee_cz1.h` and
 `melodee_prophet_factory.h`; and `x0x_drum_tables.h`, which its `build_app()` makes

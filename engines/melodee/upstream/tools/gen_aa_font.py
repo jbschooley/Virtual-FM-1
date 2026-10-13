@@ -24,7 +24,8 @@ Output (a C header; the glyph / font types live in the renderer, firmware/src/gf
   AF_<N>_G      aag_t {off, adv (1/16 px), bx, by, bw, bh} per glyph and phase (PHASES of S M, PHASES_L of L:
                 the glyph drawn at a pen of +0, +1/phases .. px, next to each other), ASCII 32..126, then the
                 extras (Latin-1 by their code; the ellipsis U+2026 as code 0x85, as in Windows-1252)
-  AF_<N>_KERN / _KD  kerning pairs (key = a<<8|b, sorted) and their deltas in 1/16 px (GPOS of the weight)
+  AF_<N>_KL / _KR / _KM  kerning (GPOS of the weight) as classes: each glyph's left and right class (0 = none),
+                the matrix of deltas in 1/16 px, [(left - 1) * right classes + right - 1]
   AF_<N>        aafont_t (its last field: log2 of the phases)
 Prints the byte cost of every face.
 """
@@ -41,7 +42,7 @@ FONTS = Path(__file__).resolve().parents[1] / "fonts"
 LOCAL_INTER = os.path.expanduser("~/Library/Fonts/Inter.ttc")   # 4.001: 0 Regular, 10 Medium, 12 SemiBold
 EXTRAS = [0xA9, 0xB0, 0xB7, 0xC4, 0xD6, 0xDC, 0xE4, 0xF6, 0xFC, 0x2026]  # (c) deg . A: O: U: a: o: u: (Latin-1), ...
 CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one-byte code in the firmware
-PHASES, PHASES_L = 4, 2                # horizontal phases per glyph (aa_raster.raster_font): S M, L
+PHASES, PHASES_L = 2, 2                # horizontal phases per glyph (aa_raster.raster_font): X S M, L
 # faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
 # 2 px per byte, so the labels draw at full speed
 HUFF = [("M", "L")]
@@ -210,11 +211,27 @@ def emit(face, tracking, gamma, kern_min):
         table = [(newoff.get(off, 0),) + t[1:] for t in table for off in (t[0],)]
         data += bytes(2)                               # gfx.c cv_alpha_hc reads up to 2 bytes ahead
     assert len(data) < 65536, "glyph data over 64 KiB: split the face"
-    kern = sorted(r["kern"].items())
-    keys = [(ord(a) << 8) | ord(b) for (a, b), _ in kern if ord(a) < 256 and ord(b) < 256]
-    deltas = [d for (a, b), d in kern if ord(a) < 256 and ord(b) < 256]
-    order = sorted(range(len(keys)), key=lambda i: keys[i])
-    keys, deltas = [keys[i] for i in order], [deltas[i] for i in order]
+    # kerning as classes: glyphs whose rows (as the left glyph) are equal share a left class, likewise columns;
+    # class 0 = no pair. gfx.c kern: km[(kl[a] - 1) * nkr + kr[b] - 1]. Pairs of a sign above Latin-1 (the
+    # ellipsis) are left out, as before
+    pairs = {(a, b): d for (a, b), d in r["kern"].items() if ord(a) < 256 and ord(b) < 256 and d}
+    kl, kr, rows, cols = [0] * len(chars), [0] * len(chars), {}, {}
+    for i, a in enumerate(chars):
+        row = tuple(pairs.get((a, b), 0) for b in chars)
+        if any(row):
+            kl[i] = rows.setdefault(row, len(rows) + 1)
+    for j, b in enumerate(chars):
+        col = tuple(pairs.get((a, b), 0) for a in chars)
+        if any(col):
+            kr[j] = cols.setdefault(col, len(cols) + 1)
+    km = [0] * (len(rows) * len(cols))
+    for (a, b), d in pairs.items():
+        km[(kl[chars.index(a)] - 1) * len(cols) + kr[chars.index(b)] - 1] = d
+    for i, a in enumerate(chars):
+        for j, b in enumerate(chars):
+            got = km[(kl[i] - 1) * len(cols) + kr[j] - 1] if kl[i] and kr[j] else 0
+            assert got == pairs.get((a, b), 0), f"{name}: kerning classes lose {a!r}{b!r}"
+    assert all(-128 <= d < 128 for d in km)
     psh = phases.bit_length() - 1
     lines.append(f"/* {name}: {os.path.basename(font.split('#')[0])} {px}px, h {r['h']}, baseline {r['asc']}, "
                  f"{len(chars)} glyphs x {phases} phases, {len(data)} B data"
@@ -226,16 +243,19 @@ def emit(face, tracking, gamma, kern_min):
     for off, adv, bx, by, bw, bh in table:
         lines.append(f"    {{{off}, {adv}, {bx}, {by}, {bw}, {bh}}},")
     lines.append("};")
-    if keys:
-        lines.append(ar.c_array(f"AF_{name}_KERN", "uint16_t", keys, 12))
-        lines.append(ar.c_array(f"AF_{name}_KD", "int8_t", deltas, 24))
+    if km:
+        lines.append(ar.c_array(f"AF_{name}_KL", "uint8_t", kl, 24))
+        lines.append(ar.c_array(f"AF_{name}_KR", "uint8_t", kr, 24))
+        lines.append(ar.c_array(f"AF_{name}_KM", "int8_t", km, 24))
     ex = ", ".join(str(CODE.get(c, c)) for c in extras) or "0"
     lines.append(f"static const uint8_t AF_{name}_EX[{max(1, len(extras))}] = {{{ex}}};")
-    lines.append(f"static const aafont_t AF_{name} = {{{r['h']}, {r['asc']}, {first}, {last}, {len(extras)}, {len(keys)}, "
-                 f"AF_{name}_G, AF_{name}_DATA, {'AF_%s_KERN' % name if keys else '0'}, "
-                 f"{'AF_%s_KD' % name if keys else '0'}, AF_{name}_EX, {psh}, {'AF_%s_HC' % name if hc else '0'}}};")
-    cost = {"data": len(data) + len(hc), "glyph_table": 8 * len(table), "kern": 3 * len(keys), "extras": len(extras),
-            "glyphs": len(chars), "phases": phases, "pairs": len(keys), "h": r["h"], "asc": r["asc"], "px": px,
+    kt = (f"AF_{name}_KL, AF_{name}_KR, AF_{name}_KM") if km else "0, 0, 0"
+    lines.append(f"static const aafont_t AF_{name} = {{{r['h']}, {r['asc']}, {first}, {last}, {len(extras)}, "
+                 f"{len(cols) if km else 0}, AF_{name}_G, AF_{name}_DATA, {kt}, AF_{name}_EX, {psh}, "
+                 f"{'AF_%s_HC' % name if hc else '0'}}};")
+    kbytes = 2 * len(chars) + len(km) if km else 0
+    cost = {"data": len(data) + len(hc), "glyph_table": 8 * len(table), "kern": kbytes, "extras": len(extras),
+            "glyphs": len(chars), "phases": phases, "pairs": len(pairs), "h": r["h"], "asc": r["asc"], "px": px,
             "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16}
     cost["total"] = cost["data"] + cost["glyph_table"] + cost["kern"] + cost["extras"]
     return "\n".join(lines) + "\n", cost

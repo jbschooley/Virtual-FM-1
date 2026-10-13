@@ -11,9 +11,14 @@
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
-#define VBUDGET 16               /* the sounding voices of all parts, in units: a voice of an engine capped above NPOLY
-                                  * (FM6) takes one, any other two, so the others keep their shared eight */
 #define NPART 4                  /* synth parts: tracks 1..4 */
+#ifndef MELODEE_RAM_AUDIO
+#define MELODEE_RAM_AUDIO 0       /* resident audio profile: full audio graph executes in SRAM */
+#endif
+#ifndef VBUDGET
+#define VBUDGET (MELODEE_RAM_AUDIO ? 18u : 16u) /* shared weighted voices; RAM profile uses 18 with CPU1 online
+                                                 * at 360 MHz (voice.c voice_budget: scaled with a kept 320) */
+#endif
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
 #define NPAT 8u
@@ -23,10 +28,6 @@
 #undef MELODEE_SLICE
 #endif
 #define MELODEE_SLICE 0
-#ifndef MELODEE_FM4
-#define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
-                                  * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
-#endif
 #ifndef P5_OVERSAMPLE
 #define P5_OVERSAMPLE 1 /* prototype: benchmark base rate before enabling optional 2x */
 #endif
@@ -42,8 +43,9 @@
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 256u
-#define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - 7u - !MELODEE_FM4 - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
+#define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
+#define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
+#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS
@@ -71,17 +73,17 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: reserved field now used by sequencer playback QNT */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_RECQ,     /* P_RECQ: reserved field now used by end-of-recording QNT */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
     P_ASWING, P_APROB, P_AHOLD, P_AORDER,
     P_ROOT, P_SCALE, P_QUANT, P_TRANS,
     P_SLEN, P_SDIV, P_SSWING, P_SGATE,
-    P_DIST, P_CHOR, P_DLY, P_REV,
+    P_RESERVED33, P_RESERVED34, P_RESERVED35, P_RESERVED36,
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
-    P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c) */
+    P_RESERVED45, P_RESERVED46, P_RESERVED47, P_RESERVED48,      /* retired effect format padding */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
     P_M2SRC, P_M2DST, P_M2AMT,                 /* new common parameters go just before P_E0 (user presets */
     P_M3SRC, P_M3DST, P_M3AMT,                 /* and projects map by count) */
@@ -94,34 +96,48 @@ enum {                          /* per-track parameters */
     P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
+    P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
+    P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR,
+    P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
+    P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
+    P_FXSEND2, P_FXSEND3,
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+#define FX_SLOTS 3u
+#define FX_PARAMS 4u
+#define FX_CHAIN_COUNT (NPART+1u)
+#define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
+static int param_fx(uint32_t id) { return id>=P_FXTYPE && id<=P_FX3CHAR; }
+static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 
-#define P_RECQ P_ED_FX          /* reuse an inert parameter; engine and scale ids stay fixed */
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
-    G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,
-    G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,
+    G_RESERVED4, G_RESERVED5, G_RESERVED6, G_RESERVED7,
+    G_RESERVED8, G_RESERVED9, G_RESERVED10, G_RESERVED11,
     G_MIDI, G_DRUMCH, G_ROUTE, G_INFO, /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4), 1 SEL (seq.c);
                                         * G_DRUMCH (was G_SYNC, unused): a device setting (settings_drumch) */
     G_SLOT, G_BOOT, G_LOAD, G_SAVE,   /* G_BOOT (was G_NAME, unused): a device setting (settings_boot), not song.g */
     G_ENGSEL, G_A4,            /* the editor switches the engine with a SET of G_ENGSEL; G_A4 reuses the unused
                                  * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
-    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (fx.c). Was G_DRCH, the GM drum part's MIDI
-                                 * channel (inert since 1.0, never read); projects of formats before FUN7 load it
-                                 * as ROOM (project.c proj_rtype_room) */
-    G_DTYPE, G_DWEAR,           /* DELAY TYPE (DIGI, TAPE, DG-PP, TP-PP) and WEAR (delay.c, x0x's tape delay).
-                                 * Were G_DRLVL / G_DRREV, the GM drum part's level and reverb send (inert since
-                                 * 1.0): ids and G_COUNT are fixed by the formats and the protocol; a project from
-                                 * before 1.0 still gives them to its drum part (project.c proj_drums_to_part), any
-                                 * project from before the delay came back their defaults (proj_delay_off) */
+    G_RESERVED24, G_RESERVED25, G_RESERVED26, /* retired global format padding */
+    G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR,
+    G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR,
+    G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR,
+    G_FXRETURN,
+    G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
     G_COUNT
 };
-#define G_DRLVL G_DTYPE         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
-#define G_DRREV G_DWEAR
+static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
+#define G_DRLVL G_RESERVED25         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
+#define G_DRREV G_RESERVED26
+
+static int param_reserved(uint32_t id)
+{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || (id>=P_RESERVED45 && id<=P_RESERVED48); }
+static int global_reserved(uint32_t id)
+{ return (id>=G_RESERVED4 && id<=G_RESERVED11) || (id>=G_RESERVED24 && id<=G_RESERVED26); }
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -191,11 +207,9 @@ typedef struct {
     int8_t fenv;                 /* ENV -> FILTER amount (-64..63) */
     uint8_t mono;                /* 1 = MONO (bass / lead), 0 = POLY */
     /* the rest of the patch; each value is stored + 1, 0 = the default */
-    uint8_t fx[4];               /* DIST, CHORUS, DELAY, REVERB sends */
                                  /* (a sound load never touches the steps; the arp is the track's: a preset does
                                   * not set it) */
 } preset_t;
-#define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
 
 struct track;
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
@@ -240,6 +254,8 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     uint32_t (*cap)(const struct track *t);
     /* optional: the voice budget units one of its voices takes now  */
     uint32_t (*units)(const struct track *t);
+    /* with presets 0: preset k (< npresets) made on demand, its name into name (21 bytes); engines.c eng_preset */
+    void (*preset_make)(uint32_t k, preset_t *p, char *name);
 } engine_t;
 /* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
  * engine_t.note_on may read it  */
@@ -376,8 +392,6 @@ typedef struct track {
     uint8_t rr;                  /* POLY ROTATE: next voice to try */
     /* mix runtime */
     int32_t peak;
-    int32_t dist_hp, dist_lp1, dist_lp2;   /* DIST insert state (fx.c) */
-    uint8_t tail;                /* blocks to mix after the last voice (the DIST tail) */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
@@ -399,6 +413,7 @@ typedef struct {
     uint8_t grid;                /* 1: the keys are the DRUM grid (ui.c grid_on): only the lane keys play (seq.c);
                                   * 2: NAME (ui_name.c): no key plays */
     uint8_t rec;                 /* live recording armed: bit per track */
+    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording one pattern pass */
     uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
     int8_t octave;
     uint32_t tick;               /* sub-blocks since play */
@@ -414,7 +429,7 @@ static song_t song;
 #include "microtonal.h"
 
 /* SWING of a track's step clock: the track's own plus the global one, at most 100 (#31). The sequencer
- * (seq.c step_samples) and the SLICER (slicer.c sl_enter) both time steps with it. At 100 the even
+ * (seq.c step_samples) times steps with it. At 100 the even
  * steps are 1.4 x the straight length and the odd ones 0.6 x. */
 #define SWING_MAX 100
 static inline int32_t track_swing(const track_t *t)
@@ -435,3 +450,10 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
+static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
+{
+    bootguard.pending = 0;
+}
+
+/* GLO solo belongs to the mixer, independently of quick-layer effects. */
+static volatile uint8_t track_solo;

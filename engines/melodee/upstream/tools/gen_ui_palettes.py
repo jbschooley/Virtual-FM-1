@@ -21,8 +21,7 @@ blends (src/gfx.c, the same integer maths as mix() here):
 Outside the palette: REC, a fixed red; the QR code's fixed black and white; the crash screen's fixed red.
 GRAY (pure grayscale, R = G = B in every colour and tint) is compiled into the host tests only (UI_TEST_PALETTE):
 every screen drawn in it must stay gray, which proves the drawing takes every colour from the tokens.
-Saved settings name palettes by a tagged id (PAL_TAG + index); earlier ids map by UI_PALETTE_MIGRATE (Felucca's 20
-palettes, ids 0..19) and UI_PALETTE_MIGRATE64 (Melodee 0.13's eight, ids 64..71).
+Saved settings name palettes by a tagged id (PAL_TAG + index); any other id reads as the default.
 --report prints the WCAG contrast of every pairing, with each track colour as THEME. The tool fails on any miss.
 """
 import argparse
@@ -40,22 +39,7 @@ PALETTES = [
 ]
 TEST_GRAY = ("GRAY", (14, 14, 14), (36, 36, 36), (204, 204, 204), (255, 255, 255),
              ((232, 232, 232), (220, 220, 220), (208, 208, 208), (244, 244, 244)))
-# Felucca's 20 palettes (ids 0..19) and Melodee 0.13's eight (ids 64..71) -> the new palette
-OLD = ["GREEN", "AMBER", "CYAN", "RED", "MONO", "VIOLET", "PINK", "ICE", "WARM", "OCEAN", "DUSK", "HI-CON",
-       "LIGHT", "PAPER", "SKY", "MINT", "LILAC", "ROSE", "SAND", "L-HICON"]
-OLD_LIGHT = {"LIGHT", "PAPER", "SKY", "MINT", "LILAC", "ROSE", "SAND"}
-OLD64 = ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"]
-
-
-def old_to_new(name, light_rose):
-    if name in ("HI-CON", "L-HICON"):
-        return "CONTRAST"
-    if name == "PAPER" or (light_rose and name in OLD_LIGHT):
-        return "DAY"
-    return "NIGHT"
-
-
-PAL_TAG = 96                       # stored id = PAL_TAG + index (Melodee 0.13: 64 + its index)
+PAL_TAG = 96                       # stored id = PAL_TAG + index (ids below: earlier firmware, read as the default)
 REC_DARK, REC_LIGHT = (255, 72, 72), (190, 24, 40)
 QR_LIGHT, QR_DARK, CRASH_BG, CRASH_INK = (255, 255, 255), (0, 0, 0), (160, 0, 0), (255, 255, 255)
 PCT = {"MID": 70, "DIM": 42, "LINE": 18, "SEL": 80, "TINT": 12, "KEY": 78}
@@ -148,7 +132,7 @@ def main():
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
     fails = []
-    assert PALETTES[0][0] == "NIGHT" and len(OLD) == 20 and len(OLD64) == 8 and len(PALETTES) <= 31
+    assert PALETTES[0][0] == "NIGHT" and len(PALETTES) <= 31
     rows = [derive(p, t) for p in PALETTES + [TEST_GRAY] for t in range(4)]
     for name, d in rows:
         if name.startswith("GRAY"):
@@ -190,13 +174,7 @@ def main():
                 "#ifdef UI_TEST_PALETTE", f"    {LINE_PCT.get(TEST_GRAY[0], PCT['LINE'])},", "#endif", "};"]
         out += [f"#define UI_REC_DARK 0x{to565(REC_DARK):04x}u", f"#define UI_REC_LIGHT 0x{to565(REC_LIGHT):04x}u",
                 f"#define UI_QR_LIGHT 0x{to565(QR_LIGHT):04x}u", f"#define UI_QR_DARK 0x{to565(QR_DARK):04x}u",
-                f"#define UI_CRASH_BG 0x{to565(CRASH_BG):04x}u", f"#define UI_CRASH_INK 0x{to565(CRASH_INK):04x}u", "",
-                "/* Felucca's 20 palettes: " + " ".join(OLD) + " */",
-                "static const uint8_t UI_PALETTE_MIGRATE[20] = {" +
-                ", ".join(str(names.index(old_to_new(n, True))) for n in OLD) + "};",
-                "/* Melodee 0.13's eight (stored 64 + index): " + " ".join(OLD64) + " */",
-                "static const uint8_t UI_PALETTE_MIGRATE64[8] = {" +
-                ", ".join(str(names.index(old_to_new(n, False))) for n in OLD64) + "};", ""]
+                f"#define UI_CRASH_BG 0x{to565(CRASH_BG):04x}u", f"#define UI_CRASH_INK 0x{to565(CRASH_INK):04x}u", ""]
         Path(a.out).write_text("\n".join(out))
     for f in fails:
         print("FAIL", f)

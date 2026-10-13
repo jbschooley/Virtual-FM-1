@@ -10,7 +10,8 @@ _Static_assert(sizeof(p5_bank_t)==3600u, "native Prophet bank extent");
 static struct { uint32_t used, favorites; char name[P5_BANK_SLOTS][21]; } p5_meta[5] __attribute__((section(".pool")));
 static uint8_t p5_meta_ready[5];
 #if MELODEE_FLASH
-static p5_bank_t p5_cache __attribute__((section(".pool")));
+static p5_bank_t *bank_p5(void);                       /* (the shared bank cache: upreset.c bank_claim) */
+#define p5_cache (*bank_p5())
 static uint8_t p5_cached=255;
 #else
 static p5_bank_t p5_host[5] __attribute__((section(".pool")));
@@ -43,6 +44,7 @@ static p5_bank_t *p5_user_bank(uint32_t bank)
     if(bank>=5u)return 0;
 #if MELODEE_FLASH
     if(p5_cached!=bank){
+        bank_claim(BK_P5);
         int n=flash_ok?st_load(OBJ_P5BANK0+bank,&p5_cache,sizeof p5_cache):-1;
         if(n!=sizeof p5_cache || !p5_bank_valid(&p5_cache,bank))p5_bank_defaults(&p5_cache,bank);
         p5_cached=(uint8_t)bank;p5_index(bank,&p5_cache);
@@ -98,7 +100,8 @@ static int p5_favorite_has(uint32_t slot,int factory)
         if(slot>P5_FACTORY_N)return 0;
         if(row[28]=='P'&&row[29]=='5'&&row[30]=='F'&&row[31]==1u)
             return (row[2u+slot/8u]>>(slot%8u))&1u;
-        return slot==0u && (p5_user_bank(0)->favorites>>31);
+        if(!p5_meta_ready[0])p5_user_bank(0);          /* (the index: no bank load while browsing) */
+        return slot==0u && (p5_meta[0].favorites>>31);
     }
     if(slot>=P5_USER_SLOTS)return 0;
     uint32_t bank=slot/P5_BANK_SLOTS,k=slot%P5_BANK_SLOTS;

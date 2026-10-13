@@ -116,7 +116,7 @@ static void browser_list(uint32_t cur, uint32_t total)
         src = preset_at((uint32_t)n, &k);
         entry_label(src, k, tag, nm);
         if (src == ENGI_PROPHET)                        /* (the Prophet's own name, whole) */
-            str_cpy(nm, ENGINES[ENGI_PROPHET]->presets[k].name, sizeof nm);
+            str_cpy(nm, eng_preset(ENGINES[ENGI_PROPHET], k)->name, sizeof nm);
         cv_free_text(8, ROW_Y[r + 2], &AF_S, nm[0] ? nm : tag, r == -1 || r == 1 ? T_MID : T_DIM, T_BG, 150);
     }
     {   /* the card */
@@ -126,7 +126,7 @@ static void browser_list(uint32_t cur, uint32_t total)
         src = preset_at(at, &k);
         entry_label(src, k, tag, nm);
         if (src == ENGI_PROPHET)
-            str_cpy(nm, ENGINES[ENGI_PROPHET]->presets[k].name, sizeof nm);
+            str_cpy(nm, eng_preset(ENGINES[ENGI_PROPHET], k)->name, sizeof nm);
         e = src_engine(src, k);
         cv_rrect(4, 58, 150, 46, 6, ol, T_BG);
         cv_rrect(5, 59, 148, 44, 5, T_LIFT, ol);

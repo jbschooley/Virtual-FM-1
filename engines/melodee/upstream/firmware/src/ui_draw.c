@@ -28,11 +28,11 @@ static int32_t batt_shown(void)
     return batt_level();
 }
 
-/* REC: filled, the selected track armed; outlined, another track armed */
+/* REC: filled, the selected track ready/recording; outlined, waiting or another track armed. */
 static void draw_rec_mark(int32_t x, uint16_t bg)
 {
     if (song.rec)
-        cv_icon_mid(x, H_HEAD / 2, 16, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
+        cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
 /* the battery: a 24 px icon (tools/gen_icons.py). The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
@@ -227,7 +227,7 @@ static void draw_head(void)
     uint32_t sig, moved = 0;
     int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
     head_chip_text(chip);
-    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
+    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
@@ -257,7 +257,7 @@ static void draw_head(void)
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
     x = BPM_X + BPM_W + 2;                              /* (past the widest BPM) */
     if (song.rec) {                                     /* (12 px, as the transport) */
-        cv_icon_mid(x, H_HEAD / 2, 12, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
+        cv_icon_mid(x, H_HEAD / 2, 12, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
         x += 14;
     }
     if (seq_erase_active(TSEL)) {
@@ -478,7 +478,7 @@ static void sound_name(const track_t *t, char *b)
     else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
-        str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
+        str_cpy(b, eng_preset(e, t->preset % e->npresets)->name, 16);
 }
 
 #if MELODEE_UART
@@ -568,7 +568,7 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u;
+    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u + bulk.on * 521u + ui.note_move * 197u + ui.note_copy * 317u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -582,7 +582,7 @@ static void draw_foot(void)
         cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
     } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
-        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "K1 NOTE  PRE ZOOM", sizeof detail);
+        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : ui.note_copy?"Copying..":bulk.on||ui.note_move?"Moving..":"K1 NOTE  PRE ZOOM", sizeof detail);
         cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
         fmt_int(detail, (int32_t)notes_span());
         str_cpy(detail + str_len(detail), " ST", 4);
@@ -629,7 +629,8 @@ static void draw_foot(void)
     if (!ui.home && pg->graph == GR_ROLL && !grid_on()) {
         uint32_t start = notes_manual_start(t);
         int selected = notes_selected(t) < RECORD_MAX || (start < NSTEP && t->step[start].n);
-        khint_t hints[2] = {{selected ? KC_SCL : KC_KEYS, selected ? "MOVE" : "ADD"}, {KC_EDIT, "DELETE"}};
+        int moving=bulk.on||ui.note_move||ui.note_copy;
+        khint_t hints[2] = {{selected||moving ? KC_OCTUP : KC_KEYS, selected||moving ? "NOTE MENU" : "ADD"}, {moving?KC_OCTDN:KC_EDIT, moving?"DONE":"DELETE"}};
         cv_key_row(8, 232, 19, hints, 2, 3u, T_BG);
         cv_blit(0, Y_FOOT);
         return;
@@ -693,15 +694,14 @@ static void draw_columns(void)
     const char *unit;
     if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
+    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
         param_format(&TP[P_LEVEL], (int32_t)lvl, val, &unit);   /* (0: OFF) */
         draw_column(0, "LEVEL", val, unit, lvl && !t->p[P_MUTE] ? VAL(0u) : T_DIM, (int32_t)lvl * 1000 / 127, ICON_AUTO);
         param_format(&TP[P_PAN], t->p[P_PAN], val, &unit);
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
-        param_format(&TP[P_REV], t->p[P_REV], val, &unit);
-        draw_column(2, "REV", val, unit, VAL(2u), RATIO(&TP[P_REV], t->p[P_REV]), ICON_AUTO);
+        draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
         return;
     }
@@ -755,7 +755,7 @@ static void draw_columns(void)
         int selected = chosen < RECORD_MAX || (st && st->n);
         char sn[12], u[12];
         fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
-        draw_column(0, "STEP", sn, u, VAL(0u), -1, ICON_AUTO);
+        draw_column(0, ui.note_copy?"COPY":bulk.on||ui.note_move?"MOVE":"STEP", sn, bulk.on||ui.note_move?"":u, VAL(0u), -1, ICON_AUTO);
         uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
         note_name(sn, pitch);
         if(chosen<RECORD_MAX && drum_track(TSEL))fmt_int(sn,recording[chosen].pitch);
@@ -866,6 +866,7 @@ static void draw_columns(void)
             unit = "%";
         } else {
             param_format(d, *vp, val, &unit);
+            if(d->names==N_FX && (*vp==FX_REVERB || *vp==FX_CHORUS))str_cpy(val,N_FX[*vp],sizeof val);
         }
         draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||
@@ -961,6 +962,7 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
     case CF_OVR_USER:
+        if (user_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 16 old slots replaced", 32); break; }
         str_cpy(a, "OVERWRITE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
@@ -970,11 +972,31 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "DISCARD THE DESIGN?", 24);
         str_cpy(b, "The original sound returns", 32);
         break;
+    case CF_IMPORT:
+        for (uint32_t slot = sx_import.first; slot < sx_import.first + sx_import.count; slot++) {
+            if (sx_import.general ? up_old_bank(slot) : native_old(sx_import.engine, slot)) {
+                str_cpy(a, "REPLACE OLD BANKS?", 24); str_cpy(b, "All slots in old banks replaced", 32); return;
+            }
+        }
+        str_cpy(a,"OVERWRITE USER SLOTS?",24);
+        fmt_int(b,sx_import.count);str_cpy(b+str_len(b)," incoming patches",20);break;
+    case CF_BULK_ERASE:
+        str_cpy(a,"ERASE SELECTED PRESETS?",24);
+        str_cpy(b,"Selected slots will be empty",32);break;
     case CF_ERASE_USER:
+        if (user_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 16 old slots erased", 32); break; }
         str_cpy(a, "ERASE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
         user_name(k, b);
+        break;
+    case CF_OLD_SETTINGS:
+        str_cpy(a, "REPLACE OLD SETTINGS?", 24);
+        str_cpy(b, "Old settings/template replaced", 32);
+        break;
+    case CF_OLD_TEMPLATE:
+        str_cpy(a, "REPLACE OLD TEMPLATE?", 24);
+        str_cpy(b, "Old settings/template replaced", 32);
         break;
     default:
         str_cpy(a, "CLEAR T1 SEQUENCE?", 24);     /* the header (T1..T4) is hidden */
@@ -1039,8 +1061,7 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * MELODEE_FM4: any track): EDIT 1 */
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page (DIGITAL's, retired): EDIT 1 */
         ui.page = (uint8_t)page_first(FAM_EDIT);
         page_entered();
     }
@@ -1114,9 +1135,9 @@ static void ui_draw_frame(void)
         if (ui.force) {                                 /* over the page, dimmed (each canvas darkened as it goes) */
             uint8_t cf = ui.confirm;
             ui.confirm = 0;
-            cv_dim = 1;
+            cv_dim = cv_under = 1;
             draw_page();
-            cv_dim = 0;
+            cv_dim = cv_under = 0;
             ui.confirm = cf;
             ui.force = 1;
             draw_confirm();

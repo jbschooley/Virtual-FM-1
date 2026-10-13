@@ -24,6 +24,14 @@ def arr(name, ctype, vals, per=12, ram=False):
     return out
 
 
+def nibbles(steps, first):
+    """steps (each 0..15) two per byte, low nibble first (dsp_tables_init adds them up from first)"""
+    assert first == 0 and all(0 <= d < 16 for d in steps)
+    out = [(steps + [0])[i] | (steps + [0])[i + 1] << 4 for i in range(0, len(steps), 2)]
+    assert [out[i >> 1] >> (i & 1) * 4 & 15 for i in range(len(steps))] == steps
+    return out
+
+
 def f32(x):
     """x rounded to an IEEE single, as C stores a float"""
     return struct.unpack("f", struct.pack("f", x))[0]
@@ -121,7 +129,9 @@ def main(path):
     dms = [5.0 * (800 ** (v / 127)) for v in range(128)]
     L += arr("DECAY_K", "uint16_t", [min(65535, int(65536 * math.exp(-6.9 / (m / 1000 * FS)))) for m in dms])
     # soft clip curve for |x| in 0..2 (Q12 in, Q15 out): tanh
-    L += arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    tanh_q15 = arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    tanh_q15[0] = tanh_q15[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += tanh_q15
     L += fm6_tables()
     L += sid_tables()
     Path(path).write_text("\n".join(L) + "\n")
@@ -184,10 +194,11 @@ def sid_spline(points):
     return y
 
 
-def sid_lz(t):
-    """eng_sid.c sid_unpack's format: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7f) + 3 bytes copied from
-    d + 1 back, d in the next two bytes (little endian). Greedy longest match within the table"""
-    out, lit, i = bytearray(), bytearray(), 0
+def lz_pack(t, start=0):
+    """dsp.c lz_unpack's format: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7f) + 3 bytes copied from
+    d + 1 back, d in the next two bytes (little endian). Greedy longest match. t[:start] is a dictionary the
+    decoder has in place before its output: only t[start:] is coded, its copies may reach back into it"""
+    out, lit, i = bytearray(), bytearray(), start
 
     def flush():
         while lit:
@@ -216,9 +227,9 @@ def sid_lz(t):
     return bytes(out)
 
 
-def sid_unlz(b, n):
-    o, i = bytearray(), 0
-    while len(o) < n:
+def lz_unpack(b, n, dictionary=b""):
+    o, i = bytearray(dictionary), 0
+    while len(o) < len(dictionary) + n:
         c = b[i]
         if c < 0x80:
             o += b[i + 1:i + c + 2]
@@ -228,7 +239,7 @@ def sid_unlz(b, n):
             for _ in range((c & 0x7f) + 3):
                 o.append(o[-d])
             i += 3
-    return bytes(o)
+    return bytes(o[len(dictionary):])
 
 
 def sid_tables():
@@ -285,13 +296,13 @@ def sid_tables():
              [near(att, math.log(10 ** (4 * v / 127) / 1000)) | near(dr, math.log(10 ** (4 * v / 127) / 1000)) << 4
               for v in range(128)], 16)
     # combined waveforms: reSID's samples of a real 6581 and 8580 (assets/resid/README.md), the top 8 of 12 output
-    # bits by accumulator >> 12 for TRI+SAW, TRI+PULSE, SAW+PULSE, all three; packed (sid_lz, checked here)
+    # bits by accumulator >> 12 for TRI+SAW, TRI+PULSE, SAW+PULSE, all three; packed (lz_pack, checked here)
     packed, at = bytearray(), []
     for m in ("6581", "8580"):
         for w in ("_ST", "P_T", "PS_", "PST"):
             t = (SID_WAVES / f"wave{m}_{w}.dat").read_bytes()
-            e = sid_lz(t)
-            assert len(t) == 4096 and sid_unlz(e, 4096) == t
+            e = lz_pack(t)
+            assert len(t) == 4096 and lz_unpack(e, 4096) == t
             at.append(len(packed))
             packed += e
     L += arr("SID_WAVE_LZ", "uint8_t", list(packed), 24)
@@ -315,6 +326,8 @@ def fm6_tables():
     N = 64
     L = [f"#define FM6_N {N}", "#define FM6_LG_N 6"]
     # sine, Q24 out of a Q24 phase: 1024 points by rotation (sin.cc), the next point for interpolation
+    # The RAM tables (FM6_SIN, the MARK I and OPL logs and exponents) are filled at boot by dsp_tables_init (below)
+    # from the rotation's two constants, half of each log and the exponents' steps: 8.6 KB less flash, bit for bit
     c = math.floor(math.cos(2 * math.pi / 1024) * (1 << 30) + 0.5)
     s = math.floor(math.sin(2 * math.pi / 1024) * (1 << 30) + 0.5)
     u, v, sin_t = 1 << 30, 0, [0] * 1025
@@ -322,7 +335,8 @@ def fm6_tables():
         sin_t[i] = (v + 32) >> 6
         sin_t[i + 512] = -((v + 32) >> 6)
         u, v = (u * c - v * s + (1 << 29)) >> 30, (u * s + v * c + (1 << 29)) >> 30
-    L += arr("FM6_SIN", "float", [f"{v / 2**24:.9e}f" for v in sin_t], 8, ram=True)
+    assert all(abs(x) <= 1 << 24 and f32(x / 2**24) == x / 2**24 for x in sin_t)   # (float)x * 2^-24 is exact
+    L += [f"#define FM6_SIN_C {c}", f"#define FM6_SIN_S {s}", "static float FM6_SIN[1025];"]
     # Exact integer phase steps for Q24 log pitches (Freqlut). The continuous
     # signal path is float, but float cannot carry every bit of this pitch.
     y, inc, fl = float(1 << 44) / FS, math.pow(2, 1.0 / 1024), []
@@ -334,8 +348,10 @@ def fm6_tables():
     lg = [int(round(f32(-1024 * f32(math.log2(f32(math.sin(((0.5 + i) / 1024.0) * math.pi / 2.0)))))))
           for i in range(1024)]
     ex = [int(round(f32((math.pow(2, f32(i / 1024.0)) - 1) * 4096))) for i in range(1024)]
-    L += arr("FM6_MKI_LOG", "uint16_t", lg + lg[::-1], 16, ram=True)    # half a cycle (the sign: the phase)
-    L += arr("FM6_MKI_EXP", "uint16_t", [4096 + ex[i ^ 1023] for i in range(1024)], 16, ram=True)   # 4096 + exp, reversed
+    L += arr("FM6_MKI_LOG_H", "uint16_t", lg, 16)           # FM6_MKI_LOG: lg + reversed: half a cycle (the sign: the phase)
+    L += ["static uint16_t FM6_MKI_LOG[2048];"]
+    L += arr("FM6_MKI_EXP_D", "uint8_t", nibbles([ex[i] - ex[i - 1] - 2 for i in range(1, 1024)], ex[0]), 16)
+    L += ["static uint16_t FM6_MKI_EXP[1024];             /* 4096 + exp, reversed */"]
     # OPL (EngineOpl.cpp): the OPL's quarter-wave log sine and exponent ROMs
     opl_log = [
         2137, 1731, 1543, 1419, 1326, 1252, 1190, 1137, 1091, 1050, 1013, 979, 949, 920, 894, 869,
@@ -354,7 +370,8 @@ def fm6_tables():
         16, 15, 15, 14, 13, 13, 12, 12, 11, 10, 10, 9, 9, 8, 8, 7,
         7, 7, 6, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2,
         2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
-    L += arr("FM6_OPL_LOG", "uint16_t", opl_log + opl_log[::-1], 16, ram=True)  # half a cycle
+    L += arr("FM6_OPL_LOG_H", "uint16_t", opl_log, 16)      # FM6_OPL_LOG: half a cycle
+    L += ["static uint16_t FM6_OPL_LOG[512];"]
     opl_exp = [
         0, 3, 6, 8, 11, 14, 17, 20, 22, 25, 28, 31, 34, 37, 40, 42,
         45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90,
@@ -372,7 +389,37 @@ def fm6_tables():
         774, 779, 784, 789, 794, 799, 804, 809, 814, 819, 824, 829, 834, 839, 844, 849,
         854, 859, 864, 869, 874, 880, 885, 890, 895, 900, 906, 911, 916, 921, 927, 932,
         937, 942, 948, 953, 959, 964, 969, 975, 980, 986, 991, 996, 1002, 1007, 1013, 1018]
-    L += arr("FM6_OPL_EXP", "uint16_t", [(0x400 + opl_exp[i ^ 0xFF]) << 1 for i in range(256)], 16, ram=True)
+    L += arr("FM6_OPL_EXP_D", "uint8_t", nibbles([opl_exp[i] - opl_exp[i - 1] - 2 for i in range(1, 256)], opl_exp[0]), 16)
+    L += ["static uint16_t FM6_OPL_EXP[256];              /* (0x400 + exp) << 1, reversed */"]
+    L += ["/* the RAM tables above, bit for bit as this script made them before (checked by tests/fm6_parity.sh and the",
+          " * goldens); fm1_main calls it before anything renders, host builds before main */",
+          "static void dsp_tables_init(void)",
+          "{",
+          "    int32_t u = 1 << 30, v = 0, x;",
+          "    uint32_t i, e;",
+          "    for (i = 0; i < 512u; i++) {",
+          "        x = (v + 32) >> 6;",
+          "        FM6_SIN[i] = (float)x * (1.0f / 16777216.0f);",
+          "        FM6_SIN[i + 512u] = (float)-x * (1.0f / 16777216.0f);",
+          "        x = (int32_t)(((int64_t)u * FM6_SIN_C - (int64_t)v * FM6_SIN_S + (1 << 29)) >> 30);",
+          "        v = (int32_t)(((int64_t)u * FM6_SIN_S + (int64_t)v * FM6_SIN_C + (1 << 29)) >> 30);",
+          "        u = x;",
+          "    }",
+          "    FM6_SIN[1024] = 0.0f;",
+          "    for (i = 0; i < 1024u; i++) FM6_MKI_LOG[i] = FM6_MKI_LOG[2047u - i] = FM6_MKI_LOG_H[i];",
+          "    for (i = 0; i < 256u; i++) FM6_OPL_LOG[i] = FM6_OPL_LOG[511u - i] = FM6_OPL_LOG_H[i];",
+          f"    for (i = 0, e = {ex[0]}u; i < 1024u; i++) {{",
+          "        if (i) e += 2u + ((FM6_MKI_EXP_D[(i - 1u) >> 1] >> (((i - 1u) & 1u) * 4u)) & 15u);",
+          "        FM6_MKI_EXP[i ^ 1023u] = (uint16_t)(4096u + e);",
+          "    }",
+          f"    for (i = 0, e = {opl_exp[0]}u; i < 256u; i++) {{",
+          "        if (i) e += 2u + ((FM6_OPL_EXP_D[(i - 1u) >> 1] >> (((i - 1u) & 1u) * 4u)) & 15u);",
+          "        FM6_OPL_EXP[i ^ 255u] = (uint16_t)((0x400u + e) << 1);",
+          "    }",
+          "}",
+          "#if defined(__APPLE__)",
+          "__attribute__((constructor)) static void dsp_tables_ctor(void) { dsp_tables_init(); }",
+          "#endif"]
     # frequency: coarse ratios, fine (dx7note.cc osc_freq), detune per note x (DET - 7) in Q24 fractions
     L += arr("FM6_COARSE", "int32_t", [-(1 << 24)] + [int(round((1 << 24) * math.log2(k))) for k in range(1, 32)], 8)
     L += arr("FM6_FINE", "int32_t", [math.floor(24204406.323123 * math.log(1 + 0.01 * f) + 0.5) for f in range(128)], 8)

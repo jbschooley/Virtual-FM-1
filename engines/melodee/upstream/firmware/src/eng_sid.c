@@ -136,24 +136,6 @@ static uint32_t sid_wave12(uint32_t wave, const uint8_t *wt, uint32_t ph, uint32
     return b & 8u ? sid_noise_bits(noise) : sid_wave_out(b, wt, ph, x, pt);
 }
 
-/* reSID's samples as tools/gen_tables.py sid_lz packs them: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7F)
- * + 3 bytes copied from d + 1 back, d in the next two bytes */
-static void sid_unpack(uint8_t *o, const uint8_t *b, uint32_t n)
-{
-    uint8_t *e = o + n;
-    while (o < e) {
-        uint32_t c = *b++;
-        if (c < 0x80u) {
-            for (c++; c; c--)
-                *o++ = *b++;
-        } else {
-            const uint8_t *src = o - (b[0] | (uint32_t)b[1] << 8) - 1;
-            b += 2;
-            for (c = (c & 0x7fu) + 3u; c; c--)
-                *o++ = *src++;
-        }
-    }
-}
 
 /* the part's samples of combined waveform bits wb on MODEL, unpacked when either changes; 0 for a single one */
 static const uint8_t *sid_table(track_t *t, uint32_t model, uint32_t wb)
@@ -164,7 +146,7 @@ static const uint8_t *sid_table(track_t *t, uint32_t model, uint32_t wb)
         return 0;
     sp = sid_part((uint32_t)(t - trk) % NPART);
     if (sp->wave_key != key) {
-        sid_unpack(sp->wave, SID_WAVE_LZ + SID_WAVE_AT[model][wb == 3u ? 0u : wb - 4u], sizeof sp->wave);
+        lz_unpack(sp->wave, SID_WAVE_LZ + SID_WAVE_AT[model][wb == 3u ? 0u : wb - 4u], sizeof sp->wave);
         sp->wave_key = key;
     }
     return sp->wave;
@@ -413,7 +395,7 @@ static void sid_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
 /* name, MODEL WAVE STACK PW CUT RES MODE DRIVE, ATK DEC SUS REL (the track's: SID_ADSR_RATE), ENV -> FILTER,
  * mono, sends */
 #define SIDP(n, mo, wa, st, pw, cu, re, md, dr, a, d, s, r, fe, mi, di, ch, de, rv) \
-    {n, {mo, wa, st, pw, cu, re, md, dr}, {a, d, s, r}, fe, mi, FX(di, ch, de, rv)}
+    {n, {mo, wa, st, pw, cu, re, md, dr}, {a, d, s, r}, fe, mi}
 
 static const preset_t SID_PRESETS[] = {
     SIDP("INIT SID",    0, 1, 0, 64, 127,  0, 0,  0,   0, 36, 127, 36,   0, 0,  0,  0, 0,  0),

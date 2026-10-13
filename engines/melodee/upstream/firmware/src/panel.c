@@ -64,10 +64,8 @@ static int32_t panel_enc(uint32_t role)
     return value;
 }
 
-/* Keep the retained settings layout fixed. palette: the index into UI_PALETTES (SET3 held an index
- * into the 20 palettes of earlier firmware) */
+/* Keep the retained settings layout fixed. palette: the index into UI_PALETTES */
 #define SETTINGS_MAGIC 0x53455434u              /* "SET4" */
-#define SETTINGS_MAGIC_OLD 0x53455433u          /* "SET3" */
 struct { uint32_t magic, palette, lowcut, zoom; } settings __attribute__((section(".noinit")));
 
 static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
@@ -94,10 +92,6 @@ static int hold_stored_ok(uint32_t v) { return v <= 1u || (v & ~3u) == HOLD_TAG;
 
 static void settings_init(void)
 {
-    if (settings.magic == SETTINGS_MAGIC_OLD && settings.palette < 20u) {
-        settings.magic = SETTINGS_MAGIC;
-        settings.palette = palette_from_stored(settings.palette);
-    }
     if (settings.magic != SETTINGS_MAGIC || settings.palette >= NPALETTES) {
         settings.magic = SETTINGS_MAGIC;
         settings.palette = UI_DEFAULT_INDEX;   /* NIGHT (default) */
@@ -105,5 +99,4 @@ static void settings_init(void)
         settings.zoom = 0;                     /* large readout of the touched value: off */
     }
     palette_set(settings.palette);
-    fx_lowcut = (uint8_t)(settings.lowcut % 3u);
 }

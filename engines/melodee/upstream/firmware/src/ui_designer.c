@@ -7,9 +7,9 @@
  * No serialized IDs, project formats or DSP defaults change. Included by ui_draw.c */
 enum { DS_OFF, DS_SETUP, DS_SHAPE };
 enum { DG_FREE, DG_BASS, DG_PAD, DG_LEAD, DG_KEYS, DG_PLUCK, DG_FX, DG_COUNT };
-enum { DT_BUILD, DT_SOURCE, DT_TONE, DT_ENV, DT_MOVE, DT_PLAY, DT_FX, DT_COUNT };
+enum { DT_BUILD, DT_SOURCE, DT_TONE, DT_ENV, DT_MOVE, DT_PLAY, DT_COUNT };
 static const char *const DS_GOAL[] = {"FREE", "BASS", "PAD", "LEAD", "KEYS", "PLUCK", "FX"};
-static const char *const DS_TAB[DT_COUNT] = {"Features", "Source", "Tone", "Env", "Motion", "Play", "FX"};
+static const char *const DS_TAB[DT_COUNT] = {"Features", "Source", "Tone", "Env", "Motion", "Play"};
 static void designer_page(void);
 /* One compact snapshot swaps A (original) and B (draft). Editing is allowed
  * only on B; switching engine during setup does not touch the track. */
@@ -73,7 +73,7 @@ static void designer_open(void)
     ds.current=1;ds.old_home=ui.home;ds.old_page=ui.page;
     designer_quit=designer_close;ui.designer_mode=DS_SETUP;ui.home=0;ui.menu=0;ui.layer=ui.lock=ui.ly=0;ui.ly_t0=0;
     ui.pg_down=0;ui.force=1;ui.msg_t=0;ui.act=0;
-    kb_mask=perf_mask=kb_lock=0;
+    kb_mask=kb_lock=0;
 }
 static void designer_close(int discard)
 {
@@ -306,13 +306,6 @@ static const char *designer_silent(void)
 static void designer_recipe(void)
 {
     track_t *t=TSEL;uint32_t g=ds.goal;
-    t->p[P_DIST]=t->p[P_CHOR]=t->p[P_DLY]=t->p[P_REV]=0;
-    if(t->eng_req==0u){
-        /* A neutral single saw, rather than the first factory lead. */
-        t->p[P_E0]=t->p[P_E1]=t->p[P_E2]=t->p[P_E3]=0;t->p[P_E4]=127;
-        t->p[P_E5]=t->p[P_E6]=t->p[P_E7]=0;t->p[P_ED_FLT]=0;
-        t->p[P_VOICE]=V_POLY;t->p[P_ATK]=0;t->p[P_DEC]=60;t->p[P_SUS]=127;t->p[P_REL]=35;
-    }
     if(g==DG_FREE || drum_track(t))return;
     int pad=g==DG_PAD, shorty=g==DG_PLUCK||g==DG_KEYS;
     t->p[P_VOICE]=(g==DG_BASS||g==DG_LEAD)?V_MONO:V_POLY;
@@ -359,7 +352,6 @@ static void designer_recipe(void)
 static int designer_category(uint32_t i)
 {
     const page_t *p=&PAGES[i];const char *s=p->title;
-    if(p->fam==FAM_FX)return DT_FX;
     if(p->fam==FAM_ENV || str_prefix(s,"P5 FLT ENV") || str_prefix(s,"P5 AMP ENV") || str_prefix(s,"P5 ENV MOD") ||
        str_prefix(s,"EG ") || str_prefix(s,"PITCH E") || str_prefix(s,"PITCH L") || str_prefix(s,"C1 ") || str_prefix(s,"C2 "))return DT_ENV;
     if(p->fam==FAM_LFO || str_prefix(s,"P5 LFO") || str_prefix(s,"P5 WHEEL") || str_prefix(s,"P5 POLY") ||
@@ -372,10 +364,10 @@ static int designer_category(uint32_t i)
 static int designer_page_ok(uint32_t i)
 {
     const page_t *p=&PAGES[i];
-    if(!page_visible(i) || (p->fam!=FAM_EDIT && p->fam!=FAM_ENV && p->fam!=FAM_LFO && p->fam!=FAM_FX))return 0;
+    if(!page_visible(i) || (p->fam!=FAM_EDIT && p->fam!=FAM_ENV && p->fam!=FAM_LFO))return 0;
     if(p->graph==GR_FMSTORE || p->graph==GR_CZTOOLS || p->scope==SC_P5STORE || p->graph==GR_MOTION)return 0;
-    /* Shared FX, track mixer/performance parameters and the drum lanes' notes are outside a tone. */
-    if(p->scope==SC_GLOBAL || p->graph==GR_SLCR || str_prefix(p->title,"LANES"))return 0;
+    /* Track mixer/performance parameters and the drum lanes' notes are outside a tone. */
+    if(p->scope==SC_GLOBAL || str_prefix(p->title,"LANES"))return 0;
     if(TSEL->eng_req==ENGI_PROPHET && (str_eq(p->title,"VOICE") || str_eq(p->title,"VOICE 2")))return 0;
     if(TSEL->eng_req==ENGI_PROPHET && p->scope==SC_ENGINE)return 0;
     if(drum_track(TSEL) && (str_prefix(p->title,"VOICE") || p->fam==FAM_ENV))return 0;

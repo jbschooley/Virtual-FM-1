@@ -30,7 +30,7 @@ static int designer_input(uint32_t pressed,uint32_t notes)
         if(song.sel==ds.track)ui_message("SOUND CHANGED");
         return 0;
     }
-    song.grid=0;kb_mask=perf_mask=kb_lock=0;            /* (the keys play) */
+    song.grid=0;kb_mask=kb_lock=0;            /* (the keys play) */
     seq_midi_events(0);
     if(pressed&(1u<<panel.btn[B_PLAY]))transport_req=transport_busy()?2:1;
     panel_enc(EN_ALGO);                                 /* (the track stays the designer's) */

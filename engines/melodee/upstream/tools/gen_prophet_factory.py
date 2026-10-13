@@ -31,23 +31,46 @@ def records():
     return result
 
 
+def pack(patches):
+    """The 133 raw bytes of every program, packed (eng_prophet_test.c p5_factory unpacks them): raw byte k is
+    P5_FBASE[k] plus the next P5_FWIDTH[k] bits, LSB first; each program starts on a byte boundary. The
+    trailer (size, model, command, group, program) follows from the program's number."""
+    base = [min(p[k] for p in patches) for k in range(133)]
+    width = [(max(p[k] for p in patches) - base[k]).bit_length() for k in range(133)]
+    per = (sum(width) + 7) // 8
+    data = bytearray()
+    for n, p in enumerate(patches):
+        if p[133:] != bytes([133, 50, 2, n // 40, n % 40]):
+            raise ValueError(f"program {n + 1}: unexpected trailer")
+        bits, pos = 0, 0
+        for k in range(133):
+            bits |= (p[k] - base[k]) << pos
+            pos += width[k]
+        data += bits.to_bytes(per, "little")
+    for n, p in enumerate(patches):                      # the firmware's unpacking, checked here
+        bits, pos = int.from_bytes(data[n * per:(n + 1) * per], "little"), 0
+        for k in range(133):
+            if base[k] + (bits >> pos & ((1 << width[k]) - 1)) != p[k]:
+                raise ValueError(f"program {n + 1}: packing does not round-trip")
+            pos += width[k]
+    rows = lambda v: ["    " + ",".join(map(str, v[i:i + 32])) + "," for i in range(0, len(v), 32)]
+    return ([f"#define P5_FACTORY_BYTES {per}u",
+             "static const uint8_t P5_FBASE[133] = {"] + rows(base) + ["};",
+             "static const uint8_t P5_FWIDTH[133] = {"] + rows(width) + ["};",
+             f"static const uint8_t P5_FPACK[{len(data)}] = {{"] + rows(list(data)) + ["};"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--web", choices=["update", "check"])
     args = parser.parse_args()
     patches = records()
-    names = [bytes(c if 32 <= c <= 126 else 32 for c in p[65:85]).decode().rstrip() for p in patches]
     lines = ["/* Generated from Sequential's unchanged v1.03 factory SysEx. */",
              "#pragma once",
              f"#define P5_FACTORY_N {len(patches)}u",
-             "/* All 200 programs are engine factory presets. Native user slots start empty. */",
-             f"static const p5_patch_t P5_FACTORY[{len(patches)}] = {{"]
-    for p in patches:
-        lines.append("    {{" + ",".join(map(str, p[:133])) + "}," + ",".join(map(str, p[133:])) + "},")
-    lines.append("};")
-    lines.append("#define P5_FACTORY_PRESETS(X) \\")
-    lines += [f"    X({json.dumps(n)}) \\" for n in names]
+             "/* All 200 programs are engine factory presets. Native user slots start empty. */"]
+    lines += pack(patches)
     lines.append("")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines + [""]))

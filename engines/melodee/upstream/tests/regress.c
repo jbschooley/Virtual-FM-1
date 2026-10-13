@@ -122,7 +122,20 @@ static void run_to(uint32_t f) { while (fpos < f) blk(); }
 static const char *const LONG_TAIL[] = {"preset/CZ-1/47_BELLS", "preset/CZ-1/51_SITAR", "preset/CZ-1/62_JET_ROAR"};
 static uint32_t free_cap_s = FREE_CAP_S;         /* this job's (run_job_body) */
 static uint32_t tail_s = TAIL_S;                 /* .. its FX tail (a delay send's: job_sends) */
-static uint32_t release_cap(void) { return free_cap_s; }
+/* the Prophet's release is calibrated (tau = 10^(4 v / 127) ms: gen_tables.py p5ms) and its voice is free at -60 dB
+ * (P5_ENV_END: about 6.9 tau): a program with a long RELEASE rings that long, as the instrument does */
+static uint32_t release_cap(void)
+{
+    const track_t *t = &trk[0];
+    if (t->eng_req == ENGI_PROPHET) {
+        const uint8_t *p = p5_patch_of(t)->raw;
+        uint32_t v = p[P5_RELEASE_AMP] > 127u ? 127u : p[P5_RELEASE_AMP];
+        uint32_t s = p[P5_RELEASE_ON] ? (uint32_t)(7.0 * pow(10000.0, v / 127.0) / 1000.0) + 2u : 0u;
+        if (s > free_cap_s)
+            return s;
+    }
+    return free_cap_s;
+}
 
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
 static void finish(void)
@@ -172,7 +185,7 @@ static void phrase(track_t *t, uint32_t base)
 }
 
 /* ------------------------------------------------------------- jobs --- */
-enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
+enum { J_PRESET, J_MODE, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
 typedef struct {
     char name[64];
     uint8_t kind, e, pi, arg, cpu_notes;
@@ -202,21 +215,7 @@ static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off,
     phrase(t, 60);
 }
 
-static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay, 3 reverb, 4 all, 5 DIST */
-{
-    static const int16_t S[6][4] = {{0, 0, 0, 0}, {0, 110, 0, 0}, {0, 0, 110, 0}, {0, 0, 0, 110},
-                                    {40, 80, 80, 80}, {110, 0, 0, 30}};
-    track_t *t = &trk[0];
-    uint32_t i;
-    host_tracks_init();
-    host_preset(t, j->e, j->pi);
-    t->p[P_AMODE] = 0;
-    for (i = 0; i < 4u; i++)
-        t->p[P_DIST + i] = S[j->arg][i];
-    if (S[j->arg][2])                          /* the delay's repeats (x0x's defaults: TAPE, FDBK 50) ring ~5 s */
-        tail_s = 7;
-    phrase(t, 60);
-}
+
 
 static void job_drums(const job_t *j)           /* every GM note through 808 DRUM on part 4, a roll */
 {
@@ -245,25 +244,14 @@ static void job_drums(const job_t *j)           /* every GM note through 808 DRU
     finish();
 }
 
-/* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (ANALOG ACID,
+/* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (the power-on bass, PROPHET FUNK BASS II,
  * pattern 6, 1/16), 1 STUT (DIGITAL PAD, pattern 7, 1/32, DEPTH 100 %) */
-static void job_slicer(const job_t *j)
-{
-    static const int16_t S[2][4] = {{SL_GATE, 6, 1, 120}, {SL_STUT, 7, 2, 127}};
-    track_t *t = &trk[0];
-    uint32_t i;
-    host_tracks_init();
-    host_preset(t, j->e, j->pi);
-    t->p[P_AMODE] = 0;
-    for (i = 0; i < 4u; i++)
-        t->p[P_SLCR + i] = S[j->arg][i];
-    phrase(t, 60);
-}
 
-/* the 4-track mix: T1 ANALOG ACID, T2 the power-on pad (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD
- * before) (tied chords), T3 SID lead (12 steps against 16),
+
+/* the 4-track mix: T1 the power-on bass (PROPHET FUNK BASS II; ANALOG ACID until 2.0), T2 the power-on pad
+ * (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD before) (tied chords), T3 SID lead (12 steps against 16),
  * T4 808 DRUM drums; 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
- * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
+ * arg 1: with the SLICER (GATE on the pad, STUT on the bass line and the drums, SWING 20 %) */
 static void job_song(const job_t *j)
 {
     static const uint8_t ACID[16] = {45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50};
@@ -275,8 +263,8 @@ static void job_song(const job_t *j)
     (void)j;
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 4);
-    host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
+    host_power_on_sound(t1, 0);
+    host_power_on_sound(t2, 1);
     host_preset(t3, 3, 0);
     host_808_kit(td);
     for (i = 0; i < 16u; i++) {
@@ -303,16 +291,7 @@ static void job_song(const job_t *j)
             n[k++] = i == 14u ? 46 : 42;
         put_step(td, i, k, n, k ? ST_NOTE : ST_REST, i % 4u == 0u ? SF_ACCENT : 0u);
     }
-    if (j->arg) {
-        static const int16_t S[4][4] = {{SL_STUT, 9, 1, 127}, {SL_GATE, 1, 1, 127}, {0, 1, 1, 127},
-                                        {SL_STUT, 12, 2, 110}};
-        for (i = 0; i < NTRK; i++) {
-            uint32_t k;
-            for (k = 0; k < 4u; k++)
-                trk[i].p[P_SLCR + k] = S[i][k];
-        }
-        song.g[G_SWING] = 20;
-    }
+
     transport_req = 1;
     run_to(8u * FS);
     transport_req = 2;
@@ -392,17 +371,11 @@ static int run_job_body(job_t *j)
     case J_MODE:
         job_mode(j);
         break;
-    case J_SENDS:
-        job_sends(j);
-        break;
     case J_DRUMS:
         job_drums(j);
         break;
     case J_SONG:
         job_song(j);
-        break;
-    case J_SLICER:
-        job_slicer(j);
         break;
     case J_CPU:
         job_cpu(j);
@@ -485,15 +458,15 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
     midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
 }
 
-/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE (retired:
- * SID), 808 DRUM) play random notes on and off for
+/* the shared budget: 4 POLY parts (the host synth (CZ-1; ANALOG until 2.0), FM6's BELL (DIGITAL's BELL until DIGITAL
+ * was retired), VOICE (retired: SID), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
 #define VCAP_E (MELODEE_LEGACY_EXTRAS ? 5u : 3u)
 #define VCAP (MELODEE_LEGACY_EXTRAS ? 4u : NVOICE)
 static int chk_budget(char *msg, uint32_t n)
 {
-    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {VCAP_E, 1}, {4, 4}};
+    static const uint8_t E[NPART][2] = {{HOST_SYNTH, 4}, {ENGI_FM6, 1}, {VCAP_E, 1}, {4, 4}};
     uint8_t held[NPART][128] = {{0}};
     uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
     host_tracks_init();
@@ -595,7 +568,7 @@ static int chk_cap_mode_budget(char *msg, uint32_t n)
         host_tracks_init();
         for (p = 0; p < NPART; p++) {
             memset(trk[p].v, 0, sizeof trk[p].v);
-            host_preset(&trk[p], 0, 0);
+            host_preset(&trk[p], HOST_SYNTH, 0);
             trk[p].p[P_VOICE] = p ? V_MONO : V_POLY;
             trk[p].p[P_AMODE] = 0;
             trk[p].p[P_SUS] = 127;
@@ -646,7 +619,7 @@ static int chk_mode_budget(char *msg, uint32_t n)
             host_tracks_init();
             for (p = 0; p < NPART; p++) {
                 memset(trk[p].v, 0, sizeof trk[p].v);
-                host_preset(&trk[p], 0, 0);
+                host_preset(&trk[p], HOST_SYNTH, 0);
                 trk[p].p[P_VOICE] = V_MONO;
                 trk[p].p[P_AMODE] = 0;
             }
@@ -804,12 +777,12 @@ static int chk_keep(char *msg, uint32_t n, uint32_t mode)
     static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
     uint32_t k, lost = 0, kills0 = voice_kills;
     host_tracks_init();
-    host_preset(&trk[0], 0, 0);
+    host_preset(&trk[0], HOST_SYNTH, 0);
     trk[0].p[P_VOICE] = (int16_t)mode;
     trk[0].p[P_AMODE] = 0;
     trk[0].p[P_SUS] = 100;
     for (k = 1; k < NPART; k++) {
-        host_preset(&trk[k], 1, 1);
+        host_preset(&trk[k], ENGI_FM6, 1);
         trk[k].p[P_VOICE] = V_POLY;
         trk[k].p[P_AMODE] = 0;
         trk[k].p[P_SUS] = 100;
@@ -997,8 +970,8 @@ int main(int argc, char **argv)
     uint32_t jobs_at_once = getenv("JOBS") ? (uint32_t)atoi(getenv("JOBS")) : 8u;
     static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
     static const char *const SN[6] = {"dry", "chorus", "delay", "reverb", "all", "dist"};
-    static const uint8_t MODE_E[3][2] = {{0, 0}, {1, 1}, {5, 0}};   /* engine, preset (DIGITAL: MELODEE_FM4 only) */
-    static const uint8_t SEND_E[2][2] = {{0, 3}, {1, 0}};
+    static const uint8_t MODE_E[3][2] = {{HOST_SYNTH, 0}, {ENGI_FM6, 1}, {5, 0}};   /* engine, preset */
+    static const uint8_t SEND_E[2][2] = {{HOST_SYNTH, 4}, {ENGI_FM6, 0}};
     static uint8_t cpu_parts[MAXJ][NPART][3];
     static kv_t gold[MAXJ], cpu[MAXJ];
     uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, ncpu = 0;
@@ -1015,7 +988,7 @@ int main(int argc, char **argv)
     for (e = 0; e < NENGINES; e++)
         for (pi = 0; pi < ENGINES[e]->npresets; pi++) {
             job_t *j;
-            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            slug(s, eng_preset(ENGINES[e], pi)->name, sizeof s);
             snprintf(name, sizeof name, "preset/%s/%02u_%s", ENGINES[e]->name, pi, s);
             j = add(J_PRESET, name);
             j->e = (uint8_t)e;
@@ -1031,25 +1004,7 @@ int main(int argc, char **argv)
             j->pi = MODE_E[i][1];
             j->arg = (uint8_t)k0;
         }
-    for (i = 0; i < 2u; i++)
-        for (k0 = 0; k0 < 6u && eng_ok(SEND_E[i][0]); k0++) {
-            job_t *j;
-            snprintf(name, sizeof name, "sends/%s/%s", ENGINES[SEND_E[i][0]]->name, SN[k0]);
-            j = add(J_SENDS, name);
-            j->e = SEND_E[i][0];
-            j->pi = SEND_E[i][1];
-            j->arg = (uint8_t)k0;
-        }
     add(J_SONG, "song/4track_mix");
-    {   /* the SLICER */
-        job_t *j = add(J_SLICER, "slicer/gate/ANALOG_ACID");
-        j->e = 0, j->pi = 4, j->arg = 0;
-#if MELODEE_FM4                                     /* (DIGITAL: retired, built with MELODEE_FM4=1 only) */
-        j = add(J_SLICER, "slicer/stut/DIGITAL_PAD");
-        j->e = 1, j->pi = 5, j->arg = 1;
-#endif
-        add(J_SONG, "slicer/song_gate_stut")->arg = 1;
-    }
     g1 = nj;
     {   /* determinism: the first preset render once more */
         job_t *j = add(J_PRESET, "repeat");
@@ -1078,7 +1033,7 @@ int main(int argc, char **argv)
     for (e = 0; e < NENGINES; e++)
         for (pi = 0; pi < ENGINES[e]->npresets; pi++) {
             job_t *j;
-            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            slug(s, eng_preset(ENGINES[e], pi)->name, sizeof s);
             snprintf(name, sizeof name, "cpu/%s/%02u_%s", ENGINES[e]->name, pi, s);
             j = add(J_CPU, name);
             memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
@@ -1089,8 +1044,8 @@ int main(int argc, char **argv)
             j->e = (uint8_t)e;
             j->pi = (uint8_t)pi;
         }
-    {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 808 DRUM), FM (DIGITAL with
-         * MELODEE_FM4, else FM6) + PHASE + VOICE asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
+    {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 808 DRUM), FM6 + PHASE + VOICE
+         * asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
         job_t *j = add(J_CPU, "cpu/mix/idle");
         memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
         j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
@@ -1102,7 +1057,7 @@ int main(int argc, char **argv)
         j->e = 0xFF;
         j = add(J_CPU, "cpu/mix/3parts_full_drums");
         memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
-        cpu_parts[ncpu][0][0] = MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+        cpu_parts[ncpu][0][0] = ENGI_FM6, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
         cpu_parts[ncpu][1][0] = 2, cpu_parts[ncpu][1][1] = 0, cpu_parts[ncpu][1][2] = 8;
         cpu_parts[ncpu][2][0] = 5, cpu_parts[ncpu][2][1] = 0, cpu_parts[ncpu][2][2] = 4;
         cpu_parts[ncpu][3][0] = 4, cpu_parts[ncpu][3][1] = 4, cpu_parts[ncpu][3][2] = DRUM_HITS;
@@ -1257,7 +1212,7 @@ int main(int argc, char **argv)
     printf("regress: CPU, one part with 8 notes held (VOICE 4), heaviest preset per engine (instructions / ns per sample):\n");
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
-            printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
+            printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, eng_preset(ENGINES[e], heavy_p[e])->name,
                    heavy[e], heavy_ns[e]);
     for (i = c1 - 3u; i < c1; i++)
         printf("regress:   %-23s %6.0f instr  %6.1f ns\n", J[i].name + 8, J[i].r.ipc, J[i].r.ns);

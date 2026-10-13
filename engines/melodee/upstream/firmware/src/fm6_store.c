@@ -35,10 +35,7 @@ static int fm6_sx_track(uint32_t ch)                     /* the FM6 track a DX7 
 
 static uint8_t fm6_chk(const uint8_t *p, uint32_t n)    /* DX7 checksum: data + it = 0 mod 128 */
 {
-    uint32_t s = 0;
-    while (n--)
-        s += *p++;
-    return (uint8_t)(-s & 0x7Fu);
+    return sx_checksum(p,n);
 }
 
 static uint32_t fm6_sx_first(void) { return fm6_bslot < 32u ? 0u : 32u; }
@@ -80,35 +77,13 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
     for (uint32_t j = 2; j + 1u < n; j++) if (b[j] > 127u) return;
     uint32_t st = b[2] & 0xF0u, ch = b[2] & 15u;
     int tr = fm6_sx_track(ch);
-    char nm[12];
     if (n == 163u && st == 0x00u && b[3] == 0x00 && b[4] == 0x01 && b[5] == 0x1B &&
         fm6_chk(b + 6, 155) == b[161]) {                 /* one voice */
-        if (tr < 0) {
-            ui_message("FM6: NO FM6 TRACK");
-            return;
-        }
-        track_t *t = &trk[tr];
-        load_begin(t, UNDO_SOUND);
-        t->user = t->user_native = 0;                   /* an incoming voice is an unsaved track patch */
-        fm6_put_patch((uint32_t)tr, b + 6, 1);           /* a new voice: the notes stop, as in Dexed */
-        load_end(t); sync_reload = 1;
-        fm6_name(nm, fm6_patch[tr]);
-        ui_say("FM6 VOICE ", nm);
-        ui.force = 1;
+        uint8_t packed[FM6_PACKED]; fm6_pack(b + 6, packed);
+        sysex_stage(ENGI_FM6, packed, 1, FM6_PACKED);
     } else if (n == FM6_RX && st == 0x00u && b[3] == 0x09 && b[4] == 0x20 && b[5] == 0x00 &&
-               fm6_chk(b + 6, 4096) == b[4102]) {        /* 32 voices */
-        if (transport_busy()) { ui_message("STOP TO IMPORT"); return; }
-        uint32_t first = fm6_sx_first(), saved;
-        int rc = native_fm_import32(first, b + 6, &saved);
-        if (rc == 1 || rc == 2) {
-            ui_message("FM6 BANK SAVE ERROR");
-            if (saved) str_cpy(ui.msg2, "16 PATCHES SAVED", sizeof ui.msg2);
-            return;
-        }
-        if (tr >= 0) native_load(ENGI_FM6, first, (uint32_t)tr);
-        ui_message(rc == 3 ? "FM6 BANK IN RAM" : "FM6 BANK RECEIVED");
-        str_cpy(ui.msg2, first ? "F033-F064" : "F001-F032", sizeof ui.msg2);
-        ui.force = 1;
+               fm6_chk(b + 6, 4096) == b[4102]) {
+        sysex_stage(ENGI_FM6, b + 6, 32, FM6_PACKED);
     } else if (n == 7u && st == 0x10u && !(b[3] >> 2) && tr >= 0) {   /* a voice parameter */
         uint32_t k = (uint32_t)(b[3] & 3u) << 7 | b[4];
         if (k < 155u) {
@@ -153,13 +128,12 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
 
 static void fm6_service(void)                            /* main loop: a DX7 frame from USB-MIDI */
 {
-    if (fm6_rx_ready) {
+    if (fm6_rx_ready==1u) {
         RING_PUBLISH();                                  /* read the frame only after the flag */
         fm6_sysex(fm6_rx, fm6_rx_n);
         RING_PUBLISH();
-        fm6_rx_ready = 0;
+        if(fm6_rx_ready!=2u)fm6_rx_ready = 0;
     }
-    upf_release();
 }
 
 /* --------------------------------------------------------- STORE page --- */

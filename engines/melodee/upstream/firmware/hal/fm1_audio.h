@@ -18,15 +18,18 @@
 #include "fm1_irq.h"
 #include "fm1_gpio.h"
 
+#ifndef FM1_AUDIO_REG
+#define FM1_AUDIO_REG(type, addr) (*(volatile type *)(addr))
+#endif
 #define FM1_ALNK 0x12E00u
-#define FM1_ALNK_CON0 (*(volatile uint16_t *)(FM1_ALNK + 0x00u))
-#define FM1_ALNK_CON1 (*(volatile uint16_t *)(FM1_ALNK + 0x04u))
-#define FM1_ALNK_CON2 (*(volatile uint8_t *)(FM1_ALNK + 0x08u))
-#define FM1_ALNK_CON3 (*(volatile uint8_t *)(FM1_ALNK + 0x0Cu))
-#define FM1_ALNK_ADR3 (*(volatile uint32_t *)(FM1_ALNK + 0x1Cu))
-#define FM1_ALNK_LEN (*(volatile uint16_t *)(FM1_ALNK + 0x20u))
-#define FM1_CLK_CON2 (*(volatile uint32_t *)0x10014u)
-#define FM1_IOMAP_CON5 (*(volatile uint32_t *)0x51030u)
+#define FM1_ALNK_CON0 FM1_AUDIO_REG(uint16_t, FM1_ALNK + 0x00u)
+#define FM1_ALNK_CON1 FM1_AUDIO_REG(uint16_t, FM1_ALNK + 0x04u)
+#define FM1_ALNK_CON2 FM1_AUDIO_REG(uint8_t, FM1_ALNK + 0x08u)
+#define FM1_ALNK_CON3 FM1_AUDIO_REG(uint8_t, FM1_ALNK + 0x0Cu)
+#define FM1_ALNK_ADR3 FM1_AUDIO_REG(uint32_t, FM1_ALNK + 0x1Cu)
+#define FM1_ALNK_LEN FM1_AUDIO_REG(uint16_t, FM1_ALNK + 0x20u)
+#define FM1_CLK_CON2 FM1_AUDIO_REG(uint32_t, 0x10014u)
+#define FM1_IOMAP_CON5 FM1_AUDIO_REG(uint32_t, 0x51030u)
 #define FM1_AUDIO_HALF 0x80u      /* CON2 pending: a half buffer is free */
 
 static void fm1__pc_out(uint32_t bit, int v)   /* codec control lines on PC0/1/2/6 */
@@ -65,12 +68,12 @@ FM1_INLINE void fm1_audio_init(int32_t *buf, uint32_t half_words, void (*isr)(vo
     FM1_ALNK_CON1 |= 1u << 12;
     FM1_ALNK_CON1 |= 1u << 14;
     FM1_ALNK_ADR3 = (uint32_t)(uintptr_t)buf;
-    fm1__pc_out(6, 1);
     FM1_ALNK_CON1 &= ~(1u << 15);
     FM1_ALNK_CON2 = 0x0Fu;
     fm1_irq_attach(FM1_IRQ_ALNK0, isr, prio);
     FM1_ALNK_CON0 |= 0x800u;
-    fm1_delay_ms(5);
+    /* Run zero-filled DMA before releasing the codec control line. */
+    fm1_delay_ms(50);
     fm1__pc_out(6, 1);
 }
 
@@ -86,4 +89,4 @@ FM1_INLINE void fm1_audio_ack_aux(uint8_t p)   /* the other three pendings */
 }
 FM1_INLINE uint32_t fm1_audio_free_half(void) { return ((FM1_ALNK_CON0 >> 15) & 1u) ^ 1u; }   /* 0 / 1 */
 FM1_INLINE void fm1_audio_ack_half(void) { FM1_ALNK_CON2 |= 0x08u; }
-FM1_INLINE void fm1_audio_stop(void) { FM1_ALNK_CON0 &= ~0x800u; }
+FM1_INLINE void fm1_audio_stop(void) { fm1__pc_out(6, 0); FM1_ALNK_CON0 &= ~0x800u; }

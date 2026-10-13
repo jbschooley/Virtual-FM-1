@@ -33,16 +33,14 @@ SS = 8                                   # supersampling
 # the UI's own icons, after the legacy names (their order is the enum's: keep it, append new ones at the end)
 EXTRA = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_play_o", "x_trk1", "x_trk2", "x_trk3", "x_trk4",
          "x_trk1_o", "x_trk2_o", "x_trk3_o", "x_trk4_o", "x_usb", "x_star", "x_star_o", "x_check", "x_cog", "x_lock",
-         "x_power", "x_folder", "x_doc", "x_plus", "x_minus", "x_undo", "x_redo", "x_warn", "x_palette", "x_speaker",
-         "x_info", "x_back", "x_down", "x_up", "x_left", "x_right", "x_hugelton", "x_mixer", "x_pattern", "x_song",
+         "x_power", "x_folder", "x_doc", "x_plus", "x_minus", "x_undo", "x_redo", "x_warn", "x_palette", "x_info", "x_back", "x_down", "x_up", "x_left", "x_right", "x_hugelton", "x_mixer", "x_pattern", "x_song",
          "x_motion", "x_motion_rec", "x_motion_del", "x_doctor", "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg",
-         "x_fx", "x_timer", "x_hpf", "x_repeat", "x_reverse", "x_tstop", "x_freeze", "x_oct_up", "x_oct_dn"]
+         "x_timer", ]
 BIG = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_trk1", "x_trk2", "x_trk3", "x_trk4", "x_trk1_o",
        "x_trk2_o", "x_trk3_o", "x_trk4_o", "x_usb", "x_star", "x_star_o", "x_check", "x_cog", "x_power", "x_warn",
-       "x_palette", "x_speaker", "x_info", "x_doc", "tempo", "x_song", "x_motion_del", "x_doctor", "x_fx", "x_timer",
+       "x_palette", "x_info", "x_doc", "tempo", "x_song", "x_motion_del", "x_doctor", "x_timer",
        "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "mute"]
-HUGE = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb", "x_repeat", "x_reverse", "cutoff", "x_hpf",
-        "x_tstop", "x_freeze", "x_oct_up", "x_oct_dn"]
+HUGE = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb", "cutoff", ]
 
 
 class Pen:
@@ -179,8 +177,6 @@ DRAW = {
     "x_warn": lambda p: (p.loop((12, 4), (21, 19.5), (3, 19.5)), p.line((12, 9.5), (12, 13.5)), p.disc(12, 16.7, 1.3)),
     "x_palette": lambda p: (p.ring(12, 12, 8), p.disc(9, 9, 1.8), p.disc(15, 9, 1.8), p.disc(9, 15, 1.8),
                             p.disc(15, 15, 1.8)),
-    "x_speaker": lambda p: (p.poly((4, 9.5), (8, 9.5), (13, 5), (13, 19), (8, 14.5), (4, 14.5)),
-                            p.arc(13, 12, 4, -45, 45), p.arc(13, 12, 7.5, -50, 50)),
     "x_info": lambda p: (p.ring(12, 12, 8.5), p.line((12, 11), (12, 16.5)), p.disc(12, 7.8, 1.3)),
     "x_back": lambda p: (p.line((5, 10), (14, 10)), p.arc(14, 14, 4, -90, 90), p.line((14, 18), (10, 18)),
                          p.line((5, 10), (9, 6)), p.line((5, 10), (9, 14))),
@@ -201,19 +197,9 @@ DRAW = {
     "x_bat0": lambda p: battery(p, 0), "x_bat1": lambda p: battery(p, 0.3),
     "x_bat3": lambda p: battery(p, 0.7), "x_bat4": lambda p: battery(p, 1.0),
     "x_bat_chg": lambda p: (battery(p, 0), p.box(8, 8.8, 14, 15.2, ink=0), battery(p, 0, True)),
-    "x_fx": lambda p: (p.poly((12, 3), (14, 10), (21, 12), (14, 14), (12, 21), (10, 14), (3, 12), (10, 10)),),
     "x_timer": lambda p: (p.ring(12, 13.5, 7.5), p.line((12, 13.5), (12, 9)), p.line((10, 3.5), (14, 3.5)),
                           p.line((12, 3.5), (12, 6))),
-    "x_hpf": lambda p: p.line((3, 19), (7, 12), (11, 7.5), (21, 7)),
     "cutoff": lambda p: p.line((3, 7), (13, 7.5), (17, 12), (21, 19)),
-    "x_repeat": lambda p: (p.arc(12, 12, 7, -160, 160), arrow(p, 4.6, 9.6, 4.8, 13.5, 3.5)),
-    "x_reverse": lambda p: (p.poly((11.5, 6), (11.5, 18), (4, 12)), p.poly((20, 6), (20, 18), (12.5, 12))),
-    "x_tstop": lambda p: (p.line((3, 7), (8, 8), (13, 11), (17, 15.5), (21, 20)), p.box(15, 4, 21, 10, r=1.4)),
-    "x_freeze": lambda p: [p.line((12 + 9 * math.cos(math.radians(a)), 12 + 9 * math.sin(math.radians(a))),
-                                  (12 - 9 * math.cos(math.radians(a)), 12 - 9 * math.sin(math.radians(a))), w=0.9)
-                           for a in (90, 30, -30)],
-    "x_oct_up": lambda p: (arrow(p, 12, 20, 12, 5), p.line((6, 20), (18, 20), w=0.8)),
-    "x_oct_dn": lambda p: (arrow(p, 12, 4, 12, 19), p.line((6, 4), (18, 4), w=0.8)),
     # the parameter icons the screens still draw by name
     "generic": lambda p: (p.ring(12, 12, 7.5), p.line((12, 12), (12, 5))),
     "tempo": lambda p: (p.loop((8, 20), (16, 20), (13.5, 4), (10.5, 4)), p.line((12, 16), (17, 8))),
@@ -226,7 +212,6 @@ DRAW = {
     "prob": lambda p: (p.frame(4, 4, 20, 20, r=4), p.disc(8.5, 8.5, 1.5), p.disc(12, 12, 1.5), p.disc(15.5, 15.5, 1.5)),
     "mix": lambda p: (p.ring(9, 12, 5.5, w=0.9), p.ring(15, 12, 5.5, w=0.9)),
     "feedback": lambda p: (p.arc(12, 12, 7, -60, 240), arrow(p, 15.6, 6.1, 17.5, 8.9, 3.5)),
-    "delay": lambda p: (p.disc(5, 12, 3), p.disc(12, 12, 2.2), p.disc(18, 12, 1.4)),
     "bits": lambda p: p.line((3, 19), (7, 19), (7, 14), (12, 14), (12, 9), (17, 9), (17, 5), (21, 5)),
     "accent": lambda p: p.line((6, 6), (18, 12), (6, 18)),
 }

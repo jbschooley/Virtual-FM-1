@@ -29,6 +29,10 @@
 #define OTA_LDR_DCRC 0x5881u
 #define OTA_LDR_LEN 0x4DE1u
 #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes */
+#ifndef OTA_SCRATCH                              /* 2 KiB of work space while staging (melodee.c: the project staging) */
+static uint8_t ota_scratch[0x800];
+#define OTA_SCRATCH ota_scratch
+#endif
 
 static int ota_wire_send(const uint8_t *p, uint32_t n);
 static int ota_frame_get(const uint8_t **p, uint32_t *n);
@@ -257,7 +261,7 @@ static int ota_ufw(uint8_t *hdr, uint32_t *fl_off, uint32_t *fl_len, uint32_t *o
 
 static int ota_stage(void)                       /* steps 1..6; 0 = host said success */
 {
-    static uint8_t hdr[0x400], b[512], mine[512];
+    uint8_t *hdr = OTA_SCRATCH, *b = hdr + 0x400, *mine = b + 512;
     uint32_t i, n, ota_off, ota_len, fl_off, fl_len, c, len, own, official;
     int rc;
     /* 1. UFW header + entry list */

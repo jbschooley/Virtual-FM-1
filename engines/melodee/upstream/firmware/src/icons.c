@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Icons: 4-bit alpha cells of Melodee's own drawings (tools/gen_icons.py -> build/gen/ui_icons.h; the enum names
- * from assets/icons.json), 12 px (lists, cells), 16 px (header, dialogs, menu) and 24 px (the battery, the FX map).
+ * from assets/icons.json), 12 px (lists, cells), 16 px (header, dialogs, menu) and 24 px (the battery).
  * Parameter icons are off (MELODEE_ICONS 0: the labels have their full width, in the track's colour); MELODEE_ICONS=1
  * brings back the label lookup below, for the parameter icons that have drawings. */
 #include "ui_icons.h"
@@ -13,7 +13,7 @@
 /* the circled numeral of track k (filled: the selected one), 12 or 16 px: tracks have no colours */
 static uint32_t trk_icon(uint32_t k, int filled) { return (filled ? ICON_X_TRK1 : ICON_X_TRK1_O) + k % NTRK; }
 
-/* icon id at size 12, 16 or 24 px (24: the header battery and USB, the FX map; one missing: its 12 px cell),
+/* icon id at size 12, 16 or 24 px (24: the header battery and USB; one missing: its 12 px cell),
  * fg on bg; returns its width */
 static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
@@ -67,21 +67,20 @@ static const icon_map_t ICON_MAP[] = {
     /* track: ENV, LFO, destinations */
     {"LVL", ICON_LEVEL}, {"ATK", ICON_ATTACK}, {"DEC", ICON_DECAY}, {"SUS", ICON_SUSTAIN},
     {"REL", ICON_RELEASE}, {"FLT", ICON_CUTOFF}, {"PIT", ICON_PITCH}, {"SHP", ICON_SHAPE},
-    {"FX", ICON_MOD}, {"RATE", ICON_RATE}, {"WAVE", ICON_WAVE}, {"PHS", ICON_PHASE},
+    {"RATE", ICON_RATE}, {"WAVE", ICON_WAVE}, {"PHS", ICON_PHASE},
     {"FADE", ICON_FADE}, {"AMP", ICON_LEVEL},
     /* arp, scale, pattern */
     {"MODE", ICON_ARP}, {"OCT", ICON_OCTAVE}, {"GATE", ICON_GATE}, {"SWG", ICON_SWING},
     {"PROB", ICON_PROB}, {"HOLD", ICON_HOLD}, {"ORD", ICON_ORDER}, {"ROOT", ICON_PITCH},
     {"SCL", ICON_SCALE}, {"QNT", ICON_QUANTIZE}, {"TRN", ICON_TRANSPOSE}, {"LEN", ICON_LENGTH},
     {"DIV", ICON_DIVISION}, {"VOIC", ICON_OCTAVE}, {"DEG", ICON_SCALE},   /* (CHRD: below, PHYS's) */
-    /* fx sends, voice */
-    {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
+    /* voice */
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},
     {"ALLOC", ICON_VOICE}, {"DTUNE", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE},
     /* global */
     {"BPM", ICON_TEMPO}, {"CLK", ICON_TEMPO}, {"TUNE", ICON_TUNE}, {"A4", ICON_TUNE}, {"TIME", ICON_TIME},
     {"FDBK", ICON_FEEDBACK}, {"COLR", ICON_TONE}, {"MIX", ICON_MIX}, {"SIZE", ICON_SIZE},
-    {"DAMP", ICON_DAMP}, {"TYPE", ICON_REVERB}, {"CRT", ICON_RATE}, {"CDP", ICON_MOD}, {"MIDI", ICON_MIDI},
+    {"MIDI", ICON_MIDI},
     {"SYNC", ICON_TEMPO}, {"ROUT", ICON_MIX}, {"CPU", ICON_CHIP}, {"SLOT", ICON_SAVE},
     {"LOAD", ICON_LOAD}, {"SAVE", ICON_SAVE}, {"ENG", ICON_WAVE}, {"CLRSQ", ICON_CLEAR},
     {"INIT", ICON_CLEAR}, {"ERASE", ICON_CLEAR}, {"CH", ICON_MIDI}, {"LEVEL", ICON_LEVEL},
@@ -110,7 +109,7 @@ static const icon_map_t ICON_MAP[] = {
     /* fixed columns drawn by ui_draw.c (STEP page, preset browser, SYSTEM) */
     {"NOTE", ICON_PITCH}, {"STEP", ICON_STEPS}, {"FLAG", ICON_ACCENT}, {"ACC", ICON_ACCENT}, {"LANE", ICON_DRUM}, {"HIT", ICON_GATE}, {"SLD", ICON_SLIDE}, {"USB", ICON_MIDI},
     {"TRACK", ICON_MIX},                  /* TRACKS page (LEVEL, LEN, PAN: above) */
-    {"SLCR", ICON_SLICE}, {"PAT", ICON_STEPS}, {"DEPTH", ICON_MIX},   /* SLICER page (RATE: param_icon) */
+    {"PAT", ICON_STEPS}, {"DEPTH", ICON_MIX},
 };
 
 static uint32_t icon_for_label(const char *l)
@@ -170,8 +169,8 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
                 return WAVE_ICON[i].icon;
     if (d == &TP[P_LWAVE])
         return ICON_LFO_WAVE;                 /* "WAVE" is also the oscillator wave */
-    if (d == &TP[P_ARATE] || d == &TP[P_SLRATE])
-        return ICON_DIVISION;                 /* arp / SLICER RATE is a note division, not Hz */
+    if (d == &TP[P_ARATE])
+        return ICON_DIVISION;                 /* arp RATE is a note division, not Hz */
     if (d->names == N_TRIO_MODE)
         return ICON_CUTOFF;                   /* TRIO's MODE is the filter type, not the arp mode */
     if (d->names == N_NOISE_MODE)
@@ -198,8 +197,8 @@ static uint32_t mod_src_icon(int32_t s)
 }
 static uint32_t mod_dst_icon(const track_t *t, int32_t d)
 {
-    static const uint8_t I[MD_E1] = {ICON_MOD, ICON_PITCH, ICON_CUTOFF, ICON_SHAPE, ICON_LEVEL, ICON_PAN, ICON_DIST,
-                                     ICON_CHORUS, ICON_DELAY, ICON_REVERB, ICON_RATE, ICON_VIBRATO};
+    static const uint8_t I[MD_E1] = {ICON_MOD, ICON_PITCH, ICON_CUTOFF, ICON_SHAPE, ICON_LEVEL, ICON_PAN, ICON_NONE,
+                                     ICON_NONE, ICON_NONE, ICON_NONE, ICON_RATE, ICON_VIBRATO};
     uint32_t id;
     d = clamp(d, 0, MD_N - 1);
     if (d < MD_E1)
@@ -212,10 +211,6 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
 static uint32_t engine_icon(const char *name)
 {
     static const icon_map_t M[] = {
-        {"ANALOG", ICON_WAVE},
-#if MELODEE_FM4
-        {"DIGITAL", ICON_ALGORITHM},
-#endif
         {"PHASE", ICON_PHASE}, {"SID", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},

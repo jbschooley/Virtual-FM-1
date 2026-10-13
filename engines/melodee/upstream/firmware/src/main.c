@@ -4,6 +4,7 @@
  * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _dsp_start[], _dsp_end[], _dsp_load[], _dt_start[], _dt_end[], _dt_load[];
+extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 
 
@@ -82,6 +83,14 @@ static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 
     fm1_timer5_start(isr_timer5, 4);   /* above ALNK0 (3): the scan nests into the render (see fm1_timer5_irq) */
 }
 
+/* The voices CPU1 + CPU0 carry at the clock running: the SPL's 360 MHz, or a 320 that a soft reset kept from a
+ * 1.3.x / 1.4 rc session until power-off (hal/fm1_clock.h: Melodee never writes the PLL) */
+static void clock_boot(void)
+{
+    uint32_t m = fm1_clock_mult();
+    vbudget_cpu1 = VBUDGET * (m ? fm1_clock_mhz_of(m) : 360u) / 360u;
+}
+
 static void hexs(char *b, uint32_t v)
 {
     uint32_t i;
@@ -149,12 +158,15 @@ static void melodee_init(void)
 static void fm1_main(void)
 {
     int32_t knob = 512 * 16;
+    fm1__pc_out(6,0);                         /* codec held quiet before flash and splash */
+    dsp_tables_init();                        /* the RAM lookup tables (FM6), before anything renders */
     persist_boot();
 #if MELODEE_OTA
     if (flash_ok)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
+    clock_boot();                             /* the voice budget at the clock found (never changed) */
     lcd_init();
     lcd_fill(0, 0, 240, 240, T_BG);
     draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);
@@ -258,7 +270,7 @@ static void fm1_main(void)
                 draw_text_box(0, 110, 240, &AF_M, "UBOOT", T_THEME, 1);
                 usb_detach();
                 fm1_delay_ms(30);
-                bootguard.pending = 0;                  /* intentional reset: not a failed boot */
+                reset_intended();
                 fm1_enter_uboot();
             }
         }
@@ -283,7 +295,7 @@ static void fm1_main(void)
             fm1_delay_ms(20);
             usb_detach();
             fm1_delay_ms(30);
-            bootguard.pending = 0;
+            reset_intended();
             fm1_enter_uboot();
         }
 #if MELODEE_CDC
@@ -296,9 +308,6 @@ static void fm1_main(void)
         ui_input();
         glo_poll();                                     /* a kept GLO value changed: the settings, later */
         settings_poll();                              /* queued settings save: only while stopped */
-#if MELODEE_DUAL_CORE
-        fm1_core1_poll();                             /* a retired CPU1 sits out until power-off */
-#endif
         melodee_dbg.stage = 2;
         ui_leds();
         ui_draw();
@@ -348,6 +357,8 @@ void fm1_cstart(void)
         *d = *s;                                /* DSP code: audio is stopped while NOR is busy */
     for (s = _dt_load, d = _dt_start; d < _dt_end; s++, d++)
         *d = *s;                                /* the oscillator correction tables */
+    for (s = _audio_load, d = _audio_start; d < _audio_end; s++, d++)
+        *d = *s;                                /* resident audio profile: executable ordinary SRAM */
     fm1_mailbox_clear();
 #if MELODEE_CACHE_RAM
     {   /* XIP-to-SRAM exceeds the direct-call range on pi32v2. */

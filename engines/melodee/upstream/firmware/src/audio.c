@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* I2S output (ALNK0 -> external codec) and the
- * audio ISR: per half buffer, blocks of CTL samples: mix_block (fx.c: events ->
+ * audio ISR: per half buffer, blocks of CTL samples: mix_block (mix.c: events ->
  * each synth part -> dist -> level / pan -> sends -> buses -> master) -> 24-bit stereo. */
 /* registers: hal/fm1_audio.h */
 #define HALF_WORDS (HALF_FRAMES * 2u)
@@ -26,14 +26,14 @@ static uint32_t audio_cpu_rem;                         /* keep the fractional II
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
 
-static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 -> 24 bit */
+static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15 -> 24 bit */
 {
     uint32_t i;
     mix_block(out, n);
 #if MELODEE_USB_AUDIO
-    /* the USB audio rings (usb_audio_stream.c): the track stems in, Melodee Out's playback into the output.
+    /* USB capture copies the finished master or optional stems; computer playback follows capture.
      * TIMER5 serves the endpoints nested in this render (main.c): only this short copy goes without IRQs,
-     * stream resets and alternate changes included, not the synth and FX work */
+     * stream resets and alternate changes included, not the synth and mixer work */
     fm1_irq_off();
     if (usb.up && usb.config && !usb.suspended)
         ua_audio(out, track_capture_on ? track_capture : 0, n, song.master_q12);
@@ -46,7 +46,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
         out[2u * i] *= 1 << OUT_SHIFT;
         out[2u * i + 1u] *= 1 << OUT_SHIFT;
 #if defined(MELODEE_BENCH_SILENT) && MELODEE_BENCH_SILENT
-        /* Bench builds silence only the physical output. Full engine/FX work,
+        /* Bench builds silence only the physical output. Full engine/mixer work,
          * scope and USB capture still run; never use track mutes for timing. */
         out[2u * i] = out[2u * i + 1u] = 0;
 #endif
@@ -60,6 +60,7 @@ static volatile uint8_t shed_req;
 static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
 #define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
 static uint32_t shed_count;
+static uint32_t shed_part[NPART];
 
 /* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
  * both; shed after 2 overloaded halves in a row (out of line: keeps the ISR's render loops as they were) */
@@ -84,6 +85,7 @@ static void shed_voice(void)
     if (best) {
         voice_kill(best);
         shed_count++;
+        shed_part[((uintptr_t)best - (uintptr_t)trk) / sizeof(track_t)]++;
         return;
     }
     for (p = 0; p < NPART; p++) {
@@ -101,6 +103,7 @@ static void shed_voice(void)
     if (best) {
         voice_kill(best);
         shed_count++;
+        shed_part[((uintptr_t)best - (uintptr_t)trk) / sizeof(track_t)]++;
     }
 }
 

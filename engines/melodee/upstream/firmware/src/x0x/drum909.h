@@ -4,7 +4,7 @@
  *
  * Circuit-modelled BD, SD, LT/MT/HT, RS, CP from x0x/9W9. Melodee synthesizes
  * CH/OH, CR and RD: these are approximations, with no recorded buffers. The
- * sends and the master stage use Melodee's existing mixer.
+ * output goes through Melodee's dry mixer.
  *
  * Mono, 44.1 kHz, float, no libm, no allocation. Idle voices cost nothing:
  * every voice has 9W9's mute countdown, and the block loop runs a voice only for
@@ -93,7 +93,6 @@ struct drum909 {
     d9_rim_t rim;
     d9_clap_t clap;
     d9_smp_t smp[4];              /* CH OH CR RD */
-    float send_rev[D9_NUM], send_dly[D9_NUM];
     float pan_l[D9_NUM], pan_r[D9_NUM];   /* X0X: each voice's pan (x0x_pan_gains) */
     float pan_lc[D9_NUM], pan_rc[D9_NUM]; /* where each voice's pan gains are now, gliding to pan_l/r */
     float pan_dl[D9_NUM], pan_dr[D9_NUM]; /* this block's glide per sample */
@@ -107,10 +106,10 @@ typedef struct drum909 drum909_t;
 
 void drum909_init(drum909_t *d);
 void drum909_trigger(drum909_t *d, int voice, float vel);
-void drum909_render(drum909_t *d, float *dry, float *rev, float *dly, int n);
-/* X0X stereo: each voice placed by its PAN into dry_l / dry_r (sends mono); all centred, both are
+void drum909_render(drum909_t *d, float *dry, int n);
+/* X0X stereo: each voice placed by its PAN into dry_l / dry_r; all centred, both are
  * drum909_render's dry exactly */
-void drum909_render_st(drum909_t *d, float *dry_l, float *dry_r, float *rev, float *dly, int n);
+void drum909_render_st(drum909_t *d, float *dry_l, float *dry_r, int n);
 void drum909_pan_settle(drum909_t *d);   /* every pan to its target at once (the kit is silent: no zipper) */
 int drum909_nparams(int voice);
 const x0x_param_t *drum909_param(int voice, int i);

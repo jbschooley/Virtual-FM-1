@@ -20,9 +20,6 @@ static const uint8_t CAT_ORDER[] = {CAT_BASS, CAT_LEAD, CAT_PAD, CAT_KEYS, CAT_O
 /* the factory presets' categories, a letter per preset in its engine's order; tests/ui_test.c checks each string's
  * length against its engine's preset count. An engine without one: cat_of_engine */
 static const char *const PRESET_CAT[NENGINES] = {
-#if MELODEE_FM4
-    [ENGI_DIGITAL] = "KEBRGPEK",                        /* DIGITAL (MELODEE_FM4 builds): E.PIANO .. FUNK KEY */
-#endif
 #if MELODEE_LEGACY_EXTRAS                                /* (retired: PHASE VOICE NOISE) */
     [2] = "RGSLEU",                                     /* PHASE: BRASS ORGAN STRING RESO BELL WIRE */
     [5] = "PLBF",                                       /* VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
@@ -110,7 +107,7 @@ static uint32_t cat_guess(uint32_t e, const char *nm)
     if (e == ENGI_DRUM || e == 11u)
         return cat_of_engine(e);
     for (k = 0; k < en->npresets; k++)
-        if (name_same(en->presets[k].name, nm))
+        if (name_same(eng_preset(en, k)->name, nm))
             return preset_cat(e % NENGINES, k);
     for (k = 0; k < NELEM(CAT_WORDS); k++)
         if (name_has_word(nm, CAT_WORDS[k].w))

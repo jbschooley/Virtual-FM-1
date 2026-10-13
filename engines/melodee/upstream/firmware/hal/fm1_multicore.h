@@ -5,6 +5,7 @@
  * plus compiler barriers publish SRAM state between the two cores. */
 #pragma once
 #include <stdint.h>
+#include "fm1_core1_bar.h"
 typedef volatile uint32_t fm1_aw_word;
 #define AW_WORD fm1_aw_word
 static inline __attribute__((always_inline)) uint32_t fm1_aw_load(volatile uint32_t *p)
@@ -25,6 +26,7 @@ static inline __attribute__((always_inline)) uint32_t fm1_aw_ticks(void) { retur
 #define AW_TICKS() fm1_aw_ticks()
 #define AW_TIMEOUT_TICKS (10000u * FM1_TICKS_PER_US)
 #define AW_HOLD() fm1_core1_stop()
+#define AW_RETIRED() fm1_core1_bar_set()
 #define AW_FAULTS() fm1_core1_fault.count
 #if MELODEE_CORE1_TEST
 static int core1_test_count_only;            /* editor command 79 mode 7: count misreads, keep CPU1 */
@@ -36,6 +38,7 @@ static int core1_test_count_only;            /* editor command 79 mode 7: count 
 #undef AW_MISREAD
 #undef AW_FAULTS
 #undef AW_HOLD
+#undef AW_RETIRED
 #undef AW_TIMEOUT_TICKS
 #undef AW_TICKS
 #undef AW_STORE
@@ -85,34 +88,4 @@ static int fm1_multicore_start(void)
     if (!audio_worker_online) fm1_core1_stop();
     *(volatile uint32_t *)0x10008u = div;
     return audio_worker_online;
-}
-
-/* Carried across soft resets (a crash, the watchdog, an update), lost at
- * power-off; nothing goes to flash on a unit that may be unstable. Once CPU1
- * was retired, or CPU0 crashed with CPU1 working (its data can go bad too,
- * where no check reaches), every boot until power-off renders on one core. */
-#define FM1_CORE1_BAR_MAGIC 0x52414231u      /* "1BAR" */
-typedef struct { uint32_t magic, barred; } fm1_core1_bar_t;
-/* Not static, as fm1_crash: the compiler must not assume a zero start. */
-fm1_core1_bar_t fm1_core1_bar __attribute__((section(".noinit")));
-static inline int fm1_core1_barred(void)
-{
-    return fm1_core1_bar.magic == FM1_CORE1_BAR_MAGIC && fm1_core1_bar.barred == 1u;
-}
-static inline void fm1_core1_bar_set(void)
-{
-    fm1_core1_bar.magic = FM1_CORE1_BAR_MAGIC;
-    fm1_core1_bar.barred = 1;
-}
-
-/* main loop: a worker retired this session keeps CPU1 out until power-off */
-static void fm1_core1_poll(void)
-{
-    static int8_t was_online = -1;
-    if (was_online < 0)
-        was_online = (int8_t)audio_worker_online;
-    if (was_online && !audio_worker_online) {
-        was_online = 0;
-        fm1_core1_bar_set();
-    }
 }

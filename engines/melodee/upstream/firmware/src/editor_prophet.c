@@ -41,7 +41,7 @@ static int p5_native_frame(const uint8_t *body,uint32_t n)
     if(body[2]==2u || body[2]==3u){
         if(n+2u>sizeof frame)return 1;
         frame[0]=0xF0;memcpy(frame+1,body,n);frame[n+1u]=0xF7;
-        if(p5_patch_decode(&patch,frame,n+2u)){p5_accept_patch(tr,&patch);ui_message("PROPHET LOADED");}
+        if(p5_patch_decode(&patch,frame,n+2u)){sysex_stage(ENGI_PROPHET,(const uint8_t *)&patch,1,sizeof patch);}
         else ui_message("INVALID PROPHET");
     }else if(body[2]==6u && n==3u){p5_send(tr);}
     else if(body[2]==5u && n==5u){

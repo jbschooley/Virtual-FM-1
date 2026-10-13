@@ -5,7 +5,7 @@
  * (no IRQs are enabled yet, so nothing else touches P33).
  *
  *   fm1_reset_reason()   snapshot P3_RST_SRC / RST_SRC (call first thing)
- *   fm1_wdt_arm(t)       reset-mode watchdog, t = 0xA 1 s .. 0xF 32 s
+ *   fm1_wdt_arm(t)       reset-mode watchdog, t = 0xA 1 s .. 0xF 32 s; 1 if a read-back shows it armed
  *   fm1_wdt_feed()       in the main loop
  *   fm1_reboot()         chip reset through P33 (P3_PR_PWR bit 4)
  *   fm1_enter_uboot()    "usb_update_mode" at 0x01C7FD80 + chip reset
@@ -83,12 +83,20 @@ static void fm1_p33_and(uint32_t a, uint8_t d) { fm1__p33_op(2, a, d); }
 #define FM1_P3_RST_SRC 0x12u
 #define FM1_P3_PR_PWR 0xA0u
 
-static void fm1_wdt_arm(uint8_t t)
+/* 1 armed, verified by a read-back that landed (PR #27's follow-ups by @johnskiller, 9ee4cda / c7c3a65): the P33
+ * transfers time out silently (fm1_p33_timeouts) when the domain is busy, so an arm can leave the watchdog off, and a
+ * timed-out read returns the 0x5E dummy still in P33_DAT. The read-back compares the timeout and the enable bit only:
+ * bit 6 is the clear strobe the feed writes, not known to read back. */
+static int fm1_wdt_arm(uint8_t t)
 {
+    uint32_t timeouts = fm1_p33_timeouts;
+    uint8_t now;
     fm1_p33_write(FM1_P3_WDT_CON, 0);
     fm1_p33_and(FM1_P3_VLD_KEEP, (uint8_t)~0x40u);           /* WDT_EXPT_EN = 0: plain reset */
     fm1_p33_write(FM1_P3_WDT_CON, (uint8_t)((t & 0x0Fu) | 0x40u));   /* timeout, reset mode, clear */
     fm1_p33_or(FM1_P3_WDT_CON, 0x10);                        /* enable */
+    now = fm1_p33_read(FM1_P3_WDT_CON);
+    return fm1_p33_timeouts == timeouts && (now & 0x1Fu) == ((t & 0x0Fu) | 0x10u);
 }
 static void fm1_wdt_feed(void) { fm1_p33_or(FM1_P3_WDT_CON, 0x40); }
 static void fm1_wdt_stop(void) { fm1_p33_write(FM1_P3_WDT_CON, 0); }

@@ -12,6 +12,9 @@ static void fm6_init_voice(void);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static int project_old(uint32_t slot);
+static int template_old(void);
+static void settings_old_accept(void);
 static int template_used(void);                 /* SLOT TMPL (PROJ_TMPL): project.c */
 static void template_save(void);
 static void template_load(void);
@@ -29,6 +32,9 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k);   /* naming (ui_name.
 static void up_ui_named(uint32_t op, uint32_t k, const char *name);
 static uint32_t native_limit(uint32_t e);
 static int native_used(uint32_t e, uint32_t k);
+static int native_old(uint32_t e, uint32_t k);
+static int up_old(uint32_t k);
+static int up_old_bank(uint32_t k);
 static uint32_t native_count(uint32_t e);
 static uint32_t native_nth(uint32_t e, uint32_t n);
 static uint32_t native_rank(uint32_t e, uint32_t k);
@@ -38,9 +44,17 @@ static const uint8_t *native_raw(uint32_t e, uint32_t k);
 static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
-static int native_fm_active(void);
+static uint32_t native_size(uint32_t e);
+static int general_sysex_send(uint32_t k);
+static int general_sysex_save(uint32_t k,const uint8_t *raw);
+static uint32_t library_native(void);
+static void confirm_open(uint32_t kind,uint32_t track);
+static uint32_t library_engine(void);
 static uint32_t user_limit(void);
 static int user_used(uint32_t k);
+static int user_old(uint32_t k);
+static int user_old_bank(uint32_t k);
+static void preset_old_allow(uint32_t allow);
 static void user_name(uint32_t k, char *out);
 static void user_label(char *out, uint32_t k);
 static void user_ui_named(uint32_t op, uint32_t k, const char *name);
@@ -57,8 +71,8 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
-/* MENU's two-valued settings in a byte no engine uses (favorites.factory[15][30], saved with the settings): bit 0 FX
- * LATCH (settings_persist.c settings_latch), bit 1 KNOB ACCEL OFF (ui_input.c accel_by; clear in older settings = ON) */
+/* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
+ * 1.3.4: left as saved, never read). */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 
@@ -104,10 +118,14 @@ static struct {
     recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
-    uint8_t step_oct_used;       /* OCT buttons consumed by FX/SAVE undo or redo */
-    uint16_t step_mods, step_used; /* STEP's ENV/SCL/FX buttons awaiting release, and the gestures consumed */
+    uint8_t step_oct_used;       /* OCT buttons consumed by SAVE undo or redo */
+    uint16_t step_mods, step_used; /* STEP's ENV/SCL buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
+    uint8_t import_refresh, new_active;
+    uint8_t name_active;
+    uint8_t bulk_hold;
+    uint8_t note_copy, note_move, note_grid;
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits (HOME held) */
     uint8_t menu_sel;
     uint16_t menu_scroll;        /* continuous ABOUT + CREDITS position, pixels */
@@ -166,7 +184,8 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
-       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE };
+                                     /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 
@@ -175,13 +194,13 @@ static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
+enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static uint32_t layer_leds(void);
 static uint32_t layer_btn(void);
 
-/* FM operator pages belong to DIGITAL; they never appear on other instruments (without MELODEE_FM4: never). SLICES:
+/* FM operator pages belonged to DIGITAL (retired): they never appear. SLICES:
  * a SLICE track's (ui_slice.c) */
 static int list_gone(uint32_t i);                        /* ui_list.c: a page in another's list */
 /* ENV / LFO on the engines with envelopes and LFOs of their own (Prophet, FM6, CZ-1: engine_t.ownenv, the track's
@@ -214,6 +233,8 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
+    if(PAGES[i].fam==FAM_FX && PAGES[i].scope==SC_TRACK && PAGES[i].id[0]==P_FXSEND)
+        return song.g[G_FXMODE]!=0;
     if (list_gone(i))
         return 0;
     if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
@@ -224,7 +245,7 @@ static int page_visible(uint32_t i)
     if(PAGES[i].scope==SC_DRUM || PAGES[i].scope==SC_DRUMHIT)return drum_track(TSEL);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum_track(TSEL);
-    if(TSEL->eng_req==ENGI_CZ && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
+    if(TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;
     if(PAGES[i].scope==SC_P5 || PAGES[i].scope==SC_P5STORE)return TSEL->eng_req==ENGI_PROPHET;
@@ -240,7 +261,7 @@ static int page_visible(uint32_t i)
         return 0;
 #endif
     return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
-             PAGES[i].id[0] <= P_FM4_LEVEL) || (MELODEE_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
+             PAGES[i].id[0] <= P_FM4_LEVEL);
 }
 
 static uint32_t page_first(uint32_t fam)
@@ -314,6 +335,7 @@ static void page_entered(void)
     ui.entry_open = 0;
     ui.note_pick = 0;
     ui.note_slot = 0;
+    ui.note_copy = ui.note_move = 0;
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = 0;
@@ -565,8 +587,8 @@ static int seq_is_empty(const track_t *t)
  * loads changed (held again: the level before, SAVE + OCT+ redoes), so steps recorded after a sound load, or a sound
  * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
  * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
- * so the undo goes back past the whole browse. Levels: UNDO_LV_MAX in the cache RAM's UI part (resources.c ui_cache),
- * one without it. Not snapshotted: power-on, projects (a project load drops them all) */
+ * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
+ * leaving the data cache available for flash reads. Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
 typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
@@ -587,16 +609,16 @@ typedef struct {
 } undo_t;
 #define UNDO_LV_MAX 8u
 _Static_assert(UNDO_LV_MAX * sizeof(undo_t) <= UI_CACHE_BYTES, "undo levels fit the cache RAM's UI part");
-static undo_t undo_one;          /* the level of a build without cache RAM */
-static undo_t *undo_lv = &undo_one;
-static uint8_t undo_nlv = 1, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
+static undo_t undo_sram[UNDO_LV_MAX] __attribute__((section(".pool")));
+static undo_t *undo_lv = undo_sram;
+static uint8_t undo_nlv = UNDO_LV_MAX, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
 static undo_t *undo_last(void) { return &undo_lv[undo_top ? undo_top - 1u : 0u]; }
 #define undo (*undo_last())      /* the latest level (tests, the layers: undo.keep); none: level 0 */
 static void undo_clear(void) { undo_top = undo_cnt = 0; undo_lv[0].trk = undo_lv[0].keep = 0; }
 static void undo_levels(void)    /* the cache RAM's UI part once it is there (boot self-test passed) */
 {
     uint8_t *c = ui_cache();
-    if (c && undo_lv == &undo_one) {
+    if (c && undo_lv == undo_sram) {
         undo_lv = (undo_t *)(void *)c;
         undo_nlv = UNDO_LV_MAX;
         undo_clear();
@@ -657,7 +679,7 @@ static void momentary_take(uint32_t slot)
     if(!d || !vp || d->max==d->min)return;
     uint32_t native=pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
-       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH) || pg->id[slot]==G_DWEAR)))return;
+       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING)))return;
     if(!native && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
     if(!momentary.active){momentary.track=song.sel;momentary.active=1;}
     if(native && !momentary.native){
@@ -736,12 +758,14 @@ static void load_extend(track_t *t)
 }
 
 static int param_kept(uint32_t i);
+static int note_clear_history(int redo);
 
 /* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
 {
+    if(note_clear_history(redo))return;
     track_t *t;
     undo_t *u;
     uint32_t i;
@@ -825,20 +849,22 @@ static void undo_seal(void) { if (undo_top) undo_lv[undo_top - 1u].keep = 0; }  
 
 static void track_defaults_steps(track_t *t)
 {
-    uint32_t i;
+    uint32_t i, guard = motion_guard();
+    recording_clear(t);
     motion_reset(t);
     for (i = 0; i < NSTEP; i++)
         step_clear(&t->step[i]);
+    motion_unguard(guard);
 }
 
 /* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
  * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
- * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE) and the SLICER insert,
+ * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE),
  * which chops whatever the track plays in time with its sequencer */
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ;
+           i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ || param_fx(i) || param_fx_send(i);
 }
 
 /* SCL, QNT and the MPC degree are the song's: one scale for every part, kept the same in each track's own slots
@@ -862,58 +888,12 @@ static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; 
 static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
 #define preset_shown(e) (ENGINES[e]->npresets)
 
-#if !MELODEE_FM4
-/* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
- * (fm4_convert.c). Every path that brings a DIGITAL sound into a track ends here: a track never keeps engine 1 */
-static void fm4_apply(track_t *t, int16_t *p)
-{
-    uint8_t v[FP_SIZE + 1u];
-    uint32_t pr = fm4_convert(p, v), tr = trk_index(t), f;
-    fm6_set_patch(tr, v);
-    f = motion_guard();                               /* the audio ISR sees the old sound or the new one */
-    memcpy(t->p, p, sizeof t->p);
-    t->eng_req = ENGI_FM6;
-    t->preset = (uint8_t)pr;
-    motion_unguard(f);
-}
-static void fm4_track(track_t *t)                     /* t holds a DIGITAL sound (engine 1): convert it */
-{
-    int16_t p[P_COUNT];
-    memcpy(p, t->p, sizeof p);
-    fm4_apply(t, p);
-}
-/* DIGITAL preset k (a stored preset number of engine 1: the editor's PRESET, SET G_ENGSEL, an old project's
- * power-on sound): its sound as a preset load sets it, converted. The sound only (not the steps, not param_kept) */
-static void fm4_load_preset(track_t *t, uint32_t k)
-{
-    int16_t p[P_COUNT];
-    uint32_t i;
-    load_begin(t, UNDO_SOUND);
-    panic_req |= (uint8_t)(1u << trk_index(t));
-    t->user = 0; t->user_native=0;
-    if (t == TSEL)
-        sync_reload = 1;
-    memcpy(p, t->p, sizeof p);
-    for (i = 0; i < P_E0; i++)
-        if (!param_kept(i))
-            p[i] = TP[i].def;
-    fm4_preset_values(p, k);
-    fm4_apply(t, p);
-    load_end(t);
-}
-#endif
 
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
 static void apply_preset_to(track_t *t, uint32_t pi)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     uint32_t i;
-#if !MELODEE_FM4
-    if (t->eng_req % NENGINES == ENGI_DIGITAL) {
-        fm4_load_preset(t, pi);
-        return;
-    }
-#endif
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
     t->user = 0; t->user_native=0;
@@ -929,20 +909,15 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;
+    const preset_t *pr = eng_preset(e, pi);
     for (i = 0; i < 8u; i++)
-        t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
-    t->p[P_ATK] = e->presets[pi].env[0];
-    t->p[P_DEC] = e->presets[pi].env[1];
-    t->p[P_SUS] = e->presets[pi].env[2];
-    t->p[P_REL] = e->presets[pi].env[3];
-    t->p[P_ED_FLT] = e->presets[pi].fenv;
-    t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
-    {   /* the sends */
-        static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
-        const preset_t *pr = &e->presets[pi];
-        for (i = 0; i < 4u; i++)                      /* (no delay: its sends predate the delay bus coming back) */
-            t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
-    }
+        t->p[P_E0 + i] = (int16_t)pr->e[i];
+    t->p[P_ATK] = pr->env[0];
+    t->p[P_DEC] = pr->env[1];
+    t->p[P_SUS] = pr->env[2];
+    t->p[P_REL] = pr->env[3];
+    t->p[P_ED_FLT] = pr->fenv;
+    t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
     if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
     cz_factory_loaded(t);
     cz_track_accept(t);
@@ -956,12 +931,6 @@ static void engine_load_of(track_t *t, uint32_t ei, uint32_t pi)
 {
     const engine_t *e = ENGINES[ei % NENGINES];
     uint32_t i;
-#if !MELODEE_FM4
-    if (ei % NENGINES == ENGI_DIGITAL) {             /* DIGITAL (retired): its first preset, as FM6 */
-        fm4_load_preset(t, 0);
-        return;
-    }
-#endif
     load_begin(t, UNDO_SOUND);
     fm1_irq_off();
     t->eng_req = (uint8_t)(ei % NENGINES);
@@ -981,7 +950,7 @@ static uint32_t preset_init(uint32_t e)
     const engine_t *en = ENGINES[e % NENGINES];
     uint32_t k;
     for (k = 0; k < en->npresets; k++) {
-        const char *n = en->presets[k].name;
+        const char *n = eng_preset(en, k)->name;
         if (n[0] == 'I' && n[1] == 'N' && n[2] == 'I' && n[3] == 'T' && (n[4] == ' ' || !n[4]))
             return k;
     }
@@ -1133,6 +1102,7 @@ static void track_select(uint32_t i)
     momentary_restore();
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
+    ui.note_copy = ui.note_move = 0;
     seq_midi_reset();                            /* (MIDI notes held for the other track enter nothing here) */
     ui.hot_t = 0;
     ui.cursor = 0;
@@ -1195,4 +1165,18 @@ static int act_ready(void)
 
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
 #include "seq_notes.c"                            /* NOTES: select original hits without snapping them */
+static int note_tools_history(int redo);
 #include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */
+
+static void confirm_open(uint32_t kind, uint32_t trk)
+{
+    ui.confirm = (uint8_t)kind;
+    ui.confirm_trk = (uint8_t)trk;
+    ui.act = 0;
+    ui.force = 1;
+}
+
+
+#include "sysex_library.c"                       /* staged imports and USB library exports */
+
+#include "note_tools.c"

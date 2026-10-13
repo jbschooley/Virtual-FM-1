@@ -2,6 +2,11 @@
 /* NOTES uses the original onset interval, not the rounded STEP overview.
  * Selection is ordered by onset, pitch, then storage index: repeated pitches
  * and independent chord notes are individually reachable. Selection never edits note data. */
+/* One shared copy keeps precise event editing and undo compact. */
+static void note_assign(recorded_note_t *dest,const recorded_note_t *source)
+{
+    memcpy(dest,source,sizeof *dest);
+}
 static int notes_in_step(const track_t *t, uint32_t i)
 {
     return i < RECORD_MAX && recording_active(t, i) && (recording[i].step & 63u) == ui.cursor;
@@ -30,7 +35,7 @@ static uint32_t notes_selected(const track_t *t)
             if (notes_in_step(t, i) && notes_before(i, chosen)) chosen = i;
         ui.note_pick = chosen < RECORD_MAX ? (uint16_t)(chosen + 1u) : 0;
     }
-    if (chosen < RECORD_MAX) ui.note_identity = recording[chosen];
+    if (chosen < RECORD_MAX) note_assign(&ui.note_identity,&recording[chosen]);
     return chosen;
 }
 static uint32_t notes_rank(const track_t *t, uint32_t chosen, uint32_t *count)
@@ -105,6 +110,13 @@ static uint32_t notes_manual_start(const track_t *t)
 {
     uint32_t at = step_note_start(t, ui.cursor);
     return at < NSTEP && !(t->step[at].flags & SF_RECORDED) ? at : NSTEP;
+}
+/* Live recordings leave ordinary TIE cells in the rounded overview. Their
+ * exact event duration owns the hold, so those tails are not manual blockers. */
+static int notes_manual_occupied(const track_t *t, uint32_t view)
+{
+    uint32_t at = step_note_start(t, view);
+    return at < NSTEP ? !(t->step[at].flags & SF_RECORDED) : t->step[view].time == ST_TIE;
 }
 static uint32_t notes_manual_slot(const step_t *st)
 {

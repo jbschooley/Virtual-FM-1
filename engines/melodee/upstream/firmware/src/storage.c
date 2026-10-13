@@ -20,8 +20,8 @@
 #define ST_BANK_EXT_LO 0xEA000u
 #define ST_BANK_EXT_MAX (2u * ST_PAYLOAD_MAX)
 
-/* The Prophet user banks: 0x93000..0x9CFFF (the loader moved them from 0x89000 when the app area grew to 0x93000,
- * ldr_core.c), in the legacy single-pattern projects' place: those objects are retired (2026-10-10, Kerem: not
+/* The Prophet user banks: 0x93000..0x9CFFF. The old banks at 0x89000 are retired and never migrated.
+ * The current banks occupy the legacy single-pattern projects' place: those objects are retired (2026-10-10, Kerem: not
  * wanted), their numbers kept, nothing loads or saves them; 0x9D000..0x9EFFF is free.
  * Bank projects occupy 0xA0000..0xC7FFF, two five-sector copies per slot.
  * Expanded project copies each use two more sectors at 0xEA000..0xF9FFF (unused USR area).
@@ -64,8 +64,7 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
-    if (obj >= OBJ_P5BANK0) return 0x93000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;   /* (0x89000 before the app area
-                                                                                                * grew: the loader moved them) */
+    if (obj >= OBJ_P5BANK0) return 0x93000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
     if (obj >= OBJ_NATIVEFM0) return 0xD8000u + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
     if (obj >= OBJ_UPRESET_EXT0) return 0xE5000u + (obj - OBJ_UPRESET_EXT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
@@ -182,6 +181,13 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     if (obj >= OBJ_COUNT || (cur = st_current(obj, &h)) < 0 || h.len > max) return -1;
     if (st_read_range(obj, (uint32_t)cur, 0, dst, h.len)) return -1;
     return (int)h.len;
+}
+
+/* a committed record is there, whatever it holds (st_load: -1 for one too big for its buffer too) */
+static int st_exists(uint32_t obj)
+{
+    st_hdr_t h;
+    return obj < OBJ_COUNT && !st_retired(obj) && st_current(obj, &h) >= 0 && h.len != 0;
 }
 
 static int st_save(uint32_t obj, const void *src, uint32_t len)

@@ -4,12 +4,12 @@
  * define, so the order matters. */
 
 /* ---------------------------------------------------- build options --- */
-/* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE, MELODEE_FM4
- * (core.h: the SLICE engine, the DIGITAL engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
+/* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE
+ * (core.h: the SLICE engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
  * MELODEE_OTA_RAMONLY (ota.c). */
 #include "build_options.h"      /* defaults shared with crt0.S */
 #ifndef MELODEE_CACHE_RAM
-#define MELODEE_CACHE_RAM 1     /* seven data-cache ways as RAM after a boot self-test (MELODEE_CACHE_RAM=0: off) */
+#define MELODEE_CACHE_RAM 0     /* opt-in: seven data-cache ways as RAM; keep the full data cache for audio by default */
 #endif
 #ifndef MELODEE_CORE1_TEST
 #define MELODEE_CORE1_TEST 0    /* editor command 79 injects CPU1 failures (tools/core1_fault_test.py); never release */
@@ -25,7 +25,7 @@
 #endif
 #ifndef MELODEE_USB_AUDIO
 #define MELODEE_USB_AUDIO 1      /* USB audio (usb_audio.c): "Melodee Out" plays through the FM-1, "Melodee In"
-                                  * records the four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
+                                  * records stereo master or four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
 #endif
 #ifndef MELODEE_CDC
 #define MELODEE_CDC !MELODEE_USB_AUDIO   /* USB CDC-ACM serial console */
@@ -37,7 +37,7 @@
 #define MELODEE_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
 #ifndef MELODEE_VERSION
-#define MELODEE_VERSION "v1.1.0" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
+#define MELODEE_VERSION "v1.3.4" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
 #endif
 #if MELODEE_OTA && !MELODEE_FLASH
 #error "MELODEE_OTA needs MELODEE_FLASH"
@@ -48,6 +48,7 @@
 #include "fm1_time.h"
 #include "fm1_sys.h"
 #include "fm1_power.h"
+#include "fm1_clock.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
 #include "fm1_cache.h"
@@ -70,10 +71,9 @@
 #include "core.h"
 #include "engines.c"             /* dsp.c, the eng_*.c files, the factory patterns */
 #include "params.c"
-#include "mod.c"               /* the modulation matrix, used by voice.c and fx.c */
+#include "mod.c"               /* the modulation matrix, used by voice.c and mix.c */
 #include "voice.c"
-#include "slicer.c"              /* per-track SLICER insert, used by fx.c */
-#include "fx.c"
+#include "mix.c"
 
 /* ------------------------------------------------- MIDI, sequencer --- */
 #define MIDI_TIME_NOW() fm1_ticks()
@@ -94,7 +94,7 @@
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
-#include "ui_layer.c"              /* the quick layers (FX GLO SCL EDIT held) */
+#include "ui_layer.c"              /* the quick layers (GLO SCL EDIT held) */
 
 /* --------------------------------------------- storage, update, editor --- */
 #if MELODEE_FLASH
@@ -107,6 +107,7 @@
 #include "cz_store.c"
 #include "fm6_store.c"            /* FM6: DX7 SysEx, the STORE shortcut to user presets */
 #if MELODEE_OTA
+#define OTA_SCRATCH proj_wire_borrow()   /* the update entry stages in the project staging RAM */
 #include "ota.c"
 #include "ota_hw.c"
 #include "editor.c"              /* web editor SysEx (needs the OTA SysEx plumbing) */

@@ -35,8 +35,3 @@ static const uint8_t UI_LINE_PCTS[] = {10, 18, 18,
 #define UI_QR_DARK 0x0000u
 #define UI_CRASH_BG 0xa000u
 #define UI_CRASH_INK 0xffdfu
-
-/* Felucca's 20 palettes: GREEN AMBER CYAN RED MONO VIOLET PINK ICE WARM OCEAN DUSK HI-CON LIGHT PAPER SKY MINT LILAC ROSE SAND L-HICON */
-static const uint8_t UI_PALETTE_MIGRATE[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 1, 2};
-/* Melodee 0.13's eight (stored 64 + index): MONO GREEN AMBER ICE VIOLET ROSE PAPER HI-CON */
-static const uint8_t UI_PALETTE_MIGRATE64[8] = {0, 0, 0, 0, 0, 0, 1, 2};

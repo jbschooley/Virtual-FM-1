@@ -11,7 +11,7 @@
  * A note into an armed track (song.rec) while
  * the transport runs preserves its original onset and independent held length
  * (recording.c). The STEP overview uses nearby steps and ties; optional P_RECQ
- * snaps playback only, leaving the original performance intact. With the ARP on, the notes the arp
+ * quantizes the newly captured onsets when recording ends. With the ARP on, the notes the arp
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
 #define KB_SILENT 255u
@@ -22,6 +22,7 @@ static uint8_t last_note = 60;
 /* Stage's played notes, after scale/chord mapping. The ISR owns the held bits per
  * track; each track's last complete voicing survives release, including a tap between UI frames. */
 static uint32_t live_held[NTRK][4], live_last[NTRK][4];
+static uint8_t live_velocity[NTRK][128] __attribute__((section(".pool")));
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
  * the pitch they went to (after the scale layout and the chord), so the UI never guesses after a change */
@@ -51,12 +52,13 @@ static uint32_t trk_midi_ch(uint32_t i) { return i % NTRK; }   /* MIDI channel 0
 
 static int drum_track(const track_t *t) { return ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM; }
 
-static void live_note_on(const track_t *t, uint32_t note)
+static void live_note_on(const track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t i, k = trk_index(t);
     if (drum_track(t))
         return;
     live_held[k][note >> 5] |= 1u << (note & 31u);
+    live_velocity[k][note] = (uint8_t)vel;
     for (i = 0; i < 4u; i++)
         live_last[k][i] = live_held[k][i];
 }
@@ -219,7 +221,7 @@ static uint32_t seq_erase_transport;
 static uint8_t seq_erase_seen[NTRK];
 static volatile uint16_t seq_erase_button;
 static int seq_erase_active(const track_t *t);
-static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static int rec_on(const track_t *t) { return (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
 
 #include "motion.c"
 
@@ -256,7 +258,7 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
         return;
     if (t->arp_pos >= 0xFFFFFFFu)
         t->arp_pos = 0;
-    else if (song.g[G_CLOCK])
+    else if (midi_sync_active)
         t->arp_pos -= period + (uint32_t)((t->arp_idx & 1u) ? sw : -sw);
     else
         t->arp_pos = 0;
@@ -363,12 +365,14 @@ static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
 static void cap_off(const track_t *t, uint32_t note)
 {
     uint32_t i, k = trk_index(t);
-    for (i = 0; i < 32u && i < cap_w - cap_from && i < CAP_N; i++) {
+    /* A dense four-track jam can put more than 32 onsets between a note's
+     * press and release. Close all matching retained onsets, as input_off's
+     * source ownership already waits for the final release of this pitch. */
+    for (i = 0; i < cap_w - cap_from && i < CAP_N; i++) {
         cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
         if (e->tr == (k | 128u) && e->note == note) {
             e->dur = (uint16_t)cap_len(e, cap_now(t));
             e->tr = (uint8_t)k;
-            return;
         }
     }
 }
@@ -584,12 +588,53 @@ static void rec_release(track_t *t, uint32_t note)
         return;                                     /* not one of them, or others still held */
 }
 
+/* The UI calls this with audio interrupts paused. Arm during playback for the
+ * next pattern start; cancelling or finishing seals held durations immediately
+ * while physical keys remain available for monitoring. */
+static void recording_quantize(track_t *t);
+static void rec_set(track_t *t, uint32_t on)
+{
+    uint8_t bit = (uint8_t)(1u << trk_index(t));
+    if (on) {
+        if (song.rec & bit) return;
+        song.rec |= bit;
+        if (song.playing && t->seq_pos < 0x7FFFFFFFu) song.rec_wait |= bit;
+        else if (song.playing) song.rec_pass |= bit;
+    } else {
+        recording_seal(t);
+        rec_finish(t);
+        if (song.playing && (song.rec & ~song.rec_wait & bit)) recording_quantize(t);
+        t->rh_n = t->rh_ties = t->rskip_n = 0;
+        song.rec &= (uint8_t)~bit;
+        song.rec_wait &= (uint8_t)~bit;
+        song.rec_pass &= (uint8_t)~bit;
+    }
+}
+
+/* A sustained input crossing punch-in starts at zero without retriggering its
+ * live voice. Keep its velocity even when the jam capture ring has wrapped.
+ * Drum hits are edges; an earlier hit must not become a new hit at punch-in. */
+static void rec_begin_held(track_t *t)
+{
+    uint32_t tr = trk_index(t);
+    if (t->p[P_AMODE]) {
+        if (t->arp_note) rec_note(t, t->arp_note, 100);
+        return;
+    }
+    for (uint32_t note = 0; note < 128u; note++)
+        if (live_held[tr][note >> 5] & (1u << (note & 31u)))
+            rec_note(t, note, live_velocity[tr][note]);
+}
+
 static void countin_note(track_t *t,uint32_t note,uint32_t vel);
+static int rec_note_start(track_t *t);
+static void seq_advance(uint32_t n);
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    uint32_t started = vel && rec_note_start(t);
     countin_note(t,note,vel);
     last_note = (uint8_t)note;
-    live_note_on(t, note);
+    live_note_on(t, note, vel);
     cap_on(t, note, vel);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
         rec_note(t, note, vel);
@@ -597,6 +642,9 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
         arp_add(t, note);
     else
         trk_note_on(t, note, vel);
+    /* Record and sound the triggering note before entering step zero, so its
+     * overview cannot also replay it and an ARP can fire immediately. */
+    if (started) seq_advance(0);
 }
 
 static int midi_note_held(const track_t *t, uint32_t note);
@@ -611,60 +659,6 @@ static void input_off(track_t *t, uint32_t note)
     arp_remove(t, note);                            /* both: the note may have started in the */
     if (!recording_owns(t, note)) trk_note_off(t, note); /* other mode (ARP switched while held) */
 }
-
-/* the effect of key k in the FX layer (PF_N none): the first PF_M1 white keys (F3 .. A4) in order, black keys
- * 1..4 (F#3 G#3 A#3 C#4) the track mutes */
-static uint32_t perf_key(uint32_t k)
-{
-    uint32_t p = key_place(k);
-    return !key_black(k) ? (p < PF_KEYS ? perf_map[p] : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
-}
-
-static uint8_t kb_fx[27];
-static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
-{
-    uint32_t e, j;
-    if (down) {
-        e = perf_key(k);
-        kb_fx[k] = (uint8_t)(e + 1u);
-        perf_press(e, 1);
-        return;
-    }
-    if (!kb_fx[k])
-        return;
-    e = kb_fx[k] - 1u;
-    kb_fx[k] = 0;
-    for (j = 0; j < 27u; j++)
-        if (kb_fx[j] == e + 1u)
-            return;
-    perf_press(e, 0);
-}
-
-/* the map changed (ui_layer.c: PRESETS with a key held, EDIT, a settings load): a white key held takes its new
- * effect at once (the old one let go); FX LATCH: a latched effect of the key's becomes the new one */
-static __attribute__((noinline)) void perf_key_remap(void)
-{
-    uint32_t k, e, o;
-    perf_remap = 0;
-    for (k = 0; k < 27u; k++) {
-        if (!kb_fx[k] || key_black(k) || (o = kb_fx[k] - 1u) == (e = perf_key(k)))
-            continue;
-        if (!perf_latch_on) {
-            perf_key_press(k, 0);
-            perf_key_press(k, 1);
-            continue;
-        }
-        kb_fx[k] = (uint8_t)(e + 1u);
-        if (o < PF_N && ((perf_latched >> o) & 1u)) {
-            perf_latched &= ~PF_BIT(o);
-            if (e < PF_N) {
-                perf_latched |= PF_BIT(e);
-                perf_ord[e] = ++perf_seq;
-            }
-        }
-    }
-}
-
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
@@ -718,7 +712,6 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
-    if (perf_remap) perf_key_remap();
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
     if (!ch)
         return;
@@ -729,10 +722,9 @@ static void keyboard_block(void)
             kb_trk[k] = song.sel;
             if (kb_asleep) { kb_note[k]=KB_SILENT; continue; }
             if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
-                kb_note[k] = KB_SILENT;           /* with FX an effect (perform.c) */
+                kb_note[k] = KB_SILENT;           /* a quick-layer key */
                 kb_layer |= 1u << k;
-                if ((fm1_in.buttons & perf_mask) || (kb_lock & 2u))
-                    perf_key_press(k, 1);
+
                 continue;
             }
             if (song.grid == 2u)                  /* NAME (ui_name.c): every key types, none sounds */
@@ -750,7 +742,6 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                perf_key_press(k, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
@@ -808,12 +799,15 @@ static __attribute__((noinline)) void audition_tick(uint32_t n)
 /* -------------------------------------------------------- sequencer --- */
 static void seq_start(void)
 {
+    cin_left = 0; /* MIDI Start also cancels a pending local count-in. */
     uint32_t i;
     seq_erase_request = 0;
     seq_erase_transport++;
     memset(seq_erase_seen, 0, sizeof seq_erase_seen);
     motion_begin();
     chain_start();
+    song.rec_wait = 0;
+    song.rec_pass = song.rec;
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
         track_t *t = &trk[i];
         if (t->p[P_LTRIG] && t->p[P_LSYNC]) t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
@@ -829,8 +823,6 @@ static void seq_start(void)
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
     song.playing = 1;
     if (click_wanted()) click_req=2;
-    slicer_start();                                /* slicer.c: its step 0 with the sequencer's */
-    perf_start();                                  /* perform.c: its 1/16 grid too */
 }
 
 static void seq_release(track_t *t)
@@ -847,14 +839,79 @@ static void seq_release(track_t *t)
 
 #include "seq_erase.c"
 
+/* Map a quantized onset back to the compact tempo-relative event format. The
+ * inverse swung pair calculation is constant-time, even at a 64-step boundary. */
+static void recording_quant_position(const recorded_note_t *r, uint32_t at, uint32_t a, uint32_t b, uint32_t len, recorded_note_t *out)
+{
+    uint32_t actual = at / (a + b) * 2u, pos = at % (a + b), span = a;
+    if (pos >= a) { actual++; pos -= a; span = b; }
+    uint32_t fraction = span <= 65536u ? (pos * RECORD_UNIT + span / 2u) / span :
+        (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span);
+    *out = *r;
+    out->on = (uint16_t)(fraction > 65535u ? 65535u : fraction);
+    uint32_t rounded = out->on >= RECORD_UNIT / 2u;
+    out->step = (uint8_t)(actual | (rounded ? 64u : 0u) | (rounded && actual + 1u == len ? 128u : 0u));
+}
+/* Only this take is committed. Preflight every destination before changing any
+ * stored timing; an unrelated manual note or its tie tail is never overwritten.
+ * Rebuild the overview in one bounded pass, preserving independent gates and
+ * all other banks without allocating memory in the audio interrupt. */
+static void recording_quantize(track_t *t)
+{
+    if (!t->p[P_RECQ]) return;
+    uint32_t owner = recording_owner(t), q = (uint32_t)t->p[P_RECQ], period = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), blocked = 0;
+    uint32_t a = step_samples(t, period, 0), b = step_samples(t, period, 1);
+    recording_sync(t, period);
+    if (q) for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
+        if (!(recording_flags[i] & 8u) || !recording_active(t, i)) continue;
+        uint32_t at = recording_due[i], actual = at / (a + b) * 2u, pos = at % (a + b), span = a;
+        if (pos >= a) { actual++; pos -= a; span = b; }
+        uint32_t rounded = (uint64_t)pos * RECORD_UNIT + span / 2u >= (uint64_t)span * (RECORD_UNIT / 2u);
+        uint32_t view = rounded && actual + 1u == len ? 0u : actual + rounded, start = view;
+        for (uint32_t n = 0; n < len && t->step[start].time == ST_TIE; n++) start = (start + len - 1u) % len;
+        if ((t->step[view].time == ST_TIE || t->step[start].time == ST_NOTE) && !(t->step[start].flags & SF_RECORDED)) {
+            blocked = 1; break;
+        }
+    }
+    uint64_t touched = 0;
+    for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
+        if (!(recording_flags[i] & 8u)) continue;
+        recording_flags[i] &= (uint8_t)~8u;
+        uint32_t at = recording_due[i];
+        /* Restore the ordinary stored-timing cache even if a preflight blocked
+         * the pass. Once committed, QNT cannot alter this take's playback. */
+        recording_due[i] = recording_raw_on(t, &recording[i], period);
+        if (!q || blocked || !recording_active(t, i)) continue;
+        recorded_note_t target; recording_quant_position(&recording[i], at, a, b, len, &target);
+        if (target.on == recording[i].on && target.step == recording[i].step) continue;
+        uint32_t source = recording_view(t, &recording[i]), view = recording_view(t, &target);
+        if (!(t->step[view].flags & SF_RECORDED)) {
+            t->step[view].probability = t->step[source].probability;
+            t->step[view].flags = (t->step[source].flags & SF_SLIDE) | SF_RECORDED;
+            t->step[view].time = ST_NOTE;
+        }
+        touched |= (uint64_t)1u << source | (uint64_t)1u << view;
+        recording[i] = target;
+        recording_due[i] = recording_raw_on(t, &recording[i], period);
+    }
+    if (touched) {
+        seq_erase_rebuild(t, touched);
+        recording_generation++;
+    }
+    if (blocked) recording_quant_blocked |= (uint8_t)(1u << trk_index(t));
+}
+
 static void seq_stop(void)
 {
     cin_left=0; click_req=0; clk.env=0; audition_request=0; if(audition_active)audition_stop();
     uint32_t i;
     seq_erase_request = 0;
     seq_erase_transport++;
+    uint8_t takes = song.playing ? song.rec & ~song.rec_wait : 0;
     song.playing = 0;
-    if (song.g[G_CLOCK])                           /* external clock: the arp stops with the transport, */
+    song.rec_wait = song.rec_pass = 0;
+    if (midi_sync_active)                           /* external clock: the arp stops with the transport, */
         for (i = 0; i < NPART; i++)                /* its sounding note too (HOLD keeps the latched chord) */
             if (trk[i].arp_note)
                 arp_off(&trk[i]);
@@ -862,6 +919,7 @@ static void seq_stop(void)
         recording_stop(&trk[i]);
         if (trk[i].rh_n)
             rec_finish(&trk[i]);
+        if ((takes >> i) & 1u) recording_quantize(&trk[i]);
         seq_release(&trk[i]);
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }
@@ -956,8 +1014,19 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         uint32_t cur_len = step_samples(t, period, t->seq_idx);
         if (t->seq_pos < cur_len && t->seq_pos != 0x7FFFFFFFu + n)
             break;
-        t->seq_pos = t->seq_pos >= 0x7FFFFFFFu ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
+        uint32_t starting = t->seq_pos >= 0x7FFFFFFFu;
+        uint32_t punch_in = 0;
+        t->seq_pos = starting ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
+        if (!t->seq_idx && !starting && !chain.running) {
+            uint8_t bit = (uint8_t)(1u << trk_index(t));
+            if (song.rec_pass & bit) rec_set(t, 0);
+            else if (song.rec & song.rec_wait & bit) {
+                song.rec_wait &= (uint8_t)~bit;
+                song.rec_pass |= bit;
+                punch_in = 1;
+            }
+        }
         if (!t->seq_idx && !chain.running && t->pattern_next < NPAT) {
             pattern_switch(t, t->pattern_next);
             t->seq_idx = 0;
@@ -968,6 +1037,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         if (!t->seq_idx && t == &trk[0] && !chain.running)
             jam_loop();
         motion_step(t, t->seq_idx, &motion);
+        if (punch_in) rec_begin_held(t);
         seq_erase_pass(t, t->seq_idx, 1);
         if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);
         {
@@ -994,7 +1064,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
 static void seq_tick(track_t *t, uint32_t n)
 {
     seq_erase_pass(t, t->seq_idx, 0);
-    if (!(recording_tracks & (1u << trk_index(t)))) { seq_grid_tick(t, n); return; }
+    if (!((recording_tracks | song.rec) & (1u << trk_index(t)))) { seq_grid_tick(t, n); return; }
     if (!song.playing) { seq_grid_tick(t, n); return; }
     if (t->seq_pos >= 0x7FFFFFFFu) {
         seq_grid_tick(t, n);
@@ -1007,7 +1077,7 @@ static void seq_tick(track_t *t, uint32_t n)
         uint32_t chunk = t->seq_pos < span ? span - t->seq_pos : 1u;
         if (chunk > n) chunk = n;
         uint32_t before = t->seq_idx;
-        recording_tick(t, chunk);
+        if (recording_tracks & (1u << trk_index(t))) recording_tick(t, chunk);
         seq_grid_tick(t, chunk);
         if (!t->seq_idx && (before || t->p[P_SLEN] == 1) && t->seq_pos < chunk) recording_zero(t);
         n -= chunk;
@@ -1032,6 +1102,20 @@ static track_t *midi_track(uint32_t ch)
 #include "midi_control.c"
 #include "midi_clock.c"
 
+/* An armed stopped track starts with its first musical note, without a count-in.
+ * A count-in explicitly started with PLAY keeps its normal pickup behavior.
+ * Match local PLAY's clock ownership: an already active MIDI clock stays owned
+ * by its source; a selected input alone does not take over internal timing. */
+static int rec_note_start(track_t *t)
+{
+    if (song.playing || cin_left || !(song.rec & (1u << trk_index(t))) || chain.armed || chain.running)
+        return 0;
+    resource_release(RES_NOTE_HISTORY);
+    if (midi_clock.mode) midi_clock_transport(0xFAu, fm1_ms);
+    else seq_start();
+    return 1;
+}
+
 static void seq_advance(uint32_t n)
 {
     uint32_t i, beat = seq_beat_samples();
@@ -1039,7 +1123,7 @@ static void seq_advance(uint32_t n)
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
     for (i = 0; i < NPART; i++)
-        arp_step(&trk[i], n, n);
+        arp_step(&trk[i], song.playing || !song.g[G_CLOCK] ? n : 0u, n);
     beat_pos += n;
     while (beat_pos >= beat) {
         beat_pos -= beat;
@@ -1052,29 +1136,16 @@ static void seq_advance(uint32_t n)
 static void events_block(uint32_t n)
 {
     uint32_t i, pr;
-    uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
-    if (midi_clock.mode != clock_mode) {
-        uint32_t internal_beat = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
-        uint32_t old_beat = midi_clock.mode ? MIDI_BEAT_UNITS : internal_beat;
-        uint32_t new_beat = clock_mode ? MIDI_BEAT_UNITS : internal_beat;
-        song.g[G_CLOCK] = (int16_t)midi_clock.mode;
+    if(song.playing || transport_req==1u)resource_release(RES_NOTE_HISTORY);
+    uint32_t selected_clock = (uint32_t)song.g[G_CLOCK];
+    if (midi_clock.selected != selected_clock) {
         seq_stop();
-        song.g[G_CLOCK] = (int16_t)clock_mode;
-        /* Continue and a latched ARP preserve their fractional phase when
-         * crossing between sample time and MIDI musical units. */
-        for (i = 0; i < NTRK; i++) {
-            track_t *t = &trk[i];
-            if (t->seq_pos < 0x7FFFFFFFu)
-                t->seq_pos = (uint32_t)((uint64_t)t->seq_pos * new_beat / old_beat);
-            if (t->arp_pos < 0xFFFFFFFu)
-                t->arp_pos = (uint32_t)((uint64_t)t->arp_pos * new_beat / old_beat);
-            t->arp_off = (uint32_t)((uint64_t)t->arp_off * new_beat / old_beat);
-        }
-        beat_pos = (uint32_t)((uint64_t)beat_pos * new_beat / old_beat);
+        midi_clock_mode(0);
         memset(&midi_clock, 0, sizeof midi_clock);
-        midi_clock.mode = (uint8_t)clock_mode;
+        midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
+    uint32_t clock_mode = midi_clock.mode;
     if (transport_req == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
@@ -1146,7 +1217,12 @@ static void events_block(uint32_t n)
             break;
         mi_r++;
         if (status >= 0xF8u) {
-            if (clock_mode == source) {
+            if (selected_clock == source) {
+                if (status == 0xFAu || status == 0xFBu || status == 0xFCu) {
+                    if (!clock_mode) midi_clock_mode(source);
+                    clock_mode = source;
+                }
+                if (!clock_mode) continue; /* clocks alone cannot claim local transport */
                 if (status == 0xF8u)
                     midi_clock_pulse(ms, time);
                 else {
@@ -1163,6 +1239,7 @@ static void events_block(uint32_t n)
             midi_event(st, ch, d1, d2);
         }
     }
+    if(song.playing)resource_release(RES_NOTE_HISTORY);
     if (clock_mode) {
         if (song.playing) {
             uint32_t last = midi_clock.have_pulse ? midi_clock.last_ms : midi_clock.start_ms;

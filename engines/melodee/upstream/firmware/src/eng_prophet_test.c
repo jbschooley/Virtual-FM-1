@@ -29,7 +29,7 @@ typedef struct {
     uint32_t coeff_valid;
     p5_env_t filter, amp;
 } p5_voice_t;
-typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[55]; } p5_part_t;
+typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise, dc_x1, dc_y1; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[55]; } p5_part_t;
 static p5_part_t *p5_part(uint32_t part);
 static p5_patch_t p5_patch[NPART] __attribute__((section(".pool")));
 static uint8_t p5_ready[NPART];
@@ -369,12 +369,35 @@ static void p5_join(void)
     if(!audio_worker_join())return;   /* CPU1 lost: this voice's block is dropped */
     for(uint32_t i=0;i<p5_job.n;i++)p5_pending_out[i]+=p5_job.pcm[i];
 }
+#endif
+/* the part after its voices: the output's coupling capacitor, about 5 Hz (y = x - x' + (1 - 2 pi 5 / FS) y'). The
+ * oscillators are unipolar, as the CEM3340's, so the mixer's DC rides through the filter and the VCA as it does in the
+ * instrument up to its output stage; without the capacitor it reached the sends, DIST and the USB stems. With no
+ * voice it starts afresh */
+#define P5_DC_K 1072976913                       /* (1 - 2 pi 5 / FS) << 30 */
+_Static_assert(FS == 44100, "P5_DC_K: the sample rate");
+static __attribute__((noinline,section(".dsp_text"))) void p5_dc_samples(p5_part_t *P,int32_t *out,uint32_t n)
+{
+    int32_t x1=P->dc_x1,y=P->dc_y1;
+    for(uint32_t i=0;i<n;i++){
+        int32_t x=out[i];
+        y=(int32_t)((int64_t)(x-x1)*256+(((int64_t)y*P5_DC_K)>>30));
+        x1=x;
+        out[i]=(y+128)>>8;
+    }
+    P->dc_x1=x1;P->dc_y1=y;
+}
 static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
 {
-    (void)t;(void)out;(void)n;(void)nr;
+#if MELODEE_DUAL_CORE
     p5_join();
-}
 #endif
+    p5_part_t *P=p5_part((uint32_t)(t-trk)%NPART);
+    if(!P)return;
+    if(!nr){P->dc_x1=P->dc_y1=0;return;}
+    void (*volatile run)(p5_part_t *,int32_t *,uint32_t)=p5_dc_samples;
+    run(P,out,n);
+}
 
 /* XIP stalls dominated the first hardware run. This bounded hot path uses
  * the existing RAMTEXT region; startup copies it before audio starts. */
@@ -480,19 +503,32 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     run(s,p,out,n,m,&c);
 }
 
+/* Sequential's factory program k (0..P5_FACTORY_N-1), unpacked (tools/gen_prophet_factory.py pack) */
+static void p5_factory(uint32_t k,p5_patch_t *p)
+{
+    const uint8_t *b=P5_FPACK+k*P5_FACTORY_BYTES;
+    uint32_t pos=0;
+    for(uint32_t i=0;i<P5_RAW_MAX;i++){
+        uint32_t v=0;
+        for(uint32_t j=0;j<P5_FWIDTH[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
+        p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
+    }
+    p->size=P5_RAW_MAX;p->model=0x32;p->command=2;p->group=(uint8_t)(k/40u);p->program=(uint8_t)(k%40u);
+}
 /* INIT, then Sequential's factory programs in their order (111..588 on the
- * Prophet: preset k is program k-1 of the v1.03 bank). Dry, as the Prophet. */
-#define P5_FACTORY_PRESET(n) {n,{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
-static const preset_t P5_TEST_PRESETS[] = {
-    {"INIT PROPHET",{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
-    P5_FACTORY_PRESETS(P5_FACTORY_PRESET)
-};
-_Static_assert(NELEM(P5_TEST_PRESETS)==P5_FACTORY_N+1u, "Prophet factory presets");
+ * Prophet: preset k is program k-1 of the v1.03 bank), named as the programs are. Dry, as the Prophet. */
+static void p5_preset_make(uint32_t k,preset_t *pr,char *name)
+{
+    p5_patch_t p;
+    pr->env[2]=127;
+    if(!k){str_cpy(name,"INIT PROPHET",21);return;}
+    p5_factory(k-1u,&p);p5_patch_name(name,&p);
+}
 /* A factory preset's native program; preset 0 is INIT. */
 static void p5_preset_loaded(track_t *t,uint32_t pi)
 {
     p5_patch_t *p=p5_patch_of(t);
-    if(pi && pi<=P5_FACTORY_N)*p=P5_FACTORY[pi-1u];else p5_patch_init(p);
+    if(pi && pi<=P5_FACTORY_N)p5_factory(pi-1u,p);else p5_patch_init(p);
     p5_track_accept(t);
 }
 /* Serial hardware measurements justify three units per voice. The opt-in
@@ -505,10 +541,8 @@ static const engine_t ENG_P5_TEST = {
            {"TUNA",F_SEMI,-24,24,0,0,0},{"TUNB",F_SEMI,-24,24,0,0,0},
            {"PWA",F_INT,-63,63,0,0,0},{"PWB",F_INT,-63,63,0,0,0},
            {"MIXA",F_INT,-63,63,0,0,0},{"MIXB",F_INT,-63,63,0,0,0}},
-    .presets=P5_TEST_PRESETS,.npresets=NELEM(P5_TEST_PRESETS),.poly=P5_POLY,.ownenv=1,
+    .preset_make=p5_preset_make,.npresets=P5_FACTORY_N+1u,.poly=P5_POLY,.ownenv=1,
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
-#if MELODEE_DUAL_CORE
     .post=p5_post,
-#endif
-    .knob={P_E0,P_E1,P_CHOR,P_REV}
+    .knob={P_E0,P_E1,P_RESERVED34,P_RESERVED36}
 };

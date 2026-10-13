@@ -5,8 +5,24 @@
  * the measured tempo cannot move steps, gates, ties or the arpeggiator. */
 static struct {
     uint32_t pos, rendered, last_ms, start_ms, last_time, interval_time, tempo_time;
-    uint8_t mode, have_pulse, tempo_valid, tempo_n;
+    uint8_t mode, selected, have_pulse, tempo_valid, tempo_n;
 } midi_clock;
+
+/* Preserve fractional sequencer/ARP phase when external transport takes over. */
+static void midi_clock_mode(uint32_t mode)
+{
+    uint32_t old = seq_beat_samples();
+    midi_sync_active = (uint8_t)mode;
+    uint32_t next = seq_beat_samples();
+    for (uint32_t i = 0; i < NTRK; i++) {
+        track_t *t = &trk[i];
+        if (t->seq_pos < 0x7FFFFFFFu) t->seq_pos = (uint32_t)((uint64_t)t->seq_pos * next / old);
+        if (t->arp_pos < 0xFFFFFFFu) t->arp_pos = (uint32_t)((uint64_t)t->arp_pos * next / old);
+        t->arp_off = (uint32_t)((uint64_t)t->arp_off * next / old);
+    }
+    beat_pos = (uint32_t)((uint64_t)beat_pos * next / old);
+    midi_clock.mode = (uint8_t)mode;
+}
 
 static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint32_t ms)
 {
@@ -17,12 +33,16 @@ static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint
         midi_clock.start_ms = ms;
         seq_start();
     } else if (status == 0xFBu) {
+        cin_left = 0;
         midi_clock.pos = midi_clock.rendered;
         midi_clock.have_pulse = midi_clock.tempo_valid = 0;
         midi_clock.interval_time = 0;
         midi_clock.start_ms = ms;
-        if (!song.playing)
+        if (!song.playing) {
             motion_begin();
+            song.rec_wait = song.rec;
+            song.rec_pass = 0;
+        }
         song.playing = 1;
     } else if (status == 0xFCu) {
         seq_stop();

@@ -5,8 +5,10 @@
  *
  * Each synth part has its own NVOICE voices (so MONO / LEGATO / UNISON keep using
  * v[0..]; POLY uses the engine's cap, NPOLY or FM6's 16), but the parts' sounding voices
- * share one budget of VBUDGET units (a voice of an engine capped above NPOLY takes one, any
- * other two: eight of them, as before): a part that starts
+ * share a weighted budget (voice_budget: normally 16, resident audio with CPU1
+ * online 18 at 360 MHz, scaled with the clock running; FM6 takes one unit,
+ * ordinary engines two, serial Prophet three).
+ * A part that starts
  * a voice while the budget is full takes one from any part (voice_victim): the oldest
  * released voice, else the oldest extra UNISON voice, else the oldest held voice of a
  * POLY part that is not its lowest note. A voice taken from another part fades out
@@ -45,11 +47,11 @@ static uint32_t lfo_rand(track_t *t)
     return s;
 }
 
-/* LFO 2 (1.2, #154; params.c N_LSYNC): with SYNC on, one cycle lasts the note value of the tempo (fx.c div_samples:
+/* LFO 2 (1.2, #154; params.c N_LSYNC): with SYNC on, one cycle lasts the note value of the tempo (mix.c div_samples:
  * BPM, or the external clock's measured tempo while it runs), whatever RATE says (the matrix's RATE too): the phase
  * advances 2^32 x CTL / cycle a block (two 32-bit divides; the 1-bit truncation of 0xFFFFFFFF drifts by less than a
  * millionth of a cycle a cycle). OFF: RATE's table, as before */
-static uint32_t div_samples(uint32_t div);         /* (fx.c) */
+static uint32_t div_samples(uint32_t div);         /* (mix.c) */
 static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (not inlined: its divides stay out of
                                                                            * the audio ISR's loop over the tracks) */
 {
@@ -97,6 +99,24 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
+}
+
+/* the budget with CPU1: VBUDGET at 360 MHz, scaled with the clock running by main.c clock_boot (16 at a 320 MHz a
+ * soft reset kept from a 1.3.x session); VBUDGET on the host */
+static uint32_t vbudget_cpu1 = VBUDGET;
+static uint32_t voice_budget(void)
+{
+#if MELODEE_RAM_AUDIO
+#if MELODEE_DUAL_CORE
+    /* CPU1 retirement removes the extra headroom. New notes then use the
+     * original budget; overload shedding still handles already-active work. */
+    return audio_worker_online ? vbudget_cpu1 : 16u;
+#else
+    return 16u;
+#endif
+#else
+    return VBUDGET;
+#endif
 }
 
 static uint32_t voices_busy(void)                       /* budget units of all parts' sounding voices (not fading) */
@@ -155,17 +175,20 @@ static uint32_t voice_victim(const track_t *self, int soft, track_t **pp)
 }
 
 static uint32_t voice_kills;                            /* voices given up (budget, overload): console, hostsim */
+static uint32_t voice_kills_part[NPART];                /* identify the audible victim, not only total load */
 static void voice_kill(voice_t *v)                      /* fade out over the next block (env_tick stage 4) */
 {
+    uint32_t part = ((uintptr_t)v - (uintptr_t)trk) / sizeof(track_t);
     v->gate = 0;
     v->stage = 4;
     voice_kills++;
+    if (part < NPART) voice_kills_part[part]++;
 }
 
 /* the budget is full: free room for a voice of part t. 0 = nothing to take (soft) */
 static int voice_room(track_t *t, int soft)
 {
-    while (voices_busy() + voice_units(t) > VBUDGET) {
+    while (voices_busy() + voice_units(t) > voice_budget()) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, soft, &vp);
         if (k == NVOICE)
@@ -212,7 +235,7 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
             return voice_reuse(t, &t->v[i]);
         nfree += !t->v[i].active;
     }
-    while (nfree && voices_busy() + voice_units(t) > VBUDGET) {
+    while (nfree && voices_busy() + voice_units(t) > voice_budget()) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, 0, &vp);
         if (k < np && vp == t)
@@ -570,7 +593,7 @@ static int32_t env_tick(track_t *t, voice_t *v)
     return v->env >> 9;
 }
 
-/* SPREAD (#148, fx.c mix_spread): while spread_on (mix_part sets it for the part it renders), track_render renders the
+/* SPREAD (#148, mix.c mix_spread): while spread_on (mix_part sets it for the part it renders), track_render renders the
  * voices of side 0 into spread_buf and the others into out, then adds spread_buf to out: out is every voice, as always
  * (the engines add into either the same way), spread_buf the left ones. A cost per block, none per voice */
 static uint8_t spread_on;

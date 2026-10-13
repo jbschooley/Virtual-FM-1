@@ -48,13 +48,13 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
         }
         tag[0] = (char)(r + 1u == (uint32_t)PROJ_TMPL ? 'T' : 'A' + r);
         tag[1] = 0;
-        used = r + 1u == (uint32_t)PROJ_TMPL ? template_used() : graph_project_used(r);
-        str_cpy(nm, r + 1u == (uint32_t)PROJ_TMPL ? "Template" : used && graph_project_name(r)[0] ? graph_project_name(r)
+        used = r + 1u == (uint32_t)PROJ_TMPL ? template_used() || template_old() : graph_project_used(r);
+        str_cpy(nm, r + 1u == (uint32_t)PROJ_TMPL ? (template_old() ? "OLD FORMAT" : "Template") : used && graph_project_name(r)[0] ? graph_project_name(r)
                     : used ? "Saved" : "--", 16);
         return used;
     }
     user_label(tag, r);
-    if (!user_used(r)) {
+    if (!user_used(r) && !user_old(r)) {
         str_cpy(nm, "--", 16);
         return 0;
     }
@@ -68,8 +68,8 @@ static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card
                    : used ? "Saved" : "Empty", 24);
     else if (!used)
         str_cpy(b, "Empty", 24);
-    else if (native_limit(TSEL->eng_req))
-        str_cpy(b, ENGINES[eng_idx(TSEL->eng_req)]->name, 24);
+    else if (library_native())
+        str_cpy(b, ENGINES[eng_idx(library_engine())]->name, 24);
     else
         str_cpy(b, ENGINES[eng_idx(up_engine(r))]->name, 24);
 }
@@ -108,8 +108,10 @@ static void sl_boot(void)
 static const sheet_row_t SHEET_PROJECT[] = {{"Load", 0, 0, sl_load, 0}, {"Save here", 0, 0, sl_save, 0},
     {"Rename", 0, 0, name_rename, 0}, {"Boot", sl_boot_v, 0, sl_boot, 0}, {"Erase", 0, 0, sl_erase, CF_ERASE_PROJ}};
 static const sheet_row_t SHEET_TEMPLATE[] = {{"Load template", 0, 0, sl_load, 0}, {"Save as template", 0, 0, sl_save, 0}};
+static const sheet_row_t SHEET_IMPORT[] = {{"Import here",0,0,sysex_choose,0},{"Cancel import",0,0,sysex_cancel,0}};
+static const sheet_row_t SHEET_BULK[] = {{"Send selected",0,0,bulk_send,0},{"Erase selected",0,0,bulk_erase_ask,CF_BULK_ERASE},{"Clear selection",0,0,bulk_clear,0}};
 static const sheet_row_t SHEET_USER[] = {{"Load", 0, 0, sl_load, 0}, {"Save here", 0, 0, sl_save, 0},
-    {"Rename", 0, 0, name_rename, 0}, {"Erase", 0, 0, sl_erase, CF_ERASE_USER}};
+    {"Rename", 0, 0, name_rename, 0}, {"Send",0,0,library_send_current,0}, {"Erase", 0, 0, sl_erase, CF_ERASE_USER}};
 static const sheet_row_t SHEET_STORE[] = {{"Save here", 0, 0, sl_save, 0}, {"Send", 0, 0, sl_send, 0},
     {"Init sound", 0, 0, sl_init, 0}};
 
@@ -122,6 +124,8 @@ static void slot_enter(void)
     if (!k)
         return;
     r = slot_cur(k);
+    if(k==SK_USER && sx_import.count){sysex_import_name(nm);sheet_open("Import SysEx",nm,SHEET_IMPORT,NELEM(SHEET_IMPORT));return;}
+    if(k!=SK_PROJECT && bulk.on){sheet_open("Selected presets","USB SysEx / erase",SHEET_BULK,NELEM(SHEET_BULK));return;}
     used = slot_row(k, r, tag, nm);
     if (k == SK_PROJECT && r < 4u) {                    /* (the name as stored now, not the list's cached one) */
         used = project_name(r, nm);
@@ -171,7 +175,7 @@ static void slot_draw(void)
         vis = n;
     slv.first = (uint8_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
     sig = cur * 7u + slv.first * 131u + boot * 1031u + k * 40503u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u +
-          up_gen * 7919u + TSEL->eng_req * 104729u;
+          up_gen * 7919u + library_engine() * 104729u + bulk.on * 19u + bulk.anchor * 23u + bulk.end * 29u + sx_import.count * 37u;
     for (r = slv.first; r < slv.first + vis; r++)
         sig = str_hash(sig + (uint32_t)slot_row(k, r, tag, nm), nm);
     if (!ui.force && sig == slv.sig)
@@ -188,6 +192,8 @@ static void slot_draw(void)
             cv_text_on(16, 7, &AF_M, tag, T_THEME, T_LIFT);
             cv_free_text(16 + text_w(&AF_M, tag) + 8, 7, &AF_M, used ? nm : "Empty", used ? T_TEXT : T_MID, T_LIFT, nw);
             slot_detail(k, r, used, d);
+            if(sx_import.count){fmt_int(d,sx_import.count);str_cpy(d+str_len(d)," incoming patches",20);}
+            else if(bulk_has(r))str_cpy(d,"Selected",24);
             cv_text_on(16 + text_w(&AF_M, tag) + 8, 28, &AF_X, d, T_MID, T_LIFT);
             if (boot == r + 1u) {
                 cv_rrect(186, 10, 40, 18, 5, T_SURF, T_LIFT);
@@ -197,6 +203,7 @@ static void slot_draw(void)
             y += SL_CARD;
         } else {
             cv_begin(240, SL_ROW, T_BG);
+            if(k!=SK_PROJECT && bulk_has(r))cv_rect(6,3,3,SL_ROW-6,T_THEME);
             cv_text_on(16, 5, &AF_S, tag, used ? T_MID : T_DIM, T_BG);
             cv_free_text(nx, 5, &AF_S, nm, used ? T_SEC : T_DIM, T_BG, boot == r + 1u ? 180 - nx : 220 - nx);
             if (boot == r + 1u)

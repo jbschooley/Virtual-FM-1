@@ -21,7 +21,7 @@ enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST };
 #define POP_X 6                                         /* a sheet: 228 wide, its rows 20 px, 22 apart from y 28 */
 #define POP_W 228
 #define POP_ROW 22
-#define POP_PICK_W 110                                  /* a picker: up to five names, 20 px each */
+#define POP_PICK_W 112                                  /* a picker: up to five names, 20 px each; two whole columns */
 static struct {
     uint8_t on, n, sel, col;
     char title[24], sub[20];
@@ -130,7 +130,10 @@ static const sheet_row_t SHEET_SONG[] = {
     {"Take jam", ps_jam_v, 0, ps_jam, 0}, {"Clear song", 0, 0, 0, CF_CLEAR_SONG}};
 
 /* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
-static const sheet_row_t SHEET_PATTERN[] = {{"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
+static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.note_grid==1u?"0.5 step":"1 step",16);}
+static void nt_quantize_grid(int32_t s){ui.note_grid=(uint8_t)clamp((int32_t)ui.note_grid+s,0,2);ui.force=1;}
+static void nt_quantize(void){ui.note_copy=ui.note_move=0;note_quantize(RECORD_UNIT>>ui.note_grid);ui.force=1;}
+static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
 /* PATTERNS' (OCT+): the selected track's pattern; Copy to: its place picked on the grid (ui_patterns.c) */
 static const sheet_row_t SHEET_PATTERNS[] = {{"Copy to\x85", 0, 0, ptc_start, 0}, {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
 
@@ -191,10 +194,11 @@ static void nt_delete(void)
     if (st_free())
         step_delete_edit();
 }
+static void nt_copy(void) { if(st_free())note_copy_arm(); }
 static const sheet_row_t SHEET_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
-    {"Chance", nt_chance_v, nt_chance, 0, 0}, {"Slide", nt_slide_v, 0, nt_slide, 0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
+    {"Chance", nt_chance_v, nt_chance, 0, 0}, {"Slide", nt_slide_v, 0, nt_slide, 0}, {"Move note",0,0,note_move_arm,0}, {"Copy note",0,0,nt_copy,0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
 static const sheet_row_t SHEET_REC_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
-    {"Delete note", 0, 0, nt_delete, SR_RED}};
+    {"Move note",0,0,note_move_arm,0}, {"Copy note",0,0,nt_copy,0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
 static int ht_acc_on(void) { return (step_accents(&seq_steps(TSEL)[ui.cursor]) >> ui.lane) & 1u; }
 static void ht_acc_v(char *b) { str_cpy(b, ht_acc_on() ? "On" : "Off", 8); }
 static void ht_acc(void) { edit_param(3u, ht_acc_on() ? -1 : 1); }
@@ -368,6 +372,19 @@ static void pick_poll(void)                             /* ST_KNOB_MS after the 
 
 /* ------------------------------------------------ a value's list --- */
 /* OCT+ on a list page's row whose value is a name from a list: the whole list (KNOB 2, OCT+ takes it, OCT- closes) */
+/* Compact enum lists omit retired empty entries without changing stored IDs. */
+static int32_t enum_rows(const param_desc_t *d)
+{
+    int32_t count=0;for(int32_t v=d->min;v<=d->max;v++)count+=d->names[v-d->min][0]!=0;return count;
+}
+static int32_t enum_rank(const param_desc_t *d,int32_t value)
+{
+    int32_t rank=0;for(int32_t v=d->min;v<value;v++)rank+=d->names[v-d->min][0]!=0;return rank;
+}
+static int32_t enum_value(const param_desc_t *d,int32_t rank)
+{
+    for(int32_t v=d->min;v<=d->max;v++)if(d->names[v-d->min][0] && !rank--)return v;return d->min;
+}
 static struct { uint8_t page, slot; int16_t sel; } vl;
 static const param_desc_t *vlist_desc(int16_t **vp) { return page_desc(&PAGES[vl.page], vl.slot, vp); }
 static void vlist_open(uint8_t page, uint8_t slot)
@@ -392,7 +409,7 @@ static void vlist_input(int32_t k2, uint32_t oct)
         return;
     }
     if (k2)
-        vl.sel = (int16_t)clamp(vl.sel + (k2 > 0 ? 1 : -1), d->min, d->max);
+        vl.sel = (int16_t)enum_step(d,vl.sel,clamp(vl.sel + (k2 > 0 ? 1 : -1), d->min, d->max));
     if (oct & 1u) {
         pop_close();
     } else if (oct & 2u) {                              /* (its page edits it, as if it were shown) */
@@ -416,12 +433,12 @@ static void vlist_draw(void)
         pop_close();
         return;
     }
-    n = d->max - d->min + 1 < 7 ? d->max - d->min + 1 : 7;
+    n = enum_rows(d) < 7 ? enum_rows(d) : 7;
     sig = (uint32_t)(vl.sel + 1) * 7919u + vl.page * 131u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pop.sig)
         return;
     pop.sig = sig;
-    first = clamp(vl.sel - 3, d->min, d->max - n + 1);
+    first = clamp(enum_rank(d,vl.sel) - 3, 0, enum_rows(d) - n);
     h = 30 + n * 20 + 6;
     y0 = 236 - h;
     for (top = 0; top < h; ) {                          /* in slices between rows (a canvas holds 124 rows) */
@@ -434,7 +451,7 @@ static void vlist_draw(void)
         if (top == 0)
             cv_text_on(10, 8, &AF_S, b, T_TEXT, T_SURF);
         for (i = 0; i < n; i++) {
-            int32_t v = first + i, y = 28 + i * 20, on = v == vl.sel, cur = v == *vp;
+            int32_t v = enum_value(d,first + i), y = 28 + i * 20, on = v == vl.sel, cur = v == *vp;
             uint16_t bg = on ? T_LIFT : T_SURF;
             if (y + 20 <= top || y >= top + sh)
                 continue;
@@ -514,14 +531,15 @@ static void pick_draw(void)
         return;
     pop.sig = sig;
     {
-    int32_t rows = d->max - d->min + 1 < 5 ? d->max - d->min + 1 : 5, h = 16 + rows * 20;
-    int32_t first = clamp(v - 2, d->min, d->max - rows + 1);   /* five names around it, the list's ends kept */
-    x = clamp(30 + 60 * (int32_t)pop.col - POP_PICK_W / 2, 4, 236 - POP_PICK_W);
+    int32_t rows = enum_rows(d) < 5 ? enum_rows(d) : 5, h = 16 + rows * 20;
+    int32_t first = clamp(enum_rank(d,v) - 2, 0, enum_rows(d) - rows);   /* five names around it, the list's ends kept */
+    x = 4 + 60 * (int32_t)(pop.col < 3u ? pop.col : 2u);   /* its column and the next (the last: the two last), whole:
+                                                         * a neighbour's value is under it entirely or not at all */
     cv_begin(POP_PICK_W, (uint32_t)h, T_BG);
     cv_rrect(0, 0, POP_PICK_W, h, 10, T_LINE, T_BG);
     cv_rrect(1, 1, POP_PICK_W - 2, h - 2, 9, T_SURF, T_LINE);
     for (i = 0; i < rows; i++) {
-        int32_t n = first + i, y = 8 + i * 20, far = n - v > 1 || v - n > 1;
+        int32_t n = enum_value(d,first + i), y = 8 + i * 20, far = n - v > 1 || v - n > 1;
         char b[16];
         list_words(b, d->names[n - d->min], sizeof b);
         if (n == v) {

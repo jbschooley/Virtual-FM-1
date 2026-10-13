@@ -1,15 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* UAC1 stereo playback and four-channel capture. No hardware dependencies:
- * callers serialize USB service and each short audio block. Capture takes
- * isolated track stems, so DAW monitoring cannot feed itself through capture.
+/* UAC1 stereo playback and selectable stereo master / four-track capture.
+ * Callers serialize USB service and each short audio block. Capture precedes
+ * computer playback, so DAW monitoring cannot feed itself through capture.
  *
  * The I2S clock is independent of USB SOF. A low-pass ring-fill servo adjusts
  * capture packet lengths and the playback endpoint's explicit 10.14 feedback.
  * USB and I2S both run at the native 44.1 kHz rate; no resampler is needed. */
 #include <stdint.h>
 #define UA_RATE 44100u
-#define UA_CAP_CHANNELS 4u
+#define UA_CAP_CHANNELS 4u                    /* maximum; active stride follows the enumerated mode */
+static uint8_t ua_cap_channels = 2u;
 #define UA_MAX_FRAMES 45u                      /* ceil(44.1 + maximum feedback correction) */
 #define UA_PLAY_PACKET (UA_MAX_FRAMES * 2u * 3u)
 #define UA_PACKET (UA_MAX_FRAMES * UA_CAP_CHANNELS * 3u)
@@ -143,23 +144,24 @@ static uint32_t ua_transmit(uint8_t *p)
         int16_t sample[UA_CAP_CHANNELS] = {0};
         uint32_t ch;
         if (take) {
-            uint32_t at = (ua.cr++ & (UA_RING - 1u)) * UA_CAP_CHANNELS;
-            for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
+            uint32_t at = (ua.cr++ & (UA_RING - 1u)) * ua_cap_channels;
+            for (ch = 0; ch < ua_cap_channels; ch++)
                 sample[ch] = ua.cap[at + ch];
         }
-        for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
-            ua_encode(p + (i * UA_CAP_CHANNELS + ch) * width, width, sample[ch]);
+        for (ch = 0; ch < ua_cap_channels; ch++)
+            ua_encode(p + (i * ua_cap_channels + ch) * width, width, sample[ch]);
     }
-    return n * width * UA_CAP_CHANNELS;
+    return n * width * ua_cap_channels;
 }
 
-/* Stereo Q15 monitor plus four pre-master mono stems; playback follows MASTER.
+/* Stereo Q15 post-FX/master/limiter mix, or four pre-master mono stems.
+ * Stereo copies the finished synth output; playback follows MASTER.
  * Call in blocks of CTL (32), with USB service excluded during this copy.
- * A null stem pointer skips capture for a block collected while capture was
- * disabled; playback still runs, and a newly opened stream sees no stale data. */
+ * In track mode a null stem pointer skips capture for a block collected while
+ * capture was disabled. Stereo requires no stems or additional DSP pass. */
 static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t master_q12)
 {
-    uint32_t i, capture = ua.cap_alt && tracks, playback = 0;
+    uint32_t i, capture = ua.cap_alt && (ua_cap_channels == 2u || tracks), playback = 0;
     if (capture && ua.cw - ua.cr + n > UA_RING) {
         ua.cap_overruns++;
         ua_cap_reset();
@@ -177,13 +179,17 @@ static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t m
         }
     }
     for (i = 0; i < n; i++) {
-        uint32_t ci = ((ua.cw + i) & (UA_RING - 1u)) * UA_CAP_CHANNELS;
+        uint32_t ci = ((ua.cw + i) & (UA_RING - 1u)) * ua_cap_channels;
         uint32_t pi = ((ua.pr + i) & (UA_RING - 1u)) * 2u;
         int32_t l = out[2u * i], r = out[2u * i + 1u];
         if (capture) {
             uint32_t ch;
-            for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
-                ua.cap[ci + ch] = (int16_t)ua_clip(tracks[i * UA_CAP_CHANNELS + ch]);
+            if (ua_cap_channels == 2u) {
+                ua.cap[ci] = (int16_t)l;
+                ua.cap[ci + 1u] = (int16_t)r;
+            } else
+                for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
+                    ua.cap[ci + ch] = (int16_t)ua_clip(tracks[i * UA_CAP_CHANNELS + ch]);
         }
         if (playback) {
             l += (ua.play[pi] * (int32_t)master_q12) >> 12;

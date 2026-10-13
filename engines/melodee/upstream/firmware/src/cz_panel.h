@@ -3,7 +3,8 @@
 #define MELODEE_CZ1_PATCH_H
 
 #define LCZ_NAME 16u
-/* Flat, byte-sized patch IDs: all native controls are available on device. */
+/* The CZ-1 panel model of the editor pages (cz_edit.h): flat, byte-sized ids for every native control, and the
+ * panel values <-> Casio bytes (lcz_sx_encode / lcz_sx_unrate / lcz_sx_unlevel). */
 enum { LCZ_LINE, LCZ_MOD, LCZ_OCT, LCZ_SIGN, LCZ_DOCT, LCZ_NOTE, LCZ_FINE,
        LCZ_VWAVE, LCZ_VRATE, LCZ_VDEP, LCZ_VDELAY, LCZ_BEND, LCZ_WHEEL, LCZ_ATV, LCZ_ATA,
        LCZ_MODON, LCZ_PORTON, LCZ_PORTMODE, LCZ_PORTTIME, LCZ_GLIDEON, LCZ_GLIDENOTE, LCZ_GLIDETIME,
@@ -12,41 +13,10 @@ enum { LCZ_LINE, LCZ_MOD, LCZ_OCT, LCZ_SIGN, LCZ_DOCT, LCZ_NOTE, LCZ_FINE,
 enum { LCZ_W1, LCZ_W2, LCZ_KW, LCZ_KA, LCZ_LEVEL, LCZ_VP, LCZ_VW, LCZ_VA };
 #define LCZ_EBASE(l,e) (LCZ_GLOBALS+16u+((l)*3u+(e))*18u)
 #define LCZ_OLD_NP 147u
-#define LCZ_OLD_PACKED 163u
 #define LCZ_WIN(l) (LCZ_OLD_NP+(l))
 #define LCZ_NP (LCZ_OLD_NP+2u)
 #define LCZ_PACKED (LCZ_NP+LCZ_NAME)
 static const uint8_t LCZ_MAX[LCZ_NP]={3,2,2,1,3,11,60,3,99,99,99,12,99,99,15,1,1,1,99,1,48,99,1,7,8,9,9,15,15,15,15,7,8,9,9,15,15,15,15,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,7,7};
-static const int8_t LCZ_PRESET_MIN[92]={0,0,0,0,0,-64,-64,-64,-64,0,0,0,0,-64,-64,-64,0,0,0,1,1,0,0,0,0,0,0,0,-24,1,0,0,1,0,0,0,0,0,0,-64,0,0,0,0,0,0,1,0,0,0,0,-64,0,0,-64,0,0,-64,0,0,-64,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,-64,-64,-64,-64,-64,-64,-64,0};
-static const uint8_t LCZ_PRESET_WIDTH[92]={7,7,7,7,7,7,7,7,7,7,3,7,7,7,7,7,7,3,4,2,7,7,7,1,1,4,4,3,6,6,4,7,7,7,7,7,7,2,7,7,1,1,2,1,7,2,4,3,7,4,5,7,4,5,7,4,5,7,4,5,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,4,3,4,7,7,7,7,7,7,7,4};
-static const int8_t LCZ_PRESET_MAX[92]={127,127,127,127,127,63,63,63,63,127,4,127,127,63,63,63,127,6,9,4,127,100,127,1,1,11,15,4,24,64,9,100,127,127,127,127,127,3,127,63,1,1,2,1,127,2,16,5,127,8,19,63,8,19,63,8,19,63,8,19,63,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,9,4,12,63,63,63,63,63,63,63,8};
-/* 871 native control bits + 16 seven-bit name characters. */
-#define LCZ_COMPACT_BITS 983u
-static int lcz_valid(const uint8_t *p)
-{
-    for(uint32_t j=0;j<LCZ_NP;j++)if(p[j]>LCZ_MAX[j])return 0;
-    for(uint32_t l=0;l<2;l++){
-        uint32_t b=LCZ_LBASE(l);
-        if(!p[b+LCZ_LEVEL])return 0;
-        for(uint32_t e=0;e<3;e++){b=LCZ_EBASE(l,e);if(p[b+16]!=8 && p[b+16]>p[b+17])return 0;if(p[b+8+p[b+17]])return 0;}
-    }
-    for(uint32_t j=LCZ_NP;j<LCZ_PACKED;j++)if(p[j]<32||p[j]>126)return 0;
-    return 1;
-}
-/* Version 1 used panel wave numbers and an implicit resonance window.
- * Read it into the native carrier/window model without changing its sound. */
-static int lcz_upgrade(uint8_t *p,const uint8_t *old)
-{
-    static const uint8_t carrier[]={0,1,2,4,5,6,6,6};
-    memcpy(p,old,LCZ_OLD_NP);memcpy(p+LCZ_NP,old+LCZ_OLD_NP,LCZ_NAME);
-    for(uint32_t l=0;l<2;l++){
-        uint32_t b=LCZ_LBASE(l),w1=old[b],w2=old[b+1];
-        if(w1>7||w2>8||(w1>=5&&w2>=6))return 0;
-        p[LCZ_WIN(l)]=(uint8_t)(w1>=5?w1-4:w2>=6?w2-5:0);
-        p[b]=carrier[w1];p[b+1]=(uint8_t)(w2?carrier[w2-1]+1:0);
-    }
-    return lcz_valid(p);
-}
 static uint32_t lcz_sx_rate(uint32_t e,uint32_t a){return e==0?a*127/99:e==1?8+a*119/99:a*119/99;}
 static uint32_t lcz_sx_level(uint32_t e,uint32_t a){return e==0?a+(a>63?4:0):e==1?a*127/99:a?a+28:0;}
 static uint32_t lcz_sx_unrate(uint32_t e,uint32_t b){b&=127;if(e==1)b=b>8?b-8:0;return b?(b*99/(e==0?127:119)+1>99?99:b*99/(e==0?127:119)+1):0;}
@@ -89,11 +59,4 @@ static void lcz_sx_encode(const uint8_t *p,uint8_t *d,int native)
     if(native)memcpy(d+128,p+LCZ_NP,16);
 }
 
-static int cz_legacy_tone(uint8_t *out,const uint8_t *p,uint32_t n)
-{
-    uint8_t upgraded[LCZ_PACKED];
-    if(n==LCZ_OLD_PACKED){if(!lcz_upgrade(upgraded,p))return 0;p=upgraded;}
-    else if(n!=LCZ_PACKED || !lcz_valid(p))return 0;
-    lcz_sx_encode(p,out,1);return cz_patch_valid(out);
-}
 #endif

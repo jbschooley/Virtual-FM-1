@@ -116,7 +116,7 @@ static const uint8_t FM6_ALG[32][6] = {
     {0xc1, 0x14, 0x14, 0x04, 0x04, 0x04}, {0xc1, 0x05, 0x14, 0x01, 0x14, 0x04}, {0x01, 0x05, 0x14, 0xc1, 0x14, 0x04},
     {0x04, 0xc1, 0x11, 0x14, 0x01, 0x14}, {0xc1, 0x14, 0x01, 0x14, 0x04, 0x04}, {0x04, 0xc1, 0x11, 0x14, 0x04, 0x04},
     {0xc1, 0x14, 0x04, 0x04, 0x04, 0x04}, {0xc4, 0x04, 0x04, 0x04, 0x04, 0x04}};
-static int fm6_carrier(uint32_t alg, uint32_t n) { return !(FM6_ALG[alg & 31u][6u - n] & 3u); }   /* OP n: to the voice */
+static inline __attribute__((always_inline)) int fm6_carrier(uint32_t alg, uint32_t n) { return !(FM6_ALG[alg & 31u][6u - n] & 3u); }   /* OP n: to the voice */
 /* bit k: operator k (the sixth first) is a carrier of algorithm a: it writes the voice */
 static uint32_t fm6_carriers(uint32_t a)
 {
@@ -131,7 +131,7 @@ static uint32_t fm6_carriers(uint32_t a)
 /* A Q24 log pitch has more significant bits than float. Preserve its exact
  * phase step with the DX7 frequency table, using two 7-bit partial products
  * instead of a wide multiply. Otherwise high-ratio notes drift against Dexed. */
-static int32_t fm6_freq(int32_t lf)
+static inline __attribute__((always_inline)) int32_t fm6_freq(int32_t lf)
 {
     uint32_t i=((uint32_t)lf&0xFFFFFFu)>>14,f=(uint32_t)lf&0x3FFFu;
     uint32_t delta=(uint32_t)(FM6_FREQ[i+1u]-FM6_FREQ[i]);
@@ -139,19 +139,19 @@ static int32_t fm6_freq(int32_t lf)
     int32_t sh=20-(lf>>24);
     return sh<=0?y:sh>31?0:y>>sh;
 }
-static uint32_t fm6_pow2(int32_t x)
+static inline __attribute__((always_inline)) uint32_t fm6_pow2(int32_t x)
 {
     return (uint32_t)fm_minf(fm_exp2f((float)x * (1.0f / 65536.0f)) * 65536.0f, 4294967040.0f);
 }
 static int32_t fm6_f32(int32_t x) { return (int32_t)(float)x; }
-static uint32_t fm6_ams_pt(uint32_t sa)
+static inline __attribute__((always_inline)) uint32_t fm6_ams_pt(uint32_t sa)
 {
     return (uint32_t)fm_expf((float)sa * (0.07f / 262144.0f) + 12.2f);
 }
 /* Keep the exact wrapping phase counter: converting a slow oscillator's
  * accumulated phase to float would lose low bits on every sample. Modulation
  * is in cycles; reduce it before converting so large indices cannot overflow. */
-static inline uint32_t fm6_phase(uint32_t ph, float mod)
+static inline __attribute__((always_inline)) uint32_t fm6_phase(uint32_t ph, float mod)
 {
     /* Truncate whole cycles in either direction; the counter's mask wraps
      * signed fractional cycles without a conditional floor operation. */
@@ -159,15 +159,18 @@ static inline uint32_t fm6_phase(uint32_t ph, float mod)
     int32_t offset=(int32_t)(mod*16777216.0f);
     return (ph+(uint32_t)offset)&0xFFFFFFu;
 }
-static inline float fm6_sin(uint32_t ph)
+static inline __attribute__((always_inline)) float fm6_sin(uint32_t ph)
 {
     uint32_t i = (ph >> 14) & 1023u;
     float f = (float)(ph & 0x3FFFu) * (1.0f / 16384.0f);
     return FM6_SIN[i] + (FM6_SIN[i+1u] - FM6_SIN[i]) * f;
 }
 
+static inline __attribute__((always_inline)) int32_t fm6_clamp(int32_t x, int32_t lo, int32_t hi)
+{ return x < lo ? lo : x > hi ? hi : x; }
+
 /* -------------------------------------------------- scaling (DX7 rules) --- */
-static int32_t fm6_scaleout(int32_t l) { return l >= 20 ? 28 + l : FM6_LEVELLUT[l < 0 ? 0 : l]; }
+static inline __attribute__((always_inline)) int32_t fm6_scaleout(int32_t l) { return l >= 20 ? 28 + l : FM6_LEVELLUT[l < 0 ? 0 : l]; }
 
 static int32_t fm6_curve(int32_t group, int32_t depth, int32_t curve)   /* key level scaling, 0.75 dB steps */
 {
@@ -217,17 +220,17 @@ typedef struct {                                         /* a pitch envelope (Pi
 } fm6_peg_t;
 
 /* segment ix begins (Env::advance); where it would not move (or an attack to L1 0) the DX7 waits */
-static void fm6_eg_go(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, uint32_t ix)
+static __attribute__((noinline,section(".dsp_text"))) void fm6_eg_go(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, uint32_t ix)
 {
     e->ix = (uint8_t)ix;
     if (ix < 4u) {
         int32_t lv = op[FP_L1 + ix], a = ((fm6_scaleout(lv) >> 1) << 6) + ol - 4256;
-        int32_t q = clamp(((op[FP_R1 + ix] * 41) >> 6) + rs, 0, 63);
+        int32_t q = fm6_clamp(((op[FP_R1 + ix] * 41) >> 6) + rs, 0, 63);
         e->target = (a < 16 ? 16 : a) << 16;
         e->rising = e->target > e->level;
         e->hold = 0;
         if (e->target == e->level || (!ix && !lv)) {
-            int32_t r = clamp(op[FP_R1 + ix] + rs, 0, 99);
+            int32_t r = fm6_clamp(op[FP_R1 + ix] + rs, 0, 99);
             e->hold = r < 77 ? FM6_STATICS[r] : 20 * (99 - r);
             if (r < 77 && !ix && !lv)
                 e->hold /= 20;
@@ -236,9 +239,16 @@ static void fm6_eg_go(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, ui
     }
 }
 
+static inline __attribute__((always_inline)) void fm6_eg_go_run(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, uint32_t ix)
+{
+    void (*volatile run)(fm6_eg_t *, const uint8_t *, int32_t, int32_t, uint32_t) = fm6_eg_go;
+    run(e, op, ol, rs, ix);
+}
+#define fm6_eg_go(e,op,ol,rs,ix) fm6_eg_go_run((e),(op),(ol),(rs),(ix))
+
 /* one block of an operator envelope (Env::getsample); returns its level. Segments 0..2 run
  * while the key is down, 3 after the release */
-static int32_t fm6_eg_step(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, int down)
+static __attribute__((noinline,section(".dsp_text"))) int32_t fm6_eg_step(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, int down)
 {
     if (e->hold) {
         e->hold -= FM6_N;
@@ -267,7 +277,14 @@ static int32_t fm6_eg_step(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t r
     return e->level;
 }
 
-static void fm6_peg_go(fm6_peg_t *e, uint32_t ix)        /* pitch EG segment ix (PitchEnv::advance) */
+static inline __attribute__((always_inline)) int32_t fm6_eg_step_run(fm6_eg_t *e, const uint8_t *op, int32_t ol, int32_t rs, int down)
+{
+    int32_t (*volatile run)(fm6_eg_t *, const uint8_t *, int32_t, int32_t, int) = fm6_eg_step;
+    return run(e, op, ol, rs, down);
+}
+#define fm6_eg_step(e,op,ol,rs,down) fm6_eg_step_run((e),(op),(ol),(rs),(down))
+
+static __attribute__((noinline,section(".dsp_text"))) void fm6_peg_go(fm6_peg_t *e, uint32_t ix)        /* pitch EG segment ix (PitchEnv::advance) */
 {
     e->pix = (uint8_t)ix;
     if (ix < 4u) {
@@ -276,6 +293,13 @@ static void fm6_peg_go(fm6_peg_t *e, uint32_t ix)        /* pitch EG segment ix 
         e->pi = FM6_PEG_RATE[e->pr[ix]] * FM6_PEG_UNIT;
     }
 }
+
+static inline __attribute__((always_inline)) void fm6_peg_go_run(fm6_peg_t *e, uint32_t ix)
+{
+    void (*volatile run)(fm6_peg_t *, uint32_t) = fm6_peg_go;
+    run(e, ix);
+}
+#define fm6_peg_go(e,ix) fm6_peg_go_run((e),(ix))
 
 static void fm6_peg_set(fm6_peg_t *e, const uint8_t *p)  /* a key: the voice's pitch EG starts from L4 (set) */
 {
@@ -288,7 +312,7 @@ static void fm6_peg_set(fm6_peg_t *e, const uint8_t *p)  /* a key: the voice's p
     fm6_peg_go(e, 0);
 }
 
-static int32_t fm6_peg_step(fm6_peg_t *e, int down)      /* pitch envelope, Q24 octaves */
+static inline __attribute__((always_inline)) int32_t fm6_peg_step(fm6_peg_t *e, int down)      /* pitch envelope, Q24 octaves */
 {
     if (e->pix < 3u || (e->pix < 4u && !down)) {
         if (e->prise) {
@@ -333,7 +357,7 @@ static float fm6_bus[2][CTL], fm6_sum[CTL];
 
 /* MARK I: a sine from the log-sine and exponent tables (mkiSin); env: attenuation, 1024 an octave.
  * As in Dexed the sum is 16 bits, the sign its top bit (a gain ramp that overshoots wraps it) */
-static inline int32_t fm6_mki(int32_t ph, int32_t env)
+static inline __attribute__((always_inline)) int32_t fm6_mki(int32_t ph, int32_t env)
 {
     uint32_t e = ((uint32_t)FM6_MKI_LOG[((uint32_t)ph >> 12) & 2047u] + (((uint32_t)ph >> 8) & 0x8000u) + (uint32_t)env) &
                  0xFFFFu;
@@ -342,7 +366,7 @@ static inline int32_t fm6_mki(int32_t ph, int32_t env)
 }
 
 /* OPL: the OPL's quarter-wave ROMs (oplSin); env: attenuation, 8 a step of 3/8 dB; 16 bits as above */
-static inline int32_t fm6_opl(int32_t ph, int32_t env)
+static inline __attribute__((always_inline)) int32_t fm6_opl(int32_t ph, int32_t env)
 {
     uint32_t e = ((uint32_t)FM6_OPL_LOG[((uint32_t)ph >> 14) & 511u] + (((uint32_t)ph >> 8) & 0x8000u) +
                   ((uint32_t)env << 3)) & 0xFFFFu, sh = (e & 0x7FFFu) >> 8;
@@ -367,7 +391,7 @@ static inline int32_t fm6_opl(int32_t ph, int32_t env)
             }                                                                                      \
     } while (0)
 #define FM6_SIN_G(x) (fm6_sin(x) * g)
-static void fm6_op(fm6_voice_t *s, uint32_t k, float *out, const float *in, int add, uint32_t eng, uint32_t n)
+static __attribute__((section(".dsp_text"))) void fm6_op(fm6_voice_t *s, uint32_t k, float *out, const float *in, int add, uint32_t eng, uint32_t n)
 {
     uint32_t ph = s->ph[k], i, fq = (uint32_t)s->fq[k];
     float g = s->g[k], dg = s->dg[k];
@@ -413,7 +437,7 @@ static void fm6_op(fm6_voice_t *s, uint32_t k, float *out, const float *in, int 
                 ph += fq;                                                                          \
             }                                                                                      \
     } while (0)
-static void fm6_op_fb(fm6_voice_t *s, uint32_t k, float *out, int add, uint32_t eng, uint32_t n)
+static __attribute__((section(".dsp_text"))) void fm6_op_fb(fm6_voice_t *s, uint32_t k, float *out, int add, uint32_t eng, uint32_t n)
 {
     uint32_t ph = s->ph[k], i, fq = (uint32_t)s->fq[k], sh = s->fbs + 1u;
     float g = s->g[k], dg = s->dg[k], y0 = s->fb[0], y = s->fb[1], m;
@@ -431,7 +455,7 @@ static void fm6_op_fb(fm6_voice_t *s, uint32_t k, float *out, int add, uint32_t 
 }
 
 /* MARK I, algorithms 4 and 6 with feedback: OP6 -> OP5 (-> OP4) and back to OP6, into the voice */
-static void fm6_op_loop(fm6_voice_t *s, float *out, uint32_t n)
+static __attribute__((section(".dsp_text"))) void fm6_op_loop(fm6_voice_t *s, float *out, uint32_t n)
 {
     uint32_t i, j, nl = s->loop, sh = s->fbs + 1u;
     float y0 = s->fb[0], y = s->fb[1], m;
@@ -454,7 +478,7 @@ static void fm6_op_loop(fm6_voice_t *s, float *out, uint32_t n)
 
 /* the block's routing (FmCore / EngineMkI / EngineOpl render): which operators sound, into what,
  * from what, their gain ramps; operators below the threshold only keep time */
-static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t eng, uint32_t fbshift)
+static inline __attribute__((always_inline)) void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t eng, uint32_t fbshift)
 {
     uint32_t k, has = 1u, fb_on = fbshift < 16u;
     /* MODERN gains are linear; MARK I/OPL gains are chip attenuation codes.
@@ -524,9 +548,9 @@ static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t e
  * Keep the operator kernel separate: surrounding engine additions otherwise
  * change this old compiler's register allocation and loop layout. */
 #if MELODEE_DUAL_CORE
-static __attribute__((noinline)) void fm6_run_into(fm6_voice_t *s, uint32_t n, float bus[2][CTL], float *sum)
+static __attribute__((noinline, section(".dsp_text"))) void fm6_run_into(fm6_voice_t *s, uint32_t n, float bus[2][CTL], float *sum)
 #else
-static __attribute__((noinline)) void fm6_run(fm6_voice_t *s, uint32_t n)
+static __attribute__((noinline, section(".dsp_text"))) void fm6_run(fm6_voice_t *s, uint32_t n)
 #endif
 {
     uint32_t k, eng = s->eng;
@@ -552,6 +576,10 @@ static __attribute__((noinline)) void fm6_run(fm6_voice_t *s, uint32_t n)
 #if MELODEE_DUAL_CORE
 static void fm6_run(fm6_voice_t *s, uint32_t n)
 {
-    fm6_run_into(s, n, fm6_bus, fm6_sum);
+    /* XIP to internal RAM exceeds the target's direct-call range. Both cores
+     * use the same RAM kernel with separate scratch, avoiding flash fetch
+     * contention without changing operator arithmetic or addition order. */
+    void (*volatile run)(fm6_voice_t *, uint32_t, float [2][CTL], float *) = fm6_run_into;
+    run(s, n, fm6_bus, fm6_sum);
 }
 #endif

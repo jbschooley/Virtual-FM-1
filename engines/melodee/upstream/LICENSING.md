@@ -52,13 +52,11 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | Rings by Emilie Gillet (<https://github.com/pichenettes/eurorack>): the PHYS engine's sympathetic strings, ported to fixed point | MIT | `firmware/src/phys_symp.c`, `LICENSES/MIT-Rings.txt` |
 | MSFA (Music Synthesizer for Android, Copyright 2012 Google Inc.) and Dexed (Copyright 2013-2025 Pascal Gauthier, <https://github.com/asb2m10/dexed>; portamento rates by Jean Pierre Cimalando): the FM6 engine restates their synthesis in C with native fp32 signals and discrete DX7 envelopes/ROMs (MSFA's envelopes, pitch envelope, LFO, operator kernels and Dx7Note, Apache-2.0; Dexed's MARK I and OPL engines and its voice handling, GPL-3.0-or-later); their DX7 measurement tables and the tables Dexed computes at start (sine, 2^x, frequency, log-sine / exponent, OPL ROM, detune, LFO, portamento) are used as data. `tests/dexed_ref.cc` builds Dexed's own sources (from a checkout, not in this tree) to compare against. The FM6 factory patches are Felucca's own (F1..F8) and Melodee's own (F9..F24) | Apache-2.0, GPL-3.0-or-later | `firmware/src/fm6_core.c`, `firmware/src/eng_fm6.c`, `tools/gen_tables.py`, `tests/dexed_ref.cc`, `LICENSES/Apache-2.0-msfa.txt` |
 | reSID by Dag Lem (<https://github.com/libsidplayfp/resid>): the SID engine restates in C, at the register level, its waveform generator (accumulator, noise register, ring modulation, hard sync), envelope generator (rate and exponential counters, the ADSR delay), its R-2R DAC model (reSID 1.0 `dac.cc`), the 6581 / 8580 filter's resonance laws and output sum and the C64 output stage; its measured 6581 and 8580 cutoff curves and its spline interpolation (reSID 0.16) make the cutoff tables at build time; its samples of a real 6581's and 8580's combined waveforms (`wave*.dat`, unchanged) are packed into the firmware as data. Used under GPL-3.0 | GPL-2.0-or-later | `firmware/src/eng_sid.c`, `tools/gen_tables.py`, `assets/resid/` |
-| schwung-space-delay (TapeDelay for Schwung on Ableton Move) by Charles Vestal (<https://github.com/charlesvestal/schwung-space-delay>), Copyright (c) 2025 Charles Vestal: where the tape delay originates (a delay line read through a flutter LFO, a one-pole tone on the repeats, soft saturation in the feedback, ping-pong), by way of fm1-x0x below | MIT | `firmware/src/delay.c`, `LICENSES/MIT-schwung-space-delay.txt` |
-| fm1-x0x by Charles Vestal (<https://github.com/charlesvestal/fm1-x0x>): the delay bus's DIGI / TAPE / ping-pong modes as Melodee has them (its `fxbus.c` `fx_delay`: TAPE after schwung-space-delay above; DIGI is 9W9's `er99_dly_tick` by athousanddetails, <https://github.com/athousanddetails/schwung-9W9>, after ER-99 by Matthew Cieplak), ported from float to fixed-point C at half the rate | GPL-3.0-only | `firmware/src/delay.c` |
 | MAME uPD933 device model by Devin Acker: native CZ phase functions, envelope rate law and logarithmic amplitude adapted to C with native fp32 playback | BSD-3-Clause | `firmware/src/cz_native.c`, `LICENSES/BSD-3-Clause-uPD933.txt` |
 | Casio CZ-1 preset tones A-1..H-8 (Casio Computer Co., Ltd., 1986): the 64 factory sounds as native tone data, combined from the "64 original CZ-1 patches" SysEx (GeoCities CZ-101 page, archived 2009) and Oli Larkin's VirtualCZ conversions of the same presets (LCD names, line levels, velocity). Included as sound data for CZ-1 compatibility; the rights stay with Casio. See `assets/cz1-factory/README.md` | Casio's (no licence granted) | `assets/cz1-factory/cz1-factory.syx`, `tools/make_cz1_factory.py`, `tools/gen_cz1_factory.py` |
 | Sequential Prophet-5/10 factory programs v1.03 (Sequential, 2025; <https://sequential.com/support/download/prophet-5-10-sounds/>): the 200 programs of `P5_Factory_Programs_USER_v1.03.syx`, unchanged native data, as PROPHET's factory presets and its default native user collection. Included as sound data for Prophet-5 compatibility; the rights stay with Sequential. See `assets/prophet5-factory/README.md` | Sequential's (no licence granted) | `assets/prophet5-factory/prophet5-v1.03.syx`, `tools/gen_prophet_factory.py` |
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
-| JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
+| JieLi AC79 SDK by JieLi Technology: three external files go into every `.fwsc` package; the optional RAM recovery helper is in `assets/recovery/` | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
 
 On the device, HOME held > ABOUT opens the information screen; turning PRESETS scrolls on into
 CREDITS, a short list of these authors, licences and source URLs.
@@ -68,7 +66,7 @@ CREDITS, a short list of these authors, licences and source URLs.
 A `.fwsc` package made by `tools/build.py` (with `tools/fm1pkg_make.py`; this is the package the
 web installer installs) holds three unmodified files from the JieLi AC79 SDK
 (<https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK>, `cpu/wl82/tools/`). They are read from your SDK
-checkout at build time (see BUILDING.md); no SDK files are in this tree.
+checkout at build time (see BUILDING.md); those three SDK files are not in this tree.
 
 | File in the package | What it is |
 | --- | --- |
@@ -84,7 +82,22 @@ Every distribution of a package carries the licence texts with it: the release f
 (`tools/build.py --release`) and the site (`web/make_site.py`, next to the package in
 `firmware/` and linked from the installer page).
 
-## No vendor material
+## Standalone ROM recovery tool
+
+The optional `fm1-recover` executables include `assets/recovery/wl82loader.bin`,
+an unmodified RAM recovery helper from JieLi's AC79 SDK under Apache-2.0. Its
+source version and checksum are recorded in `assets/recovery/README.md`; it is
+loaded into RAM, not installed in flash. Copyright remains with JieLi Technology.
+This SDK file is included in the source tree and the recovery distributions;
+the three SDK files in firmware packages are still read from an external checkout.
+
+Recovery archives carry Melodee's GPL-3.0-only licence, the SDK's Apache-2.0 licence,
+and the bundled Python/PyUSB/PyInstaller/libusb notices. libusb is dynamically
+loaded under LGPL-2.1-or-later; its corresponding source archive is included,
+and `--libusb PATH` allows using a replacement library. PyInstaller's bootloader
+exception permits distributing the generated executable under Melodee's licence.
+
+## No vendor firmware material
 
 No M-VAVE material is part of Melodee. The firmware links no vendor code and contains no vendor
 data, and the packages hold only Melodee and the three SDK files above. The installer's

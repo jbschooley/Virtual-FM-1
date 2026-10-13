@@ -54,7 +54,7 @@ static void name_close(void)
 {
     if (nm.kind)
         ui.force = 1;
-    nm.kind = NK_NONE;
+    nm.kind = NK_NONE; ui.name_active = 0;
 }
 /* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
 static uint32_t keys_mode(void) { return name_on() ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
@@ -82,7 +82,7 @@ static uint32_t nm_black(uint32_t k)                   /* black key k's function
 static void name_open(uint32_t kind, uint32_t slot)
 {
     char b[P5_NAME_LEN+1u];
-    nm.kind = (uint8_t)kind;
+    nm.kind = (uint8_t)kind; ui.name_active = 1;
     nm.slot = (uint8_t)slot;
     nm.num = nm.key = nm.rep = 0;
     b[0] = 0;
