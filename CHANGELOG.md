@@ -14,7 +14,8 @@ for the code. New work goes under the next version at the top.
   delay, reverb, chorus and slicer. The Sound page and the host parameters have
   them ("Melodee P1 FX1TYPE", "Melodee P1 SEND", "Melodee RFX1TYPE", "Melodee
   FRETURN" and so on); the ones from before keep their names and follow its new
-  numbering, and 1.1's delay parameters play only on Melodee 1.1.0. An FM-1 on
+  numbering, and those of 1.1's effects (its delay, reverb, chorus, sends and
+  slicer) play only on the releases that have them. An FM-1 on
   Melodee 1.2.1 or older cannot read 1.3's projects: the plugin pulls from it
   only, and says to update it with Melodee's installer. 1.3.0 to 1.3.3 are
   synced as 1.3.4. Not yet tried with an FM-1 running 1.3.

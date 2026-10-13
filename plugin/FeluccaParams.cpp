@@ -99,6 +99,12 @@ const struct { const char* name; int index; int range[3]; } kMelodeeGlobal[] = {
     {"bpm", 0, {40, 240, 120}}, {"swing", 1, {0, 100, 0}}, {"rsize", 8, {0, 127, 90}},
     {"rdamp", 9, {0, 127, 60}}, {"crate", 10, {0, 127, 40}}, {"cdepth", 11, {0, 127, 60}}, {"rtype", 24, {0, 1, 0}}};
 constexpr int kMelodeeHint = 5;
+// what 1.2 retired (its effects: the sends 33..36, the SLICER 45..48, the reverb and chorus 8..11, RTYPE 24;
+// padding on 1.3): on 0.13 and 1.1.0 only
+constexpr int kMelodeeBefore12 = (1 << 1) | (1 << 2);
+bool melodeeRetired(int index, bool global) {
+    return global ? (index >= 8 && index <= 11) || index == 24 : (index >= 33 && index <= 36) || (index >= 45 && index <= 48);
+}
 
 float defaultOf(const int r[3]) { return r[1] > r[0] ? float(r[2] - r[0]) / float(r[1] - r[0]) : 0.0f; }
 std::vector<Entry> build() {
@@ -130,13 +136,15 @@ std::vector<Entry> build() {
         for (int i = 0; i < kEngineFirst; ++i) {
             if (i == 35 || i == 26 || i == 27) continue;   // (the delay send: no delay; the song's scale: below)
             const auto* changed = std::find_if(std::begin(kMelodeeChanged), std::end(kMelodeeChanged), [i](const auto& c) { return c.index == i; });
-            if (changed != std::end(kMelodeeChanged)) { out.push_back({p + changed->name, t, i, defaultOf(changed->range), false, kMelodeeHint, true}); continue; }
-            if (kTrack[i] != nullptr) out.push_back({p + kTrack[i], t, i, defaultOf(kTrackRange[i]), false, kMelodeeHint, true});
+            const int only = melodeeRetired(i, false) ? kMelodeeBefore12 : -1;
+            if (changed != std::end(kMelodeeChanged)) { out.push_back({p + changed->name, t, i, defaultOf(changed->range), false, kMelodeeHint, true, false, only}); continue; }
+            if (kTrack[i] != nullptr) out.push_back({p + kTrack[i], t, i, defaultOf(kTrackRange[i]), false, kMelodeeHint, true, false, only});
         }
         for (int e = 0; e < 8; ++e) out.push_back({p + "e" + juce::String(e), t, kMelodeeEngineFirst + e, 0.0f, false, kMelodeeHint, true});
     }
     for (const auto& c : kMelodeeSong) out.push_back({"mel_" + juce::String(c.name), 0, c.index, defaultOf(c.range), false, kMelodeeHint, true, true});
-    for (const auto& g : kMelodeeGlobal) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kMelodeeHint, true});
+    for (const auto& g : kMelodeeGlobal)
+        out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kMelodeeHint, true, false, melodeeRetired(g.index, true) ? kMelodeeBefore12 : -1});
     // SLOOP 2.5's: the drums' delay send (GLO > DRUMS > DLY, global 32), after everything before it
     const int drdly[3] = {0, 127, 0};
     out.push_back({"slp_drdly", -1, 32, defaultOf(drdly), true, 6});

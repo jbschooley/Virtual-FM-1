@@ -477,13 +477,31 @@ static int checks() {
                             if (felparams::indexOn(en, r) >= 0) { if (en.track >= 0) ++perTrack[r][en.track]; else ++globals[r]; }
                 CHECK(perTrack[1][0] == 71 && perTrack[1][1] == 68 && perTrack[1][3] == 68 && globals[1] == 7
                       && perTrack[2][0] == 84 && perTrack[2][1] == 81 && perTrack[2][3] == 81 && globals[2] == 13
-                      && perTrack[0][0] == 98 && perTrack[0][1] == 95 && perTrack[0][3] == 95 && globals[0] == 21
+                      && perTrack[0][0] == 91 && perTrack[0][1] == 88 && perTrack[0][3] == 88 && globals[0] == 16
                       && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_mpcdeg")
                       && !p.apvts.getParameter("mel_t2_scale") && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype")
                       && p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4") && !p.apvts.getParameter("mel_tune"),
                       "Melodee's host parameters: on 0.13, 68 a part (its playback QNT, no delay send), the song's SCALE, QUANT and MPCDEG "
                       "once, seven globals (not TUNE or A4); on 1.1 also the delay send, the DRUM lanes, LFO 2, SPRD and the delay's six; "
-                      "on 1.3 the DRUM lanes, LFO 2, SPRD, three inserts and three sends a part, the return's twelve, RETURN and MODE, not the delay");
+                      "on 1.3 the DRUM lanes, LFO 2, SPRD, three inserts and three sends a part, the return's twelve, RETURN and MODE, "
+                      "not 1.1's effects (the delay, the sends, the SLICER, the reverb and chorus)");
+                {   // none on a parameter a release leaves blank (1.3's padding where 1.1's effects were: 33..36,
+                    // 45..48, globals 4..11 and 24..26); not the engine's eight, which each engine names
+                    int blank = 0;
+                    const int engineFirst[3] = {111, 84, 96};
+                    for (const char* choice : {"melodee", "melodee_013", "melodee_110"}) {
+                        FM1Processor q;
+                        q.setFirmware(choice);
+                        const int r = int(q.felucca()->release());
+                        for (const auto& en : felparams::entries()) {
+                            const int i = en.melodee ? felparams::indexOn(en, r) : -1;
+                            if (i < 0 || (en.track >= 0 && i >= engineFirst[r])) continue;
+                            const auto d = en.track >= 0 ? q.felucca()->paramDesc(en.track, i) : q.felucca()->globalDesc(i);
+                            if (d.label.empty()) { ++blank; std::printf("  %s: %s is blank there (%d)\n", choice, en.id.toRawUTF8(), i); }
+                        }
+                    }
+                    CHECK(blank == 0, "no Melodee host parameter acts on a parameter its release leaves blank");
+                }
                 auto* level = p.apvts.getParameter("mel_t1_level");
                 auto* felLevel = p.apvts.getParameter("fel_t1_level");
                 auto* scale = p.apvts.getParameter("mel_scale");
@@ -519,8 +537,9 @@ static int checks() {
                 sp.refresh();
                 CHECK(sp.engineText() == "PROPHET", "the Sound page shows part 1's PROPHET: " + sp.engineText());
                 const auto g = sp.groupTitles();
-                CHECK(g.contains("Insert 1") && g.contains("Insert 3") && g.contains("Sends") && !g.contains("Slicer"),
-                      "1.3's Sound page: its three inserts and sends, not 1.1's slicer: " + g.joinIntoString(", "));
+                CHECK(g.contains("Insert 1") && g.contains("Insert 3") && g.contains("Sends") && !g.contains("Slicer")
+                      && g.contains("Send FX 1") && g.contains("Send FX 3"),
+                      "1.3's Sound page: its three inserts and sends and the return's three slots, not 1.1's slicer: " + g.joinIntoString(", "));
             }
             p.felucca()->setEngine(1, 15);
             p.felucca()->setParam(1, 0, 55);
@@ -715,7 +734,7 @@ static int checks() {
                 sp.setSize(900, 700);
                 sp.refresh();
                 const auto g = sp.groupTitles();
-                CHECK(g.contains("Slicer") && g.contains("Sends") && !g.contains("Insert 1"),
+                CHECK(g.contains("Slicer") && g.contains("Sends") && !g.contains("Insert 1") && !g.contains("Send FX 1"),
                       "1.1.0 kept: its own Sound page (its sends and slicer, no inserts): " + g.joinIntoString(", "));
             }
             auto* o0 = old.apvts.getParameter("mel_t1_e0");

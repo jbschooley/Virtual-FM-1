@@ -141,10 +141,13 @@ const std::vector<int> kGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24};
 const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 32, 27, 28, 29,
                                        37, 38, 39, 40, 41, 42, 43};   // (2.6: GLO > TEXTURE, the bed under the mix)
 // Melodee's: its A4 reference (21); 0.13 no shared delay (4..7), 1.0 the delay back with its TYPE
-// and WEAR (25, 26); 1.3 none of those, its shared return's three slots (27..38), RETURN and MODE
+// and WEAR (25, 26); 1.3 none of those, its shared return's RETURN and MODE, and its three slots
+// (27..38) as groups of their own (SEND FX 1..3, as Melodee names them)
 const std::vector<int> kMelodee013Globals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 const std::vector<int> kMelodee110Globals = {0, 1, 3, 21, 4, 5, 6, 7, 25, 26, 8, 9, 10, 11, 24};
-const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 39, 40};
+const struct { const char* title; int first, last; } kMelodeeReturnGroups[] = {
+    {"Send FX 1", 27, 30}, {"Send FX 2", 31, 34}, {"Send FX 3", 35, 38}};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
@@ -679,6 +682,16 @@ void FeluccaSoundPage::build() {
             if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
         if (!g.controls.empty()) groups_.push_back(std::move(g));
     }
+    if (isMelodee(f) && !isMelodee013(f) && !isMelodee110(f))
+        for (const auto& r : kMelodeeReturnGroups) {
+            Group g;
+            g.title = r.title;
+            g.global = true;
+            addHeader(g);
+            for (int id = r.first; id <= r.last; ++id)
+                if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
+            if (!g.controls.empty()) groups_.push_back(std::move(g));
+        }
     loading_ = false;
     loadValues();
     updateTempoControl();
