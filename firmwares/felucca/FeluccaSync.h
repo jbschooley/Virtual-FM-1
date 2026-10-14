@@ -131,7 +131,15 @@ uint8_t liveCaps(const std::vector<uint8_t>& infoArgs, bool melodee = false);   
 struct Loaded { bool did = false; uint8_t engine = 0; int preset = 0; bool presetLoad = false; int nativeEngine = -1; };
 constexpr int kMelodeeCz = 15, kCzGet = 75, kCzPut = 76, kCzBytes = 144;   // Melodee's CZ-1 (core.h ENGI_CZ; editor_cz.c)
 constexpr int kMelodeeProphet = 19, kProphetCmd = 95;                       // Melodee 0.13's PROPHET (editor_prophet.c)
+constexpr int kMelodeeFm6 = 12;                                              // Melodee's FM6 (core.h ENGI_FM6)
 bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loaded* loaded = nullptr);
+
+// Melodee's PROPHET (editor_prophet.c, prophet_patch.c): a part's panel patch as its bytes (raw[i] is
+// panel field i: 0..54, 86 and 87; the name 65..84), read with 95 0 and decoded. Empty: no answer.
+std::vector<uint8_t> readProphetPatch(Endpoint& e, int track);
+// One panel field set (95 2): no reload, the part's notes play on. False: refused or no answer.
+bool setProphetField(Endpoint& e, int track, int id, int value);
+bool isProphetPanelField(int id);
 
 class Mirror {
 public:
@@ -161,7 +169,10 @@ private:
     void poll(Side& s);                        // what is never pushed and a mirror must know
     bool chainPlays(Side& s);                  // Felucca: SONG asked now
     bool copyTrackSound(Side& from, Side& to, int track, juce::String& error);
+    bool followNative(juce::String& error);    // Melodee: the selected part's own sound, never pushed
     Side a_, b_;
+    struct Native { int track = -1, engine = -1; std::vector<uint8_t> a, b; } native_;   // as last read on each side
+    juce::uint32 nativeAt_ = 0;
 };
 
 }  // namespace felucca

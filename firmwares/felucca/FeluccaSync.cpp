@@ -518,6 +518,75 @@ static std::optional<std::vector<uint8_t>> layout(Endpoint& ep, uint8_t* caps = 
     return std::vector<uint8_t>(a.begin() + long(at) + 1, a.begin() + long(at) + 6);
 }
 
+// Melodee: a CZ-1 or PROPHET part's own sound, beyond its parameters: CZ_GET 0, track -> 0, track,
+// rc, 144 bytes as nibbles (low first); PROPHET (0.13) 95 0, track -> 1, rc, track, its patch as a
+// Sequential dump without F0/F7. Empty: no answer.
+static std::vector<uint8_t> ownSound(Endpoint& s, int engine, int track) {
+    const bool cz = engine == kMelodeeCz;
+    auto r = s.ask(cz ? frame(kCzGet, {0, uint8_t(track)}) : frame(kProphetCmd, {0, uint8_t(track)}), kAsk);
+    const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+    if (cz) return a.size() == 3 + 2 * size_t(kCzBytes) && a[0] == 0 && a[1] == track && a[2] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end())
+                                                                                                     : std::vector<uint8_t>{};
+    return a.size() > 3 && a[0] == 1 && a[1] == 0 && a[2] == track ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{};
+}
+
+// a track's FM6 patch (FM6_GET 0, track -> 0, track, rc, 128 bytes); empty: no answer
+static std::vector<uint8_t> fm6Patch(Endpoint& s, int track) {
+    auto p = s.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
+    auto pa = p ? argsOf(*p) : std::vector<uint8_t>{};
+    return pa.size() == 3 + 128 && pa[2] == 0 ? std::vector<uint8_t>(pa.begin() + 3, pa.end()) : std::vector<uint8_t>{};
+}
+
+// a PROPHET dump (no F0/F7: 1, model, command, then group and program for command 2) as the patch's
+// bytes: groups of a mask byte (bit j: byte j's top bit) and up to 7 bytes (p5_patch_decode)
+static std::vector<uint8_t> prophetBytes(const std::vector<uint8_t>& dump) {
+    if (dump.size() < 4 || dump[0] != 1 || (dump[2] != 2 && dump[2] != 3)) return {};
+    const size_t start = dump[2] == 2 ? 5 : 3;
+    std::vector<uint8_t> raw;
+    for (size_t i = start; i < dump.size();) {
+        const int mask = dump[i++];
+        for (int j = 0; j < 7 && i < dump.size(); ++j) raw.push_back(uint8_t(dump[i++] | (((mask >> j) & 1) << 7)));
+    }
+    return raw.size() == 128 || raw.size() == 133 ? raw : std::vector<uint8_t>{};
+}
+
+bool isProphetPanelField(int id) { return (id >= 0 && id <= 54) || id == 86 || id == 87; }   // (prophet_edit.h P5_PANEL)
+
+std::vector<uint8_t> readProphetPatch(Endpoint& e, int track) { return prophetBytes(ownSound(e, kMelodeeProphet, track)); }
+
+bool setProphetField(Endpoint& e, int track, int id, int value) {
+    if (!isProphetPanelField(id) || value < 0 || value > 127) return false;
+    auto r = e.ask(frame(kProphetCmd, {2, uint8_t(track), uint8_t(id), uint8_t(value)}), kAsk);
+    const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+    return a.size() >= 3 && a[0] == 2 && a[1] == 0 && a[2] == track;
+}
+
+// PROPHET: what differs, set field by field (95 2) and the name (95 3), so the part's notes play on.
+// False when something else differs (a byte no field edits) or a field is refused: put whole then.
+static bool prophetByFields(Endpoint& to, int track, const std::vector<uint8_t>& want, const std::vector<uint8_t>& have) {
+    if (want.size() != have.size() || want.empty()) return false;
+    constexpr size_t kName = 65, kNameLen = 20;
+    bool name = false;
+    for (size_t i = 0; i < want.size(); ++i) {
+        if (want[i] == have[i]) continue;
+        if (i >= kName && i < kName + kNameLen) { name = true; continue; }
+        if (!isProphetPanelField(int(i))) return false;
+    }
+    for (size_t i = 0; i < want.size(); ++i)
+        if (want[i] != have[i] && isProphetPanelField(int(i)) && !setProphetField(to, track, int(i), want[i])) return false;
+    if (name) {
+        std::vector<uint8_t> q = {3, uint8_t(track)};
+        for (size_t i = kName; i < kName + kNameLen; ++i) {
+            if (want[i] < 32 || want[i] > 126) return false;
+            q.push_back(want[i]);
+        }
+        auto r = to.ask(frame(kProphetCmd, q), kAsk);
+        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
+        if (!(a.size() >= 2 && a[0] == 3 && a[1] == 0)) return false;
+    }
+    return true;
+}
+
 bool Mirror::start(juce::String& error) {
     // values go by parameter number: both must number them alike (the same Felucca version)
     auto la = layout(a_.ep, &a_.caps), lb = layout(b_.ep, &b_.caps);
@@ -621,6 +690,47 @@ bool Mirror::tick(juce::String& error) {
     for (auto [from, to] : {std::pair<Side*, Side*>{&a_, &b_}, std::pair<Side*, Side*>{&b_, &a_}})
         for (const auto& p : from->ep.pushes())
             if (!carry(*from, *to, p, error)) return false;
+    if (now - nativeAt_ >= 250) {
+        nativeAt_ = now;
+        if (!followNative(error)) return false;
+    }
+    return true;
+}
+
+// Melodee: a PROPHET's panel patch, a CZ-1's tone and an FM6 part's operators are edited on the FM-1
+// (its Stage knobs, its EDIT, ENV and LFO pages) with no push: pushes are its parameters, steps and
+// loads only (web/EDITOR_PROTOCOL.md). So about every 250 ms the selected part's is read on both sides,
+// and what one side changed is done on the other: a PROPHET's fields one by one (its notes play on),
+// an FM6 patch whole (FM6_PUT), a CZ-1 tone as a sound copy does it (a whole put: the part's notes stop)
+bool Mirror::followNative(juce::String& error) {
+    if (!isMelodee(a_.ep.dialect()) || !isMelodee(b_.ep.dialect()) || a_.sel != b_.sel) return true;
+    const auto r = argsOf(a_.lastReload);   // (engine, preset, track)
+    if (r.size() < 3) return true;
+    const int engine = r[0], track = a_.sel;
+    if (engine != kMelodeeProphet && engine != kMelodeeCz && engine != kMelodeeFm6) { native_ = {}; return true; }
+    auto read = [&](Endpoint& e) {
+        return engine == kMelodeeFm6 ? fm6Patch(e, track) : engine == kMelodeeProphet ? readProphetPatch(e, track) : ownSound(e, engine, track);
+    };
+    const auto na = read(a_.ep), nb = read(b_.ep);
+    if (na.empty() || nb.empty()) return true;   // (an answer missed: the next time)
+    if (native_.track != track || native_.engine != engine) { native_ = {track, engine, na, nb}; return true; }
+    const bool aChanged = na != native_.a, bChanged = nb != native_.b;
+    native_.a = na;
+    native_.b = nb;
+    if (na == nb || (!aChanged && !bChanged)) return true;
+    const bool fromA = aChanged;   // (both changed: the FM-1's wins)
+    Side& from = fromA ? a_ : b_;
+    Side& to = fromA ? b_ : a_;
+    const auto& want = fromA ? na : nb;
+    const auto& have = fromA ? nb : na;
+    if (engine == kMelodeeFm6) {
+        std::vector<uint8_t> q = {0, uint8_t(track)};
+        q.insert(q.end(), want.begin(), want.end());
+        if (!to.ep.ask(frame(kFm6Put, q), kAsk)) { error = "no answer to FM6_PUT"; return false; }
+    } else if (!(engine == kMelodeeProphet && prophetByFields(to.ep, track, want, have))) {
+        if (!copyTrackSound(from, to, track, error)) return false;
+    }
+    (fromA ? native_.b : native_.a) = read(to.ep);
     return true;
 }
 
@@ -711,6 +821,10 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
 bool Mirror::copyTrackSound(Side& from, Side& to, int track, juce::String& error) {
     Loaded loaded;
     const bool ok = copySound(from.ep, to.ep, track, error, &loaded);
+    if (loaded.did) {   // what the other side has now (followNative goes by it), whether or not its RELOAD comes
+        if (loaded.presetLoad) to.lastReload = reloadFrame(to.ep.dialect(), loaded.engine, loaded.preset, track);
+        if (loaded.nativeEngine >= 0) to.lastReload = reloadFrame(to.ep.dialect(), loaded.nativeEngine, 0, track);
+    }
     if (loaded.did && !(to.caps & kCapNoEcho)) {   // a load: the other side's RELOAD is expected (before 1.0.2), not carried back
         if (loaded.presetLoad)
             to.echoes.push_back({reloadFrame(to.ep.dialect(), loaded.engine, loaded.preset, track), juce::Time::getMillisecondCounter()});
@@ -728,19 +842,10 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     if (src.size() < 5) { error = "no answer to TRACK_DUMP"; return false; }
     auto dst = dump(to);
     if (dst.size() < 3) { error = "no answer to TRACK_DUMP"; return false; }
-    // Melodee: a CZ-1 or PROPHET part's own sound, beyond its parameters: CZ_GET 0, track -> 0, track,
-    // rc, 144 bytes as nibbles (low first); PROPHET (0.13) 95 0, track -> 1, rc, track, its patch as a
-    // Sequential dump without F0/F7. Each is put back whole (CZ_PUT 0, track, nibbles; 95 1, track,
-    // dump), which leaves the part on preset 0 with its engine values reset (copied below)
+    // Melodee: a CZ-1 or PROPHET part's own sound (ownSound) is put back whole (CZ_PUT 0, track, nibbles;
+    // 95 1, track, dump), which leaves the part on preset 0 with its engine values reset (copied below)
     const int native = isMelodee(from.dialect()) && isMelodee(to.dialect()) && (src[1] == kMelodeeCz || src[1] == kMelodeeProphet) ? src[1] : -1;
-    auto own = [&](Endpoint& s) {
-        const bool cz = native == kMelodeeCz;
-        auto r = s.ask(cz ? frame(kCzGet, {0, uint8_t(track)}) : frame(kProphetCmd, {0, uint8_t(track)}), kAsk);
-        const auto a = r ? argsOf(*r) : std::vector<uint8_t>{};
-        if (cz) return a.size() == 3 + 2 * size_t(kCzBytes) && a[0] == 0 && a[1] == track && a[2] == 0 ? std::vector<uint8_t>(a.begin() + 3, a.end())
-                                                                                                         : std::vector<uint8_t>{};
-        return a.size() > 3 && a[0] == 1 && a[1] == 0 && a[2] == track ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{};
-    };
+    auto own = [&](Endpoint& s) { return ownSound(s, native, track); };
     const auto srcOwn = native >= 0 ? own(from) : std::vector<uint8_t>{};
     if (native >= 0 && srcOwn.empty()) { error = native == kMelodeeCz ? "no answer to CZ_GET" : "no answer to the PROPHET patch request"; return false; }
     // (a part with the same tone or patch is the same sound whatever its preset number: one put
@@ -785,11 +890,10 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     }
     if (!from.dialect().fm6 || !to.dialect().fm6) return true;
     if (isSloop(from.dialect()) && track >= 3) return true;   // (SLOOP 2.4: the synth parts have an FM6 patch, the drums none)
-    auto p = from.ask(frame(kFm6Get, {0, uint8_t(track)}), kAsk);
-    auto pa = p ? argsOf(*p) : std::vector<uint8_t>{};
-    if (pa.size() == 3 + 128 && pa[2] == 0) {
+    const auto pa = fm6Patch(from, track);
+    if (!pa.empty()) {
         std::vector<uint8_t> q = {0, uint8_t(track)};
-        q.insert(q.end(), pa.begin() + 3, pa.end());
+        q.insert(q.end(), pa.begin(), pa.end());
         if (!to.ask(frame(kFm6Put, q), kAsk)) { error = "no answer to FM6_PUT"; return false; }
     }
     return true;

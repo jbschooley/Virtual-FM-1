@@ -449,6 +449,19 @@ int main(int argc, char** argv) {
         d = dumpOf(synth, sel);
         check(d.size() > 3 && d[1] == 19 && (int(d[2]) | ((d.size() - 3) % 2 ? int(d.back()) << 7 : 0)) == 170 && mine.f->presetOf(sel) == 170,
               "live: PROPHET program 170 loaded on the FM-1, not bounced back");
+        {   // the PROPHET's panel patch, edited with no push (as its Stage knobs do): Live reads it about every 250 ms
+            felucca::Endpoint& plug = mine;
+            const auto had = felucca::readProphetPatch(synth, sel);
+            const int rel = had.size() > 50 ? (had[50] + 41) % 128 : 0, atk = had.size() > 50 ? (had[43] + 23) % 128 : 0;
+            check(felucca::setProphetField(synth, sel, 50, rel), "live: the PROPHET's amp RELEASE set on the FM-1 (95 2)");
+            settle(1500);
+            auto p = felucca::readProphetPatch(plug, sel);
+            check(p.size() > 50 && p[50] == rel && mine.f->presetOf(sel) == 170, "live: and it reaches the plugin, field by field (" + juce::String(p.size() > 50 ? p[50] : -1) + ")");
+            check(felucca::setProphetField(plug, sel, 43, atk), "live: the PROPHET's filter ATTACK set in the plugin");
+            settle(1500);
+            p = felucca::readProphetPatch(synth, sel);
+            check(p.size() > 50 && p[43] == atk, "live: and it reaches the FM-1 (" + juce::String(p.size() > 50 ? p[43] : -1) + ")");
+        }
         synth.ask(felucca::frame(felucca::kPreset, {15, 9}), 4000);   // a load on the FM-1 (its RELOAD carried)
         settle(2500);
         check(mine.f->engineOf(sel) == 15 && mine.f->presetOf(sel) == 9, "live: a CZ-1 preset loaded on the FM-1 reaches the plugin");
@@ -593,6 +606,13 @@ int main(int argc, char** argv) {
                     std::printf("  global %d %s = %d\n", id, mine.f->globalDesc(id).label.c_str(), lastG[size_t(id)]);
                 }
             static int every = 0;
+            if (every % 20 == 0 && mine.f->engineOf(sel) == felucca::kMelodeeProphet) {   // the PROPHET's panel fields (Live follows them)
+                static std::vector<uint8_t> lastP;
+                auto p = felucca::readProphetPatch(mine, sel);
+                for (size_t i = 0; i < p.size() && p.size() == lastP.size(); ++i)
+                    if (p[i] != lastP[i]) std::printf("  part %d PROPHET field %zu = %d\n", sel + 1, i, p[i]);
+                lastP = p;
+            }
             if (++every % 20 == 0)   // about once a second: which steps changed
                 for (int t = 0; t < 4; ++t) {
                     auto now = stepsOf(t);

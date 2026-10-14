@@ -4,6 +4,20 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Fixed
+
+- **Live with Melodee follows a PROPHET, CZ-1 or FM6 part's own sound.**
+  Turning a PROPHET's knobs on the FM-1 (its Stage CUTOFF, RES, ENV AMT and
+  RELEASE, its EDIT, ENV and LFO pages), editing a CZ-1 tone or an FM6 part's
+  operators reached the plugin only with a Pull: Melodee tells an editor about
+  its own parameters only. Live now reads the selected part's sound on both
+  sides about four times a second and carries what changed: a PROPHET's
+  settings one by one (its notes play on), an FM6 patch whole, a CZ-1 tone
+  whole (the part's notes stop for it). The PROPHET's tried with an FM-1
+  running Melodee 1.3.4; FM6 and CZ-1 not yet.
+
 ## [0.9.1] - 2026-10-13
 
 ### Changed

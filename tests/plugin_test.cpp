@@ -711,6 +711,42 @@ static int checks() {
                 run();
                 CHECK(fa->param(0, 96) == 4 && fa->global(39) == 33 && fb->param(0, 96) == 4 && fb->global(39) == 33,
                       "and 1.3's insert and RETURN, set on the synth, reach the other side (" + err + ")");
+                // a PROPHET's panel patch and an FM6 part's operators are edited on the synth with no push: Live reads
+                // the selected part's on both sides about every 250 ms (real time)
+                auto runFor = [&](int ms) {
+                    const auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
+                    while (juce::Time::getMillisecondCounter() < end) { run(); juce::Thread::sleep(20); }
+                };
+                ea.ask(felucca::frame(felucca::kPreset, {19, 5}), 400);   // part 1 (selected) on PROPHET program 5, on the synth
+                runFor(700);
+                const auto before = felucca::readProphetPatch(eb, 0);
+                CHECK(fb->engineOf(0) == 19 && fb->presetOf(0) == 5 && before.size() >= 88 && before == felucca::readProphetPatch(ea, 0),
+                      "Live: PROPHET program 5 loaded on the synth, on the other side too");
+                const int rel = (before[50] + 40) % 128, atk = (before[43] + 17) % 128;
+                CHECK(felucca::setProphetField(ea, 0, 50, rel), "a PROPHET field set on the synth (its amp RELEASE)");
+                runFor(800);
+                auto got = felucca::readProphetPatch(eb, 0);
+                CHECK(got.size() > 50 && got[50] == rel && fb->presetOf(0) == 5,
+                      "Live: the PROPHET's RELEASE turned on the synth reaches the other side, field by field (its preset kept: no whole put)");
+                CHECK(felucca::setProphetField(eb, 0, 43, atk), "a PROPHET field set on the plugin's side (its filter ATTACK)");
+                runFor(800);
+                got = felucca::readProphetPatch(ea, 0);
+                CHECK(got.size() > 50 && got[43] == atk && got[50] == rel, "Live: and the plugin's PROPHET edit reaches the synth");
+                ea.ask(felucca::frame(felucca::kPreset, {12, 3}), 400);   // part 1 on FM6
+                runFor(700);
+                auto fm6 = [](felucca::Endpoint& e) {
+                    auto r = e.ask(felucca::frame(felucca::kFm6Get, {0, 0}), 400);
+                    auto a = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                    return a.size() == 131 ? std::vector<uint8_t>(a.begin() + 3, a.end()) : std::vector<uint8_t>{};
+                };
+                auto op = fm6(ea);
+                CHECK(fb->engineOf(0) == 12 && !op.empty() && op == fm6(eb), "Live: FM6 loaded on the synth, its patch on the other side too");
+                op[0] = uint8_t((op[0] + 9) % 100);   // (an operator's first value, as its EDIT page would change it)
+                std::vector<uint8_t> put = {0, 0};
+                put.insert(put.end(), op.begin(), op.end());
+                ea.ask(felucca::frame(felucca::kFm6Put, put), 400);
+                runFor(800);
+                CHECK(!fm6(ea).empty() && fm6(eb) == fm6(ea) && fm6(eb) != std::vector<uint8_t>(), "Live: an FM6 patch edited on the synth reaches the other side");
                 live.stop();
             }
             FM1Processor cur, old;
