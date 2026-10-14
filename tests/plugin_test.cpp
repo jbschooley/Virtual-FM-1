@@ -764,6 +764,44 @@ static int checks() {
                 runFor(800);
                 got = felucca::readProphetPatch(ea, 0);
                 CHECK(got.size() > 50 && got[43] == atk && got[50] == rel, "Live: and the plugin's PROPHET edit reaches the synth");
+                {   // another PROGRAM chosen on the synth, its RELOAD late (still on the way when its patch is read): the
+                    // patch read comes first; programs 5 and 7 differ in a field a field edit refuses, so it is a sound
+                    // copy, which loads program 7 (not a whole put on preset 0)
+                    struct Late : felucca::Endpoint {
+                        felucca::Endpoint& e;
+                        std::vector<std::pair<juce::uint32, fm1::Bytes>> held;   // (each push 400 ms late)
+                        explicit Late(felucca::Endpoint& x) : e(x) {}
+                        const felucca::Dialect& dialect() const override { return e.dialect(); }
+                        std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override { return e.ask(q, t); }
+                        std::vector<fm1::Bytes> pushes() override {
+                            const auto now = juce::Time::getMillisecondCounter();
+                            for (auto& p : e.pushes()) held.push_back({now, p});
+                            std::vector<fm1::Bytes> out;
+                            while (!held.empty() && now - held.front().first >= 400) { out.push_back(held.front().second); held.erase(held.begin()); }
+                            return out;
+                        }
+                    } late(ea);
+                    felucca::Mirror slow(late, eb);
+                    CHECK(slow.start(err), "Live with a synth whose pushes come 400 ms late");
+                    bool zero = false;
+                    for (int phase = 0; phase < 2; ++phase) {   // (first the patches as they are, read; then the program change)
+                    const int was = fb->presetOf(0);
+                    const auto wasPatch = felucca::readProphetPatch(eb, 0);
+                    if (phase == 1) late.ask(felucca::frame(felucca::kPreset, {19, 7}), 400);
+                    const auto end = juce::Time::getMillisecondCounter() + (phase == 0 ? 400 : 1200);
+                    while (juce::Time::getMillisecondCounter() < end) {
+                        fa->render(l.data(), r.data(), 256);
+                        fb->render(l.data(), r.data(), 256);
+                        slow.tick(err);
+                        zero = zero || fb->presetOf(0) == 0 || (phase == 1 && fb->presetOf(0) == was && felucca::readProphetPatch(eb, 0) != wasPatch);
+                        juce::Thread::sleep(20);
+                    }
+                    }
+                    CHECK(fb->presetOf(0) == 7 && !zero, "Live: a PROPHET program chosen on the synth arrives as that program (never through preset 0, or the old one with the new one's settings) ("
+                          + juce::String(fb->presetOf(0)) + ")");
+                    slow.stop();
+                }
+                live.start(err);
                 ea.ask(felucca::frame(felucca::kPreset, {12, 3}), 400);   // part 1 on FM6
                 runFor(700);
                 auto fm6 = [](felucca::Endpoint& e) {
