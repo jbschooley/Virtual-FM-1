@@ -27,11 +27,11 @@ Felucca: its user presets and projects beside a part's sound, and its own front 
 
 ![Felucca's Library tab: the user presets beside the Sound page](docs/images/felucca-library.png)
 
-![Felucca's Device tab: its screen on the sequencer page, its knobs, buttons and keys](docs/images/felucca-device.png)
+![Felucca's Device tab: its screen on the HOME page, its knobs, buttons and keys](docs/images/felucca-device.png)
 
-On an iPhone (the iOS app builds from source):
+At phone size (the iOS app builds from source):
 
-<img src="docs/images/phone-felucca.png" alt="Felucca's Device and Library tabs on an iPhone" width="414">
+![Felucca's Device and Library tabs at phone size](docs/images/phone-felucca.png)
 
 ## What you need
 
