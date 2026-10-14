@@ -18,7 +18,7 @@ for the code. New work goes under the next version at the top.
   slicer) play only on the releases that have them. An FM-1 on
   Melodee 1.2.1 or older cannot read 1.3's projects: the plugin pulls from it
   only, and says to update it with Melodee's installer. 1.3.0 to 1.3.3 are
-  synced as 1.3.4. Not yet tried with an FM-1 running 1.3.
+  synced as 1.3.4. Tried with an FM-1 running 1.3.4.
 - **Melodee 1.1.0** stays built in beside it, its own firmware choice, as 0.13
   does: a project saved with 1.0 or 1.1 opens on it and plays as it did, and an
   FM-1 still on 1.1.0 syncs fully with an instance set to it.

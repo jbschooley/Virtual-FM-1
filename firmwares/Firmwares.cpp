@@ -160,7 +160,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {91031, "1.3.1", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects; update it with Melodee's installer if it fails to start"},
         {91032, "1.3.2", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects"},
         {91033, "1.3.3", Support::Older, "synced as 1.3.4 (not tried): later 1.3 releases changed its clock, not its sounds or projects"},
-        {91034, "1.3.4", Support::Current, ""},   // (not yet tried on an FM-1)
+        {91034, "1.3.4", Support::Current, ""},   // (tried 2026-10-13: Pull, Send, Live, its effects both ways)
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;

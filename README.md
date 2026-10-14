@@ -156,7 +156,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   projects, user presets and CZ, FM6 and PROPHET banks are kept in the library as
   the file Melodee's web editor uses for backups (`Melodee/Melodee device.json`).
   With an FM-1 running Melodee 1.3.4: pull, send and live, a part's own CZ-1 tone
-  or PROPHET patch included (not yet tried with an FM-1 on 1.3.4). **Melodee
+  or PROPHET patch included. **Melodee
   0.13** and **Melodee 1.1.0** stay beside it, each its own firmware choice, for
   the projects made with them (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE;
   1.2 removed 1.1's delay, reverb, chorus and slicer): a project saved with one
