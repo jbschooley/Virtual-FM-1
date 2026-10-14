@@ -154,15 +154,68 @@ const char* const kMelodeeInfoText = "The keyboard plays the selected part. The 
 const char* const kSloopInfoText = "The keyboard plays the selected part. MIDI channels 1-3 play parts 1-3, the drum channel (10) the drums, any other the selected part (GLO > MIDI sets them).";
 // what renames this part's controls: SLOOP 2.6's and Felucca 1.5's INSERT TYPE (its A, B, C) and ENV
 // SYNC (ATK, DEC, REL as note values)
-int labelsKeyOf(const FeluccaEngine& f, int track) {
+// The plugin's own engine through its editor protocol: its replies only (its pushes stay for a live mirror)
+struct EngineAsk : felucca::Endpoint {
+    FeluccaEngine& f;
+    explicit EngineAsk(FeluccaEngine& e) : f(e) {}
+    const felucca::Dialect& dialect() const override { return felucca::dialectOf(f); }
+    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f.ask(q); }
+    std::vector<fm1::Bytes> pushes() override { return {}; }
+};
+constexpr int kProphet = 19, kP5KeyB = 12, kP5Bend = 86;   // (Melodee core.h ENGI_PROPHET; prophet_patch.c)
+// SLOOP 2.6's and Felucca 1.5's INSERT TYPE (its A, B, C) and ENV SYNC (ATK, DEC, REL as note values);
+// a Melodee PROPHET's KEY B (FREQ B in semitones while on)
+int labelsKeyOf(FeluccaEngine& f, int track) {
     if (f.flavor() == FeluccaEngine::Flavor::Sloop && f.paramCount() > 59) return f.param(track, 53) * 2 + (f.param(track, 59) != 0);
     if (f.flavor() == FeluccaEngine::Flavor::Felucca && f.paramCount() > 102) return f.param(track, 96) * 2 + (f.param(track, 102) != 0);   // (1.5)
+    if (f.flavor() == FeluccaEngine::Flavor::Melodee && f.engineOf(track) == kProphet) {
+        EngineAsk ep(f);
+        const auto raw = felucca::readProphetPatch(ep, track);
+        return raw.size() > size_t(kP5KeyB) ? 1 + raw[size_t(kP5KeyB)] : 0;
+    }
     return 0;
 }
 bool isSloop(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Sloop; }
 bool isMelodee(const FeluccaEngine* f) { return f != nullptr && f->flavor() == FeluccaEngine::Flavor::Melodee; }
 bool isMelodee013(const FeluccaEngine* f) { return isMelodee(f) && f->release() == FeluccaEngine::Release::Previous; }
 bool isMelodee110(const FeluccaEngine* f) { return isMelodee(f) && f->release() == FeluccaEngine::Release::Previous2; }
+// Melodee's PROPHET, FM6 and CZ-1 have envelopes of their own: the part's ADSR and ENV DEST do nothing
+// there (engine_t.ownenv; ui.c native_titles), so those groups are not shown for them
+bool ownEnvelope(const FeluccaEngine* f, int engine) { return isMelodee(f) && (engine == kProphet || engine == 12 || engine == 15); }
+
+// A PROPHET's own panel (prophet_edit.h P5_PANEL: the patch's fields, set with 95 2), on Melodee's
+// pages (params.c "P5 OSC A" .. "P5 BEND")
+struct P5Field { const char* label; int min, max; std::vector<const char*> names; };
+const P5Field& p5Field(int id) {
+    static const std::vector<const char*> onOff = {"OFF", "ON"};
+    static const std::map<int, P5Field> fields = {
+        {0, {"FREQ A", 0, 127, {}}}, {1, {"FREQ B", 0, 127, {}}}, {2, {"FINE B", 0, 127, {}}}, {3, {"SAW A", 0, 1, onOff}},
+        {4, {"PULSE A", 0, 1, onOff}}, {5, {"SAW B", 0, 1, onOff}}, {6, {"TRI B", 0, 1, onOff}}, {7, {"PULSE B", 0, 1, onOff}},
+        {8, {"WIDTH A", 0, 127, {}}}, {9, {"WIDTH B", 0, 127, {}}}, {10, {"SYNC", 0, 1, onOff}}, {11, {"LOW B", 0, 1, onOff}},
+        {12, {"KEY B", 0, 1, onOff}}, {13, {"GLIDE", 0, 127, {}}}, {14, {"OSC A", 0, 127, {}}}, {15, {"OSC B", 0, 127, {}}},
+        {16, {"NOISE", 0, 127, {}}}, {17, {"CUTOFF", 0, 127, {}}}, {18, {"RES", 0, 127, {}}}, {19, {"KEY", 0, 2, {"OFF", "HALF", "FULL"}}},
+        {20, {"MODEL", 0, 1, {"SSI", "CURTIS"}}}, {21, {"RATE", 0, 127, {}}}, {22, {"INITIAL", 0, 127, {}}}, {23, {"SAW", 0, 1, onOff}},
+        {24, {"TRI", 0, 1, onOff}}, {25, {"SQUARE", 0, 1, onOff}}, {26, {"N MIX", 0, 127, {}}}, {27, {"FREQ A", 0, 1, onOff}},
+        {28, {"FREQ B", 0, 1, onOff}}, {29, {"PW A", 0, 1, onOff}}, {30, {"PW B", 0, 1, onOff}}, {31, {"FILTER", 0, 1, onOff}},
+        {32, {"ENV AMT", 0, 127, {}}}, {33, {"OSC B", 0, 127, {}}}, {34, {"FREQ A", 0, 1, onOff}}, {35, {"PW A", 0, 1, onOff}},
+        {36, {"FILTER", 0, 1, onOff}}, {37, {"VINTAGE", 0, 127, {}}}, {38, {"AT FLT", 0, 1, onOff}}, {39, {"AT LFO", 0, 1, onOff}},
+        {40, {"ENV AMT", 0, 127, {}}}, {41, {"VEL FLT", 0, 1, onOff}}, {42, {"VEL AMP", 0, 1, onOff}}, {43, {"ATK", 0, 127, {}}},
+        {44, {"ATK", 0, 127, {}}}, {45, {"DEC", 0, 127, {}}}, {46, {"DEC", 0, 127, {}}}, {47, {"SUS", 0, 127, {}}},
+        {48, {"SUS", 0, 127, {}}}, {49, {"REL", 0, 127, {}}}, {50, {"REL", 0, 127, {}}}, {51, {"RELEASE", 0, 1, onOff}},
+        {52, {"UNISON", 0, 1, onOff}}, {53, {"VOICES", 1, 5, {}}}, {54, {"DETUNE", 0, 7, {}}}, {86, {"BEND", 0, 11, {}}},
+        {87, {"PRIORITY", 0, 3, {"LOW", "LOW RET", "LAST", "LAST RET"}}}};
+    return fields.at(id);
+}
+const struct { const char* title; int ids[4]; } kP5Pages[] = {
+    {"Osc A", {0, 3, 4, 8}}, {"Osc B", {1, 2, 9, 12}}, {"Osc B waves", {5, 6, 7, 11}}, {"Mixer", {14, 15, 16, 10}},
+    {"Filter", {17, 18, 19, 20}}, {"Filter envelope", {43, 45, 47, 49}}, {"Amp envelope", {44, 46, 48, 50}},
+    {"Envelope mod", {40, 41, 42, 51}}, {"Poly-Mod", {32, 33, 34, 35}}, {"Poly-Mod filter", {36, 37, 38, 39}},
+    {"LFO", {21, 23, 24, 25}}, {"Wheel", {22, 26, 27, 28}}, {"Wheel 2", {29, 30, 31, 13}}, {"Unison", {52, 53, 54, 87}},
+    {"Bend", {86, -1, -1, -1}}};
+// a field as Melodee shows it: FREQ A, and FREQ B while KEY B is on, in semitones (-12..36, stored
+// (v + 12) * 2: prophet_edit.h p5_panel_raw); BEND 1..12 (stored 0..11)
+int p5Shown(int kind, int raw) { return kind == 1 ? raw / 2 - 12 : kind == 2 ? raw + 1 : raw; }
+int p5Raw(int kind, int shown) { return kind == 1 ? (shown + 12) * 2 : kind == 2 ? shown - 1 : shown; }
 const juce::Colour kBg(0xff26262e), kBox(0xff30303a), kText(0xffe8e8ee), kDim(0xffa0a0b0), kAccent(0xff6fb7c9);
 
 }  // namespace
@@ -642,6 +695,44 @@ void FeluccaSoundPage::build() {
         }
         g.controls.push_back(std::move(c));
     };
+    // a PROPHET panel field: read and set in its patch through the engine's editor protocol (the
+    // host has no parameter for it; Live carries it to a synced FM-1)
+    const auto p5raw = isMelodee(f) && f->engineOf(track_) == kProphet ? [&] { EngineAsk ep(*f); return felucca::readProphetPatch(ep, track_); }()
+                                                                         : std::vector<uint8_t>{};
+    auto addP5Control = [&](Group& g, int id) {
+        const auto& d = p5Field(id);
+        Control c;
+        c.p5 = id;
+        c.p5kind = id == 0 || (id == 1 && p5raw.size() > size_t(kP5KeyB) && p5raw[size_t(kP5KeyB)]) ? 1 : id == kP5Bend ? 2 : 0;
+        c.label = std::make_unique<juce::Label>();
+        c.label->setText(c.p5kind == 1 ? juce::String(d.label) + " (st)" : juce::String(d.label), juce::dontSendNotification);
+        c.label->setColour(juce::Label::textColourId, kText);
+        c.label->setFont(juce::FontOptions(12.0f));
+        content_.addAndMakeVisible(*c.label);
+        const int kind = c.p5kind;
+        auto set = [this, id](int raw) {
+            auto e = engine();
+            if (loading_ || !e) return;
+            EngineAsk ep(*e);
+            felucca::setProphetField(ep, track_, id, raw);
+        };
+        if (!d.names.empty()) {
+            c.box = std::make_unique<juce::ComboBox>();
+            for (size_t i = 0; i < d.names.size(); ++i) c.box->addItem(d.names[i], int(i) + 1);
+            auto* box = c.box.get();
+            const int min = d.min;
+            box->onChange = [box, min, set] { set(min + box->getSelectedId() - 1); };
+            content_.addAndMakeVisible(*c.box);
+        } else {
+            c.slider = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
+            c.slider->setRange(kind == 1 ? -12 : p5Shown(kind, d.min), kind == 1 ? 36 : p5Shown(kind, d.max), 1.0);
+            c.slider->setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
+            auto* sl = c.slider.get();
+            sl->onValueChange = [sl, kind, set] { set(p5Raw(kind, int(std::lround(sl->getValue())))); };
+            content_.addAndMakeVisible(*c.slider);
+        }
+        g.controls.push_back(std::move(c));
+    };
     auto addHeader = [&](Group& g) {
         g.header = std::make_unique<juce::Label>();
         g.header->setText(g.title, juce::dontSendNotification);
@@ -660,11 +751,13 @@ void FeluccaSoundPage::build() {
         // and DRREV; the device shows it no other track page, and its drums read nothing else)
         if (drums && juce::String(def.title) != "Engine" && juce::String(def.title) != "Sequencer" && juce::String(def.title) != "Slicer"
             && juce::String(def.title) != "Filter" && juce::String(def.title) != "Insert") continue;   // (2.4: the drums have their FILT too; 2.6 their INSERT)
+        if (ownEnvelope(f, f->engineOf(track_)) && (juce::String(def.title) == "Envelope" || juce::String(def.title) == "Envelope to")) continue;
         Group g;
         g.title = def.title;
         if (juce::String(def.title) == "Engine") {
             const int e = f->engineOf(track_);
             g.title = drums ? juce::String("Drums") : juce::String(f->engineName(e)) + ": " + f->enginePage(e, 0) + " / " + f->enginePage(e, 1);
+            if (!p5raw.empty()) g.title = "PROPHET offsets: " + f->enginePage(e, 0) + " / " + f->enginePage(e, 1);   // (added to the panel's below)
         }
         addHeader(g);
         const int first = def.first >= 0 ? def.first : f->firstEngineParam();
@@ -672,6 +765,15 @@ void FeluccaSoundPage::build() {
         for (int id = first; id <= last && id < f->paramCount(); ++id) addControl(g, id, f->paramDesc(track_, id));
         if (def.also >= 0 && def.also < f->paramCount() && !drums) addControl(g, def.also, f->paramDesc(track_, def.also));   // (the drums: no filter TYPE)
         if (!g.controls.empty()) groups_.push_back(std::move(g));
+        if (juce::String(def.title) == "Engine" && !p5raw.empty())   // a PROPHET's own panel, after its offsets
+            for (const auto& page : kP5Pages) {
+                Group pg;
+                pg.title = juce::String("PROPHET ") + page.title;
+                addHeader(pg);
+                for (int id : page.ids)
+                    if (id >= 0) addP5Control(pg, id);
+                groups_.push_back(std::move(pg));
+            }
     }
     {
         Group g;
@@ -703,8 +805,17 @@ void FeluccaSoundPage::loadValues() {
     auto* f = held.get();
     if (!f) return;
     loading_ = true;
+    std::vector<uint8_t> p5;   // the PROPHET's patch, once
     for (auto& g : groups_)
         for (auto& c : g.controls) {
+            if (c.p5 >= 0) {
+                if (p5.empty()) { EngineAsk ep(*f); p5 = felucca::readProphetPatch(ep, track_); }
+                if (size_t(c.p5) >= p5.size()) continue;
+                const int raw = p5[size_t(c.p5)];
+                if (c.slider) c.slider->setValue(p5Shown(c.p5kind, raw), juce::dontSendNotification);
+                if (c.box) c.box->setSelectedId(raw - p5Field(c.p5).min + 1, juce::dontSendNotification);
+                continue;
+            }
             const int v = c.global ? f->global(c.id) : f->param(track_, c.id);
             if (c.slider) c.slider->setValue(v, juce::dontSendNotification);
             if (c.box) {
@@ -714,6 +825,24 @@ void FeluccaSoundPage::loadValues() {
         }
     presetBox_.setSelectedId(f->presetOf(track_) + 1, juce::dontSendNotification);
     loading_ = false;
+}
+
+double FeluccaSoundPage::controlValue(const juce::String& group, int index) const {
+    for (auto& g : groups_)
+        if (g.title == group && index >= 0 && index < int(g.controls.size())) {
+            const auto& c = g.controls[size_t(index)];
+            return c.slider ? c.slider->getValue() : c.box ? double(c.box->getSelectedId()) : std::nan("");
+        }
+    return std::nan("");
+}
+
+void FeluccaSoundPage::setControlValue(const juce::String& group, int index, double v) {
+    for (auto& g : groups_)
+        if (g.title == group && index >= 0 && index < int(g.controls.size())) {
+            auto& c = g.controls[size_t(index)];
+            if (c.slider) c.slider->setValue(v, juce::sendNotificationSync);
+            if (c.box) c.box->setSelectedId(int(v), juce::sendNotificationSync);
+        }
 }
 
 void FeluccaSoundPage::paint(juce::Graphics& g) {

@@ -18,6 +18,16 @@ for the code. New work goes under the next version at the top.
   whole (the part's notes stop for it). The PROPHET's tried with an FM-1
   running Melodee 1.3.4; FM6 and CZ-1 not yet.
 
+### Changed
+
+- **The Sound page on a Melodee PROPHET** shows its own panel, laid out as
+  Melodee's pages: oscillators, mixer, filter, the filter and amp envelopes,
+  Poly-Mod, LFO, wheel, unison and bend, each edited in the part's patch (and,
+  with Live, on the FM-1). On a PROPHET, CZ-1 or FM6 part it no longer shows the
+  part's Envelope and Envelope to settings, which those engines ignore (they
+  have envelopes of their own); its CUT, RES, TUNA and the rest are offsets
+  added to the panel's. The panel has no host parameters yet.
+
 ## [0.9.1] - 2026-10-13
 
 ### Changed

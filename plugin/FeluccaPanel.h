@@ -54,12 +54,16 @@ public:
     void setStatus(const juce::String& s);   // in the info line for a while (the sync's progress and outcome)
     juce::String engineText() const { return engineBox_.getText(); }   // (for the tests)
     juce::StringArray groupTitles() const { juce::StringArray a; for (auto& g : groups_) a.add(g.title); return a; }   // (for the tests)
+    double controlValue(const juce::String& group, int index) const;   // as shown (for the tests; NaN: none there)
+    void setControlValue(const juce::String& group, int index, double v);   // as if moved by hand (for the tests)
 
 private:
     juce::String infoText() const;            // the hint for Felucca or SLOOP
     struct Control {
         int id = 0;
         bool global = false;
+        int p5 = -1;                           // Melodee: a PROPHET panel field (its patch's, not a parameter)
+        int p5kind = 0;                        // how it shows: 0 as stored, 1 semitones (keyed FREQ), 2 BEND 1..12
         std::unique_ptr<juce::Label> label;
         std::unique_ptr<juce::Slider> slider;
         std::unique_ptr<juce::ComboBox> box;

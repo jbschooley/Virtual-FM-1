@@ -540,6 +540,38 @@ static int checks() {
                 CHECK(g.contains("Insert 1") && g.contains("Insert 3") && g.contains("Sends") && !g.contains("Slicer")
                       && g.contains("Send FX 1") && g.contains("Send FX 3"),
                       "1.3's Sound page: its three inserts and sends and the return's three slots, not 1.1's slicer: " + g.joinIntoString(", "));
+                // a PROPHET: its own panel (the patch's fields) and not the part's envelope, which it ignores (engine_t.ownenv)
+                p.felucca()->setEngine(0, 19);
+                p.felucca()->applyPreset(0, 12);
+                sp.refresh();
+                auto pg = sp.groupTitles();
+                CHECK(pg.contains("PROPHET Amp envelope") && pg.contains("PROPHET Filter envelope") && pg.contains("PROPHET Osc A")
+                      && !pg.contains("Envelope") && !pg.contains("Envelope to") && pg.contains("LFO to"),
+                      "the Sound page on a PROPHET: its own panel, not the part's ADSR or ENV DEST: " + pg.joinIntoString(", "));
+                struct Ask : felucca::Endpoint {
+                    FeluccaEngine& f;
+                    explicit Ask(FeluccaEngine& e) : f(e) {}
+                    const felucca::Dialect& dialect() const override { return felucca::dialectOf(f); }
+                    std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int) override { return f.ask(q); }
+                    std::vector<fm1::Bytes> pushes() override { return {}; }
+                } ask(*p.felucca());
+                auto patch = felucca::readProphetPatch(ask, 0);
+                CHECK(patch.size() > 50 && sp.controlValue("PROPHET Amp envelope", 3) == patch[50] && sp.controlValue("PROPHET Filter envelope", 0) == patch[43],
+                      "it shows the patch's amp RELEASE and filter ATTACK");
+                const int rel = (patch[50] + 30) % 128;
+                sp.setControlValue("PROPHET Amp envelope", 3, rel);
+                patch = felucca::readProphetPatch(ask, 0);
+                CHECK(patch.size() > 50 && patch[50] == rel && p.felucca()->presetOf(0) == 12, "and an edit there sets the patch's field (the preset kept)");
+                CHECK(sp.controlValue("PROPHET Osc A", 0) == patch[0] / 2 - 12, "FREQ A in semitones, as Melodee shows it");
+                p.felucca()->setEngine(0, 15);
+                sp.refresh();
+                pg = sp.groupTitles();
+                CHECK(!pg.contains("Envelope") && !pg.contains("PROPHET Amp envelope"), "a CZ-1: no part ADSR either, and no PROPHET panel");
+                p.felucca()->setEngine(0, 3);
+                sp.refresh();
+                CHECK(sp.groupTitles().contains("Envelope") && sp.groupTitles().contains("Envelope to"), "SID (its chip's envelope reads the part's ADSR): the Envelope groups");
+                p.felucca()->setEngine(0, 19);
+                p.felucca()->applyPreset(0, 1);
             }
             p.felucca()->setEngine(1, 15);
             p.felucca()->setParam(1, 0, 55);
