@@ -46,6 +46,10 @@ public:
     // The old single-file library changed after it was copied in (an older version still writing it).
     bool oldLibraryNewer(const juce::File& oldLibrary) const;
 
+    // Every slot file as it is now into .trash/<why> <time>/ (before a whole bank is replaced). False
+    // when there was nothing to keep or it could not be copied.
+    bool keepCopy(const juce::String& why) const;
+
     // The first run: the bank from the old single-file library (left untouched).
     bool migrateFrom(const juce::File& oldLibrary, BankModel& scratch);
 

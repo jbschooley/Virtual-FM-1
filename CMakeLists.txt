@@ -341,6 +341,8 @@ if(FM1_BUILD_PLUGIN)
     endif()
 
     file(GLOB FM1_ASSETS ${CMAKE_SOURCE_DIR}/plugin/dexed_ui/assets/*)
+    # the stock 128-preset banks a new library starts from (presets/README.md)
+    list(APPEND FM1_ASSETS ${CMAKE_SOURCE_DIR}/presets/stock-mvave.syx ${CMAKE_SOURCE_DIR}/presets/stock-fm1va.syx)
     juce_add_binary_data(FM1Assets HEADER_NAME BinaryData.h NAMESPACE BinaryData SOURCES ${FM1_ASSETS})
 
     # iOS rounds an app's icon itself and shows any transparency as white: its icon fills the square

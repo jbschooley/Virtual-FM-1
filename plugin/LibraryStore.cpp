@@ -176,3 +176,13 @@ bool LibraryStore::migrateFrom(const juce::File& oldLibrary, BankModel& scratch)
                     + juce::Time::getCurrentTime().toISO8601(true) + ". That file was left as it was.\n");
     return true;
 }
+
+bool LibraryStore::keepCopy(const juce::String& why) const {
+    if (!exists()) return false;
+    auto dir = root().getChildFile(".trash").getChildFile(why + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H%M%S"));
+    if (!dir.createDirectory()) return false;
+    bool ok = true;
+    for (int i = 0; i < BankModel::kSlots; ++i)
+        if (auto f = slotFile(i); f.existsAsFile()) ok = f.copyFileTo(dir.getChildFile(f.getFileName())) && ok;
+    return ok;
+}

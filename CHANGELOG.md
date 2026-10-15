@@ -18,6 +18,16 @@ for the code. New work goes under the next version at the top.
   whole (the part's notes stop for it). The PROPHET's tried with an FM-1
   running Melodee 1.3.4; FM6 and CZ-1 not yet.
 
+### Added
+
+- **The stock presets.** A new library starts with M-VAVE's 128 stock presets,
+  with baud girl's VA packs in D01-D32, instead of 128 INIT VOICEs, so the
+  plugin has sounds before it ever meets an FM-1. **Import** loads either bank
+  (M-VAVE's, or FM-1+VA's with the VA packs) into the library again, replacing
+  every slot after copying the library as it was to its `.trash` folder. An
+  existing library is left as it is. The M-VAVE bank was read from an FM-1, not
+  supplied by M-VAVE.
+
 ### Changed
 
 - **The Sound page on a Melodee PROPHET** shows its own panel, laid out as

@@ -50,6 +50,7 @@
 #include "PluginProcessor.h"
 #include "Firmwares.h"
 #include "Fm1Json.h"
+#include "LibraryStore.h"
 #include "Panels.h"
 #include "Fm1SeqPanel.h"
 #if FM1_FELUCCA
@@ -184,6 +185,37 @@ static int render(const juce::File& golden, const juce::File& out) {
 }
 
 static int checks() {
+    {   // the stock presets (presets/): a new library starts from FM-1+VA's (M-VAVE's, baud girl's VA packs in
+        // D01-D32); Import's stock items replace every slot, the library as it was kept in .trash first
+        auto dir = freshDataDir();
+        auto name = [](const FM1Processor& p, int i) { return juce::String(fm1::voiceName(p.bank.slot(i).sound.voice)).trimEnd(); };
+        juce::String a01, d01;
+        {   // (saved by its destructor)
+            FM1Processor p;
+            a01 = name(p, 0);
+            d01 = name(p, 96);
+            CHECK(a01 == "PIANO 1" && LibraryStore::formatOf(p.bank.slot(96).sound) != LibraryStore::formatOf(p.bank.slot(0).sound),
+                  "a new library starts with the stock presets (A01 " + a01 + "), FM-1+VA's VA packs in D01-D32 (D01 " + d01 + ")");
+        }
+        CHECK(LibraryStore().exists(), "and is saved as the shared library");
+        {
+            FM1Processor p;   // (a library there: kept, not started over)
+            p.bank.setSound(5, p.bank.slot(0).sound, false);
+        }
+        {
+            FM1Processor p;
+            CHECK(name(p, 5) == "PIANO 1", "an existing library is never replaced by the stock presets");
+            const auto msg = p.loadStockBank(false);
+            CHECK(name(p, 5) != "PIANO 1" && name(p, 96) != d01 && name(p, 0) == a01, "Import > M-VAVE's stock presets: every slot, D01-D32 M-VAVE's (" + msg + ")");
+            auto kept = dir.getChildFile(".trash").findChildFiles(juce::File::findDirectories, false, "before the stock bank *");
+            auto old = kept.size() == 1 ? LibraryStore::slotFromText(kept[0].getChildFile("006.json").loadFileAsString(), 5) : std::nullopt;
+            CHECK(kept.size() == 1 && kept[0].findChildFiles(juce::File::findFiles, false, "*.json").size() == 128 && old
+                      && juce::String(fm1::voiceName(old->sound.voice)).trimEnd() == "PIANO 1",
+                  "and the library as it was (A06 edited) is copied to .trash first");
+            p.loadStockBank(true);
+            CHECK(name(p, 96) == d01, "Import > FM-1+VA: the VA packs back in D01-D32");
+        }
+    }
     // the releases the plugin knows, and what it makes of others
     {
         using fm1::Support;

@@ -1,3 +1,4 @@
+#include "BinaryData.h"
 #include "PluginProcessor.h"
 
 #include <map>
@@ -130,16 +131,34 @@ juce::File FM1Processor::libraryFile() {
    #endif
 }
 
+// The stock banks (presets/README.md): a dump of each, one v4 message per slot, 128 of them
+static std::vector<fm1::Sound> stockSounds(bool fm1va) {
+    const auto* data = reinterpret_cast<const uint8_t*>(fm1va ? BinaryData::stockfm1va_syx : BinaryData::stockmvave_syx);
+    const int size = fm1va ? BinaryData::stockfm1va_syxSize : BinaryData::stockmvave_syxSize;
+    auto sounds = fm1::readSyx(fm1::Bytes(data, data + size)).sounds;
+    for (size_t i = 0; i < sounds.size(); ++i) { sounds[i].slot = int(i); sounds[i].from = fm1va ? "stock FM-1+VA" : "stock M-VAVE"; }
+    return sounds;
+}
+
 // The shared bank lives in a folder (plugin/LibraryStore.h). The first time,
 // it is copied from the single library file earlier versions kept, which is
-// left where it was so an older version still finds it.
+// left where it was so an older version still finds it; with none, it starts
+// from the stock FM-1+VA bank (a new instance's firmware), saved by the
+// background timer.
 bool FM1Processor::loadLibrary() {
     if (!store_.exists()) {
         auto old = libraryFile();
         if (!old.existsAsFile())   // the project's earlier name
             old = old.getParentDirectory().getSiblingFile("FM-1 Companion").getChildFile("library.fm1lib");
         BankModel scratch;
-        if (!store_.migrateFrom(old, scratch)) return false;
+        if (!store_.migrateFrom(old, scratch)) {
+            if (old.existsAsFile()) return false;   // (one that could not be read: not started over)
+            const int cur = bank.currentSlot();
+            for (auto& s : stockSounds(true)) if (s.slot < BankModel::kSlots) bank.setSound(s.slot, s, false);
+            bank.setCurrentSlot(cur);
+            libraryDirty_ = true;
+            return true;
+        }
     }
     int cur = bank.currentSlot();
     auto onLib = bank.onLibraryChange;
@@ -956,6 +975,17 @@ juce::String FM1Processor::importSyx(const juce::File& f) {
     }
     loadCurrentIntoParams();
     return "Loaded " + juce::String(n) + " sounds from " + f.getFileName() + (c.skipped.empty() ? "" : ", skipped " + juce::String(int(c.skipped.size())));
+}
+
+juce::String FM1Processor::loadStockBank(bool fm1va) {
+    const auto sounds = stockSounds(fm1va);
+    if (libraryDirty_) saveLibrary();   // (the copy is of what is on disk: the latest first)
+    if (store_.exists() && !store_.keepCopy("before the stock bank"))
+        return "The stock presets were not loaded: the library could not be copied to its .trash folder first.";
+    for (const auto& s : sounds) if (s.slot < BankModel::kSlots) bank.setSound(s.slot, s, false);
+    loadCurrentIntoParams();
+    return "Loaded the " + juce::String(fm1va ? "FM-1+VA presets (M-VAVE's stock, baud girl's VA packs in D01-D32)" : "M-VAVE stock presets")
+           + ": " + juce::String(int(sounds.size())) + " slots. The ones they replaced are in the library's .trash folder.";
 }
 
 bool FM1Processor::exportSyx(const juce::File& f, const std::vector<int>& slots) {

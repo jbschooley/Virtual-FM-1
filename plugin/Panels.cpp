@@ -164,17 +164,36 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
     selectOnDevice_.onClick = [this] { proc_.selectOnDevice(); };
     cancel_.onClick = [this] { proc_.session.cancel(); };
     importFile_.onClick = [this] {
-        chooser_ = std::make_unique<juce::FileChooser>("Import presets and patterns (.json), or an FM-1 backup, DX7 bank or voice (.syx)",
-            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.json;*.syx;*.SYX");
-        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
-            auto f = fm1ui::openedFile(fc);
-            if (!f.existsAsFile()) return;
-            if (f.hasFileExtension("json")) importJson(f);
-            else setStatus(proc_.importSyx(f));
-            refresh();
+        juce::PopupMenu m;
+        m.addItem(1, "A file (.json or .syx)...");
+        m.addSectionHeader("Stock presets (all 128, replacing the library's)");
+        m.addItem(2, "M-VAVE's stock presets");
+        m.addItem(3, "FM-1+VA: M-VAVE's, with baud girl's VA packs in D01-D32");
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&importFile_), [this](int r) {
+            if (r == 2 || r == 3) {
+                juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Replace all 128 presets?",
+                    "Every preset in the library (shared by every instance) is replaced by the stock one. A copy of the library as it is "
+                    "now goes to its .trash folder. The FM-1 is not changed.",
+                    "Replace", "Cancel", this, juce::ModalCallbackFunction::create([this, va = r == 3](int ok) {
+                        if (ok != 1) return;
+                        setStatus(proc_.loadStockBank(va));
+                        refresh();
+                    }));
+                return;
+            }
+            if (r != 1) return;
+            chooser_ = std::make_unique<juce::FileChooser>("Import presets and patterns (.json), or an FM-1 backup, DX7 bank or voice (.syx)",
+                juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.json;*.syx;*.SYX");
+            chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
+                auto f = fm1ui::openedFile(fc);
+                if (!f.existsAsFile()) return;
+                if (f.hasFileExtension("json")) importJson(f);
+                else setStatus(proc_.importSyx(f));
+                refresh();
+            });
         });
     };
-    importFile_.setTooltip("A .json file of presets and/or patterns, or a .syx of FM-1 presets or DX7 voices");
+    importFile_.setTooltip("A .json file of presets and/or patterns, a .syx of FM-1 presets or DX7 voices, or the stock presets");
     exportFile_.onClick = [this] { showExportMenu(); };
     exportFile_.setTooltip("Save presets (the selected ones, a bank, all) and patterns. Shift- or Cmd-click the list to select several presets.");
     list_.setRowHeight(20);

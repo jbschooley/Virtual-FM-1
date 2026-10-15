@@ -80,7 +80,10 @@ Logic needs a restart to pick up a new Audio Unit.
    Set the firmware menu at the top to the one your FM-1 runs.
 2. **Pull all 128** (Library tab, Sync page) copies the synth's presets into
    the plugin. The library is shared by the Standalone and every plugin
-   instance in every host, so you do this once.
+   instance in every host, so you do this once. Until then it holds the stock
+   presets: M-VAVE's, with baud girl's VA packs in D01-D32. **Import** loads
+   either stock bank again (every slot; the library as it was goes to its
+   `.trash` folder first).
 3. Pick a preset in the list to play it. **Pull what the FM-1 is playing**
    loads the synth's current sound, unsaved changes included.
 4. Edit in the **FM** (or **VA**) and **Effects & Envelope** pages beside the

@@ -171,6 +171,10 @@ public:
     void pushPatterns(bool save);
 
     juce::String importSyx(const juce::File& f);
+    // The stock 128 presets (presets/README.md) into the library, every slot replaced (what they
+    // replace goes to its .trash): M-VAVE's, or FM-1+VA's (M-VAVE's with baud girl's VA packs in
+    // 97..128). A message for the status line.
+    juce::String loadStockBank(bool fm1va);
     bool exportSyx(const juce::File& f, const std::vector<int>& slots = {});   // empty: all 128
 
     // JSON (docs/JSON-FORMAT.md): any mix of presets and patterns. Export writes
