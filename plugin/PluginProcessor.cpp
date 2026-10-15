@@ -142,9 +142,10 @@ static std::vector<fm1::Sound> stockSounds(bool fm1va) {
 
 // The shared bank lives in a folder (plugin/LibraryStore.h). The first time,
 // it is copied from the single library file earlier versions kept, which is
-// left where it was so an older version still finds it; with none, it starts
-// from the stock FM-1+VA bank (a new instance's firmware), saved by the
-// background timer.
+// left where it was so an older version still finds it. With none, the bank in
+// memory is the stock FM-1+VA one (a new instance's firmware), as it was 128
+// INIT VOICEs before: not saved until something changes, so a library another
+// instance creates meanwhile, or a host project's bank, is taken in as before.
 bool FM1Processor::loadLibrary() {
     if (!store_.exists()) {
         auto old = libraryFile();
@@ -154,10 +155,12 @@ bool FM1Processor::loadLibrary() {
         if (!store_.migrateFrom(old, scratch)) {
             if (old.existsAsFile()) return false;   // (one that could not be read: not started over)
             const int cur = bank.currentSlot();
+            auto onLib = bank.onLibraryChange;
+            bank.onLibraryChange = nullptr;   // (not a change: nothing to save)
             for (auto& s : stockSounds(true)) if (s.slot < BankModel::kSlots) bank.setSound(s.slot, s, false);
+            bank.onLibraryChange = onLib;
             bank.setCurrentSlot(cur);
-            libraryDirty_ = true;
-            return true;
+            return false;
         }
     }
     int cur = bank.currentSlot();

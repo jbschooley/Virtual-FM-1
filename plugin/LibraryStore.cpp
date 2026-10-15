@@ -179,7 +179,7 @@ bool LibraryStore::migrateFrom(const juce::File& oldLibrary, BankModel& scratch)
 
 bool LibraryStore::keepCopy(const juce::String& why) const {
     if (!exists()) return false;
-    auto dir = root().getChildFile(".trash").getChildFile(why + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H%M%S"));
+    auto dir = root().getChildFile(".trash").getNonexistentChildFile(why + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H%M%S"), "", false);
     if (!dir.createDirectory()) return false;
     bool ok = true;
     for (int i = 0; i < BankModel::kSlots; ++i)

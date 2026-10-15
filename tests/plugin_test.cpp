@@ -190,17 +190,22 @@ static int checks() {
         auto dir = freshDataDir();
         auto name = [](const FM1Processor& p, int i) { return juce::String(fm1::voiceName(p.bank.slot(i).sound.voice)).trimEnd(); };
         juce::String a01, d01;
-        {   // (saved by its destructor)
+        {
             FM1Processor p;
             a01 = name(p, 0);
             d01 = name(p, 96);
             CHECK(a01 == "PIANO 1" && LibraryStore::formatOf(p.bank.slot(96).sound) != LibraryStore::formatOf(p.bank.slot(0).sound),
                   "a new library starts with the stock presets (A01 " + a01 + "), FM-1+VA's VA packs in D01-D32 (D01 " + d01 + ")");
         }
-        CHECK(LibraryStore().exists(), "and is saved as the shared library");
-        {
-            FM1Processor p;   // (a library there: kept, not started over)
-            p.bank.setSound(5, p.bank.slot(0).sound, false);
+        CHECK(!LibraryStore().exists(), "and is not written until something changes (as the INIT VOICEs were not)");
+        {   // two instances with no library: the one that edits first makes the library, the other (unchanged
+            // stock in memory) never writes over it
+            FM1Processor idle;
+            {
+                FM1Processor p;
+                p.bank.setSound(5, p.bank.slot(0).sound, false);
+            }
+            CHECK(LibraryStore().exists(), "an edit saves the library (the stock presets with it)");
         }
         {
             FM1Processor p;
@@ -214,6 +219,8 @@ static int checks() {
                   "and the library as it was (A06 edited) is copied to .trash first");
             p.loadStockBank(true);
             CHECK(name(p, 96) == d01, "Import > FM-1+VA: the VA packs back in D01-D32");
+            CHECK(dir.getChildFile(".trash").findChildFiles(juce::File::findDirectories, false, "before the stock bank *").size() == 2,
+                  "each replacement keeps its own copy (two within a second too)");
         }
     }
     // the releases the plugin knows, and what it makes of others

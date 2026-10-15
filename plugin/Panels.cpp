@@ -172,8 +172,8 @@ LibraryPanel::LibraryPanel(FM1Processor& p) : proc_(p) {
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&importFile_), [this](int r) {
             if (r == 2 || r == 3) {
                 juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Replace all 128 presets?",
-                    "Every preset in the library (shared by every instance) is replaced by the stock one. A copy of the library as it is "
-                    "now goes to its .trash folder. The FM-1 is not changed.",
+                    "Every preset in the library (shared by every instance) is replaced by the stock one, and unsaved changes to the "
+                    "current preset are dropped. A copy of the library as it is now goes to its .trash folder. The FM-1 is not changed.",
                     "Replace", "Cancel", this, juce::ModalCallbackFunction::create([this, va = r == 3](int ok) {
                         if (ok != 1) return;
                         setStatus(proc_.loadStockBank(va));
