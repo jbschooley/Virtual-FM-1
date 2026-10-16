@@ -295,7 +295,10 @@ static void menu_row(uint32_t k, uint32_t row)
     int32_t y = mr_y(k), h = mr_h(), vy = y + CAP_IN(M, h);   /* the label and its value: M (a list's rows) */
     int sel = row == ui.menu_sel;
     uint16_t bg = sel ? T_THEME : T_SURF, fg = sel ? T_INK : T_TEXT, val = sel ? T_INK : T_THEME;
-    const char *v = menu_valued(row) ? menu_vname(row, menu_get(row)) : "";
+    const char *v;
+    if (!sel && MI_TCH(row) && song.g[G_ROUTE] != ROUTE_TRACK)
+        val = T_MID;                                   /* (1.5.5: T1..T4 CHANNEL, unused but with MIDI IN TRACK) */
+    v = menu_valued(row) ? menu_vname(row, menu_get(row)) : "";
     if (sel)
         cv_rrect(MR_X, y, MR_W, h, 6, T_THEME, T_SURF);
     else if (k && row - 1u != ui.menu_sel)             /* a rule from the row above (none beside the selected one) */
@@ -326,7 +329,7 @@ static void menu_row(uint32_t k, uint32_t row)
                   vy, &AF_M, row == MI_TUNE ? v : b, val, bg);
         return;
     }
-    if (menu_n(row) == 2u && (str_eq(v, "ON") || str_eq(v, "OFF"))) {
+    if (menu_n(row) == 2u && (str_eq(v, "ON") || str_eq(v, "OFF")) && !MI_TEXT(row)) {
         menu_switch(MR_VR, y, h, str_eq(v, "ON"), sel);
         return;
     }
@@ -410,12 +413,14 @@ static void draw_menu(void)
     int32_t pos0 = mt.pos;
     if (ui.menu == 1)
         mt_follow();
-    sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u + settings_hold * 3511u +
+    sig = ui.menu * 7u + ui.menu_sel * 131u + palette_cur() * 1009u + settings.lowcut * 7919u + settings_hold * 3511u +
           settings_leds * 6151u + ui_prefs * 4099u + ui_style * 257u + song.rec * 65537u + song.sel * 13u +
           ui_rec_prefs * 92821u + ui_scr * 131071u +          /* (#157: SCREEN OFF's value redraws its row) */
           ui_prefs2 * 524287u + ui_idle * 1048573u +      /* (1.2: ANIM IDLE's value redraws its row) */
           ui_home_view * 7340033u +    /* (1.3: HOME) */
           (uint32_t)(song.g[G_TUNE] + 64) * 8191u + (uint32_t)song.g[G_ROUTE] * 27449u +   /* (1.2: the project's rows) */
+          (song.mch[0] | (uint32_t)song.mch[1] << 8 | (uint32_t)song.mch[2] << 16 | (uint32_t)song.mch[3] << 24) *
+          2246822519u +                                   /* (1.5.5: T1..T4 CHANNEL) */
           (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u) + (ui.menu == 3 ? info_sig() * 2654435761u : 0u);
     if (!ui.force && sig == ui.menu_sig) {
         if (ui.menu == 1 && mt.pos != pos0) {          /* only the tabs slid: their strip */

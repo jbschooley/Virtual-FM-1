@@ -142,7 +142,7 @@ static uint32_t ed_bk_commit(void)
     } else if (ed_bk_id == 1u) {
         memcpy(&ed_bk_settings, raw, sizeof ed_bk_settings);
         settings_import(&ed_bk_settings, sizeof ed_bk_settings);
-        panel_init(); settings_init(); palette_set(settings.palette);
+        panel_init(); settings_init(); palette_apply();
 #if FELUCCA_FLASH
         persist_saved = ed_bk_settings; persist_pending = 0;
 #endif

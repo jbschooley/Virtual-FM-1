@@ -31,8 +31,16 @@
 #ifndef FELUCCA_ID
 #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
+#ifndef FELUCCA_CPU2
+#define FELUCCA_CPU2 1           /* 1 (1.6.1): the second core is built in and renders some parts when MENU > SYSTEM >
+                                  * 2ND CORE is ON (BETA; OFF by default: one core, as 1.6; hal/fm1_cpu1.h, fx.c
+                                  * mix_block). 0 (FELUCCA_CPU2=0 build.py): none of it (no core 1 stack, waiting loop,
+                                  * buffers or menu row). (The same default: core.h) */
+#endif
+#define FM1_CPU1_USED FELUCCA_CPU2   /* hal/fm1_sys.h: the second core is built in; every reset holds it first (its
+                                      * waiting loop is in RAM the ROM and the SPL use at boot) */
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "v1.5.1" /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define FELUCCA_VERSION "v1.6.1" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"
@@ -44,6 +52,12 @@
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#if FELUCCA_CPU2
+#include "fm1_cpu1.h"
+#define C1_ON() fm1_c1_on                    /* fx.c mix_block: a second core is answering */
+#define C1_RUN(fn, arg) fm1_cpu1_run(fn, arg)
+#define C1_WAIT() fm1_cpu1_wait()
+#endif
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

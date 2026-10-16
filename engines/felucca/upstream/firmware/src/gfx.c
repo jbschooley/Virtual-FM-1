@@ -132,11 +132,26 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
     return ((c >> 11) * 255u / 31u * 54u + ((c >> 5) & 63u) * 255u / 63u * 183u + (c & 31u) * 255u / 31u * 19u) >> 8;
 }
 
+/* 1.6 (#244): a palette of the user's, the 11th (index NPALETTES, "CUSTOM"): the same five stored colours, the rest
+ * derived as for every palette, set from the editor (ui.c cpal_*; settings: favorites.factory[15][0..9, 12]). Not GREY
+ * (no gray ramps) and not MONO: the channels blend as they are */
+static ui_pal_t ux_cust = {"CUSTOM", 0x0841, 0xCE59, 0xEF5D, 0xFFDF, 0xFD20};
+/* the five colours as stored (RGB565, 16 bits little endian each: BG SURF TEXT THEME ACCENT) */
+static void palette_custom_load(const uint8_t *b)
+{
+    ux_cust.bg = (uint16_t)(b[0] | b[1] << 8);
+    ux_cust.surf = (uint16_t)(b[2] | b[3] << 8);
+    ux_cust.text = (uint16_t)(b[4] | b[5] << 8);
+    ux_cust.theme = (uint16_t)(b[6] | b[7] << 8);
+    ux_cust.accent = (uint16_t)(b[8] | b[9] << 8);
+}
+
 static void palette_set(uint32_t i)
 {
-    const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
+    int cust = i == NPALETTES;
+    const ui_pal_t *p = cust ? &ux_cust : &UI_PALETTES[i % NPALETTES];
     i %= NPALETTES;
-    ux.mono = i == UI_GREY_INDEX;
+    ux.mono = !cust && i == UI_GREY_INDEX;
     ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
@@ -150,7 +165,7 @@ static void palette_set(uint32_t i)
     ux.grid = ux_mix(ux.surf, p->text, 6);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
-    if (i == UI_BW_INDEX) {                      /* MONO: black and white, set, not blended (tools/gen_ui_palettes.py) */
+    if (!cust && i == UI_BW_INDEX) {             /* MONO: black and white, set, not blended (tools/gen_ui_palettes.py) */
         ux.mid = ux.sel = ux.key = ux.rec = p->text;   /* a selection, a keycap, REC: white, its INK black */
         ux.dim = ux.line = ux.raise = ux.lane = UI_BW_GREY;   /* the one grey: inactive, tracks, wells */
         ux.tint = ux.grid = p->bg;

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MIT
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Shared DSP building blocks for the Felucca engines (all fixed point).
  * Voice output convention: add sample * amp to out[], where a full-scale

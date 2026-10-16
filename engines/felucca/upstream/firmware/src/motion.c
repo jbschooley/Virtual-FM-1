@@ -320,18 +320,21 @@ static int32_t motion_find(const track_t *t, uint32_t step, uint32_t id)
             return (int32_t)i;
     return -1;
 }
-/* the indices of track k's records in list order (by step, then by id): n of them into idx[MOTION_MAX] */
+/* the indices of track k's records in list order (by step, then as they were added: their place in motion.event,
+ * which a record keeps when its parameter or value changes): n of them into idx[MOTION_MAX]. 1.5.5 (#199): up to 1.5.1
+ * a step's records were by parameter, so turning SEQ > AUTOMATION's KNOB 3 (the parameter) past another record of the
+ * step moved the row being edited above or below it, and the selection with it (the "jump") */
 static uint32_t motion_rows(uint32_t k, uint8_t *idx)
 {
     uint32_t i, j, n = 0;
     for (i = 0; i < motion.count; i++) {
         const motion_event_t *e = &motion.event[i];
-        uint32_t key = (uint32_t)(e->place & 63u) << 7 | MOTION_ID(e);
+        uint32_t key = e->place & 63u;
         if ((e->place >> 6) != k)
             continue;
-        for (j = n; j > 0u; j--) {                       /* (insertion: at most MOTION_MAX) */
+        for (j = n; j > 0u; j--) {                       /* (insertion, stable: at most MOTION_MAX) */
             const motion_event_t *o = &motion.event[idx[j - 1u]];
-            if (((uint32_t)(o->place & 63u) << 7 | MOTION_ID(o)) <= key)
+            if ((uint32_t)(o->place & 63u) <= key)
                 break;
             idx[j] = idx[j - 1u];
         }

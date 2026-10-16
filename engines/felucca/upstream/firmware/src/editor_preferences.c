@@ -22,7 +22,7 @@ static void ed_ui_state(void)
 {
     uint32_t sig = 0;
     ed_b(ed_ui_caps());
-    ed_b(settings.palette);
+    ed_b(palette_cur());                               /* (1.6: NPALETTES is CUSTOM) */
     ed_b(127);                                         /* font: not supported */
 #ifdef FELUCCA_MONITOR
     ed_b(settings.monitor);
@@ -66,10 +66,10 @@ static uint32_t ed_ui_set(const uint8_t *a, uint32_t n)
 {
     if (n != 2u || a[0] > 3u) return 1;
     if (!(ed_ui_caps() & (1u << a[0]))) return 2;
-    if (a[1] >= (a[0] == 0 ? NPALETTES : a[0] == 2 ? 3u : 2u)) return 1;
+    if (a[1] >= (a[0] == 0 ? palette_n() : a[0] == 2 ? 3u : 2u)) return 1;
     switch (a[0]) {
     case 0:
-        settings.palette = a[1]; palette_set(a[1]); break;
+        palette_choose(a[1]); break;
 #ifdef FELUCCA_MONITOR
     case 2:
         fm1_irq_off();
@@ -95,8 +95,8 @@ static int ed_ui_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         ed_b(n ? a[0] : 127u); ed_b(n > 1u ? a[1] : 127u);
         ed_ui_state(); return 1;
     case ED_UI_PALETTES:
-        ed_b(NPALETTES);
-        for (uint32_t i = 0; i < NPALETTES; i++) ed_str(UI_PALETTES[i].name, 12);
+        ed_b(palette_n());                             /* (1.6: CUSTOM last, while one is stored) */
+        for (uint32_t i = 0; i < palette_n(); i++) ed_str(palette_name(i), 12);
         return 1;
     case ED_FAV_GET:
 #ifdef FELUCCA_FAVORITES

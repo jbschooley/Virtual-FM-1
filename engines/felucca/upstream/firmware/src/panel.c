@@ -113,6 +113,7 @@ static uint32_t leds_step(uint32_t m, int32_t s)
     return LEDS_MENU[i];
 }
 
+static void palette_apply(void);               /* (ui.c: the palette in use, CUSTOM or a built-in one) */
 static void settings_init(void)
 {
     if (settings.magic == SETTINGS_MAGIC_OLD && settings.palette < 20u) {
@@ -125,6 +126,6 @@ static void settings_init(void)
         settings.lowcut = 0;
         settings.zoom = 0;                     /* (retired: the LEDS setting, settings_persist.c) */
     }
-    palette_set(settings.palette);
+    palette_apply();
     fx_lowcut = (uint8_t)(settings.lowcut % 3u);
 }

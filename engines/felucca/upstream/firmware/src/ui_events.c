@@ -17,7 +17,8 @@
  *            recorded pattern would fill the list otherwise). An ACC step plays 127 whatever its VEL (DIM), a DRUM
  *            step's accented hits too; the others one value for all of the step's hits (no velocity per lane)
  *   + ADD    the last
- * in the order of the steps (a step's CHANCE, its RATCH, its NUDGE, its VEL, then its records by parameter).
+ * in the order of the steps (a step's CHANCE, its RATCH, its NUDGE, its VEL, then its records in the order they were
+ * added; 1.5.5, #199: by parameter before, so KNOB 3 moved the row it edited past the step's other records).
  *   KNOB 1 (or the PRESETS knob) the row
  *   KNOB 2 the step: a record moves to the next step where its parameter has no record (1 .. LEN), a CHANCE / RATCH /
  *          NUDGE to the next step inside LEN where it is at its default (the step it leaves goes back to it); VEL none
@@ -80,7 +81,7 @@ static void ev_name(const track_t *t, uint32_t id, char *b)
  * (100 %, x1, 0, 96), at it, set (VEL 96 is stored as 0, as a step that never had one) */
 static int32_t ev_sval(const step_t *s, uint32_t k)
 {
-    return k == EVK_CHANCE ? (int32_t)step_chance(s) : k == EVK_RATCH ? (int32_t)step_ratchet(s) :
+    return k == EVK_CHANCE ? (int32_t)step_chance_v(s) : k == EVK_RATCH ? (int32_t)step_ratchet(s) :
            k == EVK_VEL ? (s->vel ? s->vel : 96) : step_nudge(s);
 }
 static int32_t ev_sdefv(uint32_t k) { return k == EVK_CHANCE ? 100 : k == EVK_RATCH ? 1 : k == EVK_VEL ? 96 : 0; }
@@ -88,7 +89,7 @@ static int ev_sdef(const step_t *s, uint32_t k) { return ev_sval(s, k) == ev_sde
 static void ev_sput(step_t *s, uint32_t k, int32_t v)
 {
     if (k == EVK_CHANCE)
-        step_set_chance(s, (uint32_t)v);
+        step_set_chance_v(s, (uint32_t)v);
     else if (k == EVK_RATCH)
         step_set_ratchet(s, (uint32_t)v);
     else if (k == EVK_VEL)
@@ -99,6 +100,26 @@ static void ev_sput(step_t *s, uint32_t k, int32_t v)
 static uint32_t ev_skind(uint32_t id)
 {
     return id == EV_CHANCE ? EVK_CHANCE : id == EV_RATCH ? EVK_RATCH : id == EV_VEL ? EVK_VEL : EVK_NUDGE;
+}
+/* 1.5.5 (#209): CHANCE's value turned on (s detents, d of them accelerated): 0..100 % accelerated, then past 100 the
+ * conditions one a detent (core.h step_chance_v: 101..); a fast turn stops at 100 on the way in and out */
+static const char COND_NAME[NCOND][6] = {"1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4", "FILL", "!FILL"};
+static int32_t ev_chance_turn(int32_t v, int32_t s, int32_t d)
+{
+    int32_t to = v > 100 || (v == 100 && s > 0) ? v + s : v + d;
+    if ((v < 100 && to > 100) || (v > 100 && to < 100))
+        to = 100;
+    return clamp(to, 0, (int32_t)CHANCE_V_MAX);
+}
+/* CHANCE's value as text: "50" (unit "%"), a condition's name ("1:4", "FILL"; unit ""); b holds 8 */
+static const char *ev_chance_fmt(char *b, int32_t v)
+{
+    if (v > 100) {
+        str_cpy(b, COND_NAME[(uint32_t)(v - 101) % NCOND], 8);
+        return "";
+    }
+    fmt_int(b, v);
+    return "%";
 }
 /* + ADD's value: CHANCE 50 %, RATCH x2, NUDGE +4/16 (a quarter of the step late) */
 static int32_t ev_sadd(uint32_t k) { return k == EVK_CHANCE ? 50 : k == EVK_RATCH ? 2 : 4; }
@@ -307,7 +328,7 @@ static void ev_step_knob(track_t *t, uint32_t slot, int32_t s, uint32_t c)
             ui.ev_keep = EVC(k, to);
         c = EVC(k, to);
     } else if (slot == 3u) {                            /* the value: CHANCE 0..100 %, RATCH x1..x4, NUDGE -8..+7, */
-        v = k == EVK_CHANCE ? clamp(v + accel(EN_K1 + slot, s, 100), 0, 100) : k == EVK_RATCH ? clamp(v + s, 1, 4)
+        v = k == EVK_CHANCE ? ev_chance_turn(v, s, accel(EN_K1 + slot, s, 100)) : k == EVK_RATCH ? clamp(v + s, 1, 4)
             : k == EVK_VEL ? clamp(v + accel(EN_K1 + slot, s, 126), 1, 127) : clamp(v + s, -8, 7);   /* VEL 1..127 */
         if (k == EVK_NUDGE && t->p[P_SQNT])
             ui_message("QUANTIZE IS ON");              /* (kept: it plays once QUANTIZE is OFF) */

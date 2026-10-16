@@ -11,7 +11,7 @@ Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 
 Every file in this tree that carries an `SPDX-License-Identifier: GPL-3.0-only` header:
 
-- the firmware: `firmware/` (app, HAL, update loader)
+- the firmware: `firmware/` (app, HAL, update loader; not `firmware/engines/`, MIT: below)
 - the build script and tools: `build.sh`, `tools/`
 - the web pages (installer, editor, the browser emulator `web/emu/`) and their tests: `web/` (not the Fukiai and DotGothic16 fonts, below)
 - the host tests: `tests/`
@@ -20,6 +20,19 @@ Three source files are ports and keep the licence of their originals:
 `firmware/src/phys_dsp.c` (DaisySP, MIT), `firmware/src/phys_symp.c` (Rings, MIT) and
 `firmware/src/fm6_core.c` (msfa, Apache-2.0). The firmware built with them is GPL-3.0-only as
 a whole.
+
+Five engines and the code they share are under the MIT licence, not the GPL. They are
+Hügelton Instruments' own work and live in their own repository, Felucca-Engines
+(<https://github.com/hugelton/Felucca-Engines>), included here as the git submodule
+`firmware/engines/`: the ANALOG, LOFI, TRIO, WHEEL and NOISE engines (`eng_analog.c`,
+`eng_lofi.c`, `eng_trio.c`, `eng_wheel.c`, `eng_noise.c`), the engine interface
+(`felucca_engine.h`), the shared DSP helpers (`dsp.c`) and the generator of their tables
+(`SPDX-License-Identifier: MIT`, `firmware/engines/LICENSE`, also
+`LICENSES/MIT-Felucca-Engines.txt`). The firmware built with them is GPL-3.0-only as a whole.
+Felucca's complete source includes that submodule: clone with `--recurse-submodules`, and
+give it along with the rest when you share the source. Each release also offers
+`felucca-X.Y.Z-source.tar.gz`, the whole source with the submodule's files in it (GitHub's
+own source archives leave the submodule empty).
 
 You may use, study, change and share Felucca under the GPL. If you distribute Felucca, or
 firmware derived from it, you must also give your recipients its complete corresponding
@@ -37,6 +50,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | The Hügelton Sample Pack: Felucca's drum sounds, made by `tools/gen_waves.py`, from which the SLICE engine's BREAK is built (not CC0) | GPL-3.0-only | `tools/gen_waves.py` |
 | The controls picture | GPL-3.0-only | `docs/controls.jpg` |
 | The Fukiai icon font (<https://github.com/hugelton/Fukiai>): the firmware's icons (rasterised at build time by `tools/gen_aa_icons.py`) and the web editor's | MIT | `web/fukiai.ttf`, `LICENSES/MIT-Fukiai.txt`, `web/FUKIAI-LICENSE.txt` |
+| The ANALOG, LOFI, TRIO, WHEEL and NOISE engines, the engine interface and the shared DSP helpers: Felucca-Engines (<https://github.com/hugelton/Felucca-Engines>) | MIT | `firmware/engines/`, `LICENSES/MIT-Felucca-Engines.txt` |
 
 ## Third-party material
 
@@ -49,6 +63,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | msfa by Google Inc. and Pascal Gauthier, from Dexed (<https://github.com/asb2m10/dexed>): the FM6 engine's synthesis, ported to integer C (Dexed itself is GPL-3.0; only msfa is used; the FM6 factory patches are Felucca's own) | Apache-2.0 | `firmware/src/fm6_core.c`, `LICENSES/Apache-2.0-msfa.txt` |
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
 | X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>), a Felucca fork: the design of the browser emulator (the worklet, the device clock driven by its audio, the exports); its files credit it in their headers | GPL-3.0 | `web/emu/` |
+| The second core: its start, mailbox and guards from X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>, with the dual-core findings of Melodee by keremimo, <https://github.com/keremimo/melodee>); its audio split, measurements and hardening after Jangada by zednaked (<https://github.com/zednaked/jangada>); each credited in its files | GPL-3.0 | `firmware/hal/fm1_cpu1.{h,S}`, `firmware/src/fx.c`, `tests/c1_host.h`, `tests/dualcore_test.c` |
 | DotGothic16 font by The DotGothic16 Project Authors (<https://github.com/fontworks-fonts/DotGothic16>): the browser emulator's knob labels, served with its page (cut to printable ASCII; the font declares no Reserved Font Name) | SIL OFL 1.1 | `web/emu/fonts/DotGothic16-subset.woff`, `LICENSES/OFL-DotGothic16.txt` (also `web/emu/fonts/OFL.txt`) |
 | JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
 
@@ -86,7 +101,8 @@ never uploaded or redistributed.
 
 ## Contributions
 
-Contributions are welcome under GPL-3.0-only.
+Contributions are welcome under GPL-3.0-only. Changes to the five engines and the code they
+share (`firmware/engines/`) go to the Felucca-Engines repository, under the MIT licence.
 
 ## Trademarks
 

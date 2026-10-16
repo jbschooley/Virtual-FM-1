@@ -295,7 +295,9 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
  * and their accents: hit & 127, acc & 127, bit 7 of each (bit 0 hit, bit 1 acc), (v7) the chance, (RATCH, INFO
  * 52 01) the hits 1..4, (NUDGE, INFO 54 01, 1.2) the nudge + 8 (0..15: -8..+7 sixteenths of the step); each value
  * made valid. 8 bytes (an editor of before the grid): the hits stay; without the chance, the ratchet or the nudge
- * the step keeps its own (flags carry accent and slide only) */
+ * the step keeps its own (flags carry accent and slide only). 1.5.5 (#209, INFO 4B 01 0B): then the condition, 0 none,
+ * 1..11 (core.h step_cond: it takes the chance's place). Without it a chance of 100 keeps the step's condition (an
+ * editor that does not know them saw 100 there and writes it back); another chance replaces it */
 static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
 {
     uint32_t i;
@@ -309,12 +311,13 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);
         st->acc = (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit);
     }
-    if (na >= 12u) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
+    if (na >= 15u && a[14] && a[14] <= NCOND) step_set_chance_v(st, 100u + a[14]);
+    else if (na >= 12u && (na >= 15u || a[11] < 100u || !step_cond(st))) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
     if (na >= 13u) step_set_ratchet(st, a[12]);
     if (na >= 14u) step_set_nudge(st, (int32_t)(a[13] & 15u) - 8);
     ui.force = 1;
 }
-static void ed_step_reply(const step_t *st)              /* the same 14 bytes */
+static void ed_step_reply(const step_t *st)              /* the same 15 bytes */
 {
     uint32_t i;
     ed_b(st->n);
@@ -329,6 +332,7 @@ static void ed_step_reply(const step_t *st)              /* the same 14 bytes */
     ed_b(step_chance(st));
     ed_b(step_ratchet(st));
     ed_b((uint32_t)(step_nudge(st) + 8));
+    ed_b(step_cond(st));                                 /* (1.5.5: the chance before it 100) */
 }
 
 /* a flash write from the editor while the transport runs: stop it first (the erase silences the audio and
@@ -349,6 +353,7 @@ static int ed_flash_stop(void)
 #include "editor_fm6.c"
 #include "editor_menu.c"
 #include "editor_learn.c"                    /* 1.5: MIDI LEARN's map (cmds 78, 79) */
+#include "editor_palette.c"                  /* 1.6: CUSTOM, the user's palette (cmds 80, 81) */
 
 /* MOTION's reply: the records of track k as (step, id, v14), a lock's id without its MOTION_LOCK bit (a 7-bit SysEx
  * byte); kinds (1.1: the ops 5..7): then one byte per record, in the same order, 0 automation, 1 lock. The query and
@@ -383,7 +388,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     switch (cmd) {
     case ED_INFO: case ED_DUMP: case ED_SMP_INFO: case ED_PING:
-    case ED_UI_STATE: case ED_UI_PALETTES: case ED_LEARN_GET:
+    case ED_UI_STATE: case ED_UI_PALETTES: case ED_LEARN_GET: case ED_PALETTE_GET:
         return !n;
     case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
     case ED_TRACK_PARAM:
@@ -397,15 +402,17 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n == 3u;
     case ED_STEP_SET:
         return n == 9u || n == 12u || (n == 13u && a[12] <= 100u) ||               /* notes only, or the complete grid extension, */
-               ((n == 14u || (n == 15u && a[14] <= 15u)) && a[12] <= 100u && a[13] >= 1u && a[13] <= 4u);   /* its chance,
-                                                                                * its ratchet, its nudge (1.2) */
+               ((n == 14u || (n == 15u && a[14] <= 15u) || (n == 16u && a[14] <= 15u && a[15] <= NCOND)) &&
+                a[12] <= 100u && a[13] >= 1u && a[13] <= 4u);   /* its chance, its ratchet, its nudge (1.2), its
+                                                                 * condition (1.5.5) */
     case ED_TRACK:
         return n <= 1u;
     case ED_TRACK_MIX:
         return n == 1u || n == 4u;
     case ED_TRACK_STEP:
         return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u) ||
-               ((n == 15u || (n == 16u && a[15] <= 15u)) && a[13] <= 100u && a[14] >= 1u && a[14] <= 4u);
+               ((n == 15u || (n == 16u && a[15] <= 15u) || (n == 17u && a[15] <= 15u && a[16] <= NCOND)) &&
+                a[13] <= 100u && a[14] >= 1u && a[14] <= 4u);
     case ED_MOTION:
         return (n == 1u || (n == 2u && (a[1] == 2u || a[1] == 7u || a[1] == 8u)) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
                 (n == 6u && (a[1] == 3u || a[1] == 5u)) || (n == 4u && a[1] == 4u) || (n == 3u && a[1] == 6u)) &&
@@ -437,6 +444,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_menu_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_learn_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_palette_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
     case ED_MOTION: {
         track_t *t = &trk[a[0]]; uint32_t rc = 0;
@@ -482,6 +490,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x57); ed_b(1); ed_b(NTRK);   /* 1.2: song sections with a slot per track (SONG ops 4..7) */
         ed_b(0x56); ed_b(1); ed_b(FM6_NBANK);   /* 1.4.1: FM6's voice bank (cmds 74..77; SLOT 9..40 = B1..B32) */
         ed_b(0x43); ed_b(1); ed_b(ML_N);   /* 1.5: MIDI LEARN's map (cmds 78, 79; editor_learn.c) */
+        ed_b(0x4B); ed_b(1); ed_b(NCOND);   /* 1.5.5: a step's condition (1..11) after its nudge */
+        ed_b(0x45); ed_b(1); ed_b(ED_PAL_N);   /* 1.6: CUSTOM, the user's palette: 5 colours (cmds 80, 81; editor_palette.c) */
         break;
     case ED_GET:
     case ED_SET:

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MIT
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* TRIO: three oscillators with ring modulation and hard sync into a 12 dB/oct multimode
  * filter, in the style of the sound chips of early 8-bit home computers. Felucca's own design.
