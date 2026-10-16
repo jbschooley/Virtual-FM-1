@@ -82,11 +82,16 @@ for the code. New work goes under the next version at the top.
   running V12, and M-VAVE's other FM1 Open builds), and its FM-1 tab pulls from
   and sends to it as M-VAVE's workbench does: the project it plays (and into one
   of its 16 slots), a track's sound, a slot loaded and pulled, and its sample
-  bank (a pulled one is kept with the host's project). What a Send replaces on
-  the FM-1 is saved in the library first, as `.fm1` and `.fm1s` files the
-  workbench imports. No Live: FM1 Open has no message for one value changed,
-  and a sound sent whole would cut what plays. No host parameters yet. Syncing
-  is not yet tried with an FM-1.
+  bank (a pulled one is kept with the host's project). The project a Send
+  replaces, and the bank a sample Send replaces, are saved in the library first,
+  as `.fm1` and `.fm1s` files the workbench imports; what a slot held before a
+  Send saves into it is not kept. A sample Send cannot be stopped once writing
+  starts: FM1 Open erases its bank first, and if the connection is lost then,
+  the FM-1 has no samples until a bank is sent again (the plugin says so). A
+  busy FM-1 is asked again. No Live: FM1 Open has no message for one value
+  changed, and a sound sent whole would cut what plays. No host parameters yet.
+  Tried with an FM-1 running V12: Pull, Send, a track's sound, the slots' names
+  and the sample bank both ways (saving into a slot not yet).
 
 ## [0.9.2] - 2026-10-16
 
