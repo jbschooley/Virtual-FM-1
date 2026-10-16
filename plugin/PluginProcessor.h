@@ -148,7 +148,8 @@ public:
     bool feluccaLiveOn() const { return felLive_.load(); }
     // A connected FM-1 running FM1 Open, synced through its project transfer protocol (session jobs;
     // firmwares/fm1open/Fm1OpenSync.h): the project it plays, a track's sound, its 16 user slots, its sample
-    // bank. What a Send or a sample write replaces on the FM-1 is saved in the library first. No Live: FM1
+    // bank. The project a Send replaces, and the bank a sample write replaces, are saved in the library first
+    // (not what a slot held before a Send saves into it: reading it would mean loading it). No Live: FM1
     // Open has no message for one value changed (a sound written whole would cut what plays).
     bool fm1openSynth() const;                  // connected to an FM-1 running FM1 Open
     bool fm1openPull();                         // the project it plays, into this instance's

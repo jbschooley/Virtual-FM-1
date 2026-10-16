@@ -16,7 +16,8 @@ void head(juce::Label& l, const juce::String& text) {
 
 Fm1OpenSyncPage::Fm1OpenSyncPage(FM1Processor& p) : proc_(p) {
     about_.setText("An FM-1 running FM1 Open, connected above: its project, a track's sound, its user slots and its sample bank, "
-                   "either way. What a Send replaces on the FM-1 is saved in the library first (FM1 Open/Backups). "
+                   "either way. The project a Send replaces, and the sample bank a sample Send replaces, are saved in the library "
+                   "first (FM1 Open/Backups); what a slot held before \"Send and save in slot\" is not kept. "
                    "No Live: FM1 Open has no message for one value changed, and a sound sent whole would cut what plays.",
                    juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);
@@ -50,8 +51,12 @@ Fm1OpenSyncPage::Fm1OpenSyncPage(FM1Processor& p) : proc_(p) {
     samplesTo_.onClick = [this] {
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send the sample bank?",
             "The FM-1's whole sample bank (used by every project on it) is replaced by this instance's. Its bank is saved in the library first. "
-            "This takes a few minutes.",
-            "Send", "Cancel", this, juce::ModalCallbackFunction::create([this](int r) { if (r == 1) proc_.fm1openSendSamples(); }));
+            "This takes a few minutes. FM1 Open erases its bank before writing, so once writing starts it cannot be stopped, and if the "
+            "connection is lost meanwhile the FM-1 has no samples until a bank is sent again. Keep it connected until this finishes.",
+            "Send", "Cancel", this,
+            juce::ModalCallbackFunction::create([safe = juce::Component::SafePointer<Fm1OpenSyncPage>(this)](int r) {
+                if (r == 1 && safe != nullptr) safe->proc_.fm1openSendSamples();
+            }));
     };
     proc_.onFm1OpenSlots = [this] { showSlots(); };
     showSlots();

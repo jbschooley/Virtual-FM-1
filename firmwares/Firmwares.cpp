@@ -446,7 +446,7 @@ private:
 };
 
 // M-VAVE's FM1 Open: played by the plugin, and synced through its own project transfer protocol
-// (firmwares/fm1open/Fm1OpenSync.h; the instance's FM1 Open page), not FM-1+VA's preset messages
+// (firmwares/fm1open/Fm1OpenSync.h; the instance's FM-1 tab), not FM-1+VA's preset messages
 class Fm1OpenFirmware : public Firmware {
 public:
     juce::String name() const override { return "FM1 Open"; }
@@ -455,7 +455,7 @@ public:
     }
     bool has(Feature) const override { return false; }   // (FM-1+VA's: FM1 Open's sync is its own)
     juce::String cannot(Feature) const override {
-        return "This FM-1 runs FM1 Open: Pull and Send its project, a track's sound, its slots and its sample bank on the FM1 Open page. "
+        return "This FM-1 runs FM1 Open: Pull and Send its project, a track's sound, its slots and its sample bank on the FM-1 tab. "
                "Live is not possible: FM1 Open has no message for one value changed, and a sound sent whole would cut what plays.";
     }
     std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
