@@ -36,8 +36,8 @@
   `engines/sloop/UPSTREAM.md`, which also says how its icon atlas is taken.
 - **Melodee** (`engines/melodee/upstream`, generated tables, fonts, icons, FM6
   patches, CZ-1 tones and 909 tables in `engines/melodee/generated`): Kerem Kilic's
-  FM-1 firmware, v1.1.0, built from Felucca; and v0.13, kept for the projects made
-  with it (`engines/melodee013`, as it was). GPL-3.0-only, copyright 2026 Leo
+  FM-1 firmware, v1.4.1, built from Felucca; and v1.1.0 and v0.13, kept for the
+  projects made with them (`engines/melodee110` and `engines/melodee013`, as they were). GPL-3.0-only, copyright 2026 Leo
   Kuroshita (@kurogedelic), Hügelton Instruments, with modifications copyright 2026
   Kerem Kilic. Parts of it come from others under their own licences, listed in its
   `LICENSING.md` with their texts in `upstream/LICENSES/`: msfa (Apache-2.0) and

@@ -51,7 +51,9 @@ At phone size (the iOS app builds from source):
   untried; its Synth only build is not supported; 0.12 to 1.3.6 pulled from only;
   one on 0.13 or 1.1.0 syncs with an instance set to that release) or
   **[ChoralRoot](https://github.com/Quixotic7/ChoralRootFM1)** 0.23 (0.24-beta1
-  synced as 0.23; its backup only, untried). On M-VAVE's own
+  synced as 0.23; its backup only) or M-VAVE's
+  **[FM1 Open](https://github.com/m-vave/fm1_open)** V12 (pull and send, no
+  Live). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -145,7 +147,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
   running Felucca 1.6.1: pull everything, send everything, or keep both in step live
-  (not yet tried with an FM-1 on 1.6.1); the Sequencer tab carries steps' ratchets,
+  (tried with an FM-1 on 1.6.1); the Sequencer tab carries steps' ratchets,
   nudges and conditions, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
   beside it, its own firmware choice, for the projects made with it: a project saved
   with 1.0.x opens on it, and it syncs fully with an FM-1 still on 1.0.3.
@@ -167,7 +169,7 @@ project saves its own current preset, edits, patterns and arpeggiator.
   the file Melodee's web editor uses for backups (`Melodee/Melodee device.json`;
   one from 1.3 is taken and its preset banks moved into the shared bank, as the
   FM-1 does it). With an FM-1 running Melodee 1.4.1: pull, send and live, a part's
-  own CZ-1 tone or PROPHET patch included (not yet tried with an FM-1 on 1.4).
+  own CZ-1 tone or PROPHET patch included (tried with an FM-1 on 1.4.1).
   An FM-1 on 1.3, which cannot read 1.4's projects, is pulled from only. **Melodee
   0.13** and **Melodee 1.1.0** stay beside it, each its own firmware choice, for
   the projects made with them (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE;
@@ -197,8 +199,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   backed up to the library first (`ChoralRoot/Backups`), and restarts it after
   a Send as its own page does. While it restarts it leaves USB: the app connects
   to it again by itself, a plugin when asked (Find FM-1). Its stored objects are kept in the file its page
-  uses for backups (`ChoralRoot/ChoralRoot device.json`). Not yet tried with an
-  FM-1.
+  uses for backups (`ChoralRoot/ChoralRoot device.json`). Tried with an FM-1
+  running 0.23.
 
 ## Not done yet
 

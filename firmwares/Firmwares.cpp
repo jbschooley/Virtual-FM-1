@@ -14,7 +14,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"melodee_013", "Melodee", false, false},   // 0.13, kept for the projects made with it (engines/melodee013)
         {"felucca_103", "Felucca", false, false},   // 1.0.3, kept the same way (engines/felucca103)
         {"melodee_110", "Melodee", false, false},   // 1.1.0, kept for the projects made with it (engines/melodee110)
-        {"fm1open", "FM1 Open", false, false},      // M-VAVE's own (engines/fm1open): plays; no sync with a device yet
+        {"fm1open", "FM1 Open", false, false},      // M-VAVE's own (engines/fm1open): plays; pulls from and sends to a device (no Live)
         {"choralroot", "ChoralRoot", false, false},   // Quixotic7's (engines/choralroot): plays; its backup syncs
     };
     return choices;
@@ -178,7 +178,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         // 1.6 stores a step's condition in its chance byte (102..112): 1.5 and 1.5.1 refuse a project holding one
         // (the slot reads empty there), so they are pulled from only
         {915, "1.5.1", Support::Older, "pulled from only: update it to 1.6.1 with Felucca's installer to send to it or go Live"},   // (tried 2026-10-11)
-        {916, "1.6.1", Support::Current, ""},   // (not yet tried on an FM-1)
+        {916, "1.6.1", Support::Current, ""},   // (tried on an FM-1 2026-10-16)
     };
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
@@ -194,7 +194,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         // It has four globals fewer (GLO > MIDI 3), so Live refuses (Mirror::start)
         {900, "2.6", Support::Older, "Send works (2.7's new arp modes, held notes and MIDI 3 settings are dropped there); "
                                      "update it to 2.7 with SLOOP's installer to go Live"},
-        {900, "2.7", Support::Current, ""},   // (not yet tried on an FM-1)
+        {900, "2.7", Support::Current, ""},   // (tried on an FM-1 2026-10-16)
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")
@@ -225,7 +225,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {91036, "1.3.6", Support::Older, "pulled from only: update it to 1.4.1 with Melodee's installer to send to it or go Live"},
         // 1.4.1 changed only its installer's Return to V15 and tests (compared upstream: firmware/ the same)
         {91040, "1.4.0", Support::Older, "synced as 1.4.1 (not tried): 1.4.1 changed only its installer"},
-        {91041, "1.4.1", Support::Current, ""},   // (not yet tried on an FM-1)
+        {91041, "1.4.1", Support::Current, ""},   // (tried on an FM-1 2026-10-16)
     };
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;

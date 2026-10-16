@@ -15,6 +15,7 @@ static inline int pthread_mutex_lock(pthread_mutex_t *m) { (void)m; return 0; }
 static inline int pthread_mutex_unlock(pthread_mutex_t *m) { (void)m; return 0; }
 static inline int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) { (void)c; (void)m; return 0; }
 static inline int pthread_cond_signal(pthread_cond_t *c) { (void)c; return 0; }
+static inline int pthread_cond_broadcast(pthread_cond_t *c) { (void)c; return 0; }
 static inline int pthread_create(pthread_t *t, const void *a, void *(*f)(void *), void *arg) { (void)t; (void)a; (void)f; (void)arg; return 1; }
 static inline int pthread_join(pthread_t t, void **r) { (void)t; (void)r; return 0; }
 #endif

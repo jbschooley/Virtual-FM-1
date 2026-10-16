@@ -452,7 +452,7 @@ int main(int argc, char** argv) {
         waitIdle(session, 20000);
         CHECK(got.size() == 1 && got[0].second.tempo == 99 && got[0].second.length == 33 && got[0].second.steps[32].notes.size() == 1
               && got[0].second.steps[32].notes[0].note == 70 && got[0].second.steps[0].notes.empty(), "pushed pattern reads back");
-        CHECK(fake.lockWrites == 0 && got[0].second.locks.empty(), "FM-1_089: no locks read, no lock messages");
+        CHECK(fake.lockWrites == 0 && !got.empty() && got[0].second.locks.empty(), "FM-1_089: no locks read, no lock messages");
 
         // FM-1_096: parameter locks are read with the pattern and given back after a pattern write
         fake.identityVersion = 96; identity.reset();
