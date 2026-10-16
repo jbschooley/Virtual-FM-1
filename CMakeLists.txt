@@ -230,11 +230,18 @@ if(FM1_BUILD_FELUCCA)
     set(fm1CoreFlags_fm1open -fwrapv -ffp-contract=off -fno-fast-math -DFM1_HOST_TEST -DFM1_OPEN_WEB
         -I${fo}/web/engine -I${fo}/web/synth -I${fo}/third_party/synth -I${fo}/sdk/include -I${fo}/app/synth -I${fo}/app)
     fm1_core(fm1open fo)
+    # ChoralRoot 0.23 (engines/choralroot): built as its own emulator builds it for a computer (upstream/tools/emu:
+    # the firmware's sources through emu_fw.c), the single-core package's firmware; compat/ stands in for the
+    # macOS-only headers that emulator includes (os/lock.h) and, on Windows, the POSIX ones
+    set(cr ${CMAKE_SOURCE_DIR}/engines/choralroot)
+    set(fm1CoreFlags_choralroot -I${cr}/compat -I${cr}/upstream/firmware/src)
+    fm1_core(choralroot chr)
     add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects}
                 ${melodee013Objects} ${melodee110Objects} ${felucca103Objects}
-                engines/fm1open/Fm1OpenEngine.cpp ${fm1openObjects})
+                engines/fm1open/Fm1OpenEngine.cpp ${fm1openObjects} ${choralrootObjects})
     target_include_directories(fm1_felucca PUBLIC engines/felucca engines/fm1open PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee
-                               ${CMAKE_BINARY_DIR}/melodee013 ${CMAKE_BINARY_DIR}/melodee110 ${CMAKE_BINARY_DIR}/felucca103)
+                               ${CMAKE_BINARY_DIR}/melodee013 ${CMAKE_BINARY_DIR}/melodee110 ${CMAKE_BINARY_DIR}/felucca103
+                               ${CMAKE_BINARY_DIR}/choralroot)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
 
@@ -305,6 +312,23 @@ if(FM1_BUILD_FELUCCA)
         target_compile_options(melodee110_regress PRIVATE -w -O2 -ffp-contract=off)
         target_link_libraries(melodee110_regress PRIVATE m)
         add_test(NAME melodee110_regress COMMAND melodee110_regress ${CMAKE_SOURCE_DIR}/engines/melodee110/upstream/tests/golden.txt no-cpu-budget)
+        # ChoralRoot's (engines/choralroot: 0.23): its golden renders (no CPU baseline), and its backup protocol's
+        # own test (cr_backup_test.c: the emulator's firmware, as the plugin's core builds it), as its run_tests.sh
+        # and run_cr_tests.sh build them
+        set(crUp engines/choralroot/upstream)
+        add_executable(choralroot_regress ${crUp}/tests/regress.c)
+        target_include_directories(choralroot_regress PRIVATE engines/choralroot/generated ${crUp}/firmware/src)
+        target_compile_options(choralroot_regress PRIVATE -w -O2)
+        target_link_libraries(choralroot_regress PRIVATE m)
+        add_test(NAME choralroot_regress COMMAND choralroot_regress ${CMAKE_SOURCE_DIR}/${crUp}/tests/golden.txt no-cpu-budget)
+        add_executable(choralroot_backup_test ${crUp}/tests/cr_backup_test.c)
+        target_include_directories(choralroot_backup_test PRIVATE engines/choralroot/generated ${crUp}/firmware/src ${crUp}/tests)
+        if(NOT APPLE)   # (os/lock.h: macOS's; elsewhere the core's stand-in)
+            target_include_directories(choralroot_backup_test BEFORE PRIVATE engines/choralroot/compat)
+        endif()
+        target_compile_options(choralroot_backup_test PRIVATE -std=gnu11 -w -O1)
+        target_link_libraries(choralroot_backup_test PRIVATE m)
+        add_test(NAME choralroot_backup_test COMMAND choralroot_backup_test)
     endif()
     # the copies: independent, and playing
     add_executable(fm1open_test tests/fm1open_test.cpp)
@@ -326,6 +350,10 @@ if(FM1_BUILD_FELUCCA)
                                MELODEE013_FROZEN="${CMAKE_SOURCE_DIR}/tests/melodee013-frozen.txt"
                                MELODEE110_FROZEN="${CMAKE_SOURCE_DIR}/tests/melodee110-frozen.txt")
     add_test(NAME melodee_test COMMAND melodee_test)
+    add_executable(choralroot_test tests/choralroot_test.cpp)
+    target_link_libraries(choralroot_test PRIVATE fm1_felucca)
+    target_compile_definitions(choralroot_test PRIVATE CHORALROOT_FROZEN="${CMAKE_SOURCE_DIR}/tests/choralroot-frozen.txt")
+    add_test(NAME choralroot_test COMMAND choralroot_test)
 endif()
 endif()
 

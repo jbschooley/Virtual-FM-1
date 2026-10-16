@@ -38,7 +38,9 @@ class FeluccaEngine : public DevicePanel {
 public:
     // Which firmware: Felucca, SLOOP (engines/sloop) or Melodee (engines/melodee), both built from
     // Felucca and behind the same API
-    enum class Flavor { Felucca, Sloop, Melodee };
+    // ChoralRoot (engines/choralroot): Quixotic7's chord instrument, from Felucca; its own UI, no editor beyond
+    // its backup (no parameters, no sequencer)
+    enum class Flavor { Felucca, Sloop, Melodee, ChoralRoot };
     // Which release of it: the current one, or one kept for the projects made with it (fm1::keptReleases:
     // Previous is engines/melodee013, Melodee 0.13, and engines/felucca103, Felucca 1.0.3; Previous2
     // engines/melodee110, Melodee 1.1.0). The numbers are saved with projects and host parameters: never renumbered
@@ -155,6 +157,7 @@ private:
     std::unique_lock<std::mutex> bind() const; // its lock held, the firmware pointed at its state
     void feed(const uint8_t* bytes, int size); // (bind() held) a SysEx message into its USB port
     void drain();                              // (bind() held) what it sent, into sxDone_
+    void restartIfDue();                       // (bind() held) ChoralRoot: a restart it owes, done
     Flavor flavor_ = Flavor::Felucca;
     Release release_ = Release::Current;
     const FeluccaCopy* core_ = nullptr;
