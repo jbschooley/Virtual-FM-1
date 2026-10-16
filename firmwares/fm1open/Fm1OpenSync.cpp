@@ -14,12 +14,22 @@ unsigned le(const Bytes& b, size_t at, int n) {
     for (int i = 0; i < n && at + size_t(i) < b.size(); ++i) v |= unsigned(b[at + size_t(i)]) << (8 * i);
     return v;
 }
-// a status other than 0 (done) in words (transfer.c: 64 + n for an error -n; instrument.h's errors)
+// a status other than 0 (done) in words (transfer.c: 64 - r for an error r; fm1.h's flash errors -1..-6,
+// instrument.h's -7, -8)
+constexpr int kBusy = 64 + 3;   // FM1_FLASH_BUSY
 juce::String statusText(int code) {
-    if (code == 1) return "that project slot is empty";
-    if (code == 72) return "it has not enough memory for it";
-    if (code == 71) return "it found the file or a value invalid";
-    return "it refused it (code " + juce::String(code) + ")";
+    switch (code) {
+        case 1: return "that project slot is empty";
+        case 65: return "its flash refused the data as invalid";
+        case 66: return "its flash could not be read or written";
+        case kBusy: return "its flash is busy (try again in a moment)";
+        case 68: return "its flash needed erasing first";
+        case 69: return "its flash was in the wrong state for it";
+        case 70: return "its flash is not available";
+        case 71: return "it found the file or a value invalid";
+        case 72: return "it has not enough memory for it";
+        default: return "it refused it (code " + juce::String(code) + ")";
+    }
 }
 }  // namespace
 
@@ -127,18 +137,24 @@ std::optional<Bytes> LinkEndpoint::ask(const Bytes& request) {
 
 Client::Client(Endpoint& e) : e_(e), token_(juce::Random::getSystemRandom().nextInt(16384)) {}
 
+// A lost reply: the same frame again (same token), which FM1 Open answers from its cached reply, so a write is
+// never done twice. A busy flash: that reply is cached too, so it is asked again as a new request (a new
+// token) after a moment, a few times (FM1_FLASH_BUSY: the request was not carried out)
 std::optional<Bytes> Client::query(int command, const Bytes& payload, juce::String& error, bool emptyOK, bool* empty) {
-    token_ = (token_ + 1) & 16383;
-    const auto packet = frame(command, token_, payload);
-    auto reply = e_.ask(packet);
-    if (!reply) reply = e_.ask(packet);   // (the same request again: FM1 Open answers it from its cached reply)
-    const auto r = reply ? parse(*reply) : std::nullopt;
-    if (!r || r->command != (command | 64) || r->token != token_) { error = "the FM-1 did not answer"; return std::nullopt; }
-    if (r->data.empty()) { error = "the FM-1's answer was incomplete"; return std::nullopt; }
-    const int code = r->data[0];
-    if (empty) *empty = code == 1;
-    if (code != 0 && !(emptyOK && code == 1)) { error = "the FM-1 says " + statusText(code); return std::nullopt; }
-    return Bytes(r->data.begin() + 1, r->data.end());
+    for (int attempt = 0;; ++attempt) {
+        token_ = (token_ + 1) & 16383;
+        const auto packet = frame(command, token_, payload);
+        auto reply = e_.ask(packet);
+        if (!reply) reply = e_.ask(packet);
+        const auto r = reply ? parse(*reply) : std::nullopt;
+        if (!r || r->command != (command | 64) || r->token != token_) { error = "the FM-1 did not answer"; return std::nullopt; }
+        if (r->data.empty()) { error = "the FM-1's answer was incomplete"; return std::nullopt; }
+        const int code = r->data[0];
+        if (code == kBusy && attempt + 1 < kBusyTries) { juce::Thread::sleep(kBusyWaitMs); continue; }
+        if (empty) *empty = code == 1;
+        if (code != 0 && !(emptyOK && code == 1)) { error = "the FM-1 says " + statusText(code); return std::nullopt; }
+        return Bytes(r->data.begin() + 1, r->data.end());
+    }
 }
 
 std::optional<Info> Client::info(juce::String& error) {
@@ -276,8 +292,9 @@ std::optional<Bytes> Client::samples(juce::String& error, const Progress& progre
     return data;
 }
 
-bool Client::setSamples(const Bytes& bank, juce::String& error, const Progress& progress) {
+bool Client::setSamples(const Bytes& bank, juce::String& error, const Progress& progress, bool* erased) {
     const int n = int(bank.size());
+    if (erased) *erased = false;
     if (const auto why = sampleBankProblem(bank); why.isNotEmpty()) { error = "the sample bank was not sent: " + why; return false; }
     auto i = query(11, {}, error);
     if (!i) return false;
@@ -285,15 +302,17 @@ bool Client::setSamples(const Bytes& bank, juce::String& error, const Progress& 
     Bytes q;
     put32(q, uint32_t(n));
     if (!query(12, q, error)) return false;
+    if (erased) *erased = true;   // (begin erased the FM-1's bank: from here it has none until finish)
     bool ok = true;
     for (int at = 0; at < n && ok; at += 128) {
         Bytes w;
         put32(w, uint32_t(at));
         w.insert(w.end(), bank.begin() + at, bank.begin() + std::min(n, at + 128));
         if (!query(13, w, error)) ok = false;
-        else if (progress && !progress(std::min(n, at + 128), 2 * n)) { error = "stopped: send the whole sample bank again"; ok = false; }
+        else if (progress) progress(std::min(n, at + 128), 2 * n);   // (shown; a stop is not taken here)
     }
     if (ok) ok = query(14, {}, error).has_value();
+    if (ok && erased) *erased = false;   // (finished: the FM-1 has this bank)
     juce::String ignored;
     query(16, {}, ignored);   // (as the workbench's finally)
     if (!ok) return false;

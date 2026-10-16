@@ -382,6 +382,53 @@ static int checks() {
             fm1open::Client again(lossy);
             auto viaLoss = again.project(err);
             CHECK(viaLoss && viaLoss == dev->exportProject() && lossy.asked > 60, "every other reply lost: each request asked again, the project still whole (" + err + ")");
+            {   // writes with every other reply lost: a chunk, a finish, a slot save asked again with the same token get
+                // FM1 Open's cached reply (done once); with a new token a chunk would be refused (not where the transfer is)
+                auto demo7 = dev->factoryProject(7);
+                CHECK(demo7 && again.setProject(*demo7, err) && dev->exportProject() == demo7 && again.saveToSlot(6, err),
+                      "Send and a slot save with every other reply lost: done once each (" + err + ")");
+                auto lossyBank = device.samples(err);
+                CHECK(lossyBank && again.setSamples(*lossyBank, err) && device.samples(err) == lossyBank,
+                      "a sample bank sent with every other reply lost: whole (" + err + ")");
+            }
+            {   // a busy flash (FM1_FLASH_BUSY, status 67): FM1 Open caches that reply too, so it is asked again with a new
+                // token, a few times; one that stays busy is given up with its reason
+                struct Busy : fm1open::Endpoint {
+                    fm1open::Endpoint& e;
+                    int busyFor, busied = 0, asked = 0;
+                    Busy(fm1open::Endpoint& x, int n) : e(x), busyFor(n) {}
+                    std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                        ++asked;
+                        const auto r = fm1open::parse(q);
+                        if (r && r->command == 7 && busied < busyFor) { ++busied; return fm1open::frame(7 | 64, r->token, {67}); }
+                        return e.ask(q);
+                    }
+                };
+                Busy once(de, 1), always(de, 99);
+                fm1open::Client c1(once), c2(always);
+                juce::String e1, e2;
+                CHECK(c1.saveToSlot(7, e1) && once.busied == 1, "a slot save answered busy once: asked again, saved (" + e1 + ")");
+                CHECK(!c2.saveToSlot(7, e2) && always.busied == fm1open::Client::kBusyTries && e2.contains("busy"),
+                      "one that stays busy: given up after " + juce::String(fm1open::Client::kBusyTries) + " tries, said so (" + e2 + ")");
+            }
+            {   // a sample bank's write cut off after FM1 Open erased its bank: said to have left it with none
+                struct Cut : fm1open::Endpoint {
+                    fm1open::Endpoint& e;
+                    int chunks = 0;
+                    explicit Cut(fm1open::Endpoint& x) : e(x) {}
+                    std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                        const auto r = fm1open::parse(q);
+                        if (r && r->command == 13 && ++chunks > 3) return std::nullopt;   // (the link gone mid-write)
+                        return e.ask(q);
+                    }
+                } cut(de);
+                fm1open::Client cc(cut);
+                auto b = device.samples(err);
+                bool emptied = false, notYet = true;
+                juce::String why;
+                CHECK(b && !cc.setSamples(*b, why, {}, &emptied) && emptied, "a bank write cut off after the erase: the FM-1 left with none, said (" + why + ")");
+                CHECK(b && device.setSamples(*b, err, {}, &notYet) && !notYet && device.samples(err) == b, "and sent again whole, it has it (" + err + ")");
+            }
         }
         {   // its Device view: its screen and panel
             FeluccaDeviceView view(p);

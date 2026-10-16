@@ -1592,8 +1592,12 @@ bool FM1Processor::fm1openSendSamples() {
         if (kept.isEmpty()) return Fm1OpenResult{false, "Nothing sent: could not save the FM-1's sample bank in the library."};
         auto bank = ours.samples(err);
         if (!bank) return Fm1OpenResult{false, "Nothing sent: the plugin's FM1 Open gave no sample bank (" + err + ")."};
-        if (!theirs.setSamples(*bank, err, progress))
-            return Fm1OpenResult{false, "Sending the sample bank stopped: " + err + ". The FM-1's bank from before: " + kept};
+        bool empty = false;
+        if (!theirs.setSamples(*bank, err, progress, &empty))
+            return Fm1OpenResult{false, empty ? "Sending the sample bank failed: " + err + ". The FM-1 now has NO sample bank (FM1 Open erases it "
+                                                "before writing): press Send sample bank again (this instance's bank is unchanged), or "
+                                                "restore its bank from before with M-VAVE's workbench: " + kept
+                                              : "Sending the sample bank stopped: " + err + ". The FM-1's bank from before: " + kept};
         return Fm1OpenResult{true, "Sent the sample bank to the FM-1 (every project there uses it). Its bank from before: " + kept};
     });
 }
