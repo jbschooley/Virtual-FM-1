@@ -95,7 +95,8 @@ for the code. New work goes under the next version at the top.
 - **ChoralRoot 0.23**, Quixotic7's chord instrument built from Felucca, as a
   firmware choice: built from its source as its own emulator builds it (the
   single-core package), played on its own front panel and screen (the Device
-  tab). An FM-1 running it is recognised by its INFO ("ChoralRoot 0.23"; it
+  tab); DX7 and CZ-1 SysEx sent to it reach its FM6 and CZ engines as on the
+  unit. An FM-1 running it is recognised by its INFO ("ChoralRoot 0.23"; it
   answers FM-1_920 in every release); 0.24-beta1 changed none of its backup
   and is synced as 0.23. Its Sync page pulls from and sends to it what its
   backup carries (the sound pool, favourites, loop slots, CZ-1 banks and FM6

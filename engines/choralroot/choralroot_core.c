@@ -130,6 +130,7 @@ static uint32_t chrc_ms, chrc_frame_ms;       /* the simulated milliseconds tick
 static uint8_t chrc_sx[4096];               /* a SysEx frame coming in (F0 .. F7), and whether it is complete */
 static uint32_t chrc_sx_n;
 static uint8_t chrc_sx_on, chrc_sx_done;
+static uint8_t chrc_sx_fw;                  /* this frame is not ChoralRoot's (7D 46 4C): it goes to the firmware's own parser */
 static int16_t chrc_half[2u * HALF_FRAMES];   /* the audio interrupt's half buffer, given out a control block at a time */
 static uint32_t chrc_half_pos;
 static uint8_t chrc_restart;                /* a restart is due: a settings record restored, or 72 RESTART asked */
@@ -220,7 +221,7 @@ void FEL(init)(void)
     chrc_frames = 0;
     chrc_ms = chrc_frame_ms = 0;
     chrc_sx_n = 0;
-    chrc_sx_on = chrc_sx_done = 0;
+    chrc_sx_on = chrc_sx_done = chrc_sx_fw = 0;
     chrc_half_pos = 0;
     emu_hal.ready = 2;                    /* simulated time (emu_fw_init: emu_sim) */
     if (chrc_boot)                        /* a restart: the flash as it was (read through chrc_fopen) */
@@ -269,23 +270,49 @@ uint32_t FEL(fm6_engine)(void) { return ENGI_FM6; }
 void FEL(fm6_patch_get)(uint32_t track, uint8_t *v155) { (void)track; memset(v155, 0, 155); }
 void FEL(fm6_patch_set)(uint32_t track, const uint8_t *v155) { (void)track; (void)v155; }
 
-/* MIDI in: notes and the rest to the firmware's queue (usb.c), SysEx assembled here for its backup handler */
+/* a SysEx byte to the firmware's own parser, as the unit's USB interrupt hands it (usb.c sysex_byte: DX7 voices,
+ * banks and parameters to FM6, CZ-1 tones and requests) */
+static void chrc_fw_sx(uint8_t b)
+{
+    fm1_irq_off();
+    sysex_byte(b);
+    fm1_irq_on();
+}
+
+/* MIDI in: notes and the rest to the firmware's queue (usb.c), SysEx assembled here for its backup handler. Another
+ * frame (its header is not 7D 46 4C) goes on to the firmware's SysEx parser byte by byte as it comes, the bytes held
+ * until the header told them apart with it (so a DX7 bank, longer than chrc_sx, is whole). ChoralRoot's own never
+ * reach that parser: emu_fw_frame would hand a short one to crb_handle a second time */
 void FEL(midi)(uint32_t pkt)
 {
+    static const uint8_t hdr[3] = {CRB_HDR0, CRB_HDR1, CRB_HDR2};
     const uint32_t cin = pkt & 0xFu, k = cin == 5u ? 1u : cin == 6u ? 2u : 3u;
     if (cin >= 4u && cin <= 7u) {
-        uint32_t j;
+        uint32_t j, i;
         for (j = 0; j < k; j++) {
             const uint8_t b = (uint8_t)(pkt >> (8u * (j + 1u)));
             if (b == 0xF0u) {
                 chrc_sx_on = 1;
                 chrc_sx_done = 0;
                 chrc_sx_n = 0;
+                chrc_sx_fw = 0;
             }
             if (!chrc_sx_on)
                 continue;
+            if (chrc_sx_fw) {
+                chrc_fw_sx(b);
+                chrc_sx_on = b != 0xF7u;
+                continue;
+            }
             if (chrc_sx_n < sizeof chrc_sx)
                 chrc_sx[chrc_sx_n++] = b;
+            if (chrc_sx_n >= 2u && chrc_sx_n <= 4u && b != hdr[chrc_sx_n - 2u]) {
+                chrc_sx_fw = 1;                   /* not ours: what came of it so far, then the rest as it comes */
+                for (i = 0; i < chrc_sx_n; i++)
+                    chrc_fw_sx(chrc_sx[i]);
+                chrc_sx_on = b != 0xF7u;
+                continue;
+            }
             if (b == 0xF7u) {
                 chrc_sx_on = 0;
                 chrc_sx_done = chrc_sx_n < sizeof chrc_sx;
@@ -296,7 +323,7 @@ void FEL(midi)(uint32_t pkt)
     (void)emu_fw_midi_in(pkt);
 }
 
-/* a frame waiting: ChoralRoot's (7D 46 4C) to its handler, its reply out; anything else dropped */
+/* a frame waiting: ChoralRoot's (7D 46 4C) to its handler, its reply out (another went to the firmware's parser) */
 void FEL(service)(void)
 {
     if (!chrc_sx_done)

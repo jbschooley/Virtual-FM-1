@@ -208,6 +208,33 @@ int main() {
               "a 1552-byte record another firmware left (\"PER3\"): refused as the device refuses it, nothing changed");
     }
 
+    {   // other SysEx goes to the firmware's own parser, as on the unit (usb.c sysex_byte): a DX7 single voice is the FM6
+        // part's new voice. Three instances from power-on, the same actions: one sent the voice, one the same frame with
+        // its checksum broken (FM6 ignores it), one nothing; then a held chord
+        std::vector<uint8_t> voice = {0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B};
+        for (int op = 0; op < 6; ++op)   // every operator a sine at full level, 1:1, its envelope wide open
+            for (int v : {99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, 99, 0, 1, 0, 7}) voice.push_back(uint8_t(v));
+        for (int v : {99, 99, 99, 99, 50, 50, 50, 50, 31, 7, 1, 35, 0, 0, 0, 1, 0, 3, 24}) voice.push_back(uint8_t(v));   // algorithm 32
+        for (char ch : std::string("PROBEVOICE")) voice.push_back(uint8_t(ch));
+        uint32_t sum = 0;
+        for (size_t i = 6; i < voice.size(); ++i) sum += voice[i];
+        voice.push_back(uint8_t(-sum & 0x7F));
+        voice.push_back(0xF7);
+        auto broken = voice;
+        broken[broken.size() - 2] ^= 1;
+        auto take = [](const std::vector<uint8_t>* frame) {
+            FeluccaEngine e(Fl::ChoralRoot);
+            render(e, 0.5, 256);
+            if (frame) e.sysex(frame->data(), int(frame->size()));
+            return render(e, 1.0, 256, [&e](int frame) {
+                if (frame == 0x2000) for (int n : {60, 64, 67}) { const uint8_t m[3] = {0x90, uint8_t(n), 100}; e.midi(m, 3); }
+            });
+        };
+        const auto none = take(nullptr), dx7 = take(&voice), bad = take(&broken);
+        CHECK(voice.size() == 163 && dx7.hash != none.hash && bad.hash == none.hash && dx7.mean > 0.0,
+              "a DX7 single voice changes what the FM6 part plays; one with its checksum broken does not");
+    }
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
