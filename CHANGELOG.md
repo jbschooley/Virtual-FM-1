@@ -73,8 +73,14 @@ for the code. New work goes under the next version at the top.
   eight tracks and six sound sources, sequencer and 16 demo projects play on its
   own front panel and screen, and its projects are saved with the host's
   project. An FM-1 running it is recognised (FM-1_8000012, seen on an FM-1
-  running V12, and M-VAVE's other FM1 Open builds), but not synced with yet; no
-  host parameters yet.
+  running V12, and M-VAVE's other FM1 Open builds), and its FM-1 tab pulls from
+  and sends to it as M-VAVE's workbench does: the project it plays (and into one
+  of its 16 slots), a track's sound, a slot loaded and pulled, and its sample
+  bank (a pulled one is kept with the host's project). What a Send replaces on
+  the FM-1 is saved in the library first, as `.fm1` and `.fm1s` files the
+  workbench imports. No Live: FM1 Open has no message for one value changed,
+  and a sound sent whole would cut what plays. No host parameters yet. Syncing
+  is not yet tried with an FM-1.
 
 ## [0.9.2] - 2026-10-16
 
