@@ -23,8 +23,42 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
     return firmwareChoice(kDefaultFirmwareId);
 }
 
+// Firmwares made for the FM-1 (most from Felucca) that the plugin knows by name and does not play or sync
+// (their repositories' releases, 2026-10-16). Many answer an identity of Felucca's scheme, or one another's,
+// so their INFO (Felucca's editor protocol, where they speak it) decides first; the ones with no editor
+// protocol go by their identity's own scheme. Empty: none of them.
+std::string otherFirmwareName(const Identity& id) {
+    const std::string& info = id.editor;
+    static const std::pair<const char*, const char*> byInfo[] = {
+        {"ChoralRoot ", "ChoralRoot"}, {"CoralFlower ", "CoralFlower"}, {"PurpleMonkey ", "PurpleMonkey"}, {"X0X ", "X0X"},
+        {"JANGADA ", "Jangada"}, {"FELUCCA ORBIT", "ORBIT"}, {"FELUCCA DUELL", "DUELL"}, {"FELUCCA OPTIMIST", "Optimist"}};
+    for (auto [prefix, name] : byInfo)
+        if (info.rfind(prefix, 0) == 0) return name;
+    // another "FELUCCA <NAME> ..." than Felucca's own "FELUCCA vX.Y" (SLOOP and Melodee are told apart before)
+    if (info.rfind("FELUCCA ", 0) == 0 && info.rfind("FELUCCA v", 0) != 0 && info.find("SLOOP") == std::string::npos)
+        return "a firmware made from Felucca (\"" + info + "\")";
+    if (!info.empty()) return {};
+    // no editor protocol: identities of seven digits, the first naming the family (X.Y.Z as XXYYZZ)
+    if (id.version >= 1000000 && id.version < 10000000) {
+        switch (id.version / 1000000) {
+            case 5: return "MONK-1";
+            case 6: return "CTL-1";
+            case 7: return "AMB-1 or FuMi-1";
+            case 8: return "FoMni, FiMba-1 or FM1 Open";
+            case 9: return "TRIBE (or an X0X build)";
+            default: return "a firmware the plugin does not know";
+        }
+    }
+    if (id.version >= 990 && id.version <= 999) return "Dinghy";
+    if (id.version == 900) return "Hortator (or another Felucca build with no editor protocol)";   // (Felucca's own answer INFO)
+    if (id.version == 906 || id.version == 907) return "FM-106 (or a Felucca 0.6 or 0.7 beta)";
+    if (id.version >= 200 && id.version < 900) return "a firmware the plugin does not know";
+    return {};
+}
+
 std::string firmwareIdFor(const Identity& id) {
     if (id.isStock()) return "fm1_stock";
+    if (!otherFirmwareName(id).empty()) return "other";
     // SLOOP (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
     // does, FM-1_900: its editor's INFO says SLOOP ("FELUCCA SLOOP 2.3")
     // Melodee (keremimo/melodee, from Felucca 1.0) answers FM-1_900 (development), FM-1_9010 .. FM-1_9012
@@ -242,6 +276,11 @@ VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
         c.text = id.name() + ": Melodee Synth only, which the plugin does not support yet";
         return c;
     }
+    if (c.firmwareId == "other") {   // (likewise)
+        c.support = Support::Older;
+        c.text = id.name() + ": " + otherFirmwareName(id) + ", which the plugin does not support yet";
+        return c;
+    }
     if (isPreviousRelease(choiceId) && runs(id, choiceId)) {   // an instance set to a kept release, an FM-1 on it
         c.known = &currentVersion(choiceId);
         c.support = Support::Current;
@@ -386,6 +425,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
     else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
     else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
+    else if (which == "other") f = makeUnsupportedFirmware(otherFirmwareName(id));
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

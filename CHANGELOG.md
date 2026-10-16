@@ -11,6 +11,13 @@ for the code. New work goes under the next version at the top.
 - **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
   memory is 0.97's, checked in its firmware image), and said to be not tried
   with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.
+- **More firmwares are named.** An FM-1 running ChoralRoot, CoralFlower,
+  PurpleMonkey, X0X, Jangada, ORBIT, DUELL, Optimist, MONK-1, CTL-1, AMB-1,
+  FuMi-1, FoMni, FiMba-1, TRIBE, Dinghy, Hortator or FM-106 is named as such and
+  said to be not supported yet, instead of being taken for Felucca or FM-1+VA
+  (most answer as Felucca does, or with Felucca's own numbers). Where two
+  answer alike, both are named. The plugin now asks a firmware for its name
+  from FM-1_200 up (it asked from FM-1_900).
 
 ## [0.9.2] - 2026-10-16
 

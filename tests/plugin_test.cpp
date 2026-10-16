@@ -260,8 +260,35 @@ static int checks() {
               "one between known releases is not called older");
         CHECK(n.text.find("GLOBE settings not read") != std::string::npos, "a newer FM-1+VA says what newest-known support it lacks");
         CHECK(at(14).firmwareId == "fm1_stock" && !at(14).known && !at(14).newer, "stock V14: older than V15");
+        {   // firmwares known by name only: told apart by their INFO, then by their identity's own scheme
+            auto with = [](int v, const char* info) { fm1::Identity i{"FM-1", v, info}; return i; };
+            struct Case { fm1::Identity id; const char* name; };
+            const Case cases[] = {
+                {with(920, "ChoralRoot 0.23"), "ChoralRoot"}, {with(930, "CoralFlower 0.2"), "CoralFlower"},
+                {with(927, "PurpleMonkey 0.11"), "PurpleMonkey"}, {with(9010100, "X0X 1.1.0 BETA"), "X0X"},
+                {with(910, "JANGADA 1.0.1"), "Jangada"}, {with(900, "FELUCCA ORBIT 0.7.1"), "ORBIT"},
+                {with(901, "FELUCCA DUELL 0.2.20 beta"), "DUELL"}, {with(721, "FELUCCA OPTIMIST 0.1"), "Optimist"},
+                {with(5000901, ""), "MONK-1"}, {with(6000902, ""), "CTL-1"}, {with(7010200, ""), "AMB-1"},
+                {with(8000400, ""), "FoMni"}, {with(9000100, ""), "TRIBE"}, {with(993, ""), "Dinghy"},
+                {with(900, ""), "Hortator"}, {with(907, ""), "FM-106"}, {with(700, ""), "does not know"}};
+            int ok = 0;
+            for (const auto& k : cases) {
+                const auto c = fm1::checkVersion(k.id);
+                if (fm1::firmwareIdFor(k.id) == "other" && c.text.find(k.name) != std::string::npos && c.text.find("does not support") != std::string::npos
+                    && !fm1::isFirmwareChoice(fm1::firmwareIdFor(k.id)))
+                    ++ok;
+                else
+                    std::printf("  %d \"%s\": %s (%s)\n", k.id.version, k.id.editor.c_str(), fm1::firmwareIdFor(k.id).c_str(), c.text.c_str());
+            }
+            CHECK(ok == int(std::size(cases)), "17 firmwares known by name: named, said to be unsupported, never synced as Felucca or FM-1+VA");
+            CHECK(fm1::firmwareIdFor(with(915, "FELUCCA v1.5.1")) == "felucca" && fm1::firmwareIdFor(with(900, "FELUCCA SLOOP 2.6")) == "sloop"
+                      && fm1::firmwareIdFor(with(91034, "MELODEE v1.3.4")) == "melodee" && fm1::firmwareIdFor(with(97, "")) == "baudgirl_fm1va"
+                      && fm1::firmwareIdFor(with(101, "")) == "baudgirl_fm1va",
+                  "and Felucca, SLOOP, Melodee and FM-1+VA still as before");
+        }
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
-        CHECK(at(900).text.find("development build") != std::string::npos, "a Felucca build that is not a release");
+        CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA v1.6-dev"}).text.find("development build") != std::string::npos,
+              "a Felucca build that is not a release (FM-1_900, its INFO Felucca's: with none, Hortator, below)");
         {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it
             const fm1::Identity sloop{"FM-1", 900, "FELUCCA SLOOP 2.2"}, dev{"FM-1", 900, "FELUCCA v1.1-dev"};
             const auto c = fm1::checkVersion(sloop);

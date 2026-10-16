@@ -93,7 +93,7 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
     rejected_ = false;
     auto id = link_.ask<fm1::Identity>(fm1::kIdentityQuery,
         [](const fm1::Bytes& f) { return fm1::parseIdentity(f.data(), f.size()); }, 1000, 3);
-    if (id && id->version >= 900) {
+    if (id && id->version >= 200) {   // (baud girl's FM-1_0NN and 1NN do not speak it)
         // FM-1_9XY: Felucca, or a firmware made from it that answers alike (Sloop): its editor
         // protocol's INFO names it (F0 7D 46 4C 01 F7 -> its name, 0-terminated, first; then
         // NENGINES, P_COUNT, G_COUNT, NSTEP: Melodee's Synth only build has no steps)
