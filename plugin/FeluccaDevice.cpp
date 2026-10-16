@@ -38,9 +38,11 @@ bool putObjects(FeluccaEngine& f, const Objects& objects, juce::String& error) {
         if (it == objects.end()) continue;
         if (const int rc = f.putObject(id, it->second); rc != 0) {
             error = "object " + juce::String(id) + " refused (rc " + juce::String(rc) + ")";
+            f.objectsDone();
             return false;
         }
     }
+    f.objectsDone();
     return true;
 }
 
@@ -71,8 +73,9 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     for (int id : dialect_.restoreOrder) {
         auto it = o.find(id);
         if (id == 0 || it == o.end()) continue;
-        if (f.putObject(id, it->second) != 0) return file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + ".";
+        if (f.putObject(id, it->second) != 0) { f.objectsDone(); return file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + "."; }
     }
+    f.objectsDone();
     known_.clear();
     std::vector<uint8_t> b;
     for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) known_[id] = b;
@@ -150,9 +153,10 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
         for (int id : dialect_.restoreOrder) {
             auto it = theirs.find(id);   // (an archive from before FM6 has no 8: the bank stays)
             if (id == 0 || it == theirs.end() || now[id] != known_[id] || it->second == now[id]) continue;
-            if (f.putObject(id, it->second) != 0) return report(file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + ".");
+            if (f.putObject(id, it->second) != 0) { f.objectsDone(); return report(file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + "."); }
             if (f.object(id, b)) now[id] = b;
         }
+        f.objectsDone();
         for (int id = 1; id <= dialect_.lastObject; ++id) {
             if (now[id] == known_[id]) base[id] = now[id];
             else if (auto it = theirs.find(id); it != theirs.end()) base[id] = it->second;

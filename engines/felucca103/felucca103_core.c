@@ -613,6 +613,8 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 
 /* an object back (len 0: an empty slot), validated and converted as a backup restore does it;
  * editor_backup.c's rc: 0 ok, 1 invalid, 2 validation failed, 4 storage */
+void FEL(objects_done)(void) {}   /* (a batch of objects put: nothing to do here) */
+
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;

@@ -376,8 +376,8 @@ int main() {
             old.setEngine(0, 3);   // (SID on part 1, stored as 1.1.0's user preset 1: UP_STORE slot, name)
             auto stored = old.ask({0xF0, 0x7D, 0x46, 0x4C, 19, 0, 'T', 'E', 'S', 'T', 0xF7});
             std::vector<uint8_t> bankOld, bankNow;
-            CHECK(stored && old.object(6, bankOld) && !bankOld.empty() && h.putObject(6, bankOld) == 0 && h.object(6, bankNow) && !bankNow.empty()
-                      && bankNow != bankOld,
+            CHECK(stored && old.object(6, bankOld) && !bankOld.empty() && h.putObject(6, bankOld) == 0 && (h.objectsDone(), h.object(6, bankNow))
+                      && !bankNow.empty() && bankNow != bankOld,
                   "a 1.1.0 user preset bank (object 6, a preset stored there) into 1.4: taken, and kept in 1.4's form");
             // LIBRARY list (command 80 op 0): first slot, count -> per slot used, engine, old, name (0-terminated)
             auto r = h.ask({0xF0, 0x7D, 0x46, 0x4C, 80, 0, 0, 0, 16, 0xF7});
@@ -393,6 +393,28 @@ int main() {
                 }
             }
             CHECK(found, "and its preset is in 1.4's shared bank: a SID sound named TEST");
+            {   // an FM6 user preset's voice: in 1.1.0 it lives in a native pool beside the bank (objects 19..22); the
+                // banks move into 1.4's shared bank once every object is in (objectsDone), the voice taken from its pool
+                FeluccaEngine o2{kMel, FeluccaEngine::Release::Previous2}, n2{kMel};
+                o2.setEngine(0, 12);
+                o2.applyPreset(0, 7);
+                auto st = o2.ask({0xF0, 0x7D, 0x46, 0x4C, 19, 0, 'F', 'M', 'S', 'X', 0xF7});
+                auto fm6 = [](FeluccaEngine& e, uint8_t target, uint8_t index) {
+                    auto r = e.ask({0xF0, 0x7D, 0x46, 0x4C, 68, target, index, 0xF7});
+                    // (F0 7D 46 4C, 68, target, index, rc, 128 bytes, F7)
+                    return r && r->size() == 4 + 4 + 128 + 1 && (*r)[7] == 0 ? std::vector<uint8_t>(r->begin() + 8, r->end() - 1) : std::vector<uint8_t>{};
+                };
+                const auto want = fm6(o2, 3, 0);
+                int refused = 0;
+                for (int id = 2; id <= 27; ++id) {   // (not the music or settings: the instance's own)
+                    std::vector<uint8_t> b;
+                    if (o2.object(id, b) && n2.putObject(id, b) != 0) ++refused;
+                }
+                n2.objectsDone();
+                const auto got = fm6(n2, 3, 0);
+                CHECK(st && refused == 0 && !want.empty() && got == want,
+                      "a 1.1.0 FM6 user preset moves into 1.4's shared bank with its own voice (not INIT VOICE)");
+            }
             {   // a project of an older format opens on 1.4 (project.c reads FUN16 .. FUN22): 1.1.0's music, part 2 on
                 // CZ-1 at level 66
                 std::vector<uint8_t> music11;

@@ -411,6 +411,12 @@ int FeluccaEngine::putObject(int id, const std::vector<uint8_t>& bytes) {
     return int(core_->object_put(uint32_t(id), bytes.data(), uint32_t(bytes.size())));
 }
 
+void FeluccaEngine::objectsDone() {
+    if (!core_) return;
+    auto g = bind();
+    core_->objects_done();
+}
+
 std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8_t>& m) {
     std::vector<std::vector<uint8_t>> out;
     if (!core_ || m.size() < 2 || m.front() != 0xF0 || m.back() != 0xF7) return out;

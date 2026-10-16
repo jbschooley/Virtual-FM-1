@@ -114,6 +114,7 @@ public:
     // Felucca's rc (0 ok, 1 invalid, 2 failed validation, 4 storage).
     bool object(int id, std::vector<uint8_t>& out);
     int putObject(int id, const std::vector<uint8_t>& bytes);
+    void objectsDone();   // after a batch of putObject (Melodee 1.4: older banks move into its shared bank then)
 
     // ---- any thread ----
     struct Desc {

@@ -687,6 +687,8 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
     return (int32_t)len;
 }
 
+void FEL(objects_done)(void) {}   /* (a batch of objects put: nothing to do here) */
+
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;

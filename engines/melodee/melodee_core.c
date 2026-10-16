@@ -692,6 +692,16 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 
 /* an object back (len 0: an empty slot), validated and converted as a backup restore does it;
  * editor_backup.c's rc: 0 ok, 1 invalid, 2 validation failed, 4 storage */
+/* A batch of objects put (a Pull, the device file, another instance's save): banks of an older format, as a
+ * 1.1 or 1.3 backup or device file holds them, move into 1.4's shared bank here, once, as the device does it at
+ * power-on or when the music (object 0) is put last: after every bank and native pool is in place, in
+ * shared_boot's order (an FM6 preset's voice comes from a pool, PROPHET slots 123..128 go to object 28).
+ * Before that they read as busy. Again on banks already in the shared form: nothing to move. */
+void FEL(objects_done)(void)
+{
+    up_boot();
+}
+
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
@@ -706,10 +716,6 @@ uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
     ed_bk_put = 0;
     ed_bk_valid = 0;
     ++proj_wire_gen;
-    if (rc == 0u && ed_bk_preset_bank(id) < UP_BANKS)
-        up_boot();                       /* (1.4: a bank in an older format, as a 1.3 backup or device file has it,
-                                          * moves into the shared bank as the device does it at power-on;
-                                          * until then it reads as busy) */
     if (id == 1u && rc == 0u)
         glo_restore();                   /* the kept CLK TUNE MIDI ROUT, as the device applies them at power-on
                                           * (else glo_poll would save the instance's own back over them) */
