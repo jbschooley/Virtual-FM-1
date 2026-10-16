@@ -113,8 +113,14 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {96, "0.96", Support::Tested, ""},   // (her release of 2026-10-06; tried on an FM-1 the same day)
         // her current release (baudgirl.com, 2026-10-09): MIDI clock out, P2P Bluetooth clock, the Flow grid
         // as a view; its web app's protocol is 096's (nothing in it needs more than 96). Tried on an FM-1
-        // 2026-10-12 (presets and patterns both ways). 98 and 99 are her betas: synced as 97, said to be untried
+        // 2026-10-12 (presets and patterns both ways)
         {97, "0.97", Support::Current, ""},
+        {98, "0.98", Support::Older, "baud girl's beta: synced as 0.97, not tried on an FM-1"},
+        {99, "0.99", Support::Older, "baud girl's beta: synced as 0.97, not tried on an FM-1"},
+        // her release of 2026-10-12 (lower latency, lighter reverb and distortion, knob labels): no format change
+        // listed, and its image has 0.97's pattern, step and lock memory (the addresses Fm1Seq.h reads appear as
+        // often in it as in 0.96's and 0.97's)
+        {101, "101", Support::Older, "synced as 0.97 (its preset and pattern memory is 0.97's); not tried on an FM-1 yet"},
     };
     // Felucca's releases X.Y answer FM-1_9XY (its build.py --release); other builds FM-1_900
     // (X.Y.Z answers FM-1_9XY: told apart by INFO, checkVersion below). 1.5's projects open on no release

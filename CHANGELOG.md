@@ -4,6 +4,14 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
+  memory is 0.97's, checked in its firmware image), and said to be not tried
+  with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.
+
 ## [0.9.2] - 2026-10-16
 
 ### Fixed

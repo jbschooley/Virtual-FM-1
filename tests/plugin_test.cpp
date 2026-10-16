@@ -248,8 +248,11 @@ static int checks() {
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
               && at(915).support == Support::Current && at(910).support == Support::Older, "094 (a tested beta, said so), V15, Felucca 1.5.1 known, 1.0 older");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
-        auto n = at(98);
-        CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.97") != std::string::npos,
+        CHECK(at(101).known && at(101).support == Support::Older && at(101).text.find("0.97") != std::string::npos
+                  && at(101).text.find("not tried") != std::string::npos && at(98).known && at(98).text.find("beta") != std::string::npos,
+              "FM-1+VA 101: known, synced as 0.97 and said to be untried; 98 and 99 her betas");
+        auto n = at(102);
+        CHECK(n.newer && !n.known && n.text.find("newer") != std::string::npos && n.text.find("101") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
         CHECK(at(916).newer && at(916).firmwareId == "felucca" && at(916).text.find("1.5.1") != std::string::npos, "Felucca 1.6 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
