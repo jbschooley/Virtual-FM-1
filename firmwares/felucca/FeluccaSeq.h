@@ -27,12 +27,15 @@ enum StepFlag { kAccent = 1, kSlide = 2 };
 // the pattern settings (per track, both firmwares): P_SLEN 29, P_SDIV 30, P_SSWING 31, P_SGATE 32
 enum PatternParam { kLen = 29, kDiv = 30, kSwing = 31, kGate = 32 };
 
+constexpr int kConditions = 11;          // Felucca 1.6's step conditions (core.h NCOND)
 struct Step {
     int n = 0;
     std::array<uint8_t, 4> note{};
     int time = kRest, flags = 0, vel = 0;
     int hit = 0, acc = 0, chance = 100; // Felucca: its drum lanes, accents, chance (percent)
     int ratchet = 1, nudge = 0;         // Felucca 1.0.5 / 1.2: x1..x4, and -8..7 sixteenths of a step (1.5.1's TRACK_STEP)
+    int cond = 0;                       // Felucca 1.5.5 / 1.6: its condition, 0 none, 1..11 (1:2 .. 4:4, FILL, !FILL): in
+                                        // place of its chance (then 100); the byte after the nudge
     int lvl = 0, rat = 0;               // SLOOP: 2 bits a note
     bool operator==(const Step&) const = default;
 };

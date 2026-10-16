@@ -1021,6 +1021,13 @@ static int checks() {
             felucca::Step st;
             st.n = 1; st.note[0] = 60; st.time = 0; st.vel = 100; st.ratchet = 3; st.nudge = -3;
             CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 1, 4, st), 400).has_value(), "a ratcheted, nudged step written");
+            felucca::Step cs;   // 1.6: a step with a condition (3:4, condition 8) in its chance's place
+            cs.n = 1; cs.note[0] = 64; cs.time = 0; cs.vel = 90; cs.cond = 8;
+            CHECK(ea.ask(felucca::stepWrite(ea.dialect(), 1, 5, cs), 400).has_value(), "a step with a condition written");
+            {
+                const auto back = felucca::readStep(ea, 1, 5);
+                CHECK(back && back->cond == 8 && back->chance == 100 && back->note[0] == 64, "1.6: the step holds its condition (its chance 100)");
+            }
             auto v14 = [](int v) { v += 8192; return std::vector<uint8_t>{uint8_t(v & 127), uint8_t((v >> 7) & 127)}; };
             std::vector<uint8_t> lock = {1, 5, 6, 0}, motion = {1, 3, 7, 0};
             for (auto x : v14(33)) lock.push_back(x);
@@ -1036,6 +1043,8 @@ static int checks() {
             CHECK(felucca::copySequencer(ea, eb, 4, err), "copied to the other (" + err + ")");
             const auto got = felucca::readStep(eb, 1, 4);
             CHECK(got && got->ratchet == 3 && got->nudge == -3 && got->note[0] == 60, "the step with its ratchet and nudge");
+            const auto gotc = felucca::readStep(eb, 1, 5);
+            CHECK(gotc && gotc->cond == 8 && gotc->note[0] == 64, "and the step with its condition");
             const auto m = felucca::readMotion(eb, 1);
             int locks = 0, moves = 0;
             if (m) for (const auto& ev : m->events) { if (ev.lock && ev.step == 6 && ev.value == 33) ++locks; if (!ev.lock && ev.step == 7 && ev.value == 55) ++moves; }

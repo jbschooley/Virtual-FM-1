@@ -39,6 +39,7 @@ std::vector<uint8_t> stepArgs(const Dialect& d, const Step& s) {
         if (isCurrentFelucca(d)) {   // (1.5.1: its ratchet and nudge too; a shorter write keeps the step's own)
             a.push_back(uint8_t(std::clamp(s.ratchet, 1, 4)));
             a.push_back(uint8_t(std::clamp(s.nudge, -8, 7) + 8));
+            a.push_back(uint8_t(std::clamp(s.cond, 0, kConditions)));   // (1.6: its condition, 0 none: then the chance)
         }
     }
     return a;
@@ -60,6 +61,7 @@ std::optional<Step> stepFrom(const Dialect& d, const std::vector<uint8_t>& b) {
         s.acc = b[9] | (((b[10] >> 1) & 1) << 7);
         s.chance = b[11];
         if (b.size() >= 14) { s.ratchet = std::clamp<int>(b[12], 1, 4); s.nudge = int(b[13] & 15) - 8; }   // (1.0.5, 1.2)
+        if (b.size() >= 15) s.cond = b[14] <= kConditions ? b[14] : 0;   // (1.6, INFO 4B 01 0B)
     }
     return s;
 }
