@@ -592,7 +592,7 @@ static int checks() {
                 CHECK(sp.engineText() == "PROPHET", "the Sound page shows part 1's PROPHET: " + sp.engineText());
                 const auto g = sp.groupTitles();
                 CHECK(g.contains("Insert 1") && g.contains("Insert 3") && g.contains("Sends") && !g.contains("Slicer")
-                      && g.contains("Send FX 1") && g.contains("Send FX 3"),
+                      && g.contains("Send FX 1") && g.contains("Send FX 3") && sp.controlValue("Insert 1", 4) == 0 && sp.controlValue("Send FX 2", 4) == 0,
                       "1.3's Sound page: its three inserts and sends and the return's three slots, not 1.1's slicer: " + g.joinIntoString(", "));
                 // a PROPHET: its own panel (the patch's fields) and not the part's envelope, which it ignores (engine_t.ownenv)
                 p.felucca()->setEngine(0, 19);
