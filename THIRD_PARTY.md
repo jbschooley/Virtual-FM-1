@@ -11,9 +11,13 @@
   See `plugin/dexed_ui/NOTICE.md`.
 - **Felucca** (`engines/felucca/upstream`, generated tables, FM6 patches and
   samples in `engines/felucca/generated`): Leo Kuroshita's FM-1 firmware,
-  v1.5.1; and v1.0.3, kept for the projects made with it (`engines/felucca103`,
+  v1.6.1; and v1.0.3, kept for the projects made with it (`engines/felucca103`,
   as it was). GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
-  Instruments, including the Hügelton Sample Pack drum sounds. Its other
+  Instruments, including the Hügelton Sample Pack drum sounds. Since 1.6.1 its
+  ANALOG, LOFI, TRIO, WHEEL and NOISE engines, `dsp.c` and their tables' generator
+  are Felucca-Engines (`engines/felucca/upstream/firmware/engines`, a submodule of
+  Felucca's), MIT licence, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
+  Instruments (`firmware/engines/LICENSE`, `upstream/LICENSES/MIT-Felucca-Engines.txt`). Its other
   sample sets are the Versilian Studios samples (CC0). Parts of it come from
   others under their own licences, listed in its `LICENSING.md`: msfa
   (Apache-2.0) in the FM6 engine, and DaisySP and Rings (MIT) in the PHYS

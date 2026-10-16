@@ -213,7 +213,11 @@ it; a build that is not a release (FM-1_900) is Older.
    - a factory preset changed or moved, so a project naming it would get a
      different sound.
    Parameters only added (with defaults that change nothing) and presets only
-   added are compatible: then the new release replaces the old one.
+   added are compatible: then the new release replaces the old one. So are values
+   only appended to a list (Felucca 1.6's DST VEL and TIME, its KIT DEEP, TIGHT and
+   PERC): every old value keeps its meaning. Their lines in `felucca-frozen.txt`
+   take the new range, said in the commit. A host parameter on such a list maps
+   onto the new range, so automation written before lands on other values there.
    `felucca_test` checks the last two: `tests/felucca-frozen.txt` keeps every
    parameter (by label: range, default, value names), each engine's eight, the
    globals and every factory preset (a hash of the sound it loads). A change
