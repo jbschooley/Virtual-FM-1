@@ -315,18 +315,16 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.97" && fm1::firmwareChoice("felucca").label() == "Felucca 1.6.1"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 101" && fm1::firmwareChoice("felucca").label() == "Felucca 1.6.1"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
-        CHECK(at(97).known && at(97).support == Support::Current && at(96).known && at(96).support == Support::Tested,
-              "FM-1_097: current; FM-1_096: tested, tried on an FM-1");
+        CHECK(at(101).known && at(101).support == Support::Current && at(97).support == Support::Tested && at(96).known && at(96).support == Support::Tested,
+              "FM-1_101: current; FM-1_097 and 096: tested, tried on an FM-1");
         CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
               && at(916).support == Support::Current && at(915).support == Support::Older && at(910).support == Support::Older,
               "094 (a tested beta, said so), V15, Felucca 1.6.1 known, 1.5.1 and 1.0 older");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
-        CHECK(at(101).known && at(101).support == Support::Older && at(101).text.find("0.97") != std::string::npos
-                  && at(101).text.find("not tried") != std::string::npos && at(98).known && at(98).text.find("beta") != std::string::npos,
-              "FM-1+VA 101: known, synced as 0.97 and said to be untried; 98 and 99 her betas");
+        CHECK(at(98).known && at(98).text.find("beta") != std::string::npos, "98 and 99: her betas, named as such");
         auto n = at(102);
         CHECK(n.newer && !n.known && n.text.find("newer") != std::string::npos && n.text.find("101") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");

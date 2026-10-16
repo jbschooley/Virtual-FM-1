@@ -100,6 +100,13 @@ public:
                     return r;
                 }, last && save ? 4000 : 1500, 3);
             if (!reply) { error = "no answer"; return false; }
+            // a pattern read where the synth never wrote one (erased flash, 0xFF: after another firmware used
+            // that memory) has raw steps it refuses back as out of range: sent from its decoded steps instead
+            if (reply->status == 1 && !p.raw.empty()) {
+                seq::Pattern fresh = p;
+                fresh.raw.clear();
+                return writePattern(port, fresh, pat, save, error);
+            }
             if (reply->status != 0) { error = reply->status < 4 ? kStatusText[reply->status] : "refused"; return false; }
             juce::Thread::sleep(50);
         }

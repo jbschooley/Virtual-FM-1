@@ -40,8 +40,8 @@ At phone size (the iOS app builds from source):
 - **macOS 11 or later** (Apple Silicon or Intel), **Windows 10/11** (64-bit) or
   **Linux** (x86-64, built on Ubuntu 24.04; X11 and ALSA).
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
-  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.97; 0.96, 0.93
-  and 0.94 too; 101 synced as 0.97, not tried yet), **[Felucca](https://github.com/hugelton/Felucca)**
+  **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (101; 0.97, 0.96,
+  0.93 and 0.94 too), **[Felucca](https://github.com/hugelton/Felucca)**
   1.6.1 (1.6 too, untried; 1.0 to 1.5.1 pulled from only; one on 1.0.3 syncs with an
   instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.7 (2.6
   too, without Live; 2.3 to 2.5 pulled from only) or

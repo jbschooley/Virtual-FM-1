@@ -155,6 +155,8 @@ private:
                 ++stepWrites;
                 const int pat = body[1], q = body[2];
                 const auto data = fm1::unpack87(body.data() + 4, body.size() - 4, 5 + 128);
+                for (int i = 0; i < 4; ++i)   // (an erased step, 0xFF, as flash the firmware never wrote reads: its note count out of range)
+                    if (data[size_t(5 + 32 * i + 30)] > 9) { --stepWrites; reply(0x52, 1, uint32_t(pat) | uint32_t(q) << 8 | 0x4000, {}); return; }
                 for (int i = 0; i < 4; ++i) {
                     const int st = 4 * q + i;
                     uint32_t base = st < 16 ? fm1::seq::kStepsRam + uint32_t(pat) * 512 + uint32_t(st) * 32 : fm1::seq::kExtRam + uint32_t(pat) * 1536 + uint32_t(st - 16) * 32;
@@ -469,6 +471,20 @@ int main(int argc, char** argv) {
         waitIdle(session, 20000);
         CHECK(got.size() == 1 && got[0].second.steps[3].notes.size() == 1 && got[0].second.steps[3].notes[0].note == 41
               && got[0].second.steps[32].notes.size() == 1 && got[0].second.steps[32].notes[0].note == 70, "FM-1_096: the whole steps read back");
+        {   // a pattern the firmware never wrote (erased flash after another firmware: every step 0xFF) reads as
+            // empty; sent back, its raw steps are refused as out of range, so it goes from its decoded steps
+            for (uint32_t k = 0; k < 512; ++k) fake.ram[fm1::seq::kStepsRam + 5 * 512 + k] = 0xFF;
+            for (uint32_t k = 0; k < 1536; ++k) fake.ram[fm1::seq::kExtRam + 5 * 1536 + k] = 0xFF;
+            got.clear();
+            session.pullPatterns({5});
+            waitIdle(session, 20000);
+            const bool empty = got.size() == 1 && std::all_of(got[0].second.steps.begin(), got[0].second.steps.end(), [](const auto& s) { return s.notes.empty(); });
+            const int sw = fake.stepWrites;
+            if (!got.empty()) session.pushPatterns({{5, got[0].second}}, true);
+            waitIdle(session, 20000);
+            CHECK(empty && fake.stepWrites - sw == 16 && fake.ram[fm1::seq::kStepsRam + 5 * 512 + 30] == 0 && !progress.back().failed,
+                  "an erased pattern: read as empty, and sent back from its steps (its raw 0xFF refused)");
+        }
         fake.identityVersion = 89;
     }
 

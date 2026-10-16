@@ -49,9 +49,11 @@ for the code. New work goes under the next version at the top.
   sound to one its project does not use yet says so; a Send of the whole
   project brings them all. Tried with an FM-1 running 1.4.1: Pull, Send, sound
   copies, pattern banks and Live.
-- **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
-  memory is 0.97's, checked in its firmware image), and said to be not tried
-  with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.
+- **baud girl's FM-1+VA 101** is the release the plugin syncs with (it was
+  0.97): the same formats. Tried with an FM-1 running 101: all 128 presets
+  written and read back, preset and pattern round trips. Her betas 0.98 and 0.99
+  are named as such. The stock presets were checked on it too: after M-VAVE's
+  own factory restore, all 128 voices read back as the plugin's, byte for byte.
 - **More firmwares are named.** An FM-1 running ChoralRoot, CoralFlower,
   PurpleMonkey, X0X, Jangada, ORBIT, DUELL, Optimist, MONK-1, CTL-1, AMB-1,
   FuMi-1, FoMni, FiMba-1, TRIBE, Dinghy, Hortator or FM-106 is named as such and
@@ -62,6 +64,10 @@ for the code. New work goes under the next version at the top.
 
 ### Fixed
 
+- **FM-1+VA: a pattern the FM-1 never wrote can be sent back.** After another
+  firmware used its memory, a pattern reads as empty but its steps are erased
+  flash, which FM-1+VA refused when sent back ("a value out of range"). Such a
+  pattern now goes from its steps instead.
 - **A pattern's Pull or Send no longer fails on one lost reply.** About one
   reply in a few thousand is lost on the FM-1's USB MIDI; a pattern's steps are
   now asked again once (Felucca, SLOOP, Melodee).
