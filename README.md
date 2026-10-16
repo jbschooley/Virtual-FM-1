@@ -13,7 +13,9 @@ groovebox built on Felucca, or Melodee, Kerem Kilic's multi-engine firmware
 built on Felucca. The plugin runs Felucca, SLOOP and Melodee from their own
 source, with their screen, front panel, sequencer and projects. It also plays
 **FM1 Open**, M-VAVE's own open firmware, from its source, and pulls from and
-sends to an FM-1 running it (no Live).
+sends to an FM-1 running it (no Live), and **ChoralRoot**, Quixotic7's chord
+instrument built from Felucca, from its source, syncing its backup with an
+FM-1 running it.
 
 It works on its own as a synth too; the FM-1 is only needed for syncing.
 
@@ -47,7 +49,9 @@ At phone size (the iOS app builds from source):
   too, without Live; 2.3 to 2.5 pulled from only) or
   **[Melodee](https://github.com/keremimo/melodee)** 1.4.1 (1.4.0 synced as 1.4.1,
   untried; its Synth only build is not supported; 0.12 to 1.3.6 pulled from only;
-  one on 0.13 or 1.1.0 syncs with an instance set to that release). On M-VAVE's own
+  one on 0.13 or 1.1.0 syncs with an instance set to that release) or
+  **[ChoralRoot](https://github.com/Quixotic7/ChoralRootFM1)** 0.23 (0.24-beta1
+  synced as 0.23; its backup only, untried). On M-VAVE's own
   firmware the plugin still plays and edits sounds, but cannot read anything
   back from the synth.
 
@@ -184,6 +188,16 @@ project saves its own current preset, edits, patterns and arpeggiator.
   Open has no message for one value changed, and a sound sent whole would cut
   what plays. Tried with an FM-1 running V12: Pull, Send, a track's sound, the
   slots' names and the sample bank (saving into a slot not yet).
+- **ChoralRoot 0.23**, Quixotic7's chord instrument built from Felucca
+  ([Quixotic7/ChoralRootFM1](https://github.com/Quixotic7/ChoralRootFM1)),
+  built from its source as its own emulator builds it: played on its own front
+  panel and screen (the Device tab). Its Sync page pulls from and sends to an
+  FM-1 running it what its backup carries (the sound pool, favourites, loop
+  slots, CZ-1 banks and FM6 bank; each side keeps its settings), the FM-1's own
+  backed up to the library first (`ChoralRoot/Backups`), and restarts it after
+  a Send as its own page does. Its stored objects are kept in the file its page
+  uses for backups (`ChoralRoot/ChoralRoot device.json`). Not yet tried with an
+  FM-1.
 
 ## Not done yet
 
@@ -205,6 +219,9 @@ project saves its own current preset, edits, patterns and arpeggiator.
   clock is its own (not the host's tempo); its sample bank is its demo bank
   until one is pulled from an FM-1. It runs the code of M-VAVE's browser
   preview, whose sound M-VAVE says may differ from the device's.
+- **ChoralRoot**: its protocol has only its backup, so no host parameters,
+  Live, sound copies or patterns; what it plays now (its session) is not saved
+  with the host's project.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.
@@ -246,7 +263,8 @@ Source layout:
 - `engines/` the sound, without JUCE: `dx7/` msfa (Apache-2.0, from Dexed;
   changes in `engines/dx7/msfa/NOTICE.md`) and the voice, envelope and filter
   code around it; `fm1_fx/` the FM-1's effects, the Hardware character stage
-  and the rate converter; `felucca/`, `sloop/` and `melodee/` Felucca's, SLOOP's and Melodee's firmware
+  and the rate converter; `felucca/`, `sloop/`, `melodee/` and `choralroot/` Felucca's, SLOOP's, Melodee's
+  and ChoralRoot's firmware
   (GPL-3.0, vendored, see their `UPSTREAM.md`) built as libraries
 - `plugin/` the processor, editor, parameters, library, sequencer and
   arpeggiator, and Felucca's editor, host parameters and device file;
@@ -269,6 +287,8 @@ Source layout:
   also builds from its source.
 - **Kerem Kilic** for [Melodee](https://github.com/keremimo/melodee), which the
   plugin also builds from its source.
+- **Quixotic7** for [ChoralRoot](https://github.com/Quixotic7/ChoralRootFM1),
+  which the plugin also builds from its source.
 - **Google's music-synthesizer-for-android** (msfa) and **Dexed** by Pascal
   Gauthier and contributors, for the FM engine and the editor's look.
 - Reverse-engineering work on the FM-1 by
@@ -282,6 +302,6 @@ Source layout:
 
 GPL-3.0-or-later (see `LICENSE`). Third-party code and its licenses are listed
 in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
-are GPL-3.0-or-later, Felucca, SLOOP and Melodee are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
-the MIT licence. Melodee includes Casio's CZ-1 tones and Sequential's Prophet-5
+are GPL-3.0-or-later, Felucca, SLOOP, Melodee and ChoralRoot are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
+the MIT licence. Melodee and ChoralRoot include Casio's CZ-1 tones and Sequential's Prophet-5
 programs as sound data, with no licence granted; see `THIRD_PARTY.md`.

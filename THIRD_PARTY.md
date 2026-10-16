@@ -61,6 +61,24 @@
   as PROPHET's presets, as sound data for Prophet-5 compatibility. As Melodee
   says, no licence is granted for them and the rights stay with Sequential; they
   are carried here the same way. See `upstream/assets/prophet5-factory/README.md`.
+- **ChoralRoot** (`engines/choralroot/upstream`, generated tables, fonts, layouts,
+  FM6 patches, CZ-1 tones, Prophet programs and samples in
+  `engines/choralroot/generated`): Quixotic7's FM-1 firmware, v0.23, built from
+  Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic), Hügelton
+  Instruments, and the ChoralRoot FM-1 contributors; through Melodee its CZ-1 and
+  Prophet-5 engines, copyright 2026 Kerem Kilic (Ellic Studio). Parts of it come
+  from others under their own licences, listed in its `LICENSING.md` with their
+  texts in `upstream/LICENSES/`: msfa (Apache-2.0) and Dexed (GPL-3.0-or-later) in
+  the FM6 engine, MAME's uPD933 model (BSD-3-Clause) in the CZ-1 engine, DaisySP
+  and Rings (MIT) in the PHYS engine, the Fukiai icons (MIT), JieLi's AC79 SDK
+  (Apache-2.0: its register sequences restated in the second core's code),
+  the Inter Tight font (SIL OFL 1.1) for its screen and the
+  Versilian Studios samples (CC0). It carries Casio's 64 CZ-1 preset tones
+  (`upstream/assets/cz1-factory/`) and, of Sequential's Prophet-5/10 factory
+  programs v1.03, the 115 its `upstream/assets/prophet5-factory/shipped.txt`
+  names, as Melodee does: sound data for compatibility, no licence granted, the
+  rights staying with Casio and Sequential (its `LICENSING.md` and the assets'
+  READMEs). See `engines/choralroot/UPSTREAM.md`.
 - **M-VAVE's stock FM-1 presets** (`presets/stock-mvave.syx`, and A01-C32 and D17 of
   `presets/stock-fm1va.syx`): the 128 factory voices of M-VAVE's stock V15
   firmware package (presets/README.md), included as a new library's starting
