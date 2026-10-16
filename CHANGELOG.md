@@ -104,7 +104,9 @@ for the code. New work goes under the next version at the top.
   Its Sync page pulls from and sends to it what its
   backup carries (the sound pool, favourites, loop slots, CZ-1 banks and FM6
   bank; each side keeps its own settings), backing up the FM-1 to the library
-  first and restarting it after a Send, as ChoralRoot's own page does; a Send
+  first and restarting it after a Send, as ChoralRoot's own page does (it
+  leaves USB while it restarts: the app connects to it again by itself, a
+  plugin when asked with Find FM-1); a Send
   while a loop plays or records on the FM-1 waits for it (up to two minutes,
   as that page does), and if it stops waiting, it says which objects it wrote. Its
   device file is `ChoralRoot/ChoralRoot device.json`. Its protocol has nothing

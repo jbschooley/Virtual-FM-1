@@ -195,7 +195,8 @@ project saves its own current preset, edits, patterns and arpeggiator.
   FM-1 running it what its backup carries (the sound pool, favourites, loop
   slots, CZ-1 banks and FM6 bank; each side keeps its settings), the FM-1's own
   backed up to the library first (`ChoralRoot/Backups`), and restarts it after
-  a Send as its own page does. Its stored objects are kept in the file its page
+  a Send as its own page does. While it restarts it leaves USB: the app connects
+  to it again by itself, a plugin when asked (Find FM-1). Its stored objects are kept in the file its page
   uses for backups (`ChoralRoot/ChoralRoot device.json`). Not yet tried with an
   FM-1.
 

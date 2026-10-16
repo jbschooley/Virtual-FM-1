@@ -952,8 +952,9 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
             "The FM-1's " + all.fromFirstOccurrenceOf("the ", false, false) + " will be replaced by this instance's. "
             "They are backed up to the library (" + name + "/Backups) first. "
-            + juce::String(choral ? "Its settings are not touched; it restarts afterwards, as ChoralRoot's own page does it."
-                                  : "Its settings and user samples are not touched."),
+            + (choral ? "Its settings are not touched; it restarts afterwards, as ChoralRoot's own page does it, and leaves USB meanwhile: "
+                            + proc_.reconnectText() + "."
+                      : juce::String("Its settings and user samples are not touched.")),
             "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
                 if (ok && self) { self->proc_.feluccaSend(); self->update(); }
             }));

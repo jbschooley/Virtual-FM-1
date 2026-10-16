@@ -741,6 +741,8 @@ static int checks() {
             auto f = p.felucca();
             CHECK(p.emulates() && f && f->flavor() == Fl::ChoralRoot && f->version() == "v0.23" && p.devicePanel() == f && !p.feluccaParam(0, 0),
                   "set to ChoralRoot: it plays, its panel is the Device view's, no host parameters");
+            CHECK(p.reconnectText() == "connect again (Find FM-1) when it is back",
+                  "after a Send's restart (the FM-1 leaves USB) a plugin, not the app, says to connect again: " + p.reconnectText());
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0.0f;
             for (int k = 0; k < 200; ++k) {
