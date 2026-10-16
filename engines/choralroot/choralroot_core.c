@@ -114,6 +114,10 @@ static int chrc_fclose(FILE *f) { (void)f; return 0; }
 #define fseek chrc_fseek
 #define fflush chrc_fflush
 #define fclose chrc_fclose
+/* the emulator's switches (EMU_OUTPUT, EMU_CHORUS, EMU_MASTER, EMU_C1, EMU_SHED_*, EMU_STAGES, EMU_STUB: emu_fw_init,
+ * emu_firmware.h) are its scripts', not the plugin's: whatever the host's environment holds, it powers on as with none */
+static char *chrc_getenv(const char *name) { return strncmp(name, "EMU_", 4) ? getenv(name) : NULL; }
+#define getenv chrc_getenv
 
 #include "../upstream/tools/emu/emu_fw.c"
 

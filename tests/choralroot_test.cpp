@@ -235,6 +235,20 @@ int main() {
               "a DX7 single voice changes what the FM6 part plays; one with its checksum broken does not");
     }
 
+    {   // the emulator's switches in the host's environment (EMU_MASTER, EMU_OUTPUT ...: its scripts') change nothing
+        auto take = [] {
+            FeluccaEngine e(Fl::ChoralRoot);
+            return render(e, 1.0, 256, [&e](int frame) { if (frame == 0x2000) { const uint8_t m[3] = {0x90, 60, 100}; e.midi(m, 3); } });
+        };
+        const auto plain = take();
+        setenv("EMU_MASTER", "0", 1);
+        setenv("EMU_OUTPUT", "classic", 1);
+        const auto set = take();
+        unsetenv("EMU_MASTER");
+        unsetenv("EMU_OUTPUT");
+        CHECK(plain.mean > 0.0 && set.hash == plain.hash, "EMU_MASTER=0 and EMU_OUTPUT=classic set: it plays the same");
+    }
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
