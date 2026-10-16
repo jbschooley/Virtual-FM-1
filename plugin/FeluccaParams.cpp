@@ -198,7 +198,7 @@ std::vector<Entry> build() {
             for (const auto& k : part)
                 out.push_back({"fel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(k.range), false, kHint, false, false, 1 << 0});
     }
-    // Melodee 1.3's (1.3.4 core.h, params.c), on 1.3 only: each part's three inserts (TYPE MIX RATE CHAR,
+    // Melodee 1.3's (1.3.4 core.h, params.c), on the current release (1.3, 1.4): each part's three inserts (TYPE MIX RATE CHAR,
     // 96..107) and its three sends (108..110); the shared return's three slots (globals 27..38), its
     // RETURN (39) and MODE (40, a serial chain or independent sends)
     {
@@ -217,6 +217,19 @@ std::vector<Entry> build() {
             {"rfx3type", 35, {0, 9, 0}}, {"rfx3mix", 36, {0, 127, 127}}, {"rfx3rate", 37, {0, 127, 60}}, {"rfx3char", 38, {0, 127, 64}},
             {"freturn", 39, {0, 127, 100}}, {"fxmode", 40, {0, 1, 0}}};
         for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(g.range), false, kHint, true, false, 1 << 0});
+    }
+    // Melodee 1.4's (1.4.1 core.h, params.c), on 1.4 only: each insert's TONE (111..113, DARK -63 .. FULL 0
+    // .. THIN 63, heard on ECHO, ROOM and REVERB) and each shared return slot's (globals 42..44). Not its
+    // BUDGET (41): a setting of the FM-1, saved with its settings, not the song's
+    {
+        constexpr int kHint = 11;
+        static const struct { const char* name; int index; } part[] = {{"fx1tone", 111}, {"fx2tone", 112}, {"fx3tone", 113}};
+        const int tone[3] = {-63, 63, 0};
+        for (int t = 0; t < kParts; ++t)
+            for (const auto& k : part)
+                out.push_back({"mel_t" + juce::String(t + 1) + "_" + k.name, t, k.index, defaultOf(tone), false, kHint, true, false, 1 << 0});
+        static const struct { const char* name; int index; } glob[] = {{"rfx1tone", 42}, {"rfx2tone", 43}, {"rfx3tone", 44}};
+        for (const auto& g : glob) out.push_back({"mel_" + juce::String(g.name), -1, g.index, defaultOf(tone), false, kHint, true, false, 1 << 0});
     }
     return out;
 }
@@ -238,9 +251,9 @@ int indexOn(const Entry& e, int release) {
     if (e.only >= 0 && !(e.only & (1 << release))) return -1;
     // (the ids from before a release added parameters before the engine's eight, in their first release's
     // numbering: on a later release those eight are that many higher. Melodee 1.0: twelve from 84, and 1.3
-    // fifteen more (its inserts and sends); Felucca 1.1 to 1.5: twenty from 83)
+    // fifteen more (its inserts and sends), 1.4 three more (their TONEs); Felucca 1.1 to 1.5: twenty from 83)
     if (e.only < 0 && e.track >= 0 && !e.sloop) {
-        if (e.melodee && e.index >= kMelodeeEngineFirst013) return release == 2 ? e.index + 12 : release == 0 ? e.index + 12 + 15 : e.index;
+        if (e.melodee && e.index >= kMelodeeEngineFirst013) return release == 2 ? e.index + 12 : release == 0 ? e.index + 12 + 15 + 3 : e.index;
         if (!e.melodee && release == 0 && e.index >= kEngineFirst) return e.index + 20;
     }
     return e.index;

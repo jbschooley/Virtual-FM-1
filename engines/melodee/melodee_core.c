@@ -1,4 +1,4 @@
-/* melodee_core.c -- Melodee 1.3.4 (engines/melodee/upstream, GPL-3.0-only, Kerem Kilic, from
+/* melodee_core.c -- Melodee 1.4.1 (engines/melodee/upstream, GPL-3.0-only, Kerem Kilic, from
  * Felucca by Leo Kuroshita / Hügelton Instruments), the whole firmware, as a library the plugin
  * can drive: a virtual FM-1 running Melodee, with its sound, sequencer, screen, front panel,
  * projects, user presets, CZ and FM6 tone banks and editor protocol. Built as
@@ -63,7 +63,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define MELODEE_USB_AUDIO 0              /* the FM-1's USB audio device: the plugin is the audio */
 #define MELODEE_CDC 0
 #define MELODEE_UART 1                   /* (its MIDI parser: the plugin's MIDI comes in through it too) */
-#define MELODEE_VERSION "v1.3.4"
+#define MELODEE_VERSION "v1.4.1"
 #define MELODEE_DUAL_CORE 0              /* (1.0: one core here, as its single-core package; the plugin is the CPU) */
 #define MELODEE_CACHE_RAM 0              /* (no data cache to take as RAM) */
 #define MELODEE_CORE1_TEST 0
@@ -385,7 +385,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
-const char *FEL(version)(void) { return MELODEE_VERSION; }   /* "v1.3.4": the release built here */
+const char *FEL(version)(void) { return MELODEE_VERSION; }   /* "v1.4.1": the release built here */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }
@@ -404,7 +404,8 @@ const char *FEL(preset_name)(uint32_t e, uint32_t i)
     /* "" for an alias (browsing skips it on the device) */
     /* (1.3: an engine's presets may be made on demand, eng_preset: a name valid until two more are made;
      * the engine copies it at once) */
-    return e < NENGINES && i < ENGINES[e]->npresets && preset_orig(ENGINES[e], i) == i ? eng_preset(ENGINES[e], i)->name : "";
+    /* (1.4: no aliases since 1.1, preset_orig gone) */
+    return e < NENGINES && i < ENGINES[e]->npresets ? eng_preset(ENGINES[e], i)->name : "";
 }
 
 int FEL(param_desc)(uint32_t track, uint32_t id, fel_desc_t *out)
@@ -654,8 +655,8 @@ const char *FEL(lane_name)(uint32_t track, uint32_t lane)
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor_backup.c):
  * 0 the music now (all 32 pattern banks), 1 the settings (and the template), 2..5 the project
- * slots, 6, 7, 17 and 18 the user preset banks, 8 retired (always empty), 9..16 the CZ banks,
- * 19..22 the FM6 and native tone pools. Without stopping the transport: the plugin calls these
+ * slots, 8 retired (always empty), and 6, 7, 9..28 (1.4) the shared preset bank's parts, each the store
+ * an older release's bank of that id had (editor_backup.c ed_bk_preset_bank). Without stopping the transport: the plugin calls these
  * between audio blocks. ------------------------------------------------------------------------- */
 uint32_t FEL(object_max)(void) { return ED_BK_MAX; }
 
@@ -705,6 +706,10 @@ uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
     ed_bk_put = 0;
     ed_bk_valid = 0;
     ++proj_wire_gen;
+    if (rc == 0u && ed_bk_preset_bank(id) < UP_BANKS)
+        up_boot();                       /* (1.4: a bank in an older format, as a 1.3 backup or device file has it,
+                                          * moves into the shared bank as the device does it at power-on;
+                                          * until then it reads as busy) */
     if (id == 1u && rc == 0u)
         glo_restore();                   /* the kept CLK TUNE MIDI ROUT, as the device applies them at power-on
                                           * (else glo_poll would save the instance's own back over them) */

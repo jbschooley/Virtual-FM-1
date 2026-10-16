@@ -270,18 +270,25 @@ static int checks() {
                 CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
                       && fm1::isFeluccaFamily("melodee"), "Melodee is told apart from Felucca by its INFO, and is a choice");
                 const fm1::Identity m110{"FM-1", 91010, "MELODEE v1.1.0"}, m13{"FM-1", 9013, "MELODEE v0.13"}, m102{"FM-1", 91002, "MELODEE v1.0.2"};
-                const fm1::Identity m134{"FM-1", 91034, "MELODEE v1.3.4"}, m130{"FM-1", 91030, "MELODEE v1.3.0"};
-                const auto cur = fm1::checkVersion(m134);
-                CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_91034: Melodee 1.3.4" && fm1::writesRefused(m134).empty(),
-                      "1.3.4: the current one, written to: " + cur.text);
-                const auto c130 = fm1::checkVersion(m130);
-                CHECK(c130.known && c130.text.find("synced as 1.3.4") != std::string::npos && fm1::writesRefused(m130).empty(),
-                      "1.3.0: the same formats, written to: " + c130.text);
+                const fm1::Identity m141{"FM-1", 91041, "MELODEE v1.4.1"}, m140{"FM-1", 91040, "MELODEE v1.4.0"};
+                const auto cur = fm1::checkVersion(m141);
+                CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_91041: Melodee 1.4.1" && fm1::writesRefused(m141).empty(),
+                      "1.4.1: the current one, written to: " + cur.text);
+                const auto c140 = fm1::checkVersion(m140);
+                CHECK(c140.known && c140.text.find("synced as 1.4.1") != std::string::npos && fm1::writesRefused(m140).empty(),
+                      "1.4.0: the same firmware, written to: " + c140.text);
+                for (const auto& [v, name] : {std::pair{91034, "1.3.4"}, std::pair{91036, "1.3.6"}, std::pair{91030, "1.3.0"}}) {
+                    const fm1::Identity m{"FM-1", v, std::string("MELODEE v") + name};
+                    const auto c = fm1::checkVersion(m);
+                    CHECK(c.known && c.support == fm1::Support::Older && c.text.find("pulled from only") != std::string::npos
+                          && fm1::writesRefused(m).find("does not read Melodee 1.4.1's projects") != std::string::npos,
+                          std::string(name) + ": pulled from only (it reads no FUN22): " + c.text);
+                }
                 const auto c110 = fm1::checkVersion(m110);
                 CHECK(c110.support == fm1::Support::Older && c110.text.find("Melodee 1.1.0 syncs with it") != std::string::npos
                       && fm1::writesRefused(m110).find("set this instance to Melodee 1.1.0") != std::string::npos && fm1::writesRefused(m110, "melodee_110").empty()
                       && fm1::checkVersion(m110, "melodee_110").text == "FM-1_91010: Melodee 1.1.0",
-                      "1.1.0: pulled from only (it reads no FUN20), but an instance set to 1.1.0 syncs fully: " + c110.text);
+                      "1.1.0: pulled from only (it reads no FUN22), but an instance set to 1.1.0 syncs fully: " + c110.text);
                 const auto m13c = fm1::checkVersion(m13);
                 CHECK(m13c.support == fm1::Support::Older && m13c.known && m13c.text.find("Melodee 0.13 syncs with it") != std::string::npos
                       && fm1::writesRefused(m13).find("set this instance to Melodee 0.13") != std::string::npos
@@ -289,15 +296,15 @@ static int checks() {
                 const auto kept = fm1::checkVersion(m13, "melodee_013");
                 CHECK(kept.support == fm1::Support::Current && kept.text == "FM-1_9013: Melodee 0.13", "to an instance set to 0.13, nothing to say: " + kept.text);
                 const auto mc = fm1::checkVersion(m12);
-                CHECK(mc.support == fm1::Support::Older && mc.known && mc.text.find("update it to 1.3.4") != std::string::npos
+                CHECK(mc.support == fm1::Support::Older && mc.known && mc.text.find("update it to 1.4.1") != std::string::npos
                       && !fm1::writesRefused(m102).empty() && !fm1::writesRefused(m12).empty(),
                       "0.12 to 1.0.2: known, older, pulled from only: " + mc.text);
-                const auto m14 = fm1::checkVersion(fm1::Identity{"FM-1", 91040, "MELODEE v1.4.0"});
+                const auto m15 = fm1::checkVersion(fm1::Identity{"FM-1", 91050, "MELODEE v1.5.0"});
                 const auto m11 = fm1::checkVersion(fm1::Identity{"FM-1", 9011, "MELODEE v0.11.1"});
-                CHECK(m14.newer && m14.support == fm1::Support::Current && m14.text.find("newer than the plugin's 1.3.4") != std::string::npos
-                      && fm1::writesRefused(fm1::Identity{"FM-1", 91040, "MELODEE v1.4.0"}).empty()
-                      && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 1.3.4") != std::string::npos,
-                      "a newer one synced as 1.3.4, untried; an older one said to be older");
+                CHECK(m15.newer && m15.support == fm1::Support::Current && m15.text.find("newer than the plugin's 1.4.1") != std::string::npos
+                      && fm1::writesRefused(fm1::Identity{"FM-1", 91050, "MELODEE v1.5.0"}).empty()
+                      && !m11.newer && m11.support == fm1::Support::Older && m11.text.find("older than the plugin's 1.4.1") != std::string::npos,
+                      "a newer one synced as 1.4.1, untried; an older one said to be older");
                 const fm1::Identity m121{"FM-1", 91021, "MELODEE v1.2.1"};
                 const auto m121c = fm1::checkVersion(m121);
                 CHECK(m121c.support == fm1::Support::Older && m121c.known && m121c.text.find("pulled from only") != std::string::npos && !fm1::writesRefused(m121).empty()
@@ -501,10 +508,10 @@ static int checks() {
             p.setPlayConfigDetails(0, 2, 44100.0, 256);
             p.prepareToPlay(44100.0, 256);
             p.setFirmware("melodee");
-            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v1.3.4"
-                  && FeluccaEngine::instances(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 1.3.4, a Melodee instance");
-            CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 1.3.4" && fm1::firmwareChoice("melodee_110").label() == "Melodee 1.1.0"
-                  && fm1::isFeluccaFamily("melodee"), "firmware choices: Melodee 1.3.4, and 1.1.0 kept");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Melodee && p.felucca()->version() == "v1.4.1"
+                  && FeluccaEngine::instances(Fl::Melodee) == melBefore + 1, "set to Melodee, the instance plays Melodee 1.4.1, a Melodee instance");
+            CHECK(fm1::firmwareChoice("melodee").label() == "Melodee 1.4.1" && fm1::firmwareChoice("melodee_110").label() == "Melodee 1.1.0"
+                  && fm1::isFeluccaFamily("melodee"), "firmware choices: Melodee 1.4.1, and 1.1.0 kept");
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0;
             for (int k = 0; k < 60; ++k) {
@@ -517,25 +524,25 @@ static int checks() {
             }
             CHECK(peak > 0.01f, "channel 1 plays part 1");
             {   // its own host parameters ("mel_..."); Felucca's do not reach it
-                int perTrack[3][4] = {}, globals[3] = {};   // (on 1.3, on 0.13, on 1.1.0: FeluccaEngine::Release)
+                int perTrack[3][4] = {}, globals[3] = {};   // (on 1.4, on 0.13, on 1.1.0: FeluccaEngine::Release)
                 for (const auto& en : felparams::entries())
                     if (en.melodee)
                         for (int r = 0; r < 3; ++r)
                             if (felparams::indexOn(en, r) >= 0) { if (en.track >= 0) ++perTrack[r][en.track]; else ++globals[r]; }
                 CHECK(perTrack[1][0] == 71 && perTrack[1][1] == 68 && perTrack[1][3] == 68 && globals[1] == 7
                       && perTrack[2][0] == 84 && perTrack[2][1] == 81 && perTrack[2][3] == 81 && globals[2] == 13
-                      && perTrack[0][0] == 91 && perTrack[0][1] == 88 && perTrack[0][3] == 88 && globals[0] == 16
+                      && perTrack[0][0] == 94 && perTrack[0][1] == 91 && perTrack[0][3] == 91 && globals[0] == 19
                       && p.apvts.getParameter("mel_t1_pqnt") && p.apvts.getParameter("mel_mpcdeg")
                       && !p.apvts.getParameter("mel_t2_scale") && p.apvts.getParameter("mel_t2_e7") && p.apvts.getParameter("mel_rtype")
                       && p.apvts.getParameter("mel_t1_dly") && !p.apvts.getParameter("mel_a4") && !p.apvts.getParameter("mel_tune"),
                       "Melodee's host parameters: on 0.13, 68 a part (its playback QNT, no delay send), the song's SCALE, QUANT and MPCDEG "
                       "once, seven globals (not TUNE or A4); on 1.1 also the delay send, the DRUM lanes, LFO 2, SPRD and the delay's six; "
-                      "on 1.3 the DRUM lanes, LFO 2, SPRD, three inserts and three sends a part, the return's twelve, RETURN and MODE, "
+                      "on 1.4 the DRUM lanes, LFO 2, SPRD, three inserts with their TONEs and three sends a part, the return's twelve, its three TONEs, RETURN and MODE, "
                       "not 1.1's effects (the delay, the sends, the SLICER, the reverb and chorus)");
                 {   // none on a parameter a release leaves blank (1.3's padding where 1.1's effects were: 33..36,
                     // 45..48, globals 4..11 and 24..26); not the engine's eight, which each engine names
                     int blank = 0;
-                    const int engineFirst[3] = {111, 84, 96};
+                    const int engineFirst[3] = {114, 84, 96};   // (P_E0: 1.4, 0.13, 1.1.0)
                     for (const char* choice : {"melodee", "melodee_013", "melodee_110"}) {
                         FM1Processor q;
                         q.setFirmware(choice);
@@ -645,9 +652,9 @@ static int checks() {
                 felucca::Objects o;
                 juce::String err;
                 const auto json = juce::JSON::parse(file);
-                CHECK(json.getProperty("format", {}).toString() == "felucca-backup" && json.getProperty("firmware", {}).toString().startsWith("MELODEE v1.3.4")
-                      && felucca::readBackup(file, o, err, felucca::melodeeDialect()) && o.size() == 28 && o[3] == music && music.size() > 20000,
-                      "as Melodee's editor writes one: 28 objects, a whole project in its slot (" + err + ")");
+                CHECK(json.getProperty("format", {}).toString() == "felucca-backup" && json.getProperty("firmware", {}).toString().startsWith("MELODEE v1.4.1")
+                      && felucca::readBackup(file, o, err, felucca::melodeeDialect()) && o.size() == 29 && o[3] == music && music.size() > 20000,
+                      "as Melodee's editor writes one: 29 objects (1.4), a whole project in its slot (" + err + ")");
                 CHECK(!felucca::readBackup(file, o, err, felucca::feluccaDialect()), "not taken for a Felucca backup");
                 auto e2 = std::make_shared<FeluccaEngine>(Fl::Melodee);
                 felucca::DeviceStore store2(file, felucca::melodeeDialect());
@@ -730,17 +737,32 @@ static int checks() {
                        *fx1 = find("mel_t1_fx1type"), *mode = find("mel_fxmode");
             CHECK(e0 && lvl && kick && dtype && fx1 && mode, "Melodee's host parameters found");
             CHECK(e0 && lvl && kick && dtype && fx1 && mode
-                  && felparams::indexOn(*e0, 0) == 111 && felparams::indexOn(*e0, 1) == 84 && felparams::indexOn(*e0, 2) == 96
+                  && felparams::indexOn(*e0, 0) == 114 && felparams::indexOn(*e0, 1) == 84 && felparams::indexOn(*e0, 2) == 96
                   && felparams::indexOn(*lvl, 0) == 0 && felparams::indexOn(*lvl, 1) == 0 && felparams::indexOn(*lvl, 2) == 0
                   && felparams::indexOn(*kick, 0) == 84 && felparams::indexOn(*kick, 2) == 84 && felparams::indexOn(*kick, 1) == -1
                   && felparams::indexOn(*dtype, 2) == 25 && felparams::indexOn(*dtype, 0) == -1 && felparams::indexOn(*dtype, 1) == -1
                   && felparams::indexOn(*fx1, 0) == 96 && felparams::indexOn(*fx1, 2) == -1 && felparams::indexOn(*mode, 0) == 40 && felparams::indexOn(*mode, 2) == -1,
-                  "Melodee's host parameters: the engine's eight at 111 on 1.3, 96 on 1.1.0, 84 on 0.13; the DRUM lanes on 1.1.0 and 1.3, "
-                  "the delay on 1.1.0 only, the effects on 1.3 only");
-            CHECK(felparams::entryFor(0, 111, false, true, 0) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 96, false, true, 2) == felparams::indexOf("mel_t1_e0")
+                  "Melodee's host parameters: the engine's eight at 114 on 1.4, 96 on 1.1.0, 84 on 0.13; the DRUM lanes on 1.1.0 and 1.4, "
+                  "the delay on 1.1.0 only, the effects on 1.4 only");
+            CHECK(felparams::entryFor(0, 114, false, true, 0) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 96, false, true, 2) == felparams::indexOf("mel_t1_e0")
                   && felparams::entryFor(0, 84, false, true, 1) == felparams::indexOf("mel_t1_e0") && felparams::entryFor(0, 84, false, true, 0) == felparams::indexOf("mel_t1_kick")
                   && felparams::entryFor(0, 96, false, true, 0) == felparams::indexOf("mel_t1_fx1type") && felparams::entryFor(-1, 40, false, true, 0) == felparams::indexOf("mel_fxmode"),
                   "and back from a parameter number, on each release");
+            const auto *tone = find("mel_t1_fx1tone"), *rtone = find("mel_rfx3tone");
+            CHECK(tone && rtone && felparams::indexOn(*tone, 0) == 111 && felparams::indexOn(*tone, 1) == -1 && felparams::indexOn(*tone, 2) == -1
+                  && felparams::indexOn(*rtone, 0) == 44 && felparams::indexOn(*rtone, 2) == -1 && felparams::indexOf("mel_budget") < 0,
+                  "1.4's TONEs: a part's at 111, the return's at 42..44, on 1.4 only; not its BUDGET (the FM-1's setting)");
+            {   // an archive of 28 objects (before 1.4) restored onto a 1.4 FM-1: its object 28 sent empty, as
+                // fm1backup.js does it; onto an FM-1 that lists 0..27, as it was
+                felucca::Objects ours, on14, on13;
+                for (int id = 0; id <= 27; ++id) { ours[id] = {uint8_t(id)}; on13[id] = {}; on14[id] = {}; }
+                on14[28] = {};
+                on14[0] = on13[0] = std::vector<uint8_t>(64);   // (its project room)
+                auto to14 = ours, to13 = ours;
+                CHECK(felucca::fitToSynth(to14, on14, felucca::melodeeDialect()).isEmpty() && to14.count(28) && to14[28].empty()
+                          && felucca::fitToSynth(to13, on13, felucca::melodeeDialect()).isEmpty() && !to13.count(28),
+                      "a 28-object archive onto 1.4: object 28 emptied; onto 1.3: none");
+            }
             {   // 1.0.2's INFO says motion is version 2 (4D 02 40 01); Melodee advertises no live-sync caps (53),
                 // in 0.13 or 1.1: Live works the same with both
                 FeluccaEngine m11{Fl::Melodee}, m13{Fl::Melodee, FeluccaEngine::Release::Previous};
@@ -790,6 +812,10 @@ static int checks() {
                 run();
                 CHECK(fa->param(0, 96) == 4 && fa->global(39) == 33 && fb->param(0, 96) == 4 && fb->global(39) == 33,
                       "and 1.3's insert and RETURN, set on the synth, reach the other side (" + err + ")");
+                fa->setParam(0, 111, -20);   // 1.4: part 1's first insert's TONE, and the first return slot's (global 42)
+                fa->setGlobal(42, 30);
+                run();
+                CHECK(fb->param(0, 111) == -20 && fb->global(42) == 30, "and 1.4's TONEs, set on the synth, reach the other side (" + err + ")");
                 // a PROPHET's panel patch and an FM6 part's operators are edited on the synth with no push: Live reads
                 // the selected part's on both sides about every 250 ms (real time)
                 auto runFor = [&](int ms) {
@@ -870,10 +896,10 @@ static int checks() {
             cur.setFirmware("melodee");
             old.setFirmware("melodee_013");
             auto* p0 = cur.apvts.getParameter("mel_t1_e0");
-            const auto d = cur.felucca()->paramDesc(0, 111);
-            cur.felucca()->setParam(0, 111, d.max);
+            const auto d = cur.felucca()->paramDesc(0, 114);
+            cur.felucca()->setParam(0, 114, d.max);
             cur.feluccaChanged(0);
-            CHECK(p0 && std::abs(p0->getValue() - 1.0f) < 1e-5f, "1.3: mel_t1_e0 follows its engine's first parameter (111)");
+            CHECK(p0 && std::abs(p0->getValue() - 1.0f) < 1e-5f, "1.4: mel_t1_e0 follows its engine's first parameter (114)");
             {   // and 1.1.0 kept: its engine's first parameter at 96
                 FM1Processor k11;
                 k11.setFirmware("melodee_110");
@@ -933,8 +959,9 @@ static int checks() {
             CHECK(b.firmwareId() == "felucca_103" && b.felucca() && b.felucca()->release() == Rl::Previous && b.felucca()->engineOf(2) == 6
                   && b.felucca()->param(2, 0) == 88, "a project with 1.0.2's Felucca music opens on 1.0.3, its music as it was");
         }
-        {   // Melodee 1.1.0, kept beside 1.3.4: a choice, an FM-1 on 1.1.0 synced with it, and a project whose Melodee
-            // music 1.1.0 saved opens on it (its effects and ANALOG as they were), while 1.3.4's music stays on 1.3.4
+        {   // Melodee 1.1.0, kept beside the current release: a choice, an FM-1 on 1.1.0 synced with it, and a project whose
+            // Melodee music 1.1.0 saved opens on it (its effects and ANALOG as they were), while 1.3.4's music opens on the
+            // current release (1.4 reads 1.3's projects)
             using Rl = FeluccaEngine::Release;
             const fm1::Identity m110{"FM-1", 91010, "MELODEE v1.1.0"}, m134{"FM-1", 91034, "MELODEE v1.3.4"};
             CHECK(fm1::isFirmwareChoice("melodee_110") && fm1::familyOf("melodee_110") == "melodee" && fm1::runs(m110, "melodee_110")
@@ -969,7 +996,7 @@ static int checks() {
                           "a project with 1.1.0's Melodee music opens on 1.1.0, its ANALOG part as it was");
                 else
                     CHECK(b.firmwareId() == "melodee" && b.felucca() && b.felucca()->release() == Rl::Current && b.felucca()->engineOf(2) == 12
-                          && b.felucca()->param(2, 0) == 77, "and one with 1.3.4's on 1.3.4");
+                          && b.felucca()->param(2, 0) == 77, "and one with 1.3.4's on the current release (1.4 reads 1.3's projects)");
             }
         }
         {   // the library's device file as 0.13 (or Felucca 1.0.x) wrote it seeds the kept release's, whichever
@@ -1194,7 +1221,7 @@ static int checks() {
             a->object(0, music);
             CHECK(a->putObject(4, music) == 0, "a project in slot C");
             auto all = felucca::backup(ea, {}, err);
-            CHECK(all && all->size() == 28 && (*all)[4] == music && (*all)[9].size() == 2332 && (*all)[23].size() == 3600, "a full backup: 28 objects (" + err + ")");
+            CHECK(all && all->size() == 29 && (*all)[4] == music && (*all)[9].empty() && (*all)[28].empty(), "a full backup: 29 objects, 1.4's shared preset bank empty at first (" + err + ")");
             all->erase(1);
             CHECK(all && felucca::restore(eb, *all, {}, err), "restored into the other (" + err + ")");
             std::vector<uint8_t> slotC;

@@ -195,7 +195,7 @@ int main() {
     }
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.3.4" && fel.engines() == 14 && mel.engines() == 20,
+        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.4.1" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
         // Melodee 0.13, kept beside 1.3 for the projects made with it (engines/melodee013): its own core
         FeluccaEngine m13{kMel, FeluccaEngine::Release::Previous};
@@ -297,9 +297,12 @@ int main() {
     // ---- parameters ----
     {
         Mel f{kMel};
-        CHECK(f.paramCount() == 119 && f.firstEngineParam() == 111 && f.globalCount() == 41,
-              "119 parameters per track (1.3: three inserts, FX MIX RATE CHAR each, and three sends from 96), the engine's 8 from 111; "
-              "41 globals (1.3: the shared return's three slots, RETURN and MODE from 27)");
+        CHECK(f.paramCount() == 122 && f.firstEngineParam() == 114 && f.globalCount() == 45,
+              "122 parameters per track (1.3: three inserts, FX MIX RATE CHAR each, and three sends from 96; 1.4: each insert's TONE "
+              "from 111), the engine's 8 from 114; 45 globals (1.3: the shared return's three slots, RETURN and MODE from 27; 1.4: "
+              "BUDGET 41, each return slot's TONE from 42)");
+        CHECK(f.paramDesc(0, 111).label == "TONE" && f.paramDesc(0, 113).label == "TONE" && f.globalDesc(41).label == "BUDGET"
+              && f.globalDesc(42).label == "TONE" && f.globalDesc(44).label == "TONE", "1.4's TONEs and BUDGET where its core.h has them");
         CHECK(f.paramDesc(0, 96).label == "FX" && f.paramDesc(0, 108).label == "SEND" && f.globalDesc(27).label == "TYPE" && f.globalDesc(39).label == "RETURN"
               && f.globalDesc(40).label == "MODE" && f.globalDesc(4).label.empty() && f.globalDesc(25).label.empty(),
               "1.3's effects where its core.h has them; the old effects' ids blank (format padding)");
@@ -335,8 +338,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v1.3.4" && info[at] == 20 && info[at + 1] == 119 && info[at + 2] == 41 && info[at + 4] == 111,
-              "INFO answers, as Melodee 1.3.4 (20 engines, 119 parameters, 41 globals, P_E0 111)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "MELODEE v1.4.1" && info[at] == 20 && info[at + 1] == 122 && info[at + 2] == 45 && info[at + 4] == 114,
+              "INFO answers, as Melodee 1.4.1 (20 engines, 122 parameters, 45 globals, P_E0 114)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {
@@ -361,12 +364,47 @@ int main() {
         CHECK(h.putObject(5, slot) == 0 && h.object(5, slot) && slot == runtime, "so does slot D, in another instance");
         std::vector<uint8_t> settingsObj;
         CHECK(g.object(1, settingsObj) && !settingsObj.empty(), "the settings object");
-        std::vector<uint8_t> cz, cz2;
-        CHECK(g.object(9, cz) && cz.size() == 2332 && h.putObject(10, cz) == 0 && h.object(10, cz2) && cz2 == cz, "a CZ bank, kept and put back");
         std::vector<uint8_t> none;
-        std::vector<uint8_t> p5, p52;
-        CHECK(g.object(23, p5) && p5.size() == 3600 && h.putObject(24, p5) == 0 && h.object(24, p52) && p52 == p5, "a PROPHET user bank (0.13), kept and put back");
-        CHECK(g.object(8, none) && none.empty() && !g.object(28, none), "object 8 retired (empty); none past 27");
+        CHECK(g.object(8, none) && none.empty() && g.object(28, none) && !g.object(29, none), "object 8 retired (empty); 0..28, none past 28 (1.4)");
+        {   // 1.4's one shared preset bank (U001..U384): empty at first (the factory sounds are built in); an older
+            // release's bank, as a 1.1 / 1.3 backup or device file holds it, is taken and moved into it as the device
+            // does it at power-on (its tones then listed by command 80), and kept in its new form
+            bool empty = true;
+            for (int id = 6; id <= 28; ++id) { std::vector<uint8_t> o; empty = empty && g.object(id, o) && o.empty(); }
+            CHECK(empty, "1.4: the shared preset bank starts empty");
+            FeluccaEngine old{kMel, FeluccaEngine::Release::Previous2};
+            old.setEngine(0, 3);   // (SID on part 1, stored as 1.1.0's user preset 1: UP_STORE slot, name)
+            auto stored = old.ask({0xF0, 0x7D, 0x46, 0x4C, 19, 0, 'T', 'E', 'S', 'T', 0xF7});
+            std::vector<uint8_t> bankOld, bankNow;
+            CHECK(stored && old.object(6, bankOld) && !bankOld.empty() && h.putObject(6, bankOld) == 0 && h.object(6, bankNow) && !bankNow.empty()
+                      && bankNow != bankOld,
+                  "a 1.1.0 user preset bank (object 6, a preset stored there) into 1.4: taken, and kept in 1.4's form");
+            // LIBRARY list (command 80 op 0): first slot, count -> per slot used, engine, old, name (0-terminated)
+            auto r = h.ask({0xF0, 0x7D, 0x46, 0x4C, 80, 0, 0, 0, 16, 0xF7});
+            bool found = false;
+            if (r && r->size() > 12) {
+                const auto& a = *r;
+                for (size_t at = 12; at + 3 < a.size();) {
+                    const bool used = a[at] == 1, sid = a[at + 1] == 3;
+                    std::string name;
+                    for (at += 3; at < a.size() && a[at] != 0 && a[at] != 0xF7; ++at) name += char(a[at]);
+                    ++at;
+                    found = found || (used && sid && name.rfind("TEST", 0) == 0);
+                }
+            }
+            CHECK(found, "and its preset is in 1.4's shared bank: a SID sound named TEST");
+            {   // a project of an older format opens on 1.4 (project.c reads FUN16 .. FUN22): 1.1.0's music, part 2 on
+                // CZ-1 at level 66
+                std::vector<uint8_t> music11;
+                old.setEngine(1, 15);
+                old.setParam(1, 0, 66);
+                Mel n{kMel};
+                CHECK(old.object(0, music11) && n.putObject(0, music11) == 0 && n.engineOf(1) == 15 && n.param(1, 0) == 66,
+                      "1.1.0's music (FUN16) opens on 1.4, its parts as they were");
+            }
+            Mel k{kMel};
+            CHECK(k.putObject(6, bankNow) == 0, "1.4's form is taken back too");
+        }
 
         {   // A4 is the device's setting (tuning_a4), not the song's: the API, the editor and the sound agree
             f.setGlobal(21, 415);
