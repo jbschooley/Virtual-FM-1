@@ -4,6 +4,22 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
+## [Unreleased]
+
+### Changed
+
+- **SLOOP 2.7** is built in (it was 2.6): fifteen arp modes, KBD HOLD, each
+  drum sound's TUNE and DECAY, favourites, GLO > MIDI 3
+  (the punch-in effects, drum notes and panel buttons over MIDI, MIDI clock
+  out), SECTION A-D in place of PROJECT 1-4, held notes under a recorded one,
+  and its synth kicks reshaped for small speakers. Your theme (2.7's screen colours) is kept with
+  Pull and backups; a Send leaves the FM-1's own. An FM-1 on SLOOP 2.6 still
+  takes a Send (it drops what 2.7 added: an arp mode past ORD plays as ORD), but
+  Live needs 2.7 on both. The arp MODE host parameter ("SLOOP P1 AMODE") now
+  spans fifteen modes, so its automation from before lands on other modes.
+  Each drum sound's TUNE and DECAY are not host parameters and Live does not
+  carry them (Pull and Send do). Not yet tried with an FM-1 running 2.7.
+
 ## [0.9.2] - 2026-10-16
 
 ### Fixed

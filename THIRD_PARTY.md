@@ -23,8 +23,8 @@
   Instruments). See `engines/felucca/UPSTREAM.md`.
 - **SLOOP** (`engines/sloop/upstream`, generated tables, samples, drum kits,
   font, FM6 patches and logo in `engines/sloop/generated`): isod89's FM-1 firmware,
-  v2.5, a fork of Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic),
-  Hügelton Instruments, and its contributors; its FM6 core (`fm6_core.c`) is
+  v2.7, a fork of Felucca. GPL-3.0-only, copyright 2026 Leo Kuroshita (@kurogedelic),
+  Hügelton Instruments, and its contributors (Andre Rezemini: its second core and RAM work); its FM6 core (`fm6_core.c`) is
   msfa's, Apache-2.0 (`engines/sloop/upstream/LICENSES/Apache-2.0-msfa.txt`), and
   its PHYS engine's models are DaisySP's and Rings' (MIT, the notice in
   `phys_dsp.c` and `phys_symp.c`). Its samples are CC0 (Versilian
