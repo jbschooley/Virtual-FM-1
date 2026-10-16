@@ -13,7 +13,8 @@
 static int releaseOf(const FeluccaEngine& f) { return int(f.release()); }
 // (and the release it plays has it: its number there)
 static bool playsOn(const felparams::Entry& e, const FeluccaEngine& f) {
-    return e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop) && e.melodee == (f.flavor() == FeluccaEngine::Flavor::Melodee)
+    return f.flavor() != FeluccaEngine::Flavor::ChoralRoot   // (ChoralRoot: no host parameters; its protocol has none)
+        && e.sloop == (f.flavor() == FeluccaEngine::Flavor::Sloop) && e.melodee == (f.flavor() == FeluccaEngine::Flavor::Melodee)
         && felparams::indexOn(e, releaseOf(f)) >= 0;
 }
 static const fm1::KeptRelease* keptFor(FeluccaEngine::Flavor f, const juce::ValueTree& t);   // (below)
@@ -1197,20 +1198,22 @@ void FM1Processor::renderFm1Open(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 // Felucca reads its own older formats, so a later version converts it as the device does.
 // (a release kept beside the current one has its own: "Melodee013", Melodee 0.13's music; fm1::keptReleases)
 static const char* familyOfFlavor(FeluccaEngine::Flavor f) {
-    return f == FeluccaEngine::Flavor::Sloop ? "sloop" : f == FeluccaEngine::Flavor::Melodee ? "melodee" : "felucca";
+    return f == FeluccaEngine::Flavor::Sloop ? "sloop" : f == FeluccaEngine::Flavor::Melodee ? "melodee"
+         : f == FeluccaEngine::Flavor::ChoralRoot ? "choralroot" : "felucca";
 }
 static const char* stateName(FeluccaEngine::Flavor f, FeluccaEngine::Release r = FeluccaEngine::Release::Current) {
     if (r != FeluccaEngine::Release::Current)
         if (const auto* k = fm1::keptRelease(familyOfFlavor(f), int(r))) return k->stateName;
-    return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : f == FeluccaEngine::Flavor::Melodee ? "Melodee" : "Felucca";
+    return f == FeluccaEngine::Flavor::Sloop ? "Sloop" : f == FeluccaEngine::Flavor::Melodee ? "Melodee"
+         : f == FeluccaEngine::Flavor::ChoralRoot ? "ChoralRoot" : "Felucca";
 }
 static int flavorIndex(FeluccaEngine::Flavor f, FeluccaEngine::Release r = FeluccaEngine::Release::Current) {
-    const int i = f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0;
+    const int i = f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : f == FeluccaEngine::Flavor::ChoralRoot ? 3 : 0;
     return i * FeluccaEngine::kReleases + (FeluccaEngine::has(f, r) ? int(r) : 0);
 }
 std::vector<std::unique_ptr<felucca::DeviceStore>> FM1Processor::makeDevices() {
-    std::vector<std::unique_ptr<felucca::DeviceStore>> v(size_t(3 * FeluccaEngine::kReleases));
-    for (auto f : {FeluccaEngine::Flavor::Felucca, FeluccaEngine::Flavor::Sloop, FeluccaEngine::Flavor::Melodee})
+    std::vector<std::unique_ptr<felucca::DeviceStore>> v(size_t(4 * FeluccaEngine::kReleases));
+    for (auto f : {FeluccaEngine::Flavor::Felucca, FeluccaEngine::Flavor::Sloop, FeluccaEngine::Flavor::Melodee, FeluccaEngine::Flavor::ChoralRoot})
         for (int r = 0; r < FeluccaEngine::kReleases; ++r)
             if (FeluccaEngine::has(f, FeluccaEngine::Release(r)))
                 v[size_t(flavorIndex(f, FeluccaEngine::Release(r)))] = std::make_unique<felucca::DeviceStore>(felucca::dialectFor(familyOfFlavor(f), r));
@@ -1220,7 +1223,8 @@ felucca::DeviceStore& FM1Processor::deviceFor(const FeluccaEngine& f) { return *
 // the engine a firmware choice plays ("melodee_013": Melodee's previous release)
 static FeluccaEngine::Flavor flavorOfChoice(const juce::String& id) {
     const auto family = juce::String(fm1::familyOf(id.toStdString()));
-    return family == "sloop" ? FeluccaEngine::Flavor::Sloop : family == "melodee" ? FeluccaEngine::Flavor::Melodee : FeluccaEngine::Flavor::Felucca;
+    return family == "sloop" ? FeluccaEngine::Flavor::Sloop : family == "melodee" ? FeluccaEngine::Flavor::Melodee
+         : family == "choralroot" ? FeluccaEngine::Flavor::ChoralRoot : FeluccaEngine::Flavor::Felucca;
 }
 static FeluccaEngine::Release releaseOfChoice(const juce::String& id) {
     const auto* k = fm1::keptRelease(id.toStdString());
@@ -1331,10 +1335,14 @@ static juce::String saveSynthBackup(const felucca::Objects& o, const felucca::Di
     return f.replaceWithText(felucca::backupJson(o, release.isNotEmpty() ? release : juce::String(d.name).toUpperCase() + " (FM-1)", d), false, false, "\n") ? f.getFullPathName() : juce::String();
 }
 
+// ChoralRoot speaks only the backup part of the editor protocol: no sound copies, patterns or Live
+static bool backupOnly(const FeluccaEngine& f) { return f.flavor() == FeluccaEngine::Flavor::ChoralRoot; }
+
 // what a full Pull or Send moves, said in the firmware's terms
 static juce::String everything(const felucca::Dialect& d) {
     return felucca::isSloop(d) ? "working project, projects A-D, user presets and FM6 bank"
          : felucca::isMelodee(d) ? "music, projects, user presets, CZ banks and FM6 tones"
+         : felucca::isChoralRoot(d) ? "sound pool, favourites, loops, CZ-1 banks and FM6 bank"
                                  : "music, projects and user presets (with their FM6 patches)";
 }
 
@@ -1376,7 +1384,7 @@ bool FM1Processor::feluccaSend() {
         const auto kept = saveSynthBackup(*theirs, d, release);
         if (kept.isEmpty()) return Fm1Session::JobResult{false, "Nothing sent: could not save the FM-1's backup in the library."};
         auto ours = std::optional<felucca::Objects>(felucca::objectsOf(*f));
-        if (int(ours->size()) < d.lastObject + 1) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
+        if (ours->size() < felucca::storedIds(d).size() + (d.music ? 1u : 0u)) return Fm1Session::JobResult{false, "Nothing sent: the plugin's " + juce::String(d.name) + " gave no backup."};
         ours->erase(1);   // the synth's settings stay its own (its panel calibration, palette, favourites)
         if (felucca::isSloop(d)) {   // and SLOOP's MIDI setup (2.6: MIDI LEARN, the channels) and theme (2.7)
             ours->erase(10);
@@ -1392,7 +1400,7 @@ bool FM1Processor::feluccaSend() {
 
 bool FM1Processor::feluccaPullSound(int track) {
     auto f = felucca();
-    if (!f || !feluccaSynth() || track < 0 || track >= f->tracks()) return false;
+    if (!f || backupOnly(*f) || !feluccaSynth() || track < 0 || track >= f->tracks()) return false;
     return session.job("Reading part " + juce::String(track + 1) + "'s sound from the FM-1...", [this, f, track](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
@@ -1406,7 +1414,7 @@ bool FM1Processor::feluccaPullSound(int track) {
 
 bool FM1Processor::feluccaSendSound(int track) {
     auto f = felucca();
-    if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty() || track < 0 || track >= f->tracks()) return false;
+    if (!f || backupOnly(*f) || !feluccaSynth() || feluccaWritesRefused().isNotEmpty() || track < 0 || track >= f->tracks()) return false;
     return session.job("Sending part " + juce::String(track + 1) + "'s sound to the FM-1...", [f, track](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
@@ -1420,7 +1428,7 @@ bool FM1Processor::feluccaSendSound(int track) {
 bool FM1Processor::feluccaLive(bool on) {
     if (!on) { if (felLive_) session.cancel(); return true; }
     auto f = felucca();
-    if (!f || !feluccaSynth() || felLive_ || feluccaWritesRefused().isNotEmpty()) return false;
+    if (!f || backupOnly(*f) || !feluccaSynth() || felLive_ || feluccaWritesRefused().isNotEmpty()) return false;
     felLive_ = true;
     const bool started = session.job("Live with the FM-1 running " + juce::String(felucca::dialectOf(*f).name) + "...", [this, f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
@@ -1473,7 +1481,7 @@ std::optional<fm1::Bytes> FM1Processor::feluccaEdit(const fm1::Bytes& request) {
 
 bool FM1Processor::feluccaPullPatterns() {
     auto f = felucca();
-    if (!f || !feluccaSynth()) return false;
+    if (!f || backupOnly(*f) || !feluccaSynth()) return false;
     return session.job("Reading the FM-1's patterns...", [this, f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);
@@ -1487,7 +1495,7 @@ bool FM1Processor::feluccaPullPatterns() {
 
 bool FM1Processor::feluccaSendPatterns() {
     auto f = felucca();
-    if (!f || !feluccaSynth() || feluccaWritesRefused().isNotEmpty()) return false;
+    if (!f || backupOnly(*f) || !feluccaSynth() || feluccaWritesRefused().isNotEmpty()) return false;
     return session.job("Sending the patterns to the FM-1...", [f](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, felucca::dialectOf(*f));
         felucca::VirtualEndpoint mine(f);

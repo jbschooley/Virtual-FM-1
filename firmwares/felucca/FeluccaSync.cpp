@@ -129,7 +129,30 @@ const Dialect& melodee110Dialect() {
 }
 bool isMelodee(const Dialect& d) { return std::string(d.name) == "Melodee"; }
 
+// ChoralRoot 0.23 (Quixotic7/ChoralRootFM1, from Felucca): its backup only (cr_backup.c: INFO, Felucca's LIST,
+// GET and PUT, 72 RESTART; no editor, so no live). Its objects as LIST gives them: 1 the settings, 8 the FM6 bank,
+// 14..21 the CZ-1 banks, 50..62 the sound pool's banks, 23 the favourites, 40..49 the loop slots (no music object 0,
+// no samples). Its page (web/fm1backup.js) writes them in that order as "felucca-backup" files named by its INFO
+// ("ChoralRoot 0.23"), restores the settings last, then restarts it (the settings wait for that: cr_restore_lock)
+const Dialect& choralrootDialect() {
+    static const Dialect d{"ChoralRoot", kBackupList, kBackupGet, kBackupPut, true,
+                           {1, 8, 14, 15, 16, 17, 18, 19, 20, 21, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 23,
+                            40, 41, 42, 43, 44, 45, 46, 47, 48, 49},
+                           {8, 14, 15, 16, 17, 18, 19, 20, 21, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 23,
+                            40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 1}, 62, false, "felucca-backup",
+                           {}, -1, -1, nullptr, 0, false, 72};
+    return d;
+}
+bool isChoralRoot(const Dialect& d) { return std::string(d.name) == "ChoralRoot"; }
+
+std::vector<int> storedIds(const Dialect& d) {
+    std::vector<int> out;
+    for (int id : d.ids) if (id >= 1 && id <= d.lastObject) out.push_back(id);
+    return out;
+}
+
 const Dialect& dialectFor(const std::string& family, int release) {
+    if (family == "choralroot") return choralrootDialect();
     if (family == "sloop") return sloopDialect();
     if (family == "melodee") return release == 1 ? melodee013Dialect() : release == 2 ? melodee110Dialect() : melodeeDialect();
     return release == 1 ? felucca103Dialect() : feluccaDialect();
@@ -218,12 +241,19 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
     // (Melodee's editor writes every object it has: 29 from 1.4, 28 from 0.13, 23, 21, 17 or 9 before; fm1backup.js idsOf)
     const bool melodee = isMelodee(d);
-    const bool complete = objs && (sloop || (melodee ? objs->size() == 29 || objs->size() == 28 || objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
+    // (ChoralRoot's page writes the objects its LIST gives; this release's are all there)
+    const bool choral = isChoralRoot(d);
+    const bool complete = objs && (sloop || (choral ? !objs->isEmpty() : melodee ? objs->size() == 29 || objs->size() == 28 || objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
                                                      : objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
     // Melodee's editor writes "felucca-backup" files too, with its own objects inside: told apart by
     // the INFO it names ("MELODEE v0.13"), never restored into the other
     if (v.getProperty("firmware", {}).toString().containsIgnoreCase("MELODEE") != melodee) {
         error = melodee ? "not a Melodee backup (a Felucca one)" : "a Melodee backup, not a Felucca one";
+        return false;
+    }
+    // (and ChoralRoot's, by the INFO its page names: "ChoralRoot 0.23")
+    if (v.getProperty("firmware", {}).toString().startsWithIgnoreCase("ChoralRoot") != choral) {
+        error = choral ? "not a ChoralRoot backup" : juce::String("a ChoralRoot backup, not a ") + d.name + " one";
         return false;
     }
     if (v.getProperty("format", {}).toString() != d.fileFormat || int(v.getProperty("version", 0)) != 1 || !complete) {
@@ -235,8 +265,12 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         const auto crc = uint32_t(juce::int64(o.getProperty("crc", -1)));
         juce::MemoryOutputStream data;
         // (as each editor allows: a sample 80 KB; Melodee's music and projects 27904 bytes (1.0; 0.13: 27752), its
-        // PROPHET banks 3600; the rest 3840)
-        const int most = id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? (&d == &melodee013Dialect() ? 27752 : 27904)
+        // PROPHET banks 3600; the rest 3840, ChoralRoot's all: storage.c's ST_PAYLOAD_MAX)
+        if (choral && std::find(ids.begin(), ids.end(), id) == ids.end()) {
+            error = "object " + juce::String(id) + " is not one of ChoralRoot 0.23's (a backup of another release)";
+            return false;
+        }
+        const int most = choral ? 3840 : id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? (&d == &melodee013Dialect() ? 27752 : 27904)
                        : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
         if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
@@ -251,7 +285,9 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         }
         out[id] = std::move(bytes);
     }
-    if (out[0].empty() || out[1].empty()) {
+    // (ChoralRoot: no music object, and any of its objects may be empty, as on an FM-1 never saved to: a device
+    // file of such an instance is one; its page refuses a backup where all are, these files are the plugin's too)
+    if (!choral && (out[0].empty() || out[1].empty())) {
         error = "the backup has no music or settings";
         return false;
     }
@@ -261,6 +297,11 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
 }
 
 juce::String fitToSynth(Objects& ours, const Objects& theirs, const Dialect& d) {
+    if (isChoralRoot(d)) {   // as its page restores: the objects the synth lists, empty ones too; the rest left out
+        for (auto it = ours.begin(); it != ours.end();)
+            it = theirs.count(it->first) ? std::next(it) : ours.erase(it);
+        return {};
+    }
     // Felucca: never an empty FM6 bank (8: 1.0.3's is always empty; sent to 1.0.2 it would empty the
     // synth's bank), and no 9 for a synth that does not list it (before 1.0.3; SLOOP 2.4: no SYN kits)
     if (auto it = ours.find(8); it != ours.end() && it->second.empty()) ours.erase(it);
@@ -399,7 +440,7 @@ std::optional<Objects> backup(Endpoint& from, const Progress& progress, juce::St
         if (crc32(bytes) != e.crc && e.size) { error = "object " + juce::String(e.id) + " changed while it was read: try again"; return std::nullopt; }
         out[e.id] = std::move(bytes);
     }
-    if (out[0].empty() || out[1].empty()) { error = "the synth gave no music or settings"; return std::nullopt; }
+    if (d.music && (out[0].empty() || out[1].empty())) { error = "the synth gave no music or settings"; return std::nullopt; }
     return out;
 }
 
@@ -482,6 +523,12 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
                     + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
             return false;
         }
+    }
+    // ChoralRoot: restarted, so everything restored loads (its settings wait for that), as its page does it
+    if (dl.restart) {
+        auto r = to.ask(frame(dl.restart), kAsk);
+        auto g = r ? argsOf(*r) : std::vector<uint8_t>{};
+        if (g.empty() || g[0] != 0) { error = "everything was written, but the synth did not restart: restart it to load it"; return false; }
     }
     return true;
 }

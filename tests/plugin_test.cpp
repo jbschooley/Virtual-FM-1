@@ -338,7 +338,7 @@ static int checks() {
             auto with = [](int v, const char* info) { fm1::Identity i{"FM-1", v, info}; return i; };
             struct Case { fm1::Identity id; const char* name; };
             const Case cases[] = {
-                {with(920, "ChoralRoot 0.23"), "ChoralRoot"}, {with(930, "CoralFlower 0.2"), "CoralFlower"},
+                {with(930, "CoralFlower 0.2"), "CoralFlower"},
                 {with(927, "PurpleMonkey 0.11"), "PurpleMonkey"}, {with(9010100, "X0X 1.1.0 BETA"), "X0X"},
                 {with(910, "JANGADA 1.0.1"), "Jangada"}, {with(900, "FELUCCA ORBIT 0.7.1"), "ORBIT"},
                 {with(901, "FELUCCA DUELL 0.2.20 beta"), "DUELL"}, {with(721, "FELUCCA OPTIMIST 0.1"), "Optimist"},
@@ -354,7 +354,7 @@ static int checks() {
                 else
                     std::printf("  %d \"%s\": %s (%s)\n", k.id.version, k.id.editor.c_str(), fm1::firmwareIdFor(k.id).c_str(), c.text.c_str());
             }
-            CHECK(ok == int(std::size(cases)), "17 firmwares known by name: named, said to be unsupported, never synced as Felucca or FM-1+VA");
+            CHECK(ok == int(std::size(cases)), "16 firmwares known by name: named, said to be unsupported, never synced as Felucca or FM-1+VA");
             CHECK(fm1::firmwareIdFor(with(915, "FELUCCA v1.5.1")) == "felucca" && fm1::firmwareIdFor(with(900, "FELUCCA SLOOP 2.6")) == "sloop"
                       && fm1::firmwareIdFor(with(91034, "MELODEE v1.3.4")) == "melodee" && fm1::firmwareIdFor(with(97, "")) == "baudgirl_fm1va"
                       && fm1::firmwareIdFor(with(101, "")) == "baudgirl_fm1va",
@@ -567,6 +567,136 @@ static int checks() {
         CHECK(pb && pb->pattern.locks == e.pattern.locks, "a pattern's locks through JSON");
     }
    #if FM1_FELUCCA
+    // ChoralRoot (engines/choralroot): a choice of its own, told apart by its INFO; it plays, and its backup
+    // (the only part of the editor protocol it speaks) syncs: Pull, Send and the device file
+    {
+        using Fl = FeluccaEngine::Flavor;
+        auto with = [](int v, const char* info) { fm1::Identity i{"FM-1", v, info}; return i; };
+        const auto cr = with(920, "ChoralRoot 0.23"), one = with(920, "ChoralRoot 0.23 1-core"), beta = with(920, "ChoralRoot 0.24-beta1");
+        CHECK(fm1::isFirmwareChoice("choralroot") && fm1::firmwareChoice("choralroot").label() == "ChoralRoot 0.23" && fm1::isFeluccaFamily("choralroot")
+                  && fm1::firmwareIdFor(cr) == "choralroot" && fm1::firmwareIdFor(one) == "choralroot" && fm1::firmwareFor(cr)->name() == "ChoralRoot"
+                  && fm1::runs(cr, "choralroot") && !fm1::runs(cr, "felucca"),
+              "ChoralRoot 0.23: a choice; an FM-1 answering FM-1_920 with its INFO runs it (its single-core package's too)");
+        const auto c = fm1::checkVersion(cr), c1 = fm1::checkVersion(one), cb = fm1::checkVersion(beta);
+        CHECK(c.support == fm1::Support::Current && c.text == "FM-1_920: ChoralRoot 0.23" && c1.text == c.text && fm1::writesRefused(cr).empty(),
+              "the current release, written to: " + c.text + " / " + c1.text);
+        CHECK(cb.known && cb.support == fm1::Support::Older && cb.text.find("synced as 0.23") != std::string::npos && fm1::writesRefused(beta).empty(),
+              "0.24-beta1: the same backup, synced as 0.23: " + cb.text);
+        const auto c25 = fm1::checkVersion(with(920, "ChoralRoot 0.25"));
+        CHECK(c25.newer && c25.text.find("newer than the plugin's 0.23") != std::string::npos, "a newer one: synced as 0.23, said so: " + c25.text);
+        CHECK(fm1::firmwareIdFor(with(930, "CoralFlower 0.2")) == "other" && fm1::firmwareIdFor(with(927, "PurpleMonkey 0.11")) == "other"
+                  && fm1::firmwareIdFor(with(920, "FELUCCA v2.0")) == "felucca",
+              "CoralFlower and PurpleMonkey stay known by name only; a Felucca answering FM-1_920 stays Felucca");
+
+        freshDataDir();
+        {
+            FM1Processor p;
+            p.setPlayConfigDetails(0, 2, 44100.0, 256);
+            p.prepareToPlay(44100.0, 256);
+            p.setFirmware("choralroot");
+            auto f = p.felucca();
+            CHECK(p.emulates() && f && f->flavor() == Fl::ChoralRoot && f->version() == "v0.23" && p.devicePanel() == f && !p.feluccaParam(0, 0),
+                  "set to ChoralRoot: it plays, its panel is the Device view's, no host parameters");
+            juce::AudioBuffer<float> buf(2, 256);
+            float peak = 0.0f;
+            for (int k = 0; k < 200; ++k) {
+                juce::MidiBuffer m;
+                if (k == 20) m.addEvent(juce::MidiMessage::noteOn(1, 60, uint8_t(100)), 0);
+                buf.clear();
+                p.processBlock(buf, m);
+                peak = std::max(peak, buf.getMagnitude(0, 256));
+            }
+            CHECK(peak > 0.01f, "a note through the plugin sounds: " + juce::String(peak));
+            {   // its own panel: the Device view and the Sync page
+                ChoralRootPanel panel(p);
+                panel.setSize(900, 500);
+                auto* tabs = dynamic_cast<juce::TabbedComponent*>(panel.findChildWithID("choralroot tabs"));
+                CHECK(tabs && tabs->getNumTabs() == 2 && tabs->getTabNames()[0] == "Device" && tabs->getTabNames()[1] == "Sync",
+                      "its editor: the Device and Sync tabs only");
+            }
+        }
+
+        {   // its backup between two instances, through the protocol (Pull and Send's path)
+            auto a = std::make_shared<FeluccaEngine>(Fl::ChoralRoot), b = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+            auto run = [](FeluccaEngine& e, double seconds) {
+                std::vector<float> l(256), r(256);
+                for (int k = 0; k < int(seconds * 44100.0 / 256.0); ++k) e.render(l.data(), r.data(), 256);
+            };
+            run(*a, 0.5);
+            a->button(7, true);   // SAVE held alone: its global save (the settings record), as on the unit
+            run(*a, 2.0);
+            a->button(7, false);
+            run(*a, 0.5);
+            felucca::VirtualEndpoint ea(a), eb(b);
+            juce::String err;
+            const auto mine = felucca::backup(ea, {}, err);
+            const auto& d = felucca::choralrootDialect();
+            CHECK(&ea.dialect() == &d && mine && mine->size() == d.ids.size() && !mine->count(0) && mine->count(1) && !mine->at(1).empty(),
+                  "backed up: its 34 objects, the settings saved (" + juce::String(mine && mine->count(1) ? int(mine->at(1).size()) : -1) + " bytes) " + err);
+            auto theirs = felucca::backup(eb, {}, err);
+            CHECK(theirs && std::all_of(theirs->begin(), theirs->end(), [](const auto& o) { return o.second.empty(); }),
+                  "a ChoralRoot never saved to: every object empty, and backed up all the same " + err);
+            auto send = *mine;
+            CHECK(felucca::fitToSynth(send, *theirs, d).isEmpty() && felucca::restore(eb, send, {}, err), "restored to the other, then restarted: " + err);
+            CHECK(felucca::objectsOf(*b) == *mine, "the other now has the same objects");
+            // the settings restored: the instance restarted from its flash (as the unit after RESTART), so it plays as
+            // one that powered on from that flash
+            auto c2 = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+            run(*c2, 0.3);
+            CHECK(c2->putObject(1, mine->at(1)) == 0, "a settings record put into a third");
+            c2->objectsDone();
+            auto d2 = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+            CHECK(d2->putObject(1, mine->at(1)) == 0, "and into a fourth, at once");
+            d2->objectsDone();
+            auto take = [](FeluccaEngine& e) {
+                std::vector<float> l(256), r(256);
+                uint64_t h = 0xcbf29ce484222325ull;
+                e.key(12, true);
+                for (int k = 0; k < 120; ++k) {
+                    e.render(l.data(), r.data(), 256);
+                    for (int i = 0; i < 256; ++i) { uint32_t x; std::memcpy(&x, &l[size_t(i)], 4); h = (h ^ x) * 0x100000001b3ull; }
+                }
+                e.key(12, false);
+                return h;
+            };
+            CHECK(take(*c2) == take(*d2), "a settings record restored restarts it: it plays as one powered on from that flash");
+            const auto restart = eb.ask(felucca::frame(72), 400);
+            const auto rargs = restart ? felucca::argsOf(*restart) : std::vector<uint8_t>{};
+            CHECK(rargs.size() == 1 && rargs[0] == 0 && felucca::objectsOf(*b) == *mine, "72 RESTART answered, its objects kept over the restart");
+            // a backup file of it, as its page writes them ("felucca-backup", its INFO), read back
+            const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("choralroot-backup-test.json");
+            file.replaceWithText(felucca::backupJson(*mine, "ChoralRoot 0.23", d));
+            felucca::Objects back;
+            CHECK(felucca::readBackup(file, back, err, d) && back == *mine, "its backup file reads back: " + err);
+            CHECK(!felucca::readBackup(file, back, err, felucca::feluccaDialect()) && err.contains("ChoralRoot"), "and is not taken as Felucca's: " + err);
+            file.deleteFile();
+        }
+
+        {   // the device file: what one instance saves, another set to ChoralRoot loads
+            freshDataDir();
+            const auto& d = felucca::choralrootDialect();
+            const auto path = felucca::DeviceStore::defaultFile(d);
+            CHECK(path.getFileName() == "ChoralRoot device.json" && path.getParentDirectory().getFileName() == "ChoralRoot", "its device file: " + path.getFullPathName());
+            FeluccaEngine a(Fl::ChoralRoot);
+            felucca::DeviceStore sa(d);
+            CHECK(sa.load(a).isEmpty() && sa.tick(a).isEmpty() && !path.existsAsFile(), "nothing saved while nothing changed");
+            std::vector<float> l(256), r(256);
+            for (int k = 0; k < 60; ++k) a.render(l.data(), r.data(), 256);
+            a.button(7, true);
+            for (int k = 0; k < 350; ++k) a.render(l.data(), r.data(), 256);
+            a.button(7, false);
+            for (int k = 0; k < 60; ++k) a.render(l.data(), r.data(), 256);
+            CHECK(sa.tick(a).isEmpty() && path.existsAsFile(), "its settings saved: the device file written");
+            const auto made = juce::JSON::parse(path);
+            CHECK(made.getProperty("format", {}).toString() == "felucca-backup" && made.getProperty("firmware", {}).toString() == "ChoralRoot 0.23 (Virtual FM-1)",
+                  "as its page writes them, named by its INFO");
+            FeluccaEngine b(Fl::ChoralRoot);
+            felucca::DeviceStore sb(d);
+            std::vector<uint8_t> sa1, sb1;
+            CHECK(sb.load(b).isEmpty() && a.object(1, sa1) && b.object(1, sb1) && !sa1.empty() && sa1 == sb1, "another instance loads it: the same settings");
+        }
+    }
+
     // an instance set to SLOOP plays SLOOP's engines (its own copies), apart from Felucca's
     {
         using Fl = FeluccaEngine::Flavor;

@@ -10,7 +10,8 @@
 namespace felucca {
 
 const Dialect& dialectOf(const FeluccaEngine& f) {
-    const char* family = f.flavor() == FeluccaEngine::Flavor::Sloop ? "sloop" : f.flavor() == FeluccaEngine::Flavor::Melodee ? "melodee" : "felucca";
+    const char* family = f.flavor() == FeluccaEngine::Flavor::Sloop ? "sloop" : f.flavor() == FeluccaEngine::Flavor::Melodee ? "melodee"
+                       : f.flavor() == FeluccaEngine::Flavor::ChoralRoot ? "choralroot" : "felucca";
     return dialectFor(family, int(f.release()));
 }
 
@@ -22,10 +23,11 @@ std::optional<Bytes> VirtualEndpoint::ask(const Bytes& request, int) {
 
 Objects objectsOf(FeluccaEngine& f) {
     Objects out;
-    for (int id = 0; id <= dialectOf(f).lastObject; ++id) {
-        std::vector<uint8_t> b;
+    const auto& d = dialectOf(f);
+    std::vector<uint8_t> b;
+    if (d.music && f.object(0, b)) out[0] = std::move(b);
+    for (int id : storedIds(d))
         if (f.object(id, b)) out[id] = std::move(b);
-    }
     return out;
 }
 
@@ -73,12 +75,16 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
     for (int id : dialect_.restoreOrder) {
         auto it = o.find(id);
         if (id == 0 || it == o.end()) continue;
+        // (ChoralRoot: an object never saved is empty, and it refuses an empty settings record: one it has
+        // not got either is left as it is)
+        std::vector<uint8_t> mine;
+        if (isChoralRoot(dialect_) && it->second.empty() && f.object(id, mine) && mine.empty()) continue;
         if (f.putObject(id, it->second) != 0) { f.objectsDone(); return file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + "."; }
     }
     f.objectsDone();
     known_.clear();
     std::vector<uint8_t> b;
-    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) known_[id] = b;
+    for (int id : storedIds(dialect_)) if (f.object(id, b)) known_[id] = b;
     return {};
 }
 
@@ -90,7 +96,7 @@ juce::String DeviceStore::loadInto(FeluccaEngine& f) {
 // Done whichever of the firmware's stores loads first (the current release's included: it would write
 // over the file).
 static void seedKept(const Dialect& d, const juce::File& mine) {
-    if (isSloop(d) || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
+    if (isSloop(d) || isChoralRoot(d) || mine != DeviceStore::defaultFile(d)) return;   // (a file given by path: the caller's)
     const std::string family = isMelodee(d) ? "melodee" : "felucca";
     const auto currentFile = DeviceStore::defaultFile(dialectFor(family, 0));
     if (!currentFile.existsAsFile()) return;
@@ -119,7 +125,7 @@ juce::String DeviceStore::load(FeluccaEngine& f) {
     }
     known_.clear();   // nothing stored yet: what the device has now counts as known
     std::vector<uint8_t> b;
-    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) known_[id] = b;
+    for (int id : storedIds(dialect_)) if (f.object(id, b)) known_[id] = b;
     return {};
 }
 
@@ -139,7 +145,7 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     }
     Objects now;
     std::vector<uint8_t> b;
-    for (int id = 1; id <= dialect_.lastObject; ++id) if (f.object(id, b)) now[id] = b;
+    for (int id : storedIds(dialect_)) if (f.object(id, b)) now[id] = b;
     // another instance saved: take each object this one has not changed itself
     Objects base = known_;
     if (changedThere) {
@@ -157,21 +163,27 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
             if (f.object(id, b)) now[id] = b;
         }
         f.objectsDone();
-        for (int id = 1; id <= dialect_.lastObject; ++id) {
+        for (int id : storedIds(dialect_)) {
             if (now[id] == known_[id]) base[id] = now[id];
             else if (auto it = theirs.find(id); it != theirs.end()) base[id] = it->second;
         }
     }
     known_ = base;
     if (now == known_) return {};
-    // this instance changed something: save the device (the music too, as a backup must have it)
-    if (!f.object(0, b)) return {};
+    // this instance changed something: save the device (the music too, as a backup must have it;
+    // ChoralRoot has none)
     Objects all = now;
-    all[0] = b;
+    if (dialect_.music) {
+        if (!f.object(0, b)) return {};
+        all[0] = b;
+    }
     file_.getParentDirectory().createDirectory();
     juce::TemporaryFile tmp(file_);
-    // (Melodee's files name it as its INFO does, "MELODEE v0.13": its editor and readBackup tell them by that)
-    const juce::String made = (isMelodee(dialect_) ? "MELODEE " : "") + juce::String(f.version()) + " (Virtual FM-1)";
+    // (Melodee's files name it as its INFO does, "MELODEE v0.13": its editor and readBackup tell them by that;
+    // ChoralRoot's as its INFO, "ChoralRoot 0.23")
+    const juce::String version(f.version());
+    const juce::String made = isChoralRoot(dialect_) ? "ChoralRoot " + version.trimCharactersAtStart("v") + " (Virtual FM-1)"
+                            : (isMelodee(dialect_) ? "MELODEE " : "") + version + " (Virtual FM-1)";
     if (!tmp.getFile().replaceWithText(backupJson(all, made, dialect_), false, false, "\n")
         || !tmp.overwriteTargetFileWithTemporary())
         return report("Could not save the " + juce::String(dialect_.name) + " device to " + file_.getFullPathName() + ".");

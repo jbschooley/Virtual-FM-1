@@ -187,4 +187,19 @@ private:
     void layoutLibrary();
 };
 
+// The editor for an instance set to ChoralRoot: its front panel (Device) and its backup (Sync). No
+// Sound, presets or Sequencer: its sounds and loops are its own pages', and its protocol has no parameters.
+class ChoralRootPanel : public juce::Component {
+public:
+    explicit ChoralRootPanel(FM1Processor&);
+    void resized() override { tabs_.setBounds(getLocalBounds()); }
+    void refresh() { device_.refreshScreen(); }
+    void setStatus(const juce::String& s) { sync_.setStatus(s); }
+
+private:
+    FeluccaDeviceView device_;
+    FeluccaSyncPage sync_;
+    juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
+};
+
 #endif

@@ -929,11 +929,13 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     auto held = proc_.felucca();
     const juce::String name = held ? juce::String(felucca::dialectOf(*held).name) : juce::String("Felucca");
     const auto* dl = held ? &felucca::dialectOf(*held) : &felucca::feluccaDialect();
+    const bool choral = felucca::isChoralRoot(*dl);   // (its backup only: no live)
     const juce::String all = felucca::isSloop(*dl) ? "the working project, projects A-D, user presets and FM6 bank"
                            : felucca::isMelodee(*dl) ? "the music (all its pattern banks), its four projects, the user presets, CZ banks and FM6 tones"
-                                                     : "the music, its four projects and the user presets (with their FM6 patches)";
-    about_.setText("An FM-1 running " + name + ", connected with Find FM-1 (or the MIDI menus): pull everything from it, "
-                   "send everything to it, or follow it live.", juce::dontSendNotification);
+                           : choral ? "the sound pool, favourites, loop slots, CZ-1 banks and FM6 bank"
+                                    : "the music, its four projects and the user presets (with their FM6 patches)";
+    about_.setText("An FM-1 running " + name + ", connected with Find FM-1 (or the MIDI menus): pull everything from it"
+                   + juce::String(choral ? " or send everything to it." : ", send everything to it, or follow it live."), juce::dontSendNotification);
     about_.setColour(juce::Label::textColourId, kDim);
     about_.setFont(juce::FontOptions(13.0f));
     about_.setJustificationType(juce::Justification::topLeft);
@@ -945,11 +947,13 @@ FeluccaSyncPage::FeluccaSyncPage(FM1Processor& p) : proc_(p) {
     pullButton_.onClick = [this] { proc_.feluccaPull(); update(); };
     sendButton_.setTooltip("This instance's " + name + " to the connected FM-1: " + all + ", "
                            "replacing the synth's (not its settings or samples). Its own are backed up to the library first.");
-    sendButton_.onClick = [this, name, all] {
+    sendButton_.onClick = [this, name, all, choral] {
         juce::Component::SafePointer<FeluccaSyncPage> self(this);
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Send to the FM-1?",
             "The FM-1's " + all.fromFirstOccurrenceOf("the ", false, false) + " will be replaced by this instance's. "
-            "They are backed up to the library (" + name + "/Backups) first. Its settings and user samples are not touched.",
+            "They are backed up to the library (" + name + "/Backups) first. "
+            + juce::String(choral ? "Its settings are not touched; it restarts afterwards, as ChoralRoot's own page does it."
+                                  : "Its settings and user samples are not touched."),
             "Send", "Cancel", this, juce::ModalCallbackFunction::create([self](int ok) {
                 if (ok && self) { self->proc_.feluccaSend(); self->update(); }
             }));
@@ -1298,6 +1302,13 @@ void FeluccaPanel::layoutLibrary() {
     list_.setBounds(r.removeFromLeft(270));
     r.removeFromLeft(6);
     pages_.setBounds(r);
+}
+
+ChoralRootPanel::ChoralRootPanel(FM1Processor& p) : device_(p), sync_(p) {
+    tabs_.addTab("Device", kBg, &device_, false);
+    tabs_.addTab("Sync", kBg, &sync_, false);
+    tabs_.setComponentID("choralroot tabs");
+    addAndMakeVisible(tabs_);
 }
 
 #endif
