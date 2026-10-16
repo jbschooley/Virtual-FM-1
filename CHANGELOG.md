@@ -4,7 +4,7 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
-## [Unreleased]
+## [0.10.0] - 2026-10-16
 
 ### Changed
 
@@ -633,6 +633,7 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
+[0.10.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.8.0...v0.9.0
