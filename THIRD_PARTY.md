@@ -58,9 +58,9 @@
   says, no licence is granted for them and the rights stay with Sequential; they
   are carried here the same way. See `upstream/assets/prophet5-factory/README.md`.
 - **M-VAVE's stock FM-1 presets** (`presets/stock-mvave.syx`, and A01-C32 and D17 of
-  `presets/stock-fm1va.syx`): the 128 sounds an FM-1 comes with, read from an
-  FM-1 (presets/README.md), included as a new library's starting bank. No licence
-  is granted for them; the rights stay with M-VAVE.
+  `presets/stock-fm1va.syx`): the 128 factory voices of M-VAVE's stock V15
+  firmware package (presets/README.md), included as a new library's starting
+  bank. No licence is granted for them; the rights stay with M-VAVE.
 - **baud girl's VA preset packs** (D01-D32 of `presets/stock-fm1va.syx`): her VA
   sounds for FM-1+VA, read from an FM-1 they were loaded on. No licence is
   granted for them; the rights stay with baud girl.

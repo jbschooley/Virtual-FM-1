@@ -1,20 +1,25 @@
 # Stock presets
 
 The 128-preset banks a new library starts from, and the Library tab's **Import** menu loads.
-Each is a dump of an FM-1's presets as `fm1_probe dump` writes it: one FM-1+VA v4 message per
-slot, A01 to D32.
+Each is one FM-1+VA v4 message per slot, A01 to D32 (as `fm1_probe dump` writes them).
 
-- `stock-mvave.syx`: M-VAVE's stock presets, as an FM-1 held them on 2026-10-05 (read on
-  baud girl's FM-1_093, which keeps the stock firmware's presets; the same bytes were read again
-  after a fresh FM-1+VA 0.96 install). Not from M-VAVE directly: an early plugin test may have
-  written some slots before that day. To be replaced by an official dump if M-VAVE provides one.
-  sha1 `cb655cf9a20ed86d6b3ccd4db9d06e229e5845ba`.
-- `stock-fm1va.syx`: the same with baud girl's VA preset packs in D01-D32 (every D slot but
-  D17, which is the same in both), as loaded on 2026-10-06 and read unchanged on 2026-10-13.
-  sha1 `d1973e0f3c6ca51e031b96815f9563d497303c91`.
+- `stock-mvave.syx`: M-VAVE's factory presets. Their voices are the factory sounds in M-VAVE's
+  stock V15 package (`FM-1_015.fwsc`, sha256 `db1642b2...`, as published in
+  [m-vave/fm1_open](https://github.com/m-vave/fm1_open) `sdk/firmware/`): its `USR` entry,
+  decrypted as M-VAVE's restore tool does it (`sdk/WebUpdate.js`), whose first 16384 bytes are
+  the four banks of DX7 packed voices (sha256 `ecad0b86...`, the hash that tool pins). The
+  package carries voices only; each slot's FM-1 record (effects, envelope) is the default every
+  factory slot held when read from an FM-1 on 2026-10-05.
+  sha1 `5fd651ef86ef6772a22a49174e12fc311b621982`.
+- `stock-fm1va.syx`: the same with baud girl's VA preset packs in D01-D32 (every D slot but D17,
+  which keeps M-VAVE's), as loaded on an FM-1 on 2026-10-06.
+  sha1 `321de0dd2555fcbfc049a26465722514bb1c9160`.
 
-The firmware packages do not carry these: the stock V15 `FM-1.fwsc` holds one template voice, and
-an FM-1+VA install leaves the presets as they were (FM-1+VA 0.97 left them blank). Felucca, SLOOP
-and Melodee build their factory sounds from their source (`engines/`), so they need nothing here.
+An earlier version of these files came from an FM-1's own dump. Five of its slots differ from
+the factory voices: D17 (its name and record too: written by an early plugin test) and A26, B03,
+B13, B23 (a few values each, cause unknown).
+
+Felucca, SLOOP and Melodee build their factory sounds from their source (`engines/`), so they
+need nothing here.
 
 The sounds are M-VAVE's and baud girl's; no licence is granted for them (THIRD_PARTY.md).

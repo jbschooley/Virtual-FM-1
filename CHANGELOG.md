@@ -25,8 +25,8 @@ for the code. New work goes under the next version at the top.
   plugin has sounds before it ever meets an FM-1. **Import** loads either bank
   (M-VAVE's, or FM-1+VA's with the VA packs) into the library again, replacing
   every slot after copying the library as it was to its `.trash` folder. An
-  existing library is left as it is. The M-VAVE bank was read from an FM-1, not
-  supplied by M-VAVE.
+  existing library is left as it is. M-VAVE's voices are the factory sounds in
+  M-VAVE's own stock V15 firmware package, byte for byte.
 
 ### Changed
 

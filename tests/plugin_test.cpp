@@ -217,6 +217,14 @@ static int checks() {
             CHECK(kept.size() == 1 && kept[0].findChildFiles(juce::File::findFiles, false, "*.json").size() == 128 && old
                       && juce::String(fm1::voiceName(old->sound.voice)).trimEnd() == "PIANO 1",
                   "and the library as it was (A06 edited) is copied to .trash first");
+            {   // M-VAVE's: the voices of the stock V15 package (its USR entry, as M-VAVE's restore tool takes it),
+                // byte for byte (the 16384 bytes whose SHA-256 M-VAVE pins, ecad0b86..., in fm1_open sdk/WebUpdate.js
+                // factoryCheck; here their FNV-1a 64)
+                uint64_t h = 0xcbf29ce484222325ull;
+                for (int i = 0; i < BankModel::kSlots; ++i)
+                    for (uint8_t b : p.bank.slot(i).sound.voice) h = (h ^ b) * 0x100000001b3ull;
+                CHECK(h == 0xa02082df48198ceeull, "the M-VAVE stock bank's 128 voices are M-VAVE's factory voices");
+            }
             p.loadStockBank(true);
             CHECK(name(p, 96) == d01, "Import > FM-1+VA: the VA packs back in D01-D32");
             CHECK(dir.getChildFile(".trash").findChildFiles(juce::File::findDirectories, false, "before the stock bank *").size() == 2,
