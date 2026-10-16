@@ -32,7 +32,9 @@ for the code. New work goes under the next version at the top.
   Live needs 2.7 on both. The arp MODE host parameter ("SLOOP P1 AMODE") now
   spans fifteen modes, so its automation from before lands on other modes.
   Each drum sound's TUNE and DECAY are not host parameters and Live does not
-  carry them (Pull and Send do). Not yet tried with an FM-1 running 2.7.
+  carry them (Pull and Send do). Tried with an FM-1 running 2.7: Pull, Send
+  (every object read back the same), part 2's locks, nudges and conditions both
+  ways, and Live.
 - **Melodee 1.4.1** is built in (it was 1.3.4): SID's C64 models and its SID
   KIT and SID DIGI drum kits, a TONE on each insert and shared return slot (the
   host parameters "Melodee P1 FX1TONE", "Melodee RFX1TONE" and so on), MIDI IN
