@@ -228,7 +228,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "sloop") return sloop;
     if (firmwareId == "melodee") return melodee;
     // M-VAVE's FM1 Open: its release V12 answers FM-1_8000012 (app/version.h). Played by the plugin
-    // (engines/fm1open); not tried with an FM-1, and not synced with one yet
+    // (engines/fm1open); its identity seen from an FM-1 running V12 (2026-10-16); not synced with one yet
     static const std::vector<KnownVersion> fm1open = {
         {8000012, "V12", Support::Current, "the plugin plays it; syncing with an FM-1 running it is not done yet"},
     };
@@ -431,19 +431,24 @@ namespace {
 // a firmware the plugin knows by name and does nothing with (not a choice: no instance plays it)
 class UnsupportedFirmware : public Firmware {
 public:
-    explicit UnsupportedFirmware(juce::String n) : name_(std::move(n)) {}
+    // (what: what the plugin does with it, when more than nothing: FM1 Open plays in the plugin)
+    UnsupportedFirmware(juce::String n, juce::String what) : name_(std::move(n)), what_(std::move(what)) {}
     juce::String name() const override { return name_; }
-    juce::String summary() const override { return name_ + ": not supported yet"; }
+    juce::String summary() const override { return name_ + (what_.isEmpty() ? juce::String(": not supported yet") : ": " + what_); }
     bool has(Feature) const override { return false; }
-    juce::String cannot(Feature) const override { return "This FM-1 runs " + name_ + ", which the plugin does not support yet."; }
+    juce::String cannot(Feature) const override {
+        return "This FM-1 runs " + name_ + (what_.isEmpty() ? juce::String(", which the plugin does not support yet.") : " (" + what_ + ").");
+    }
     std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
     std::vector<Bytes> editChanges(const Sound&, const Sound&, edit::Channels) const override { return {}; }
 private:
-    juce::String name_;
+    juce::String name_, what_;
 };
 }  // namespace
 
-std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name) { return std::make_unique<UnsupportedFirmware>(name); }
+std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name, const juce::String& what) {
+    return std::make_unique<UnsupportedFirmware>(name, what);
+}
 
 bool isFirmwareChoice(const std::string& id) {
     for (const auto& c : firmwareChoices()) if (id == c.id) return true;
@@ -459,7 +464,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
     else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
     else if (which == "other") f = makeUnsupportedFirmware(otherFirmwareName(id));
-    else if (which == "fm1open") f = makeUnsupportedFirmware("FM1 Open");   // (played, not synced yet)
+    else if (which == "fm1open") f = makeUnsupportedFirmware("FM1 Open", "the plugin plays it; syncing with an FM-1 is not done yet");
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

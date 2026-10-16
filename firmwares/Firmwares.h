@@ -18,7 +18,7 @@ namespace fm1 {
 std::unique_ptr<Firmware> makeStockFirmware();
 std::unique_ptr<Firmware> makeFmVaFirmware();
 std::unique_ptr<Firmware> makeFeluccaFirmware(const juce::String& name = "Felucca");   // Felucca, or "SLOOP"
-std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name);   // known by name only
+std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name, const juce::String& what = {});   // known by name only
 std::string otherFirmwareName(const Identity& id);   // a firmware known by name only ("" none); firmwareIdFor "other"
 
 // The firmwares an instance can be set to (the dropdown at the top of the

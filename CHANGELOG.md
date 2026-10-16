@@ -72,9 +72,9 @@ for the code. New work goes under the next version at the top.
   from the open source of its browser preview (not M-VAVE's closed engine), its
   eight tracks and six sound sources, sequencer and 16 demo projects play on its
   own front panel and screen, and its projects are saved with the host's
-  project. An FM-1 running it is recognised (FM-1_8000012, and M-VAVE's other
-  FM1 Open builds), but not synced with yet; no host parameters yet. Not tried
-  with an FM-1.
+  project. An FM-1 running it is recognised (FM-1_8000012, seen on an FM-1
+  running V12, and M-VAVE's other FM1 Open builds), but not synced with yet; no
+  host parameters yet.
 
 ## [0.9.2] - 2026-10-16
 
