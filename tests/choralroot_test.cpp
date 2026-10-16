@@ -241,11 +241,18 @@ int main() {
             return render(e, 1.0, 256, [&e](int frame) { if (frame == 0x2000) { const uint8_t m[3] = {0x90, 60, 100}; e.midi(m, 3); } });
         };
         const auto plain = take();
-        setenv("EMU_MASTER", "0", 1);
-        setenv("EMU_OUTPUT", "classic", 1);
+        auto setEnv = [](const char* key, const char* value) {   // (value null: unset; Windows has neither setenv nor unsetenv)
+#ifdef _WIN32
+            _putenv_s(key, value ? value : "");
+#else
+            if (value) setenv(key, value, 1); else unsetenv(key);
+#endif
+        };
+        setEnv("EMU_MASTER", "0");
+        setEnv("EMU_OUTPUT", "classic");
         const auto set = take();
-        unsetenv("EMU_MASTER");
-        unsetenv("EMU_OUTPUT");
+        setEnv("EMU_MASTER", nullptr);
+        setEnv("EMU_OUTPUT", nullptr);
         CHECK(plain.mean > 0.0 && set.hash == plain.hash, "EMU_MASTER=0 and EMU_OUTPUT=classic set: it plays the same");
     }
 
