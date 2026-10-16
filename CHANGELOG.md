@@ -100,7 +100,9 @@ for the code. New work goes under the next version at the top.
   and is synced as 0.23. Its Sync page pulls from and sends to it what its
   backup carries (the sound pool, favourites, loop slots, CZ-1 banks and FM6
   bank; each side keeps its own settings), backing up the FM-1 to the library
-  first and restarting it after a Send, as ChoralRoot's own page does; its
+  first and restarting it after a Send, as ChoralRoot's own page does; a Send
+  while a loop plays or records on the FM-1 waits for it (up to two minutes,
+  as that page does), and if it stops waiting, it says which objects it wrote. Its
   device file is `ChoralRoot/ChoralRoot device.json`. Its protocol has nothing
   else, so there are no host parameters, Live, sound copies or patterns, and
   its sounds and loops are not saved with the host's project (only in the

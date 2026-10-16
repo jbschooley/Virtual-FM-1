@@ -384,7 +384,9 @@ uint32_t FEL(midi_out)(uint32_t *pkts, uint32_t max)   /* the backup's replies, 
 uint32_t FEL(selected)(void) { return 0; }
 void FEL(select)(uint32_t t) { (void)t; }
 void FEL(transport)(int play) { (void)play; }
-int FEL(playing)(void) { return 0; }
+/* "playing": busy as its backup says it (cr_backup.c crb_busy: a loop plays or records, or a slot load is on its way),
+ * when it writes no object (a PUT begin or commit answers rc 3): the device store waits for it, as for a playing SLOOP */
+int FEL(playing)(void) { return crb_busy(); }
 int32_t FEL(step_of)(uint32_t track) { (void)track; return -1; }
 uint32_t FEL(armed)(void) { return 0; }
 uint32_t FEL(scale_mask)(uint32_t track) { (void)track; return 0xFFFu; }
