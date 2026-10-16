@@ -271,10 +271,14 @@ int main(int argc, char** argv) {
             if (!felucca::readBackup(juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), source, err, dl)) { std::printf("cannot read %s: %s\n", argv[3], err.toRawUTF8()); return 1; }
             std::printf("the plugin's Felucca from %s\n", argv[3]);
         }
+        // ChoralRoot: the synth's settings stay out, as the plugin's Pull leaves them (its object 1 may be a record
+        // another firmware left in that flash: ChoralRoot lists it, and refuses it back, as it is no record of its own)
+        if (felucca::isChoralRoot(dl)) source.erase(1);
         if (!felucca::restore(mine, source, {}, err)) { std::printf("into the plugin's Felucca failed: %s\n", err.toRawUTF8()); return 1; }
+        const bool chr = felucca::isChoralRoot(dl);   // (ChoralRoot speaks the backup only: no user preset stored here)
         const uint8_t slot = 31;   // U32
         auto store = [&] { return mine.ask(felucca::frame(felucca::kUpStore, {slot, 'S', 'E', 'N', 'D', ' ', 'T', 'E', 'S', 'T', 0}), 0); };
-        auto st = store();
+        auto st = chr ? std::optional<fm1::Bytes>{} : store();
         auto rc = [&] { return st && felucca::argsOf(*st).size() >= 2 ? int(felucca::argsOf(*st)[1]) : -1; };
         if (rc() == 3) {   // SLOOP: "stop first" while a transport request waits for the main loop, run as the audio is
             std::vector<float> l(256), r(256);
@@ -285,8 +289,9 @@ int main(int argc, char** argv) {
             mine.ask(felucca::frame(felucca::kTrack, {0}), 0);
             st = store();
         }
-        std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s (rc %d)\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED",
-                    st && felucca::argsOf(*st).size() >= 2 ? int(felucca::argsOf(*st)[1]) : -1);
+        if (!chr)
+            std::printf("U32 \"SEND TEST\" stored in the plugin's Felucca: %s (rc %d)\n", st && felucca::argsOf(*st).size() >= 2 && felucca::argsOf(*st)[1] == 0 ? "ok" : "FAILED",
+                        st && felucca::argsOf(*st).size() >= 2 ? int(felucca::argsOf(*st)[1]) : -1);
         auto ours = felucca::backup(mine, {}, err);
         if (!ours) { std::printf("the plugin's backup failed: %s\n", err.toRawUTF8()); return 1; }
         ours->erase(1);   // the synth's settings stay its own, as Send leaves them
@@ -304,12 +309,14 @@ int main(int argc, char** argv) {
             (eq ? same : differ)++;
         }
         std::printf("  object 1 (settings): %s\n", after->count(1) && (*after)[1] == (*theirs)[1] ? "the FM-1's own, unchanged" : "CHANGED");
-        auto l = synth.ask(felucca::frame(felucca::kUpList, {slot, 1}), 1000);
         juce::String name;
-        if (l) { auto a = felucca::argsOf(*l); for (size_t k = 5; k < a.size() && a[k]; ++k) name += juce::String::charToString(juce::juce_wchar(a[k])); }
-        std::printf("the FM-1's U32: \"%s\"\n", name.toRawUTF8());
+        if (!chr) {
+            auto l = synth.ask(felucca::frame(felucca::kUpList, {slot, 1}), 1000);
+            if (l) { auto a = felucca::argsOf(*l); for (size_t k = 5; k < a.size() && a[k]; ++k) name += juce::String::charToString(juce::juce_wchar(a[k])); }
+            std::printf("the FM-1's U32: \"%s\"\n", name.toRawUTF8());
+        }
         std::printf("%d the same, %d different\n", same, differ);
-        return differ == 0 && name == "SEND TEST" ? 0 : 1;
+        return differ == 0 && (chr || name == "SEND TEST") ? 0 : 1;
     }
     if (cmd == "felucca-seq") {   // Felucca 1.5.1: a step's ratchet and nudge, the chain's lanes, a motion lock; sent, pulled, put back (RAM only)
         struct Mine : felucca::Endpoint {

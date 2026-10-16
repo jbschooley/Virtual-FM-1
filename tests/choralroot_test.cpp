@@ -192,6 +192,20 @@ int main() {
         CHECK(b.putObject(8, bad) != 0, "an FM6 bank that is not one: refused");
         b.objectsDone();
         CHECK(b.object(1, got) && got == settings, "and nothing changed");
+        // the settings record's sizes, as ChoralRoot 0.23 takes them (cr_backup.c crb_size_ok: 8 + panel_t .. persist_t,
+        // whose parts are fixed in every build: cr_settings_t asserted 192 bytes, panel_t 32, the favourites 520): its own
+        // PER5 is 764 bytes; an older record (PER1 .. PER4) shorter. A record another firmware left in that flash (an
+        // FM-1 that ran others: a "PER3" of 1552 bytes, its panel "PAN5", listed by ChoralRoot as its object 1) is no
+        // record of its own: refused, as the device itself refuses it, and nothing changes
+        std::vector<uint8_t> per3(52, 0), foreign(1552, 0);
+        std::memcpy(per3.data(), "3REP", 4);
+        std::memcpy(per3.data() + 16, settings.data() + 16, 32);   // (the panel, PAN5, as PER5 keeps it at the same place)
+        std::memcpy(foreign.data(), "3REP", 4);
+        std::memcpy(foreign.data() + 16, settings.data() + 16, 32);
+        FeluccaEngine c(Fl::ChoralRoot);
+        CHECK(c.putObject(1, per3) == 0, "an older settings record (PER3, 52 bytes): taken");
+        CHECK(b.putObject(1, foreign) != 0 && (b.objectsDone(), b.object(1, got)) && got == settings,
+              "a 1552-byte record another firmware left (\"PER3\"): refused as the device refuses it, nothing changed");
     }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
