@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol) and the parts'
  * sounds at power-on. */
 #include "dsp.c"
+#include "audio_batch.h"
 #if MELODEE_PROPHET
 #include "eng_prophet_test.c"
 #endif
@@ -13,7 +15,7 @@
 #include "eng_trio.c"
 #include "eng_wheel.c"
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
-#include "eng_drum.c"           /* DRUM: synthesized 808 circuits (drum_808.c) */
+#include "eng_drum.c"           /* DRUM: synthesized 808 circuits (drum_808.c), the 909, a C64's SID (drum_sid.c) */
 #include "eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM rendered as Dexed renders it (fm6_core.c) */
 #if MELODEE_SLICE
@@ -78,6 +80,7 @@ static int eng_state_prepare(const track_t *t)
 static phys_slot_t *phys_slots(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(phys_slot_t) * PHYS_POLY); }
 static drum909_part_t *drum909_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(drum909_part_t)); }
 static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(drum_lane_t) * DV_NLANE); }
+static dsk_part_t *dsk_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dsk_part_t)); }
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
@@ -163,7 +166,7 @@ static const preset_t *eng_preset(const engine_t *e, uint32_t k)
     return &made[turn];
 }
 
-/* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
+/* the order the engines are shown in (PRESETS browsing and its ENG knob, the editor's list):
  * engine indices, never a retired one. The indices stay as they are (the
  * stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
@@ -219,4 +222,3 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 /* the parts at power-on (engine, preset; the steps empty): bass, pad, lead, drums */
 static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 4}, {ENGI_FM6, 4}, {3, 0}, {ENGI_DRUM, 0}}; /* PROPHET FUNK
                                                     * BASS II (was ANALOG ACID), FM6 PAD (was DIGITAL PAD), SID INIT SID, DRUM KIT */
-static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }

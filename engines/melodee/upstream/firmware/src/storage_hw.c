@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware side of storage.c (MELODEE_FLASH): flash reads in short IRQ-off windows so the
  * audio keeps up, erases and writes only inside the storage areas, the audio buffer silenced
  * first. The host tests (storage_test.c) provide their own st_* on a simulated NOR. */

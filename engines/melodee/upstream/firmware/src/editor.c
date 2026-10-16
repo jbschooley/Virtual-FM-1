@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Editor protocol: SysEx for the web editor (web/EDITOR_PROTOCOL.md; v2 = user presets + live sync,
  * v3 = four tracks: the v1 / v2 commands act on the selected track, cmds 27-30 reach any track;
  * v4 = TRACK_PARAM (31) and the TRACK_CHANGED push (32), enabled by WATCH bit 1).
@@ -106,7 +107,7 @@ static struct {
 
 static int16_t *ed_val(uint32_t i)
 {
-    return i < P_COUNT ? &TSEL->p[i] : i == P_COUNT + G_A4 ? &tuning_a4 : &song.g[i - P_COUNT];
+    return i<P_COUNT?&TSEL->p[i]:i==P_COUNT+G_A4?&tuning_a4:i==P_COUNT+G_BUDGET?&settings_budget:&song.g[i-P_COUNT];
 }
 static uint32_t ed_step_sig(const step_t *s)
 {
@@ -282,6 +283,7 @@ static int ed_flash_stop(void)
 #include "editor_fm6.c"
 #include "editor_cz.c"
 #include "editor_native.c"
+#include "editor_library.c"
 #include "editor_prophet.c"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
@@ -345,8 +347,66 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_cz_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_library_handle(cmd,a,na)) { ed_send(); return; }
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
+    case 100: {
+#ifdef FM1_IRQ_TARGET
+        if(na){ed_b(1);break;}
+        uint32_t values[8u+NPART];fm1_irq_off();
+        values[0]=fm1_clock_mhz_of(fm1_clock_mult());values[1]=audio_timer5_max_ticks;values[2]=audio_irq_max_ticks;
+        values[3]=MELODEE_AUDIO_PROFILE;values[4]=MELODEE_AUDIO_BENCH;values[5]=MELODEE_ADMISSION;values[6]=HALF_FRAMES;
+        for(uint32_t p=0;p<NPART;p++)values[7u+p]=trk_nvoice(&trk[p]);
+        values[7u+NPART]=(uint32_t)settings_budget;
+        fm1_irq_on();ed_b(0);ed_b(2);ed_b(8u+NPART);
+        for(uint32_t k=0;k<8u+NPART;k++)for(uint32_t j=0;j<5u;j++)ed_b(values[k]>>(7u*j));
+#else
+        ed_b(2);
+#endif
+        break;
+    }
+    case 98: {
+#if MELODEE_AUDIO_PROFILE
+        uint32_t values[AP_COUNT*3u+5u];
+        if(na>1u || (na && a[0]>1u)){ed_b(1);break;}
+        fm1_irq_off();
+        for(uint32_t k=0;k<AP_COUNT;k++){
+            values[k*3u]=audio_profile[k].ticks;values[k*3u+1u]=audio_profile[k].calls;values[k*3u+2u]=audio_profile[k].max_ticks;
+        }
+#if MELODEE_DUAL_CORE
+        values[AP_COUNT*3u]=audio_worker.job_ticks;values[AP_COUNT*3u+1u]=audio_worker.wait_ticks;
+        values[AP_COUNT*3u+2u]=audio_worker.jobs;values[AP_COUNT*3u+3u]=audio_worker.waits;
+#else
+        for(uint32_t k=0;k<4u;k++)values[AP_COUNT*3u+k]=0;
+#endif
+#ifdef FM1_IRQ_TARGET
+        values[AP_COUNT*3u+4u]=fm1_clock_mhz_of(fm1_clock_mult());
+#else
+        values[AP_COUNT*3u+4u]=0;
+#endif
+        if(na && a[0]){
+            memset(audio_profile,0,sizeof audio_profile);
+#if MELODEE_DUAL_CORE
+            audio_worker.job_ticks=audio_worker.wait_ticks=audio_worker.waits=0;
+#endif
+        }
+        fm1_irq_on();ed_b(0);ed_b(1);ed_b(AP_COUNT);
+        for(uint32_t k=0;k<AP_COUNT*3u+5u;k++)for(uint32_t j=0;j<5u;j++)ed_b(values[k]>>(7u*j));
+#else
+        ed_b(2);
+#endif
+        break;
+    }
+#if MELODEE_AUDIO_BENCH
+    case 99: {
+        if(na==3u && a[0]==2u && a[1]<NTRK && a[2]<=FM6_OPL){
+            fm1_irq_off();fm6_fn_set(a[1],FN_ENGINE,a[2]);fm1_irq_on();ed_b(0);break;
+        }
+        if(na!=1u || a[0]>1u){ed_b(1);break;}
+        fm1_irq_off();audio_bench_until=a[0]?fm1_ticks()+30u*24000000u:0;fm1_irq_on();
+        ed_b(0);break;
+    }
+#endif
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     case 97: {
         uint32_t rc=0;
@@ -361,7 +421,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #endif
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims */
-        uint32_t snapshot[55] = {0}, k, count = na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
+        uint32_t snapshot[64] = {0}, k, count = na && (a[0] & 32u) ? 64u : na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
@@ -426,19 +486,35 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                     (uintptr_t)resource[r].ptr < (uintptr_t)_resource_cache_end)
                     snapshot[46] += resource[r].size;
         }
-        if (count == 55u)
+        if (count >= 55u)
             for (uint32_t p = 0; p < NPART; p++) {
                 snapshot[47u+p] = shed_part[p];
                 snapshot[51u+p] = voice_kills_part[p];
             }
+        if(count==64u){
+            /* Upper envelope includes measured C entry/exit and allows one
+             * TIMER5 preemption during the short assembly footer, plus 4 us
+             * for register/timestamp/return overhead at supported clocks. */
+            uint32_t upper=(audio_irq_max_ticks+audio_timer5_max_ticks+96u+23u)/24u;
+            snapshot[55]=audio_full_max_us>upper?audio_full_max_us:upper;snapshot[56]=audio_full_last_us;
+            snapshot[57]=audio_deadline_misses;snapshot[58]=audio_target_exceeded;
+            snapshot[59]=audio_batch_pairs;snapshot[60]=capacity_steals;snapshot[61]=admission_rejections;
+            snapshot[62]=MELODEE_ADMISSION;
+#if MELODEE_AUDIO_BENCH
+            snapshot[63]=(uint32_t)audio_bench_active()|(audio_bench_shed_requests<<1u);
+#endif
+        }
         if (na && (a[0] & 1u)) {
+            audio_full_max_us=0;
+            audio_irq_max_ticks=0;
+            audio_timer5_max_ticks=0;
             ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
 #if MELODEE_DUAL_CORE
             audio_worker.max_job_ticks = audio_worker.max_wait_ticks = 0;
 #endif
         }
         fm1_irq_on();
-        ed_b(count == 55u ? 6u : count == 47u ? 5u : count == 32u ? 4u : count == 26u ? 3u : 2u);
+        ed_b(count == 64u ? 7u : count == 55u ? 6u : count == 47u ? 5u : count == 32u ? 4u : count == 26u ? 3u : 2u);
         for (i = 0; i < count; i++)
             for (k = 0; k < 5u; k++)
                 ed_b(snapshot[i] >> (7u * k));
@@ -488,7 +564,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (i = 0; i < FM1_RAILS; i++)
                 v[i] = fm1_power_get(i);
             v[3] = (uint32_t)fm1_core1_barred(); v[4] = bootguard.failed;
-            v[5] = 0;                           /* (reserved: the boot retune's undo flag until 1.3.4, which never retunes) */
+            v[5] = 0;                           /* (reserved: the boot retune's undo flag until 1.3.4 / 1.4, which never retune) */
             fm1_clock_regs(v + 6);
             v[11] = audio_worker.misread; v[12] = fm1_core1_fault.count;
             v[13] = fm1_cpu_ticks();
@@ -566,8 +642,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(0);   /* FM6 patches: cmds 68..71 */
         ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(0); ed_b(0); /* old CZ bank controls retired */
-        ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* Prophet/native stable namespaces */
-        ed_b(0x4e); ed_b(1); ed_b(NATIVE_FM_SLOTS); ed_b(0); ed_b(NATIVE_CZ_SLOTS&127u); ed_b(NATIVE_CZ_SLOTS>>7); /* native user pools, command 78 */
+        ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* legacy native clients see their addressable prefix */
+        ed_b(0x4e); ed_b(1); ed_b(64); ed_b(0); ed_b(0); ed_b(1); /* legacy command 78 addressable prefixes */
+        ed_b(0x55);ed_b(1);ed_b(UP_SLOTS&127u);ed_b(UP_SLOTS>>7); /* shared library, command 80 */
         break;
     case ED_GET:
     case ED_SET:
@@ -578,7 +655,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
-                if (a[0] == 1 && a[1] == G_A4)
+                if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
                     settings_save();
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
@@ -701,13 +778,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         s0 = a[0];
         cnt = a[1] > 16u ? 16u : a[1];
-        if (s0 >= UP_SLOTS)
-            cnt = 0;
-        else if (s0 + cnt > UP_SLOTS)
-            cnt = UP_SLOTS - s0;
+        if (s0 >= 128u)cnt=0;
+        else if(s0+cnt>128u)cnt=128u-s0;
         ed_b(s0);
         ed_b(cnt);
-        ed_b(UP_SLOTS);
+        ed_b(128u);
         for (i = s0; i < s0 + cnt; i++) {
             char nm[13] = {0};
             uint32_t j, u = (uint32_t)up_used(i);
@@ -725,7 +800,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         char nm[13] = {0};
         const up_rec_t *r;
         uint32_t u;
-        if (na < 1u || a[0] >= UP_SLOTS)
+        if (na < 1u || a[0] >= 128u)
             return;
         r = up_rec(a[0]);
         u = (uint32_t)up_used(a[0]);
@@ -774,7 +849,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         for (n0 = 0; 1u + n0 < na && a[1 + n0] && n0 < 13u; n0++)
             ;
-        if (a[0] < UP_SLOTS && (!n0 || up_name_ok(a + 1, n0)) &&
+        if (a[0] < 128u && (!n0 || up_name_ok(a + 1, n0)) &&
             (1u + n0 == na || (2u + n0 == na && !a[1u + n0]))) {   /* "" = automatic name */
             for (i = 0; i < n0; i++)
                 nm[i] = (char)a[1 + i];
@@ -790,13 +865,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na < 1u)
             return;
         ed_b(a[0]);
-        ed_b(a[0] < UP_SLOTS && !up_load(a[0]) ? 0u : 1u);
+        ed_b(a[0] < 128u && !up_load(a[0]) ? 0u : 1u);
         break;
     case ED_UP_ERASE:
         if (na < 1u)
             return;
         ed_b(a[0]);
-        ed_b(a[0] >= UP_SLOTS ? 1u : ed_flash_stop() || up_put(a[0], 0) ? 2u : 0u);
+        ed_b(a[0] >= 128u ? 1u : ed_flash_stop() || up_put(a[0], 0) ? 2u : 0u);
         break;
     case ED_WATCH:                                         /* on -> on */
         if (na < 1u)

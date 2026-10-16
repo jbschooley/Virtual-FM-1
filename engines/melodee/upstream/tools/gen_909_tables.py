@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """x0x/9W9 parameter tables only (the tanh table is the Prophet's); no samples."""
 import math
 import struct

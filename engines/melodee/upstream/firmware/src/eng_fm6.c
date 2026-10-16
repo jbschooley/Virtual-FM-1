@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6: six-operator FM that plays DX7 voices the way Dexed plays them. The synthesis is fm6_core.c; this file
  * is the Melodee engine around it.
  *
@@ -312,6 +312,9 @@ typedef struct {
     int32_t mseq;
     uint32_t amd, pt[4];                                 /* AMS: the shares for this modulation (pok: figured) */
     uint8_t pok;
+    int32_t shared_pm, shared_amd, shared_tune;
+    uint32_t shared_clock, shared_valid;
+    uint8_t ghost_quiet;
 } fm6_ctl_t;
 /* MONO / LEGATO: Dexed keys one of its 16 voices for every key and hands the sounding state from voice to
  * voice (transferSignal / transferState). FM6 plays the note on one voice and keeps what else Dexed's voices
@@ -385,6 +388,7 @@ static int32_t fm6_ctl(int32_t cc, int32_t range)
 }
 
 static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s);
+static int fm6_quiet(const fm6_part_t *P,const uint8_t *ed);
 
 /* per part and block: the controllers, and every other block (or at a key-down retrigger) the LFO */
 static void fm6_ctl_block(track_t *t, const uint8_t *ed)
@@ -397,6 +401,7 @@ static void fm6_ctl_block(track_t *t, const uint8_t *ed)
     cc[1] = t->foot;
     cc[2] = t->breath;
     cc[3] = t->at;
+    c->shared_valid=0;
     c->pmod = c->amod = c->emod = 0;
     for (k = 0; k < 4u; k++) {                           /* wheel, foot, breath, aftertouch */
         uint32_t tg = FM6F(t)[FN_MWA + 2u * k];
@@ -425,6 +430,8 @@ static void fm6_ctl_block(track_t *t, const uint8_t *ed)
         c->trig = 0;
         c->tick = 1;
         c->clock++;
+        P->pt.shared_valid=0;
+        P->pt.ghost_quiet=(uint8_t)fm6_quiet(P,ed);
         fm6_lfo_step(&P->lfo, ed);
         for (k = 0; k < NVOICE; k++)                     /* voices over, as Dexed runs them on */
             if (P->v[k].played && !P->v[k].frozen && !t->v[k].active)
@@ -467,21 +474,22 @@ static int fm6_playing(const track_t *t, uint32_t i)
     return 0;
 }
 
+static uint32_t trk_nvoice(const track_t *t);
 /* POLY: the voice for a key (chooseNote): free over key-up over the same note, the oldest key first */
 static uint32_t fm6_alloc(track_t *t, uint32_t note)
 {
     fm6_part_t *P = FM6P(t);
-    uint32_t k = P->pt.rr % NVOICE, best = k, i;
+    uint32_t np=trk_nvoice(t),k=P->pt.rr%np,best=k,i;
     int32_t bs = -1;
-    for (i = 0; i < NVOICE; i++) {
+    for (i = 0; i < np; i++) {
         int32_t sc = (fm6_playing(t, k) ? 0 : 4) + (t->v[k].gate ? 0 : 2) + (P->v[k].played && t->v[k].note == note);
         if (sc > bs || (sc == bs && t->v[k].age < t->v[best].age)) {
             best = k;
             bs = sc;
         }
-        k = (k + 1u) % NVOICE;
+        k = (k + 1u) % np;
     }
-    P->pt.rr = (uint8_t)((best + 1u) % NVOICE);
+    P->pt.rr = (uint8_t)((best + 1u) % np);
     P->pt.steal = (uint8_t)fm6_playing(t, best);
     return best;
 }
@@ -601,6 +609,7 @@ static void fm6_note_on(track_t *t, voice_t *v)
     int mono = t->p[P_VOICE] != V_POLY, steal = P->pt.steal || (mono && s->played), ps;
     int32_t src[6];
     P->pt.steal = 0;
+    P->pt.shared_valid=0;
     fm6_sync(t, v);
     ed = fm6_ed(t);
     ps = fm6_psrc(t, P, src);                               /* before this voice takes the note */
@@ -683,13 +692,13 @@ static void fm6_legato(track_t *t, voice_t *v)
 static int fm6_done(track_t *t, voice_t *v) { return fm6_state(t, v)->quiet >= 2u; }
 
 /* a new Dexed block: key-up, the envelopes, pitch and gains (Dx7Note::compute), the routing */
-static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m, fm6_part_t *P, int32_t tune)
+static __attribute__((noinline,section(".audio_text"))) void fm6_control_ram(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m, fm6_part_t *P, int32_t tune)
 {
     uint32_t tr = (uint32_t)(t - trk) % NTRK, alg, k, dead = 1;
     const uint8_t *ed = fm6_ed(t);
     int32_t lv[6], lfo = P->lfo.val, dly = P->lfo.depth, pm, sens, pbase, amd, a1, a2, fbv;
     /* MLVL and FLT: the modulators' level, 0.75 dB / 32 steps (microsteps, as the output levels), Q24 */
-    int32_t mod = (fm6_clamp(t->p[P_E2], -64, 63) * 24 + fm6_clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
+    int32_t mod = (clamp(t->p[P_E2], -64, 63) * 24 + clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
     uint32_t pmd = ((uint32_t)ed[FP_LPMD] * 165u) >> 6;
     alg = (uint32_t)ed[FP_ALG] & 31u;
     if (!v->gate && s->down) {                           /* key up: every envelope to its fourth segment */
@@ -698,6 +707,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
             fm6_eg_go(&s->eg[k], &ed[k * FP_OP], s->ol[k], s->rs[k], 3);
         fm6_peg_go(&s->pe, 3);
     }
+    if(!P->pt.shared_valid || P->pt.shared_clock!=P->pt.clock){
     /* pitch: the LFO (PMD x PMS, after the delay, or a controller's), the pitch envelope, bend */
     sens = FM6_PMS[ed[FP_LPMS]] * (lfo - (1 << 23));
     {
@@ -706,10 +716,10 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
         p1 = p1 < 0 ? -p1 : p1;
         p2 = p2 < 0 ? -p2 : p2;
         pm = p1 > p2 ? p1 : p2;
-        pm = fm6_peg_step(&s->pe, s->down) + (sens < 0 ? -pm : pm);
+        pm = sens < 0 ? -pm : pm;
     }
     pbase = P->pt.pb + tune;
-    pm += pbase + m->plog;                               /* + Melodee's glide, LFO / ENV pitch, unison */
+    pm += pbase;                               /* + Melodee's glide, LFO / ENV pitch, unison */
     /* amplitude: the LFO (AMD, after the delay) or a controller's, at least the EG bias */
     lfo = (1 << 24) - lfo;
     a1 = (int32_t)((float)(((uint32_t)ed[FP_LAMD] * 165u) >> 6) * (float)dly * (float)lfo * (1.0f / 4294967296.0f));
@@ -717,6 +727,11 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
     amd = a1 > a2 ? a1 : a2;
     a1 = (1 << 24) - ((P->pt.emod + 1) << 17);
     amd = (uint32_t)a1 > (uint32_t)amd ? a1 : amd;
+        P->pt.shared_pm=pm;P->pt.shared_amd=amd;P->pt.shared_tune=pbase;
+        P->pt.shared_clock=P->pt.clock;P->pt.shared_valid=1;
+    }
+    pm=fm6_peg_step(&s->pe,s->down)+P->pt.shared_pm+m->plog;
+    amd=P->pt.shared_amd;pbase=P->pt.shared_tune;
     for (k = 0; k < 6u; k++) {
         const uint8_t *op = &ed[k * FP_OP];
         int car = fm6_carrier(alg, 6u - k);
@@ -726,8 +741,9 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
             lv[k] = 0;
             continue;
         }
+        int32_t freq;
         if (op[FP_MODE]) {
-            s->fq[k] = fm6_freq(s->base[k] + pbase + fm6_eff[tr].dt[k]);
+            freq = s->base[k] + pbase + fm6_eff[tr].dt[k];
         } else {
             int32_t b = s->base[k];
             if (s->porta[k] != s->base[k]) {             /* portamento towards the note */
@@ -739,7 +755,10 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
                     np = s->base[k];
                 s->porta[k] = np;
             }
-            s->fq[k] = fm6_freq(b + pm + fm6_eff[tr].dt[k]);
+            freq = b + pm + fm6_eff[tr].dt[k];
+        }
+        if(!((s->freq_valid>>k)&1u) || s->freq_log[k]!=freq){
+            s->freq_log[k]=freq;s->fq[k]=fm6_freq(freq);s->freq_valid|=(uint8_t)(1u<<k);
         }
         level = fm6_eg_step(&s->eg[k], op, s->ol[k], rs, s->down);
         if (FM6_AMS[op[FP_AMS]]) {                       /* AMS: the modulation takes a part of the level */
@@ -757,7 +776,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
             level -= (int32_t)((float)level * ((float)pt * (1.0f / 16777216.0f)));
         }
         if (!car && mod)
-            level = fm6_clamp(level + mod, 0, 20 << 24);
+            level = clamp(level + mod, 0, 20 << 24);
         lv[k] = level;
     }
     for (k = 0; k < 6u; k++) {                           /* the output operators all gone for good? */
@@ -768,7 +787,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
             dead = 0;
     }
     s->quiet = dead ? (uint8_t)(s->quiet + (s->quiet < 2u)) : 0;
-    fbv = fm6_clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
+    fbv = clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
     fm6_plan(s, lv, alg, FM6F(t)[FN_ENGINE], fbv ? 8u - (uint32_t)fbv : 16u);
 }
 
@@ -777,7 +796,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_control_ram(track
 static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
 {
     void (*volatile run)(track_t *, voice_t *, fm6_voice_t *, const vmod_t *, fm6_part_t *, int32_t) = fm6_control_ram;
-    run(t, v, s, m, FM6P(t), song.g[G_TUNE] * 13981 + tuning_log());
+    AP_START(start);run(t,v,s,m,FM6P(t),song.g[G_TUNE]*13981+tuning_log());AP_END(AP_FM6_CONTROL,start);
 }
 
 /* nothing moves a voice at rest: no LFO or controller pitch (PMS 0, or no depth), no amplitude
@@ -804,7 +823,7 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     int quiet;
     if (s->still == 2u)
         return;                                          /* key sync, not playing: its next note starts afresh */
-    quiet = fm6_quiet(P, ed);
+    quiet = P->pt.ghost_quiet;
     if (s->still && quiet && pb == s->spb) {             /* at rest: only time goes on */
         for (k = 0; k < 6u; k++)
             s->ph[k] += (uint32_t)s->fq[k] << FM6_LG_N;
@@ -825,12 +844,6 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     }
 }
 
-/* Keep the same signed rounding as amp_at, inside the RAM output loop. */
-static inline __attribute__((always_inline)) int32_t fm6_output_amp(const vmod_t *m, uint32_t i)
-{
-    int32_t x = (m->amp1 - m->amp0) * (int32_t)i;
-    return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> CTL_LOG2);
-}
 static inline __attribute__((always_inline)) float fm6_output_clip(float x)
 { return x < -16.0f ? -16.0f : x > 16.0f ? 16.0f : x; }
 
@@ -838,7 +851,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_output(const floa
 {
     float scale = (float)gain * (1.0f / 131072.0f);
     for (uint32_t i = 0; i < n; i++) {
-        int32_t y = (int32_t)(fm6_output_clip(sum[i]) * (float)fm6_output_amp(m, i) * scale);
+        int32_t y = (int32_t)(fm6_output_clip(sum[i]) * (float)amp_at(m, i) * scale);
         if (add) out[i] += y; else out[i] = y;
     }
 }
@@ -883,12 +896,34 @@ static void fm6_join(void)
 static inline void fm6_join(void) {}
 #endif
 
+typedef struct { fm6_voice_t *voice;vmod_t modulation;uint32_t n;int32_t gain; } fm6_batch_t;
+_Static_assert(sizeof(fm6_batch_t)<=AUDIO_BATCH_BYTES,"FM6 batch descriptor");
+static void fm6_batch_kernel(const void *data,int32_t *pcm)
+{
+    const fm6_batch_t *j=data;float sum[CTL];
+#if MELODEE_DUAL_CORE
+    float bus[2][CTL];
+    void (*volatile run)(fm6_voice_t *,uint32_t,float [2][CTL],float *)=fm6_run_into;
+    run(j->voice,j->n,bus,sum);
+#else
+    /* The serial operator kernel also lives beyond XIP's direct-call range. */
+    void (*volatile run)(fm6_voice_t *,uint32_t)=fm6_run;
+    run(j->voice,j->n);memcpy(sum,fm6_sum,j->n*sizeof *sum);
+#endif
+    fm6_output_run(sum,pcm,j->n,&j->modulation,j->gain,0);
+}
+
 static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     fm6_voice_t *s = fm6_state(t, v);
     int32_t k = t->p[P_VOICE] == V_UNISON ? VOICE_FS * 2 / 5 : VOICE_FS;
     if (!s->sub) fm6_control(t, v, s, m);
     s->sub ^= 1u;
+#ifndef FM6_TAP
+    if(audio_batch_active){
+        const fm6_batch_t job={s,*m,n,k};audio_batch_push(fm6_batch_kernel,&job,sizeof job,out,n,AP_FM6);return;
+    }
+#endif
 #if MELODEE_DUAL_CORE && !defined(FM6_TAP)
     /* The first voice runs on CPU1; CPU0 prepares AND renders the second.
      * Join before adding either voice and before any post/next-block work. */
@@ -960,6 +995,7 @@ static void fm6_sync(track_t *t, const voice_t *self)
             for (k = 0; k < 6u; k++)
                 fm6_eg_go(&s->eg[k], &ed[k * FP_OP], s->ol[k], s->rs[k], 2);
     }
+    P->pt.shared_valid=0;
     P->pt.hash = h;
     P->pt.trn = ed[FP_TRNSP];
     P->pt.lgen = fm6_lgen[tr];

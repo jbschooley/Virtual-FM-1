@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The 9W9 TR-909 voices on the FM-1. A port of 9W9's er99_engine.c,
  * er99_circuit.h, er99_tom909.h and er99_perc909.h (GPL-3.0): the circuit models,
  * the fitted constants, the defaults and the per-trigger pinning are 9W9's, line
@@ -152,7 +153,7 @@ static void d9_smp_rate(d9_smp_t *s)
 /* ===================================================================== */
 /* Apply one parameter (er99_engine_set_raw for the keys the panel has)   */
 /* ===================================================================== */
-static void d9_apply(drum909_t *d, int voice, int field, float v)
+static void d9_apply(drum909_t *d, int voice, int field, float v, int deferred)
 {
     if (field == D9_F_PAN) {
         if (voice < D9_NUM)
@@ -179,47 +180,47 @@ static void d9_apply(drum909_t *d, int voice, int field, float v)
         case D9_F_DIST: b->dist_type = (int32_t)v; break;
         default: break;
         }
-        d9_shape_prep(&b->shape, b->drive, b->dist_type);
+        if(!deferred)d9_shape_prep(&b->shape, b->drive, b->dist_type);
         return;
     }
     if (voice == D9_RS) {
         d9_rim_t *r = &d->rim;
         switch (field) {
-        case D9_F_TUNE: r->tune = v; d9_rim_retune(r); break;
+        case D9_F_TUNE: r->tune = v; if(!deferred)d9_rim_retune(r); break;
         case D9_F_LEVEL: r->level = v; break;
         case D9_F_DRIVE: r->drive = v; break;
         case D9_F_DIST: r->dist_type = (int32_t)v; break;
         default: break;
         }
-        d9_shape_prep(&r->shape, r->drive, r->dist_type);
+        if(!deferred)d9_shape_prep(&r->shape, r->drive, r->dist_type);
         return;
     }
     if (voice == D9_CP) {
         d9_clap_t *c = &d->clap;
         switch (field) {
-        case D9_F_TUNE: c->tune = v; d9_clap_retune(c); break;
+        case D9_F_TUNE: c->tune = v; if(!deferred)d9_clap_retune(c); break;
         case D9_F_TAIL: c->tail_decay = v; break;
         case D9_F_LEVEL: c->level = v; break;
         case D9_F_DRIVE: c->drive = v; break;
         case D9_F_DIST: c->dist_type = (int32_t)v; break;
         default: break;
         }
-        d9_shape_prep(&c->shape, c->drive, c->dist_type);
+        if(!deferred)d9_shape_prep(&c->shape, c->drive, c->dist_type);
         return;
     }
     d9_smp_t *s = &d->smp[voice - D9_CH];
     switch (field) {
-    case D9_F_TUNE: s->pitch = v; d9_smp_rate(s); break;
+    case D9_F_TUNE: s->pitch = v; if(!deferred)d9_smp_rate(s); break;
     case D9_F_DECAY: s->decay = v; break;
     case D9_F_LEVEL: s->volume = v; break;
     case D9_F_DRIVE: s->drive = v; break;
     case D9_F_DIST: s->dist_type = (int32_t)v; break;
     default: break;
     }
-    d9_shape_prep(&s->shape, s->drive, s->dist_type);
+    if(!deferred)d9_shape_prep(&s->shape, s->drive, s->dist_type);
 }
 
-void drum909_set(drum909_t *d, int voice, int i, int value)
+static void d9_set_panel(drum909_t *d, int voice, int i, int value, int deferred)
 {
     if (voice < 0 || voice > D9_KIT || i < 0 || i >= d9_nspec[voice])
         return;
@@ -227,8 +228,11 @@ void drum909_set(drum909_t *d, int voice, int i, int value)
     if (value < 0) value = 0;
     if (value > s->ui.max) value = s->ui.max;
     d->pots[voice][i] = (uint8_t)value;
-    d9_apply(d, voice, s->field, d9_pot_value(s, value));
+    d9_apply(d, voice, s->field, d9_pot_value(s, value),deferred);
 }
+
+void drum909_set(drum909_t *d,int voice,int i,int value)
+{ d9_set_panel(d,voice,i,value,0); }
 
 /* ===================================================================== */
 /* Init (er99_engine_init)                                                */

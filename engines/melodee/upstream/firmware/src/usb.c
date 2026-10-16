@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* USB full-speed device on USB0: a
  * class-compliant USB-MIDI interface. All SIE traffic happens in one place,
  * usb_poll(), called from the TIMER5 ISR at 2 kHz, so INDEX is never shared
@@ -10,9 +11,9 @@
  * TEST id: fine for the bench, must be replaced before any release.
  * MELODEE_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
  * EP3 bulk data) for the console in console.c.
- * MELODEE_USB_AUDIO=1 instead adds two UAC1 functions (usb_audio.c), a stereo
- * output device "Melodee Out" (EP2 OUT, explicit feedback on EP3) and a separate
- * stereo master or four-track input device "Melodee In" (EP2 IN), 16 or 24 bit at 44.1 kHz.
+ * MELODEE_USB_AUDIO=1 instead adds one duplex UAC1 function (usb_audio.c),
+ * "Melodee": stereo playback (EP2 OUT, explicit feedback on EP3) and
+ * stereo master or four-track recording (EP2 IN), 16 or 24 bit at 44.1 kHz.
  * Their endpoints are served from the TIMER5 ISR by elapsed time (ua_service,
  * main.c), nested in the render too; usb_poll never runs nested, so the two
  * never interleave. Either can be left out of the configuration (ua_off, the
@@ -133,15 +134,16 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 }
 
 /* ------------------------------------------------------- descriptors --- */
-/* interfaces: 0 audio control, 1 MIDI streaming, then CDC's two, or the USB audio functions' four (usb_audio_desc.h).
- * bcdDevice: 3.00 MIDI, 3.01 with CDC, 3.06 with USB audio (hosts cache descriptors per version) */
+/* interfaces: 0 audio control, 1 MIDI streaming, then CDC's two, or duplex audio's three (usb_audio_desc.h).
+ * bcdDevice: 3.00 MIDI, 3.01 with CDC, 3.30..3.37 with USB audio.
+ * Each audio layout has its own revision (hosts cache descriptors per version). */
 #if MELODEE_USB_AUDIO
 #include "usb_audio_stream.c"
-#define CFG_LEN 411
-static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x06, 0x03,
-                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.06: native 44.1 kHz only */
+#define CFG_LEN 396
+static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x30, 0x03,
+                                     1, 2, 0, 1};        /* misc/IAD; ua_cfg_build selects the revision */
 static const uint8_t CFG_DESC[] = {
-    9, 2, 0x9B, 0x01, 6, 1, 0, 0x80, 50,                /* 411 bytes, six interfaces */
+    9, 2, 0x8C, 0x01, 5, 1, 0, 0x80, 50,                /* 396 bytes, five interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #elif MELODEE_CDC
 #define CFG_LEN 175
@@ -199,11 +201,9 @@ static const uint8_t STR2[] = {30, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e
 #else
 static const uint8_t STR2[] = {16, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0};
 #endif
-#if MELODEE_USB_AUDIO                                   /* the audio functions: host device names */
-static const uint8_t STR3[] = {24, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'O', 0, 'u', 0,
-                               't', 0};
-static const uint8_t STR4[] = {22, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'I', 0, 'n', 0};
+#if MELODEE_USB_AUDIO                                   /* audio uses the product name (STR2) */
 static uint8_t ua_cfg[sizeof CFG_DESC];                 /* the configuration as sent (usb_audio.c ua_cfg_build) */
+static uint8_t ua_dev_desc[sizeof DEV_DESC];            /* revision belongs to this same enumerated layout */
 static uint16_t ua_cfg_len;
 #endif
 
@@ -211,7 +211,11 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
 {
     switch (wvalue >> 8) {
     case 1:
+#if MELODEE_USB_AUDIO
+        *d = ua_dev_desc;
+#else
         *d = DEV_DESC;
+#endif
         *l = sizeof DEV_DESC;
         return 1;
     case 2:
@@ -237,16 +241,6 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
             *d = STR2;
             *l = sizeof STR2;
             return 1;
-#if MELODEE_USB_AUDIO
-        case 3:
-            *d = STR3;
-            *l = sizeof STR3;
-            return 1;
-        case 4:
-            *d = STR4;
-            *l = sizeof STR4;
-            return 1;
-#endif
         default:
             return 0;
         }
@@ -380,6 +374,7 @@ static void ep0_service(void)
 #endif
 #if MELODEE_USB_AUDIO
         ua_rate_pending = 0;
+        ua_feature_pending = 0;
 #endif
         return;
     }
@@ -391,6 +386,7 @@ static void ep0_service(void)
 #endif
 #if MELODEE_USB_AUDIO
         ua_rate_pending = 0;
+        ua_feature_pending = 0;
 #endif
     }
     if (usb.e0_tx) {
@@ -411,7 +407,7 @@ static void ep0_service(void)
     }
 #endif
 #if MELODEE_USB_AUDIO
-    if (ua_rate_pending) {                              /* SET_CUR sampling frequency: its data stage */
+    if (ua_rate_pending || ua_feature_pending) {         /* UAC1 SET_CUR data stage */
         if (ua_control_data(ep0buf, sie_rd(S_COUNT0)))
             goto ack;
         goto stall;
@@ -429,6 +425,11 @@ static void ep0_service(void)
     case 0xA282:
     case 0xA283:
     case 0xA284:
+    case 0x2101:                                        /* UAC1 feature-unit mute / volume */
+    case 0xA181:
+    case 0xA182:
+    case 0xA183:
+    case 0xA184:
         if (ua_control_setup(s))
             return;
         goto stall;
@@ -862,6 +863,7 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
     if (iu & 0x04u) {                                   /* bus reset */
 #if MELODEE_USB_AUDIO
         ua_hw_stop();
+        ua_host_volume_reset();
 #endif
         usb.resets++;
         sie_wr(S_FADDR, 0);
@@ -914,8 +916,10 @@ static void usb_start(void)                             /* boot, or main-loop re
 #if MELODEE_USB_AUDIO
     ua_reset();
     ua_rate_pending = 0;
+    ua_feature_pending = 0;
+    ua_host_volume_reset();
     ua_frame_valid = ua_paused = 0;
-    ua_cfg_build();                                     /* without the functions in ua_off */
+    ua_cfg_build();                                     /* without the directions in ua_off */
 #endif
     usb.timeouts = 0;
     fm1_usb_reset();                                    /* reset whatever the ROM left */

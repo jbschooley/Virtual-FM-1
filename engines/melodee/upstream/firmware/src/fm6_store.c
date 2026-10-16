@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FM6 patches outside the engine (eng_fm6.c): DX7 SysEx from USB-MIDI and back (fm6_service: main loop), and the
  * actions of the STORE page, which saves a native FM6 user preset.
  *
@@ -18,7 +17,7 @@
  * Dexed or any DX7 librarian can edit a track live; SAVE keeps its whole voice. */
 static uint8_t fm6_buf[FM6_RX] __attribute__((section(".pool")));   /* main loop: dumps out */
 
-static int fm6_is(uint32_t k) { return k < NPART && trk[k].eng_req == ENGI_FM6; }
+static int fm6_is(uint32_t k) { return k < trk_n() && trk[k].eng_req == ENGI_FM6; }
 
 static int fm6_sx_track(uint32_t ch)                     /* the FM6 track a DX7 message on channel ch is for, -1 */
 {
@@ -38,7 +37,7 @@ static uint8_t fm6_chk(const uint8_t *p, uint32_t n)    /* DX7 checksum: data + 
     return sx_checksum(p,n);
 }
 
-static uint32_t fm6_sx_first(void) { return fm6_bslot < 32u ? 0u : 32u; }
+static uint32_t fm6_sx_first(void) { return (fm6_bslot/32u)*32u; }
 
 /* ------------------------------------------------------------- out --- */
 #if MELODEE_OTA
@@ -143,7 +142,7 @@ static void fm6_store(uint32_t k)
     char nm[12];
     if (!fm6_is(song.sel) || k >= UP_SLOTS) return;
     fm6_name(nm, fm6_patch[song.sel]);
-    user_ui_named(2, k, nm);
+    up_ui_named(2, k, nm);
 }
 
 static void fm6_init_voice(void)                         /* INIT: the selected track starts from the init voice */

@@ -6,7 +6,7 @@ engine CZ-1 E5	- 0..0 def 0 fmt 0
 engine CZ-1 E6	- 0..0 def 0 fmt 0
 engine CZ-1 E7	- 0..0 def 0 fmt 0
 engine CZ-1 E8	TONE 2..2 def 2 fmt 0
-engine DRUM E1	KIT 4..5 def 4 fmt 8 808 808
+engine DRUM E1	KIT 4..6 def 4 fmt 8 808 808 808
 engine DRUM E2	TUNE 0..127 def 64 fmt 1
 engine DRUM E3	TONE 0..127 def 64 fmt 1
 engine DRUM E4	DECY 0..127 def 64 fmt 1
@@ -30,7 +30,7 @@ engine PROPHET E5	PWA -63..63 def 0 fmt 0
 engine PROPHET E6	PWB -63..63 def 0 fmt 0
 engine PROPHET E7	MIXA -63..63 def 0 fmt 0
 engine PROPHET E8	MIXB -63..63 def 0 fmt 0
-engine SID E1	MODEL 0..1 def 0 fmt 8 6581 8580
+engine SID E1	MODEL 0..3 def 0 fmt 8 6581 8580 C64 6581 C64 8580
 engine SID E2	WAVE 0..7 def 1 fmt 8 TRI SAW PULSE NOISE TRI+SAW TRI+PLS SAW+PLS T+S+P
 engine SID E3	STACK 0..7 def 0 fmt 8 ONE DETUNE OCT FIFTH MAJOR SYNC RING SUB
 engine SID E4	PW 0..127 def 64 fmt 1
@@ -60,7 +60,7 @@ global RATE#1	0..127 def 60 fmt 4
 global RATE#2	0..127 def 60 fmt 4
 global RATE#3	0..127 def 60 fmt 4
 global RETURN#1	0..127 def 100 fmt 1
-global ROUT#1	0..1 def 0 fmt 8 CH1-4 SEL
+global ROUT#1	0..4 def 0 fmt 8 CH1-4 SEL CH5-8 CH9-12 CH13-16
 global SAVE#1	0..1 def 0 fmt 8 -- GO
 global SLOT#1	1..5 def 1 fmt 0
 global SWG#1	0..100 def 0 fmt 1
@@ -496,3 +496,12 @@ preset SID 6	SAW BASS c4122bbd6c3e25a5
 preset SID 7	DIRTY BASS dd5e5d862ebe776a
 preset SID 8	LEAD 6581 2217ffcc07aa2094
 preset SID 9	RING LEAD ad1edc1880c528
+global BUDGET#1	8..32 def 16 fmt 0
+global TONE#1	-63..63 def 0 fmt 17
+global TONE#2	-63..63 def 0 fmt 17
+global TONE#3	-63..63 def 0 fmt 17
+param TONE#1	-63..63 def 0 fmt 17
+param TONE#2	-63..63 def 0 fmt 17
+param TONE#3	-63..63 def 0 fmt 17
+preset DRUM 2	SID KIT a3e11a412c22cf2a
+preset DRUM 3	SID DIGI 7577ba2731df3da5

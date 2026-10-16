@@ -5,9 +5,9 @@ static uint8_t cz_tx[295],cz_handshake;
 static uint32_t cz_wait_at;
 static int cz_sx_track(uint32_t ch)
 {
-    if(song.sel<NTRK&&trk[song.sel].eng_req==ENGI_CZ)return song.sel;
-    if(ch<NTRK&&trk[ch].eng_req==ENGI_CZ)return (int)ch;
-    for(uint32_t tr=0;tr<NTRK;tr++)if(trk[tr].eng_req==ENGI_CZ)return (int)tr;
+    if(song.sel<trk_n()&&trk[song.sel].eng_req==ENGI_CZ)return song.sel;
+    if(ch<trk_n()&&trk[ch].eng_req==ENGI_CZ)return (int)ch;
+    for(uint32_t tr=0;tr<trk_n();tr++)if(trk[tr].eng_req==ENGI_CZ)return (int)tr;
     return -1;
 }
 static void cz_sx_header(uint8_t ch){cz_tx[0]=0xf0;cz_tx[1]=0x44;cz_tx[2]=cz_tx[3]=0;cz_tx[4]=ch;cz_tx[5]=0x30;}

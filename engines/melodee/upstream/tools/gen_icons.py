@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Melodee's icons, drawn here (no icon font): 4-bit alpha cells for the UI (run by tools/build.py generate()).
 
   gen_icons.py OUT.h [--sizes 12,16,24] [--sheet PNG]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """DSP lookup tables for MELODEE (integer controls and native fp32 synths).
 
 FS = 44100 Hz, control rate = every CTL (32) samples. All curves map a
@@ -134,6 +135,7 @@ def main(path):
     L += tanh_q15
     L += fm6_tables()
     L += sid_tables()
+    L += sid_kit_tables()
     Path(path).write_text("\n".join(L) + "\n")
     print(f"tables: {path}")
 
@@ -315,6 +317,56 @@ def sid_tables():
           f"#define SID_FREQ_R32 {round(2 ** 32 * FS / (SID_CLOCK * 256))}u",
           f"#define SID_XLP_A {round(32768 * (1 - math.exp(-100000 / FS)))}",
           f"#define SID_XHP_A {round(65536 * (1 - math.exp(-100 / FS)))}"]
+    return L
+
+
+SID_DIGI_RATE = SID_CLOCK / 125                     # a C64 digi player's NMI timer: every 125 cycles, 7882 Hz
+
+
+def sid_digi(kind):
+    """drum_sid.c's $D418 drums, synthesized here (no recording): a kick (a sine sweeping 170 -> 46 Hz, a noise
+    click) or a snare (188 and 333 Hz tones, high-passed noise), soft-saturated, made at 4 x the digi rate and
+    averaged down; as 4-bit volume register values (8 = rest), cut at rest where they stay within one step of it"""
+    os, n_os = 4, int(SID_DIGI_RATE * 4 * (0.30 if kind == "kick" else 0.22))
+    seed, ph, hp_x, hp_y, out = 0x1234567, 0.0, 0.0, 0.0, []
+    a_hp = 1 / (1 + 2 * math.pi * 900 / (SID_DIGI_RATE * os))
+    for i in range(n_os):
+        t = i / (SID_DIGI_RATE * os)
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff
+        noise = seed / 0x3fffffff - 1.0
+        if kind == "kick":
+            ph += 2 * math.pi * (46 + 124 * math.exp(-t / 0.030)) / (SID_DIGI_RATE * os)
+            x = math.sin(ph) * math.exp(-t / 0.13) + 0.35 * noise * math.exp(-t / 0.0025)
+            x = math.tanh(1.8 * x) / math.tanh(1.8)
+        else:
+            hp_y = a_hp * (hp_y + noise - hp_x)     # 1st-order high pass at 900 Hz
+            hp_x = noise
+            tone = (0.55 * math.sin(2 * math.pi * 188 * t * (1 - 0.06 * (1 - math.exp(-t / 0.02)))) +
+                    0.35 * math.sin(2 * math.pi * 333 * t)) * math.exp(-t / 0.040)
+            x = math.tanh(1.5 * (tone + 0.8 * hp_y * math.exp(-t / 0.070))) / math.tanh(1.5)
+        out.append(x)
+    y = [sum(out[i:i + os]) / os for i in range(0, len(out) - os + 1, os)]
+    pk = max(abs(v) for v in y)
+    q = [max(0, min(15, 8 + math.floor(7.5 * v / pk + 0.5))) for v in y]
+    end = max(i for i, v in enumerate(q) if abs(v - 8) >= 2) + 1
+    while end < len(q) and q[end - 1] != 8:         # (on to rest: the volume steps back to 8 without a click)
+        end += 1
+    return q[:end] + ([8] if q[end - 1] != 8 else [])
+
+
+def sid_kit_tables():
+    """the SID kit (drum_sid.c): its two $D418 drums, packed two 4-bit values a byte (the low nibble first)"""
+    packed, at, n = bytearray(), [], []
+    for kind in ("kick", "snare"):
+        q = sid_digi(kind)
+        at.append(len(packed))
+        n.append(len(q))
+        q = q + [8] * (len(q) & 1)
+        packed += bytes(q[i] | q[i + 1] << 4 for i in range(0, len(q), 2))
+    L = arr("DSK_DIGI", "uint8_t", list(packed), 24)
+    L += [f"static const uint16_t DSK_DIGI_AT[2] = {{{at[0]}, {at[1]}}};   /* kick, snare: their first byte */",
+          f"static const uint16_t DSK_DIGI_LEN[2] = {{{n[0]}, {n[1]}}};   /* their samples */",
+          f"#define DSK_DIGI_STEP {round(65536 * SID_DIGI_RATE / FS)}u   /* digi samples a 44.1 kHz sample, Q16 */"]
     return L
 
 

@@ -97,13 +97,15 @@ const Dialect& sloopDialect() {
 // 9..16 the CZ banks, 19..22 the FM6 and native tone pools, 23..27 the PROPHET user banks; no user
 // samples). Its web editor restores 2..27, then the settings, the music last. Live carries its A4 (21)
 // with the tempo, swing and tuning, and its effects: on 1.3 the shared return's three slots (globals
-// 27..38), RETURN (39) and MODE (40); 1.2 left 4..11 and 24..26, the old effects', as padding. The
-// objects, their order and sizes are 1.1's (1.3's effects live in its projects' spare bytes)
+// 27..38), RETURN (39) and MODE (40), and on 1.4 their TONEs (42..44; not BUDGET, 41, a setting of the
+// FM-1); 1.2 left 4..11 and 24..26, the old effects', as padding. 1.4 lists objects 0..28
+// (BACKUP_IDS_SHARED): 6, 7 and 9..28 are the parts of its one shared preset bank, each where an older
+// release's bank of that id went, which it takes and moves into its own form (editor_backup.c)
 const Dialect& melodeeDialect() {
     static const Dialect d{"Melodee", kBackupList, kBackupGet, kBackupPut, true,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
-                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 1, 0}, 27, true, "felucca-backup",
-                           {0, 1, 3, 21, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}};
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28},
+                           {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 1, 0}, 28, true, "felucca-backup",
+                           {0, 1, 3, 21, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 42, 43, 44}};
     return d;
 }
 // Melodee 0.13's, kept beside the current release (engines/melodee013): its own device file in the
@@ -214,9 +216,9 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
     const bool sloop = isSloop(d);
     // (a Felucca archive: 13 objects from 1.0.3, 12 of 1.0.2 (no 9), 11 before FM6 (no 8 either);
     // SLOOP's editor writes the objects it has, and needs 0 and 1)
-    // (Melodee's editor writes every object it has: 28 from 0.13, 23, 21, 17 or 9 before)
+    // (Melodee's editor writes every object it has: 29 from 1.4, 28 from 0.13, 23, 21, 17 or 9 before; fm1backup.js idsOf)
     const bool melodee = isMelodee(d);
-    const bool complete = objs && (sloop || (melodee ? objs->size() == 28 || objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
+    const bool complete = objs && (sloop || (melodee ? objs->size() == 29 || objs->size() == 28 || objs->size() == 23 || objs->size() == 21 || objs->size() == 17 || objs->size() == 9
                                                      : objs->size() >= int(ids.size()) - 2 && objs->size() <= int(ids.size())));
     // Melodee's editor writes "felucca-backup" files too, with its own objects inside: told apart by
     // the INFO it names ("MELODEE v0.13"), never restored into the other
@@ -275,6 +277,9 @@ juce::String fitToSynth(Objects& ours, const Objects& theirs, const Dialect& d) 
             if (!it->second.empty()) return "this FM-1's Melodee has no object " + juce::String(it->first) + " (another release?)";
             it = ours.erase(it);
         }
+        // an archive of 28 objects (before 1.4) restored on 1.4: its last bank part (28) emptied, as
+        // fm1backup.js does it, so none of that part's old presets stays beside the archive's
+        if (!ours.count(28) && theirs.count(28) && ours.count(27)) ours[28] = {};
         const auto music = theirs.find(0);
         const size_t room = music != theirs.end() ? music->second.size() : 0;
         for (int id : {0, 2, 3, 4, 5})

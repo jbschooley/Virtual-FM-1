@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Screen sleep adapted from Felucca 1.4. The backlight pin also enables the keys. */
 #ifndef UI_LCD_POWER
 #ifdef FM1_IRQ_TARGET

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Full native Casio tone over the editor transport, nibble-packed, low first.
  * 75 GET / 76 PUT. target 0: track; target 1: ordinary user preset slot.
  * Native slots use UP_VER_CZ, so their existing A/B store is atomic. */
@@ -15,9 +16,8 @@ static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     uint8_t raw[CZ_BYTES];
     if (target > 2u || index >= (target == 2u ? 128u : target ? UP_SLOTS : NTRK) || (target==2u && cmd==ED_CZ_PUT)) rc = 1;
     if (!rc && cmd == ED_CZ_GET) {
-        if(n!=2u)rc=1;else if(target==2u)rc=cz_bank_get(index/16u,index%16u,raw)?2u:0u;
-        else
         if (n != 2u) rc = 1;
+        else if (target == 2u) rc = cz_bank_get(index/16u,index%16u,raw) ? 2u : 0u;
         else if (!target) memcpy(raw, cz_patch[index].raw, CZ_BYTES);
         else if (up_used(index) && up_cz_raw(up_rec(index),raw)) { /* complete native tone */ }
         else rc = 2;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Phase distortion. The waveforms are a C port of the oscillator of
  * CrispyZebra (Leo Kuroshita, GPL-3.0, github.com/hugelton/CrispyZebra), the
  * author's own phase-distortion core: a -cos table read through a bent phase whose
@@ -22,12 +23,19 @@ static void cz_init(void) { for (uint32_t k = 0; k < NTRK; k++) cz_patch_init(cz
 typedef struct { uint32_t rate[8]; int32_t level[8]; uint8_t sustain, end; } cz_env_def_t;
 typedef struct { int32_t level; uint8_t stage, gate; } cz_env_t;
 typedef struct { float level; uint8_t stage, gate; } cz_native_env_t;
+typedef struct { float note[2];int32_t fine[2];uint32_t a4[2],inc[2],valid; } cz_native_freq_t;
 typedef struct {
     union { cz_env_t eg[2][3]; cz_native_env_t native_eg[2][3]; };
     uint32_t vib_phase, vib_ticks, noise;
     float native_dc[2];
+    cz_native_freq_t native_freq;
 } cz_voice_t;
-typedef struct { cz_voice_t v[NPOLY]; } cz_part_t;
+typedef struct { float rate[8], level[8]; uint8_t sustain, end; } cz_native_def_t;
+typedef struct {
+    cz_voice_t v[NPOLY];
+    cz_native_def_t native_def[2][3];
+    uint8_t native_raw[128], native_valid;
+} cz_part_t;
 static cz_part_t *cz_part(uint32_t part);              /* engines.c: shared runtime pool */
 static cz_voice_t *cz_voice(track_t *t, voice_t *v)
 {

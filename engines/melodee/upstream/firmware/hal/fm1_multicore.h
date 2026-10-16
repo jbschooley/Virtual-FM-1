@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Bare-metal AC791N/WL82 CPU1 launch, following AC79 SDK system.a/port.c.o
  * EnableOtherCpu and cpu.a/startup.S.o (SDK 1.2.1). No OS library required.
  * Internal SRAM is shared; only SDRAM uses the SDK's uncached alias. csync

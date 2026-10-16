@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted from MIDI control contribution by ChanceTheMaker (2026).
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Shared USB/TRS channel controls. Included by seq.c after its input helpers.
  * USB and TRS intentionally share channel state, matching the existing routing.
  * A synth part has one live bend/wheel state; channels assigned to the same part
@@ -44,7 +45,8 @@ static midi_channel_t *midi_channel(uint32_t ch)
 
 static uint32_t midi_targets(uint32_t ch)
 {
-    return midi_channel(ch)->targets | (1u << trk_index(midi_track(ch)));
+    track_t *t = midi_track(ch);
+    return midi_channel(ch)->targets | (t ? 1u << trk_index(t) : 0u);
 }
 
 static void midi_expression(track_t *t, const midi_channel_t *c)
@@ -160,6 +162,8 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
         /* Repeated notes replace the previous press, including a pedal-held one. */
         if (id)
             midi_release(ch, note);
+        if (!t)
+            return;
         midi_expression(t, c);
         if (!midi_play(t, ch, note, vel))           /* (a note the layout silences: no owner) */
             return;
@@ -273,7 +277,8 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
 {
     midi_channel_t *c = midi_channel(ch);
     uint32_t i, mask;
-    midi_parameter(midi_track(ch),cc,value);
+    track_t *t = midi_track(ch);
+    if (t) midi_parameter(t,cc,value);
     switch (cc) {
     case 1:
         c->wheel = (uint8_t)value;
@@ -329,14 +334,17 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
 /* Keep the occasional controller/panic dispatch outside the hot rendering loop. */
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
+    track_t *t = midi_track(ch);
+    /* Controllers retain channel state even outside ROUT, but only mapped/owned tracks receive them.
+     * In particular, pedal-up must clear sustain even if the channel currently owns no notes. */
     if (st == 0x90u || st == 0x80u)
         midi_note_event(ch, d1, st == 0x90u ? d2 : 0);
     else if (st == 0xE0u) {
         midi_channel(ch)->bend = (int16_t)((int32_t)(d1 | (d2 << 7)) - 8192);
         midi_expression_channel(ch);
     } else if (st == 0xB0u) {
-        mod_midi(midi_track(ch), st, d1, d2);
+        if (t) mod_midi(t, st, d1, d2);
         midi_control(ch, d1, d2);
-    } else if (st == 0xD0u)
-        mod_midi(midi_track(ch), st, d1, d2);
+    } else if (st == 0xD0u && t)
+        mod_midi(t, st, d1, d2);
 }

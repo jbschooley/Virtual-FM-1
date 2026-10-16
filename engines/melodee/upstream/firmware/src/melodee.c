@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE: one compilation unit (the HAL is header-only). Each file uses what the files above it
  * define, so the order matters. */
 
@@ -24,7 +25,7 @@
 #define MELODEE_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
 #ifndef MELODEE_USB_AUDIO
-#define MELODEE_USB_AUDIO 1      /* USB audio (usb_audio.c): "Melodee Out" plays through the FM-1, "Melodee In"
+#define MELODEE_USB_AUDIO 1      /* Duplex USB audio (usb_audio.c): "Melodee" plays through the FM-1 and
                                   * records stereo master or four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
 #endif
 #ifndef MELODEE_CDC
@@ -37,7 +38,7 @@
 #define MELODEE_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
 #ifndef MELODEE_VERSION
-#define MELODEE_VERSION "v1.3.4" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
+#define MELODEE_VERSION "v1.4.0" /* shown in the menu, the console and the editor; build.py --release X.Y[.Z] */
 #endif
 #if MELODEE_OTA && !MELODEE_FLASH
 #error "MELODEE_OTA needs MELODEE_FLASH"
@@ -94,7 +95,7 @@
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
-#include "ui_layer.c"              /* the quick layers (GLO SCL EDIT held) */
+#include "ui_layer.c"              /* the quick layers (GLO SCL held) */
 
 /* --------------------------------------------- storage, update, editor --- */
 #if MELODEE_FLASH

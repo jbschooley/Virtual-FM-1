@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Serial console on the CDC-ACM function (MELODEE_CDC=1): read-only
  * diagnostics. Runs in the main loop (cdc_task); usb_poll moves the bytes.
  * The baud rate is ignored. Nothing here writes memory or flash; `uboot`

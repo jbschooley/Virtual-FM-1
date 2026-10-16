@@ -1,13 +1,14 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* An engine's EDIT pages in sections (docs/design README "Sound pages, fast", mock/r7_sound_nav): Prophet's Osc,
  * Mixer, Filter ..; FM6's Algo, OP1 .. OP6 (the operator pages, once per operator: fm6_opsel), Pitch, LFO, Ctrl; CZ-1's
  * Line, Line 1, Pitch 1 ..; Store and Tools last. PRESETS jumps a section (to the page last used in it), SELECT turns
  * the pages (on across the sections, as ever); the sections as tabs under the header, a section's pages as the
- * header's dots. EDIT pressed on an EDIT page: the map, a row a section, a tile a page (KNOB 1 across, KNOB 2 down,
- * OCT+ opens, OCT- or EDIT closes). EDIT held: the sections on the white keys (ui_layer.c).
+ * header's dots. EDIT pressed on an EDIT page: the map, a row a section, a tile a page (KNOB 1 or SELECT a page of
+ * the section, KNOB 2 the section, OCT+ opens, OCT- or EDIT closes).
  * Included by ui_draw.c */
 #define SEC_MAX 16
-#define SEC_TAB_H 16                                    /* the tabs: rows 18 .. 33 */
+#define SEC_TAB_H 26                                    /* the tabs: rows 30 .. 55 (a pill 24 tall at 31) */
 static const struct { const char *prefix, *name; } SEC_RULE[] = {   /* a page's section by its title (first match) */
     {"P5 OSC", "Osc"}, {"P5 B WAVES", "Osc"}, {"P5 MIXER", "Mixer"}, {"P5 FILTER", "Filter"}, {"P5 FLT ENV", "Filter"},
     {"P5 AMP", "Amp"}, {"P5 ENV MOD", "Mod"}, {"P5 POLYMOD", "Mod"}, {"P5 MOD FLT", "Mod"}, {"P5 LFO", "LFO"},
@@ -167,31 +168,24 @@ static void tabs_draw(const char *const *name, uint32_t n, uint32_t cur, uint32_
         return;
     drawn = sig;
     for (first = cur; first > 0u; first--) {           /* from the furthest back that still lets cur fit */
-        for (x = 6, k = first - 1u; k <= cur; k++)
-            x += text_w(&AF_X, name[k]) + 15;
-        if (x > 236)
+        for (x = 2, k = first - 1u; k <= cur; k++)
+            x += text_w(TY_LB, name[k]) + 20;
+        if (x > 238)
             break;
     }
     cv_begin(240, SEC_TAB_H, T_BG);
-    for (x = 6, k = first; k < n; k++) {
+    for (x = 2, k = first; k < n; k++) {
         int on = k == cur, far = (k > cur ? k - cur : cur - k) > 2u;
-        w = text_w(&AF_X, name[k]) + 12;
-        if (x + w > 236)
+        w = text_w(TY_LB, name[k]) + 16;
+        if (x + w > 238)
             break;
         if (on)
-            cv_rrect(x, 0, w, 16, 5, T_THEME, T_BG), cv_rrect(x + 1, 1, w - 2, 14, 4, ux_mix(T_BG, T_THEME, 22), T_THEME);
-        cv_text_c(x + w / 2, 3, &AF_X, name[k], on ? T_THEME : far ? T_DIM : T_MID, on ? ux_mix(T_BG, T_THEME, 22) : T_BG);
-        x += w + 3;
+            cv_rrect(x, 1, w, 24, 6, T_THEME, T_BG), cv_rrect(x + 1, 2, w - 2, 22, 5, ux_mix(T_BG, T_THEME, 22), T_THEME);
+        cv_text_c(x + w / 2, ty_y(13, TY_LB), TY_LB, name[k], on ? T_THEME : far ? T_DIM : T_MID,
+                  on ? ux_mix(T_BG, T_THEME, 22) : T_BG);
+        x += w + 4;
     }
     cv_blit(0, H_HEAD);
-}
-/* an engine's sections as the tabs */
-static void sec_tabs(void)
-{
-    uint32_t cur;
-    sec_build();
-    cur = sec_of(ui.page);
-    tabs_draw(sec.name, sec.n, cur, cur * 7u + sec.n * 131u + sec.eng * 1031u + ux.gen * 977u + ux.pal * 31u + song.sel);
 }
 
 /* ---------------------------------------------------------- the map --- */
@@ -224,16 +218,23 @@ static void smap_close(void)
     smap.on = 0;
     ui.force = 1;
 }
-/* KNOB 1 across, KNOB 2 down; OCT+ opens the page, OCT- closes (oct: bit 0 OCT-, bit 1 OCT+) */
-static void smap_input(int32_t k1, int32_t k2, uint32_t oct)
+/* KNOB 2 a category a detent (to the page last used in it), KNOB 1 (or SELECT) a page of it a detent; every detent
+ * counts, however long the frame was. OCT+ opens, OCT- closes (oct: bit 0 OCT-, bit 1 OCT+) */
+static void smap_input(int32_t pages, int32_t categories, uint32_t oct)
 {
     uint8_t pg[8];
-    uint32_t n;
-    if (k2)
-        smap.row = (uint8_t)clamp((int32_t)smap.row + (k2 > 0 ? 1 : -1), 0, (int32_t)sec.n - 1);
+    uint32_t n, row = smap.row;
+    if (categories)
+        smap.row = (uint8_t)clamp((int32_t)smap.row + categories, 0, (int32_t)sec.n - 1);
     n = smap_pages(smap.row, pg);
-    if (k1)
-        smap.col = (uint8_t)clamp((int32_t)smap.col + (k1 > 0 ? 1 : -1), 0, (int32_t)n - 1);
+    if (smap.row != row) {                             /* category movement is independent of its page count */
+        uint32_t c;
+        for (c = 0; c < n && pg[c] != sec.last[smap.row]; c++)
+            ;
+        smap.col = (uint8_t)(c < n ? c : 0u);
+    }
+    if (pages)
+        smap.col = (uint8_t)clamp((int32_t)smap.col + pages, 0, (int32_t)n - 1);
     if (smap.col >= n)
         smap.col = (uint8_t)(n ? n - 1u : 0u);
     if (oct & 1u) {
@@ -248,11 +249,41 @@ static void smap_input(int32_t k1, int32_t k2, uint32_t oct)
         smap_close();
     }
 }
-/* a row a section (its name), a tile a page; the cursor lifted, outlined; the page open a dot in its tile */
+/* the map (large type, C): a row a section, its name; the row under the cursor open, its pages as pills under its name
+ * (wrapping; the cursor's filled, the page open a dot); the section open its name in the track's colour */
+#define SM_RH 32                                        /* a row (as the lists', ui_list.c LIST_RH), 34 apart */
+#define SM_ROW 34
+#define SM_PILL 24
+#define SM_LINE 28
+static int32_t smap_pills(uint32_t r, int32_t y, uint16_t bg, int draw, uint32_t cur)   /* returns their height */
+{
+    uint8_t pg[8];
+    uint32_t n = smap_pages(r, pg), c;
+    int32_t x = 12, ly = y;
+    for (c = 0; c < n; c++) {
+        char b[16];
+        int on = c == smap.col, here = pg[c] == ui.page && r == cur;
+        int32_t w;
+        sec_short(pg[c], b, sizeof b);
+        w = text_w(TY_LB, b) + (here ? 26 : 16);
+        if (x > 12 && x + w > 228)
+            x = 12, ly += SM_LINE;
+        if (draw) {
+            uint16_t f = on ? T_THEME : T_BG;
+            cv_rrect(x, ly, w, SM_PILL, 8, f, bg);
+            if (here)
+                cv_disc(x + 10, ly + SM_PILL / 2, 6, on ? T_BG : T_THEME, 0);
+            cv_text_on(x + (here ? 18 : 8), ty_y(ly + SM_PILL / 2, TY_LB), TY_LB, b, on ? T_BG : T_TEXT, f);
+        }
+        x += w + 6;
+    }
+    return n ? ly + SM_LINE - y : 0;
+}
+static int32_t smap_h(uint32_t r) { return r == smap.row ? SM_RH + smap_pills(r, 0, T_BG, 0, 0) + 6 : SM_RH; }
 static void smap_draw(void)
 {
-    uint32_t r, sig, cur = sec_of(ui.page);
-    int32_t rh, top, h = 240 - H_HEAD;
+    uint32_t r, sig, cur = sec_of(ui.page), first, last;
+    int32_t h = 240 - H_HEAD, top, used;
     if (ui.force)
         lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
     draw_head();
@@ -261,55 +292,31 @@ static void smap_draw(void)
     if (!ui.force && sig == smap.sig)
         return;
     smap.sig = sig;
-    {   /* (the operators' rows: their pages named once, a row above OP1) */
-        uint32_t extra = 0;
-        for (r = 0; r < sec.n; r++)
-            extra |= sec.op[r] != 0u;
-        rh = sec.n ? (h - 8) / (int32_t)(sec.n + extra) : 20;
-    }
-    if (rh > 24) rh = 24;
+    for (first = smap.row, used = smap_h(smap.row) + (smap.row + 1u < sec.n ? SM_ROW : 0) + 2; first > 0u &&
+         used + SM_ROW <= h; first--)                 /* (as many above as fit with one below) */
+        used += SM_ROW;
+    for (last = first, used = 2; last < sec.n && used + smap_h(last) <= h; last++)
+        used += smap_h(last) + 2;
     for (top = 0; top < h; ) {                          /* in slices between rows */
-        int32_t sh = h - top <= 124 ? h - top : 4 + (top + 124 - 4) / rh * rh - top;
+        int32_t sh = 0, y = 2;
+        for (r = first; r < last; y += smap_h(r) + 2, r++)
+            if (y >= top && y + smap_h(r) + 2 - top <= 124)
+                sh = y + smap_h(r) + 2 - top;
+        if (sh <= 0)
+            sh = h - top < 124 ? h - top : 124;
         cv_begin(240, (uint32_t)sh, T_BG);
         cv_oy = -top;
-        for (r = 0; r < sec.n; r++) {
-            uint8_t pg[8];
-            uint32_t n = smap_pages(r, pg), c, ops_above = 0;
-            int32_t y, w;
-            for (c = 0; c < r; c++)
-                ops_above |= sec.op[c] != 0u;
-            y = 4 + (int32_t)(r + (sec.op[r] || ops_above)) * rh;
-            w = n ? (178 - (int32_t)(n - 1u) * 3) / (int32_t)n : 0;
-            if (sec.op[r] == 1u && y - rh + rh > top && y - rh < top + sh)   /* the operators' pages, named */
-                for (c = 0; c < n; c++) {
-                    char b[16];
-                    sec_short(pg[c], b, sizeof b);
-                    cv_free_text(56 + (int32_t)c * (w + 3), y - rh + (rh - 12) / 2, &AF_X, b, T_MID, T_BG, w);
-                }
-            if (y + rh <= top || y >= top + sh)
+        for (r = first, y = 2; r < last; y += smap_h(r) + 2, r++) {
+            int open = r == smap.row;
+            uint16_t bg = open ? ux_mix(T_BG, T_THEME, 18) : T_BG;
+            if (y + smap_h(r) <= top || y >= top + sh)
                 continue;
-            cv_text_on(10, y + (rh - 12) / 2, &AF_X, sec.name[r], r == cur ? T_THEME : T_MID, T_BG);
-            for (c = 0; c < n; c++) {
-                int32_t x = 56 + (int32_t)c * (w + 3);
-                int on = r == smap.row && c == smap.col, here = pg[c] == ui.page && r == cur;
-                uint16_t bg = on ? T_LIFT : T_PANEL;
-                char b[16];
-                if (on) {
-                    cv_rrect(x, y, w, rh - 3, 5, T_THEME, T_BG);
-                    cv_rrect(x + 1, y + 1, w - 2, rh - 5, 4, bg, T_THEME);
-                } else {
-                    cv_rrect(x, y, w, rh - 3, 5, bg, T_BG);
-                }
-                if (sec.op[r]) b[0] = 0;                /* (an operator's tile: its column says it) */
-                else sec_short(pg[c], b, sizeof b);
-                {   /* its name centred (the page open: a dot before it) */
-                    int32_t lx = x + (here ? 11 : 4), room = w - (here ? 15 : 8), tw = text_w(&AF_X, b);
-                    if (here)
-                        cv_disc(x + 6, y + (rh - 3) / 2, 4, T_THEME, 0);
-                    cv_free_text(lx + (tw < room ? (room - tw) / 2 : 0), y + (rh - 15) / 2, &AF_X, b, on ? T_TEXT : T_SEC,
-                                 bg, room);
-                }
-            }
+            if (open)
+                cv_rrect(BOX_X, y, BOX_W, smap_h(r), 8, bg, T_BG);
+            cv_text_on(12, ty_y(y + SM_RH / 2, TY_TX), TY_TX, sec.name[r], r == cur ? T_THEME : open ? T_TEXT : T_SEC,
+                       bg);
+            if (open)
+                smap_pills(r, y + SM_RH, bg, 1, cur);
         }
         cv_oy = 0;
         cv_blit(0, (uint32_t)(H_HEAD + top));

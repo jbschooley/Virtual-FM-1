@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Icons: 4-bit alpha cells of Melodee's own drawings (tools/gen_icons.py -> build/gen/ui_icons.h; the enum names
  * from assets/icons.json), 12 px (lists, cells), 16 px (header, dialogs, menu) and 24 px (the battery).
  * Parameter icons are off (MELODEE_ICONS 0: the labels have their full width, in the track's colour); MELODEE_ICONS=1

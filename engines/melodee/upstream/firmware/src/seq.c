@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Keyboard, scale, arpeggiator, sequencer and transport.
  * Everything here runs in the audio ISR, once per CTL-sample block, and
  * ends in trk_note_on / trk_note_off: engines never see where a note came from.
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
  * SWING / GATE (polymeter). The keys play the selected track; MIDI IN by GLO > SYSTEM ROUT (G_ROUTE):
- * CH1-4 (0) channels 1..4 play parts 1..4, any other channel the selected track; SEL (1) every channel
- * the selected track. Their CC1 (mod wheel), CC11 (expression) and channel aftertouch go to the same
- * track's modulation matrix (mod.c; the selected track: the one selected then).
+ * CH1-4 (0), CH5-8 (2), CH9-12 (3), CH13-16 (4) map only their four channels to tracks 1..4;
+ * SEL (1) maps every channel to the selected track. Their CC1 (mod wheel), CC11 (expression) and
+ * channel aftertouch go to the same track's modulation matrix (mod.c; the selected track: the one selected then).
  * A note into an armed track (song.rec) while
  * the transport runs preserves its original onset and independent held length
  * (recording.c). The STEP overview uses nearby steps and ties; optional P_RECQ
@@ -222,6 +223,9 @@ static uint8_t seq_erase_seen[NTRK];
 static volatile uint16_t seq_erase_button;
 static int seq_erase_active(const track_t *t);
 static int rec_on(const track_t *t) { return (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static void recording_undo_capture(track_t *t);
+static void recording_undo_clear(void);
+static void seq_release(track_t *t);
 
 #include "motion.c"
 
@@ -236,6 +240,11 @@ static void arp_off(track_t *t)                  /* the sounding arp note ends (
 /* n and gate_n: sample time (INT), musical units (MIDI); a stopped external
  * transport uses real time converted to musical units for a tapped note's gate. */
 static volatile uint32_t beat_pos, beat_n;      /* clock units into the beat, beat of the bar (0..3) */
+/* destructive edits wait for a track's loop end while it plays (ui_input.c dq_poll): its loop ends so far; the banks one
+ * waits to destroy; the tracks kept silent from a loop end until it is done (a UI frame that missed the last step) */
+static volatile uint16_t seq_loops[NTRK];
+static volatile uint8_t seq_pend[NTRK], seq_hush;
+static const step_t SEQ_HUSH_STEP = {.time = ST_REST};
 static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period, cnt, list[64], len = 0, i, j, o;
@@ -322,6 +331,7 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 }
 
 #include "recording.c"
+#include "recording_undo.c"
 
 /* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
  * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
@@ -608,6 +618,8 @@ static void rec_set(track_t *t, uint32_t on)
         song.rec &= (uint8_t)~bit;
         song.rec_wait &= (uint8_t)~bit;
         song.rec_pass &= (uint8_t)~bit;
+        song.rec_latch &= (uint8_t)~bit;
+        recording_undo_finish(t);
     }
 }
 
@@ -920,6 +932,7 @@ static void seq_stop(void)
         if (trk[i].rh_n)
             rec_finish(&trk[i]);
         if ((takes >> i) & 1u) recording_quantize(&trk[i]);
+        recording_undo_finish(&trk[i]);
         seq_release(&trk[i]);
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }
@@ -1020,7 +1033,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
         if (!t->seq_idx && !starting && !chain.running) {
             uint8_t bit = (uint8_t)(1u << trk_index(t));
-            if (song.rec_pass & bit) rec_set(t, 0);
+            if (song.rec_pass & (uint8_t)~song.rec_latch & bit) rec_set(t, 0);
             else if (song.rec & song.rec_wait & bit) {
                 song.rec_wait &= (uint8_t)~bit;
                 song.rec_pass |= bit;
@@ -1032,6 +1045,13 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             t->seq_idx = 0;
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
+        }
+        if (!t->seq_idx && !starting) {                 /* a loop end: an edit waiting on the bank now playing keeps it
+                                                         * silent until the UI has done it */
+            uint32_t k = trk_index(t);
+            seq_loops[k]++;
+            if ((seq_pend[k] >> t->pattern) & 1u)
+                seq_hush |= (uint8_t)(1u << k);
         }
         cap_step[trk_index(t)]++;
         if (!t->seq_idx && t == &trk[0] && !chain.running)
@@ -1054,6 +1074,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
                 }
                 t->rskip_n = 0;
             }
+            if ((seq_hush >> trk_index(t)) & 1u)
+                s = &SEQ_HUSH_STEP;
             seq_step(t, s, step_gate(s) ? step_samples(t, period, t->seq_idx) : period, skip);
         }
     }
@@ -1084,19 +1106,22 @@ static void seq_tick(track_t *t, uint32_t n)
     }
 }
 
-/* MIDI in: the track a channel plays (0..15): G_ROUTE CH1-4 (0) channels 1..4 their parts, SEL (1) none */
-/* the track MIDI channel ch (0..15) plays: the DRUM channel the first DRUM track (none: the selected one), then ROUT
- * CH1-4 channels 1..4 tracks 1..4, every other channel the selected track */
+/* A range is a strict input filter, including the DRUM override. SEL keeps its stored value 1.
+ * Return 0 for channels outside the range or tracks not in use; releases keep their original owner. */
 static track_t *midi_track(uint32_t ch)
 {
-    uint32_t k;
+    uint32_t k, route = (uint32_t)song.g[G_ROUTE];
+    uint32_t first = route > 1u ? (route - 1u) * 4u : 0u;
+    if (route != 1u && (ch < first || ch - first >= 4u))
+        return 0;
     if (settings_drumch && ch + 1u == settings_drumch) {
-        for (k = 0; k < NPART; k++)
+        for (k = 0; k < trk_n(); k++)
             if (drum_track(&trk[k]))
                 return &trk[k];
-        return TSEL;
     }
-    return ch < NPART && !song.g[G_ROUTE] ? &trk[ch] : TSEL;
+    if (route == 1u)
+        return TSEL;
+    return ch - first < trk_n() ? &trk[ch - first] : 0;
 }
 
 #include "midi_control.c"
@@ -1207,7 +1232,8 @@ static void events_block(uint32_t n)
     }
     audition_tick(n);
     keyboard_block();
-    while (mi_r != mi_w) {                            /* USB-MIDI (and TRS) in */
+    uint32_t midi_dispatch_left=64u;
+    while (mi_r != mi_w && midi_dispatch_left) {       /* bounded USB-MIDI/TRS burst, order retained */
         uint32_t at = mi_r % MQ, pkt = midi_in_q[at], status = (pkt >> 8) & 0xFFu;
         uint32_t st = status & 0xF0u, ch = status & 0x0Fu;
         uint32_t d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
@@ -1215,7 +1241,7 @@ static void events_block(uint32_t n)
         uint32_t time = midi_in_time[at];
         if (midi_render_timed && (int32_t)(time - midi_render_time) > 0)
             break;
-        mi_r++;
+        mi_r++;midi_dispatch_left--;
         if (status >= 0xF8u) {
             if (selected_clock == source) {
                 if (status == 0xFAu || status == 0xFBu || status == 0xFCu) {

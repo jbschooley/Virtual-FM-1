@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* X0X single-precision maths, with no libm.
  *
  * The FM-1's FPU is float-only (-mfprev1) and the firmware links no libm, so this

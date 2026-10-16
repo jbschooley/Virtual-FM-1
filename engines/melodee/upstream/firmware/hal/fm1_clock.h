@@ -1,9 +1,10 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The SYS clock, read only. Melodee never writes the PLL: it runs at the clock the boot loader (SPL) sets.
  * Live FM-1 readings in PR #27 (@johnskiller, with @charlesvestal's register reads) identify PLL2_CON1 (0x119AC) as
  * the SYS VCO multiplier: FBDS = multiplier - 2. The SPL's 268 means 24 MHz / 12 * 270 = 540 MHz, with CLK_CON2
  * selecting 2/3 = 360 (HSB 180, LSB 60, SFC 90).
- * 1.3.0 to 1.3.3 (and 1.4.0-rc.1/2) offered a boot-time retune to 320 MHz (multiplier 240, OVERCLOCK). On some FM-1s that retune
+ * 1.3.0 to 1.3.3 and 1.4.0-rc.1/2 offered a boot-time retune to 320 MHz (multiplier 240, OVERCLOCK). On some FM-1s that retune
  * failed before the LCD and USB came up and the boot guard entered UBOOT; it is gone. A soft reset keeps the PLL, so
  * after an update from such a session the FM-1 can still run at 320 MHz (or at an unreleased test's 396, multiplier
  * 297) until its next power-off: fm1_clock_mult reads which, for the voice budget (main.c). */

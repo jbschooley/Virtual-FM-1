@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Regression suite of the MELODEE DSP on the Mac (same sources as the firmware, through hostsim.c).
  *   build/host/regress [GOLDEN_FILE CPU_FILE]      (run_tests.sh builds and runs it)
  *

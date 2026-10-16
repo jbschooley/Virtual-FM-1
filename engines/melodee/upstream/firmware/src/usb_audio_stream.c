@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* UAC1 stereo playback and selectable stereo master / four-track capture.
  * Callers serialize USB service and each short audio block. Capture precedes
  * computer playback, so DAW monitoring cannot feed itself through capture.
@@ -33,6 +33,42 @@ static struct {
     int16_t play[UA_RING * 2u], cap[UA_RING * UA_CAP_CHANNELS];
 } ua UA_POOL;
 
+#define UA_VOLUME_MIN (-64 * 256)
+/* Standard UAC1 volume: signed 1/256 dB, -64..0 dB in one-dB steps.
+ * Q15 gain table: round(32768 * 10^(-dB/20)); no floating point in USB service. */
+static const uint16_t ua_volume_gain[65] = {
+    32768, 29205, 26029, 23198, 20675, 18427, 16423, 14637,
+    13045, 11627, 10362, 9235, 8231, 7336, 6538, 5827,
+    5193, 4629, 4125, 3677, 3277, 2920, 2603, 2320,
+    2068, 1843, 1642, 1464, 1305, 1163, 1036, 924,
+    823, 734, 654, 583, 519, 463, 413, 368,
+    328, 292, 260, 232, 207, 184, 164, 146,
+    130, 116, 104, 92, 82, 73, 65, 58,
+    52, 46, 41, 37, 33, 29, 26, 23,
+    21,
+};
+static int16_t ua_host_volume_q8;
+static uint8_t ua_host_mute;
+static int32_t ua_host_target_q15 = 32768, ua_host_gain_q15 = 32768;
+
+static void ua_host_volume_reset(void)
+{
+    ua_host_volume_q8 = ua_host_mute = 0;
+    ua_host_target_q15 = ua_host_gain_q15 = 32768;
+}
+
+static void ua_host_volume_set(int16_t volume)
+{
+    if (volume == (int16_t)0x8000) {         /* UAC1 CUR's explicit -infinity code */
+        ua_host_volume_q8 = volume;
+        ua_host_target_q15 = 0;
+        return;
+    }
+    int32_t attenuation = volume >= 0 ? 0 : volume <= UA_VOLUME_MIN ? 64 : (-(int32_t)volume + 128) / 256;
+    ua_host_volume_q8 = (int16_t)(-attenuation * 256);
+    ua_host_target_q15 = ua_volume_gain[attenuation];
+}
+
 static int32_t ua_clip(int32_t x)
 {
     return x > 32767 ? 32767 : x < -32768 ? -32768 : x;
@@ -60,6 +96,7 @@ static void ua_play_reset(void)
 {
     ua.pw = ua.pr = 0;
     ua.play_ready = 0;
+    ua_host_gain_q15 = ua_host_mute ? 0 : ua_host_target_q15;
     ua.play_fill_q8 = UA_TARGET * 256;
 }
 
@@ -155,13 +192,16 @@ static uint32_t ua_transmit(uint8_t *p)
 }
 
 /* Stereo Q15 post-FX/master/limiter mix, or four pre-master mono stems.
- * Stereo copies the finished synth output; playback follows MASTER.
+ * Stereo copies the finished synth output; playback follows MASTER and the
+ * host's standard volume/mute controls, with a short gain ramp.
  * Call in blocks of CTL (32), with USB service excluded during this copy.
  * In track mode a null stem pointer skips capture for a block collected while
  * capture was disabled. Stereo requires no stems or additional DSP pass. */
 static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t master_q12)
 {
     uint32_t i, capture = ua.cap_alt && (ua_cap_channels == 2u || tracks), playback = 0;
+    int32_t gain = ua_host_gain_q15, target = ua_host_mute ? 0 : ua_host_target_q15;
+    uint32_t play_gain_q15 = (master_q12 * (uint32_t)gain) >> 12;
     if (capture && ua.cw - ua.cr + n > UA_RING) {
         ua.cap_overruns++;
         ua_cap_reset();
@@ -192,8 +232,13 @@ static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t m
                     ua.cap[ci + ch] = (int16_t)ua_clip(tracks[i * UA_CAP_CHANNELS + ch]);
         }
         if (playback) {
-            l += (ua.play[pi] * (int32_t)master_q12) >> 12;
-            r += (ua.play[pi + 1u] * (int32_t)master_q12) >> 12;
+            if (gain != target) {            /* at most 128 samples (~3 ms) for a full-scale change */
+                int32_t delta = target - gain;
+                gain += delta > 256 ? 256 : delta < -256 ? -256 : delta;
+                play_gain_q15 = (master_q12 * (uint32_t)gain) >> 12;
+            }
+            l += (ua.play[pi] * (int32_t)play_gain_q15) >> 15;
+            r += (ua.play[pi + 1u] * (int32_t)play_gain_q15) >> 15;
             out[2u * i] = ua_clip(l);
             out[2u * i + 1u] = ua_clip(r);
         }
@@ -202,4 +247,5 @@ static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t m
         ua.cw += n;
     if (playback)
         ua.pr += n;
+    ua_host_gain_q15 = playback ? gain : target; /* opening a muted stream never starts at unity */
 }

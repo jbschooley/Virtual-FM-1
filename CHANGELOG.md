@@ -31,6 +31,17 @@ for the code. New work goes under the next version at the top.
   spans fifteen modes, so its automation from before lands on other modes.
   Each drum sound's TUNE and DECAY are not host parameters and Live does not
   carry them (Pull and Send do). Not yet tried with an FM-1 running 2.7.
+- **Melodee 1.4.1** is built in (it was 1.3.4): SID's C64 models and its SID
+  KIT and SID DIGI drum kits, a TONE on each insert and shared return slot (the
+  host parameters "Melodee P1 FX1TONE", "Melodee RFX1TONE" and so on), MIDI IN
+  routing to channels 5-16, and its one shared U001-U384 preset bank. The
+  host parameters from before keep their names; the engine's eight follow its
+  new numbering. Projects and backups from 1.3 open on it, their preset banks
+  moved into the shared bank as the FM-1 does it, so 1.3.4 is not kept beside
+  it (0.13 and 1.1.0 still are). An FM-1 on Melodee 1.3.6 or older cannot read
+  1.4's projects: the plugin pulls from it only, and says to update it with
+  Melodee's installer. 1.4.0 is synced as 1.4.1 (the same firmware). Not yet
+  tried with an FM-1 running 1.4.
 - **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
   memory is 0.97's, checked in its firmware image), and said to be not tried
   with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.

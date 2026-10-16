@@ -1,13 +1,14 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Slot pages (docs/design: mock/r6_popups PROJECT, README "Popups"): PROJECT, SAVE > USER, FM6 STORE and P5 STORE as
  * the list of their slots alone, no action chips. KNOB 1 / 2 the slot, OCT+ its sheet (the page's own actions: act_do
  * in ui_input.c does them, as the chips did), OCT- Stage. The slot picked is a card: its name larger, a line about it,
  * PROJECT's Boot chip on the one power-on loads. PROJECT's last row, New song: OCT+ starts it. Included by ui_draw.c */
 enum { SK_NONE, SK_PROJECT, SK_USER, SK_FM6, SK_P5 };
-#define SL_Y0 22                                        /* the rows from y 22: 22 px, the card 46 */
-#define SL_ROW 22
-#define SL_CARD 46
-static struct { uint32_t sig; uint8_t first, save_page; } slv;   /* save_page: USER reached by SAVE (+1): its sheet on
+#define SL_Y0 Y_LABEL                                   /* the rows from y 32 (large type): 34 px, the card 58 */
+#define SL_ROW 34
+#define SL_CARD 58
+static struct { uint32_t sig; uint16_t first; uint8_t save_page; } slv;   /* save_page: USER reached by SAVE (+1): its sheet on
                                                                   * Save here */
 static void name_rename(void);                          /* ui_name.c */
 static void act_do(void);                               /* ui_input.c */
@@ -21,14 +22,14 @@ static uint32_t slot_kind(void)
     return pg->graph == GR_SLOTS ? SK_PROJECT : pg->graph == GR_USER ? SK_USER : pg->graph == GR_FMSTORE ? SK_FM6 :
            pg->scope == SC_P5STORE ? SK_P5 : SK_NONE;
 }
-static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : user_limit(); }
+static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : UP_SLOTS; }
 static uint32_t slot_cur(uint32_t k)                    /* the row picked */
 {
     switch (k) {
     case SK_PROJECT: return ui.proj_new ? (uint32_t)PROJ_TMPL : (uint32_t)song.g[G_SLOT] - 1u;
-    case SK_USER: return ui.uslot % user_limit();
-    case SK_FM6: return fm6_bslot % user_limit();
-    default: return ((uint32_t)p5_store_slot - 1u) % user_limit();
+    case SK_USER: return ui.uslot % UP_SLOTS;
+    case SK_FM6: return fm6_bslot % UP_SLOTS;
+    default: return ((uint32_t)p5_store_slot - 1u) % UP_SLOTS;
     }
 }
 static uint32_t slot_boot(void)                         /* the row power-on loads (+1), 0 none */
@@ -53,23 +54,21 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
                     : used ? "Saved" : "--", 16);
         return used;
     }
-    user_label(tag, r);
-    if (!user_used(r) && !user_old(r)) {
+    up_slot_label(tag, r);
+    if (!up_used(r) && !up_old(r)) {
         str_cpy(nm, "--", 16);
         return 0;
     }
-    user_name(r, nm);
+    up_name(r, nm);
     return 1;
 }
 static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card's second line */
 {
     if (k == SK_PROJECT)
-        str_cpy(b, used == 2 ? "Starts empty" : r + 1u == (uint32_t)PROJ_TMPL ? (used ? "Saved as the template" : "No template")
+        str_cpy(b, used == 2 ? "Starts empty" : r + 1u == (uint32_t)PROJ_TMPL ? (used ? "Saved" : "Empty")
                    : used ? "Saved" : "Empty", 24);
     else if (!used)
         str_cpy(b, "Empty", 24);
-    else if (library_native())
-        str_cpy(b, ENGINES[eng_idx(library_engine())]->name, 24);
     else
         str_cpy(b, ENGINES[eng_idx(up_engine(r))]->name, 24);
 }
@@ -163,7 +162,8 @@ static void slot_draw(void)
 {
     uint32_t k = slot_kind(), n = slot_count(k), cur = slot_cur(k), boot = k == SK_PROJECT ? slot_boot() : 0u;
     uint32_t vis = 1u + (uint32_t)((PV_SOUND_Y - 2 - SL_Y0 - SL_CARD) / SL_ROW), r, sig;
-    int32_t y, nx = 16 + text_w(&AF_S, k == SK_PROJECT ? "W" : "F000") + 10;   /* the names after the widest tag */
+    const aafont_t *tf = TY_TX, *lf = TY_LB;
+    int32_t y, nx = 12 + text_w(tf, k == SK_PROJECT ? "W" : "F000") + 10;   /* the names after the widest tag */
     char tag[6], nm[16];
     if (ui.force) {
         lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
@@ -173,7 +173,7 @@ static void slot_draw(void)
     pv_sound();
     if (vis > n)
         vis = n;
-    slv.first = (uint8_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
+    slv.first = (uint16_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
     sig = cur * 7u + slv.first * 131u + boot * 1031u + k * 40503u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u +
           up_gen * 7919u + library_engine() * 104729u + bulk.on * 19u + bulk.anchor * 23u + bulk.end * 29u + sx_import.count * 37u;
     for (r = slv.first; r < slv.first + vis; r++)
@@ -183,40 +183,40 @@ static void slot_draw(void)
     slv.sig = sig;
     for (r = slv.first, y = SL_Y0; r < slv.first + vis; r++) {
         int used = slot_row(k, r, tag, nm), on = r == cur;
-        if (on) {                                       /* the card: the name larger, a line about it */
+        int32_t h = on ? SL_CARD : SL_ROW;
+        cv_begin(240, (uint32_t)h, T_BG);
+        if (on) {                                       /* the card: tinted in the track's colour, a line about it */
             char d[24];
-            int32_t nw = 196 - (boot == r + 1u ? 44 : 0);
-            cv_begin(240, SL_CARD, T_BG);
-            cv_rrect(6, 1, 228, SL_CARD - 2, 8, T_THEME, T_BG);
-            cv_rrect(7, 2, 226, SL_CARD - 4, 7, T_LIFT, T_THEME);
-            cv_text_on(16, 7, &AF_M, tag, T_THEME, T_LIFT);
-            cv_free_text(16 + text_w(&AF_M, tag) + 8, 7, &AF_M, used ? nm : "Empty", used ? T_TEXT : T_MID, T_LIFT, nw);
+            uint16_t bg = ux_mix(T_BG, T_THEME, 18);
+            int32_t nw = 236 - nx - 8 - (boot == r + 1u ? text_w(lf, "Boot") + 10 : 0);
+            cv_rrect(BOX_X, 0, BOX_W, h - 2, 8, bg, T_BG);
+            cv_text_on(12, ty_y(17, tf), tf, tag, T_THEME, bg);
+            cv_free_text(nx, ty_y(17, ty_fit(tf, nm, nw)), ty_fit(tf, nm, nw), used ? nm : "Empty", used ? T_TEXT : T_MID, bg, nw);
             slot_detail(k, r, used, d);
             if(sx_import.count){fmt_int(d,sx_import.count);str_cpy(d+str_len(d)," incoming patches",20);}
             else if(bulk_has(r))str_cpy(d,"Selected",24);
-            cv_text_on(16 + text_w(&AF_M, tag) + 8, 28, &AF_X, d, T_MID, T_LIFT);
-            if (boot == r + 1u) {
-                cv_rrect(186, 10, 40, 18, 5, T_SURF, T_LIFT);
-                cv_text_c(206, 12, &AF_X, "Boot", T_SEC, T_SURF);
-            }
-            cv_blit(0, (uint32_t)y);
-            y += SL_CARD;
-        } else {
-            cv_begin(240, SL_ROW, T_BG);
-            if(k!=SK_PROJECT && bulk_has(r))cv_rect(6,3,3,SL_ROW-6,T_THEME);
-            cv_text_on(16, 5, &AF_S, tag, used ? T_MID : T_DIM, T_BG);
-            cv_free_text(nx, 5, &AF_S, nm, used ? T_SEC : T_DIM, T_BG, boot == r + 1u ? 180 - nx : 220 - nx);
+            cv_free_text(nx, ty_y(41, lf), lf, d, T_MID, bg, 236 - nx - 8);
             if (boot == r + 1u)
-                cv_text_r(226, 6, &AF_X, "Boot", T_MID, T_BG);
-            if (n > vis) {                              /* where the rows are in the list */
-                int32_t span = (int32_t)(PV_SOUND_Y - 2 - SL_Y0), th = span * (int32_t)vis / (int32_t)n;
-                int32_t ty = (span - th) * slv.first / (int32_t)(n - vis) - (y - SL_Y0);
-                cv_rect(237, 0, 2, SL_ROW, T_LINE);
-                if (ty < SL_ROW && ty + th > 0)
-                    cv_rect(237, ty, 2, th, T_THEME);
+                cv_text_r(228, ty_y(17, lf), lf, "Boot", T_THEME, bg);
+        } else {
+            if(k!=SK_PROJECT && bulk_has(r))cv_rect(BOX_X,6,3,SL_ROW-14,T_THEME);
+            cv_text_on(12, ty_y(SL_ROW / 2 - 1, tf), tf, tag, used ? T_MID : T_DIM, T_BG);
+            {
+                int32_t nw = boot == r + 1u ? 228 - text_w(lf, "Boot") - 8 - nx : 228 - nx;
+                const aafont_t *f = ty_fit(tf, nm, nw);
+                cv_free_text(nx, ty_y(SL_ROW / 2 - 1, f), f, nm, used ? T_SEC : T_DIM, T_BG, nw);
             }
-            cv_blit(0, (uint32_t)y);
-            y += SL_ROW;
+            if (boot == r + 1u)
+                cv_text_r(228, ty_y(SL_ROW / 2 - 1, lf), lf, "Boot", T_MID, T_BG);
         }
+        if (n > vis) {                                  /* where the rows are in the list: a bar at the right edge */
+            int32_t span = (int32_t)(SL_CARD + (vis - 1u) * SL_ROW), th = span * (int32_t)vis / (int32_t)n;
+            int32_t ty = (span - th) * slv.first / (int32_t)(n - vis) - (y - SL_Y0);
+            cv_rect(238, 0, 2, h, T_LINE);
+            if (ty < h && ty + th > 0)
+                cv_rect(238, ty, 2, th, T_THEME);
+        }
+        cv_blit(0, (uint32_t)y);
+        y += h;
     }
 }

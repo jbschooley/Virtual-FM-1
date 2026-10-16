@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Building blocks of the 909 drum engine and the FX bus, ported from 9W9
  * (er99 webaudio.h / er99_circuit.h, GPL-3.0) to the FM-1: float only, no libm,
  * no double. Used by drum909.c (all static inline).

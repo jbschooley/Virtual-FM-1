@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
@@ -7,7 +8,10 @@
  * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (2: drawn at a pen of +0, +1/2 px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
- * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
+ * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens.
+ * The large type (docs/design/README.md "Large type"): text is set in four roles, TY_LB labels, TY_TX text, TY_VL values,
+ * TY_HR the hero, each Rubik (16 / 20 / 28 / 48 px) or Melodee Pixel (a 5 x 7 1-bit face at 2 / 2 / 3 / 5 times: aafont_t
+ * px), as Settings > FONT says (ui.c TY_*); a role's two faces share its line height and baseline. */
 typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
 typedef struct {
     uint8_t h, asc, first, last, nex;   /* line height, baseline; ASCII range; extras */
@@ -15,17 +19,29 @@ typedef struct {
     const aag_t *g;
     const uint8_t *data;
     const uint8_t *kl, *kr;             /* each glyph's left / right kerning class, 0 = no pair */
-    const int8_t *km;                   /* 1/16 px: [(left class - 1) * nkr + right class - 1] */
+    const int8_t *km;                   /* 1/16 px at the shared size: [(left class - 1) * nkr + right class - 1] */
     const uint8_t *ex;                  /* codes of the extra glyphs */
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
+    uint8_t cap;                        /* the capitals' height in px (ty_y: capitals centred on a row) */
+    uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
+    uint16_t ks;                        /* km's scale to this size, Q8 (one kerning table for every face) */
 } aafont_t;
-typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
-typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
+typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4], knob[4][4]; } ui_pal_t;
+typedef struct { const char *label; } kc_t;
+#include "ui_fonts.h"                   /* the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 px (Rubik 500) and
+                                         * Melodee Pixel's AP_* (tools/gen_aa_font.py) */
 #include "ui_palettes.h"
-#include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
-#define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
+#include "ui_keycaps.h"                 /* KC_*: the keycaps' / badges' labels (tools/gen_aa_keycaps.py) */
+#define ELLIPSIS '\x85'                 /* the ellipsis glyph (every face's extras) */
+/* the type's roles (docs/design/README.md "Large type"): Rubik, or Melodee Pixel as Settings > FONT says (ui.c
+ * ty_pixel). A role's two faces share its line height and baseline, so a layout holds in both; widths differ (a
+ * layout fits the wider) */
+static uint32_t ty_pixel(void);
+#define TY_LB (ty_pixel() ? &AP_LB : &AF_LB)  /* labels, units, chips, tags: 16 px, pixel 2 x */
+#define TY_TX (ty_pixel() ? &AP_TX : &AF_TX)  /* names, rows, the header, text: 20 px, pixel 2 x */
+#define TY_VL (ty_pixel() ? &AP_VL : &AF_VL)  /* values: 28 px, pixel 3 x */
+#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, a sound's name alone): 48 px, pixel 5 x */
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
@@ -39,6 +55,10 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #define GFX_HOOK_WHOLE(x, y, r0, fill) ((void)0)   /* what the screen would hold sent whole: canvas rows r0.. at x, y (or a
                                                      * fill) (tests/ui_render.c: the diff checked against it) */
 #endif
+#ifndef GFX_HOOK_COVER
+#define GFX_HOOK_COVER(x0, y0, x1, y1) ((void)0)   /* a card over the screen (the toast): the texts under it covered on
+                                                     * purpose */
+#endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
 #endif
@@ -48,10 +68,25 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
  * there while SPI reads the first; large graphs reuse the full canvas only
  * after its transfer finishes. No second full-screen-sized allocation. */
 #define CV_ALT_MAX (240u * 24u)                   /* (240 x 24: the diff's hashes took the rest, below) */
-static uint16_t cv_primary[CV_MAX] __attribute__((section(".pool")));
+/* Decoded projects use this canvas between draws. A borrow waits for SPI;
+ * the wire/archive buffer stays separate because transfers span UI frames. */
+static union {
+    uint16_t pixels[CV_MAX];
+    uint32_t work[CV_MAX / 2u];
+} cv_primary_u __attribute__((section(".pool")));
+#define cv_primary cv_primary_u.pixels
+#define CV_WORK_BYTES (sizeof cv_primary_u)
 static uint16_t cv_alt[CV_ALT_MAX] __attribute__((section(".pool")));
 static uint16_t *cv_px = cv_primary;
 static const uint16_t *cv_flight;
+static void *cv_work(void)
+{
+    if (cv_flight == cv_primary) {
+        lcd_sync();
+        cv_flight = 0;
+    }
+    return cv_primary_u.work;
+}
 static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
 static uint8_t cv_scroll;        /* 1: drawing a scrolled view (its text may run past the canvas) */
@@ -97,6 +132,9 @@ static struct {
 #define UI_PAL_ENTRIES UI_NPALETTES
 #endif
 #define T_TRK(k) UI_PALETTES[ux.pal].trk[(k) & 3u]   /* track k's colour (the mixer, lanes, track chips) */
+/* knob k's colour on the selected track's pages (its label, its curve segment, a row, a lane, a slot): a shade of the
+ * track's colour (tools/gen_ui_palettes.py SHADES; knob 1 the track's own), so a page keeps its track's family */
+#define T_KNOB(k) UI_PALETTES[ux.pal].knob[ux.trk & 3u][(k) & 3u]
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
 /* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */
@@ -366,6 +404,10 @@ static int df_diff(uint32_t x, uint32_t y)
     if (nr * nc > 6u) {                                 /* scattered: their bounding box */
         rb[0] = rb[nr - 1u]; cb[0] = cb[nc - 1u];
         nr = nc = 1;
+    }
+    if (nc > 1u && cv_px == cv_alt) {                   /* (nothing gathers from the small canvas: whole rows, once) */
+        cb[0] = cb[nc - 1u];
+        nc = 1;
     }
     for (j = 0; j < nc; j++) {
         uint32_t c0 = ca[j] * DF_BLK, c1 = (cb[j] + 1u) * DF_BLK < cv_w ? (cb[j] + 1u) * DF_BLK : cv_w;
@@ -788,34 +830,27 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
 
 /* the same from a glyph's Huffman-coded bit stream (tools/gen_aa_font.py huff_pack): canonical codes, MSB
  * first; hc = the number of codes of each length 1..15, then the symbols in code order, each a value and
- * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to 8 bits come from a
- * 256-entry table made once per font in RAM (symbol | length << 8; 0 = a longer code: bit by bit). The
- * stream is read in order, so rows outside the clip are decoded and dropped; a run spans rows */
-#define HC_FONTS 2                       /* the coded faces: M and L (gen_aa_font.py HUFF) */
-static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS];
-static const uint16_t *hc_lut(const uint8_t *hc)
+ * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to HC_LUT_BITS bits come from a
+ * small table the text's draw builds on its stack for the string (hc_lut: symbol | length << 8; 0 = a longer code:
+ * bit by bit), so no font keeps anything in RAM. The stream is read in order, so rows outside the clip are decoded
+ * and dropped; a run spans rows */
+#define HC_LUT_BITS 6u
+static void hc_lut(const uint8_t *hc, uint16_t *lut)
 {
-    uint32_t k, len, code = 0, sym = 15, i;
-    for (k = 0; k < HC_FONTS - 1u && hc_tab[k].hc && hc_tab[k].hc != hc; k++)
-        ;
-    if (hc_tab[k].hc != hc) {                        /* (more fonts than slots: the last slot is rebuilt) */
-        hc_tab[k].hc = hc;
-        for (i = 0; i < 256u; i++)
-            hc_tab[k].lut[i] = 0;
-        for (len = 1; len <= 8u; len++, code <<= 1)
-            for (i = 0; i < hc[len - 1u]; i++, code++, sym++) {
-                uint32_t a = code << (8u - len), n = 1u << (8u - len);
-                while (n--)
-                    hc_tab[k].lut[a + n] = (uint16_t)(hc[sym] | len << 8);
-            }
-    }
-    return hc_tab[k].lut;
+    uint32_t i, len, code = 0, sym = 15;
+    for (i = 0; i < (1u << HC_LUT_BITS); i++)
+        lut[i] = 0;
+    for (len = 1; len <= HC_LUT_BITS; len++, code <<= 1)
+        for (i = 0; i < hc[len - 1u]; i++, code++, sym++) {
+            uint32_t a = code << (HC_LUT_BITS - len), n = 1u << (HC_LUT_BITS - len);
+            while (n--)
+                lut[a + n] = (uint16_t)(hc[sym] | len << 8);
+        }
 }
 
 static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint8_t *hc,
-                        const uint16_t *rv)
+                        const uint16_t *lut, const uint16_t *rv)
 {
-    const uint16_t *lut = hc_lut(hc);
     uint32_t gy, v = 0, run = 0, acc = 0, nb = 0;
     y += cv_oy;
     for (gy = 0; gy < h; gy++) {
@@ -830,7 +865,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                     acc = acc << 8 | *d++;
                     nb += 8;
                 }
-                e = lut[(acc >> (nb - 8u)) & 255u];
+                e = lut[(acc >> (nb - HC_LUT_BITS)) & ((1u << HC_LUT_BITS) - 1u)];
                 if (e) {
                     nb -= e >> 8;
                     s = e & 255u;
@@ -865,6 +900,40 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
     GFX_HOOK_PIXELS(w * h);
 }
 
+/* a Melodee Pixel glyph: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas pixels at
+ * (x, y); ink c (byte-swapped; cv_over: over the canvas) */
+static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
+{
+    uint32_t k = 0, gx, gy, j;
+    y += cv_oy;
+    for (gy = 0; gy < h; gy++) {
+        for (gx = 0; gx < w; ) {
+            uint32_t n = 0;
+            while (gx + n < w && ((d[(k + n) >> 3] >> (7u - ((k + n) & 7u))) & 1u))
+                n++;
+            if (!n) {
+                gx++;
+                k++;
+                continue;
+            }
+            for (j = 0; j < s; j++) {                    /* the run, s rows of n * s pixels */
+                int32_t py = y + (int32_t)(gy * s + j), px = x + (int32_t)(gx * s), e = px + (int32_t)(n * s);
+                uint16_t *row;
+                if (py < cv_cy0 || py >= cv_cy1)
+                    continue;
+                row = cv_px + (uint32_t)py * cv_w;
+                if (px < 0) px = 0;
+                if (e > (int32_t)cv_w) e = (int32_t)cv_w;
+                for (; px < e; px++)
+                    row[px] = cv_over ? cv_over_px(row[px], 15u) : c;
+            }
+            gx += n;
+            k += n;
+        }
+    }
+    GFX_HOOK_PIXELS(w * h * s * s);
+}
+
 /* ------------------------------------------------------------- text --- */
 /* the glyph number of ch in f, -1 = not in the face */
 static int32_t glyph_at(const aafont_t *f, uint32_t ch)
@@ -897,9 +966,10 @@ static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px 
     uint32_t l, r;
     if (!f->nkr || (i = glyph_at(f, a)) < 0 || (j = glyph_at(f, b)) < 0 || !(l = f->kl[i]) || !(r = f->kr[j]))
         return 0;
-    return f->km[(l - 1u) * f->nkr + r - 1u];
+    return (f->km[(l - 1u) * f->nkr + r - 1u] * (int32_t)f->ks + 128) >> 8;   /* (rounded) */
 }
 
+static int32_t gadv(const aafont_t *f, const aag_t *g) { return f->px ? g->adv * f->px : g->adv; }   /* 1/16 px */
 static uint32_t fold(const aafont_t *f, uint32_t c)
 {
     return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
@@ -913,10 +983,26 @@ static int32_t text_w(const aafont_t *f, const char *s)
         uint32_t c = fold(f, (uint8_t)*s);
         if (prev)
             pen += kern(f, prev, c);
-        pen += f->g[glyph(f, c)].adv;
+        pen += gadv(f, &f->g[glyph(f, c)]);
         prev = c;
     }
     return (pen + 8) >> 4;
+}
+/* the line top that centres f's capitals on row cy (a pill, a row, a chip: the same place in Rubik and pixel) */
+static int32_t ty_y(int32_t cy, const aafont_t *f) { return cy - f->asc + (f->cap + 1) / 2; }
+/* the face to set s in within maxw px: f when it fits, else the label face (a name is cut only when even that does not
+ * fit) */
+static const aafont_t *ty_fit(const aafont_t *f, const char *s, int32_t maxw)
+{
+    return text_w(f, s) <= maxw ? f : TY_LB;
+}
+/* every character of s is in f (the hero's face holds only what values and names need: else a smaller face) */
+static int text_has(const aafont_t *f, const char *s)
+{
+    for (; *s; s++)
+        if (glyph_at(f, fold(f, (uint8_t)*s)) < 0 && (uint8_t)*s != (uint8_t)ELLIPSIS)
+            return 0;
+    return 1;
 }
 
 /* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end.
@@ -934,6 +1020,9 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
+    uint16_t lut[1u << HC_LUT_BITS];                 /* (a coded face: its codes' table, for this string only) */
+    if (f->hc)
+        hc_lut(f->hc, lut);
     cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
@@ -942,6 +1031,21 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         if (prev)
             pen += kern(f, prev, c);
         g = &f->g[glyph(f, c)];
+        if (f->px) {                                 /* a pixel face: whole pixels, at the rounded pen */
+            pos = (pen + 8) & ~15;
+            if (g->bw) {
+                int32_t gx = x + (pos >> 4) + g->bx * f->px, gy = y + f->asc - 9 * f->px + g->by * f->px;
+                cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
+                if (gx < x0) x0 = gx;
+                if (gy < y0) y0 = gy;
+                if (gx + g->bw * f->px > x1) x1 = gx + g->bw * f->px;
+                if (gy + g->bh * f->px > y1) y1 = gy + g->bh * f->px;
+            }
+            err = 0;
+            pen += gadv(f, g);
+            prev = c;
+            continue;
+        }
         if (f->psh && g[1].off != g->off) {
             pos = pen - (pen & (step - 1));          /* the phase position at or left of the pen */
             d0 = pos - pen - err;                    /* .. and the one right of it: which keeps the gap truer */
@@ -956,7 +1060,7 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         if (g->bw) {
             int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
             if (f->hc)
-                cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, rv);
+                cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, lut, rv);
             else
                 cv_alpha(gx, gy, g->bw, g->bh, f->data + g->off, rv);
             if (gx < x0) x0 = gx;
@@ -990,23 +1094,6 @@ static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s
 static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg)
 {
     return cv_text_flags(x, y, f, s, fg, cv_bg, 0);
-}
-/* a scrim: the canvas inside (x, y, w, h) a of 32 of the way to c, the last f px towards each edge less (feathered): a
- * picture calmed behind text (cv_over) and still seen through it. Per pixel a blend of the row's or the column's
- * alpha (mix565), nothing else */
-static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
-{
-    int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
-    y += cv_oy;
-    for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
-        int32_t dy = j - y < y + h - 1 - j ? j - y : y + h - 1 - j;
-        uint16_t *row = &cv_px[(uint32_t)j * cv_w];
-        for (i = x0; i < x1; i++) {
-            int32_t d = i - x < x + w - 1 - i ? i - x : x + w - 1 - i;
-            if (dy < d) d = dy;
-            row[i] = swap16(mix565(swap16(row[i]), c, d >= f ? a : a * (uint32_t)(d + 1) / (uint32_t)(f + 1)));
-        }
-    }
 }
 /* right-aligned: the advance ends at xr */
 static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
@@ -1062,64 +1149,29 @@ static int32_t cv_free_text(int32_t x, int32_t y, const aafont_t *f, const char 
 }
 
 /* ---------------------------------------------------------- keycaps --- */
-/* a pre-rendered pill (tools/gen_aa_keycaps.py): nibble 0 outside, 1..4 the edge over `under`, 5 the fill,
- * 6..15 the label over the fill; the 16 colours per (under, fill, ink) are cached like the text ramps */
-#define NKRAMP 4u
-static struct {
-    uint16_t key[NKRAMP][3], v[NKRAMP][16];
-    uint32_t gen;
-    uint8_t next, n;
-} kr __attribute__((section(".pool")));      /* (zero-initialised; outside .bss) */
-static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
-{
-    uint32_t i, a;
-    uint16_t *v;
-    if (kr.gen != ux.gen) {
-        kr.gen = ux.gen;
-        kr.n = kr.next = 0;
-    }
-    for (i = 0; i < kr.n; i++)
-        if (kr.key[i][0] == under && kr.key[i][1] == fill && kr.key[i][2] == ink)
-            return kr.v[i];
-    i = kr.next;
-    kr.next = (uint8_t)((i + 1u) % NKRAMP);
-    if (kr.n < NKRAMP)
-        kr.n++;
-    kr.key[i][0] = under;
-    kr.key[i][1] = fill;
-    kr.key[i][2] = ink;
-    v = kr.v[i];
-    v[0] = swap16(under);
-    for (a = 1; a < 5u; a++)
-        v[a] = swap16(ux_mix(under, fill, (int32_t)a * 20));
-    for (a = 5; a < 16u; a++)
-        v[a] = swap16(ux_mix(fill, ink, (int32_t)(a - 5u) * 10));
-    return v;
-}
-static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? KC[id].w : 0; }
-/* keycap / badge `id` with its top-left at (x, y), KC_H tall: fill and label tinted with tokens, `under` what lies
+/* a keycap (the large type): a pill KC_PH tall, its label (KC[id].label) in the label face, 4 px each side */
+#define KC_PH 22
+static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? text_w(TY_LB, KC[id].label) + 8 : 0; }
+/* keycap / badge `id` with its top-left at (x, y), KC_PH tall: fill and label tinted with tokens, `under` what lies
  * behind its corners; returns its right edge */
 static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint16_t ink, uint16_t under)
 {
-    const kc_t *k = &KC[id < KC_COUNT ? id : 0u];
-    const uint16_t *rv = kc_ramp(under, fill, ink);
-    cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
-    if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u | (cv_dim || cv_under ? 16u : 0u));   /* cut */
-    else
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u | (cv_dim || cv_under ? 16u : 0u));
-    return x + k->w;
+    const char *l = KC[id < KC_COUNT ? id : 0u].label;
+    int32_t w = kc_w(id < KC_COUNT ? id : 0u);
+    cv_rrect(x, y, w, KC_PH, 6, fill, under);
+    cv_text_on(x + 4, ty_y(y + KC_PH / 2, TY_LB), TY_LB, l, ink, fill);
+    return x + w;
 }
 
-/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word sits on
- * the keycap's centre line (S caps 9 rows, the keycap's 7). act may be 0 (the keycap alone); returns the end x */
-#define KH_GAP 4                                  /* keycap -> its word */
-static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(&AF_S, act) : 0); }
+/* a key hint: the keycap, then what it does (the label face, TEXT); unavailable: a DIM keycap and a DIM word, the
+ * word's capitals on the keycap's centre line. act may be 0 (the keycap alone); returns the end x */
+#define KH_GAP 5                                  /* keycap -> its word */
+static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(TY_LB, act) : 0); }
 static int32_t cv_key_hint(int32_t x, int32_t y, uint32_t id, const char *act, int on, uint16_t under)
 {
     x = cv_keycap(x, y, id, on ? T_KEY : T_DIM, T_INK, under);
     if (act && act[0])
-        x = cv_text_on(x + KH_GAP, y - 1, &AF_S, act, on ? T_TEXT : T_DIM, under);
+        x = cv_text_on(x + KH_GAP, ty_y(y + KC_PH / 2, TY_LB), TY_LB, act, on ? T_TEXT : T_DIM, under);
     return x;
 }
 /* a row of key hints from x0 to x1: the first at x0, the last ending at x1, the space shared between them. When
@@ -1169,8 +1221,8 @@ static int32_t kc_tag(const char *s, uint32_t *len)
     }
     return -1;
 }
-/* free text (S) that may start with a keycap, "[SAVE] HOLD TO UNDO", or have one after its first word,
- * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
+/* free text (the text face; y: its line top) that may start with a keycap, "[EDIT] HOLD TO UNDO", or have one after its
+ * first word, "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
 static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, uint16_t bg, int32_t maxw)
 {
     uint32_t n, i;
@@ -1182,18 +1234,18 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
         uint32_t j;
         for (j = 0; j < i; j++)
             w[j] = s[j];
-        x = cv_text_on(x, y, &AF_S, w, fg, bg) + KH_GAP;
+        x = cv_text_on(x, y, TY_TX, w, fg, bg) + KH_GAP;
         s += i + 1u;
     }
     if (id >= 0 && kc_w((uint32_t)id) + KH_GAP < maxw - (x - x0)) {
-        x = cv_keycap(x, y + 1, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
+        x = cv_keycap(x, y + TY_TX->asc - (TY_TX->cap + 1) / 2 - KC_PH / 2, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
         s += n;
         while (*s == ' ')
             s++;
         if (!*s)
             return x - KH_GAP;
     }
-    return cv_free_text(x, y, &AF_S, s, fg, bg, maxw - (x - x0));
+    return cv_free_text(x, y, TY_TX, s, fg, bg, maxw - (x - x0));
 }
 
 /* one-shot: a line of text in a box of colour bg, blitted (align: 0 left, 1 centre, 2 right) */

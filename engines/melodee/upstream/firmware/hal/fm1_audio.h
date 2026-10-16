@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 audio out: ALNK0 I2S -> external codec, double-buffered DMA
  * The application owns the buffer: two halves
  * of half_words int32 (L, R, 24-bit left-justified), zeroed before init.

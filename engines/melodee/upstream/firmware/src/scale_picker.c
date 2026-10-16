@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The filter is UI state; the selected scale retains its stable project ID. */
 _Static_assert(SCALE_TOTAL <= SCALE_FAV_CAP, "scale favorite capacity");
 static int scale_settings_page(const page_t *pg)

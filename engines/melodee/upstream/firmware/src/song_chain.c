@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SONG arranges the current project's banks, one per track per row.
  * Main-loop preparation commits the original selections. The ISR switches
  * bounded in-RAM patterns and timing; STOP restores the original selections. */

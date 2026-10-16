@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FBKG: a FUN13 sound/current-pattern record plus seven other banks per track,
  * all bank timings, arrangement assignments and bounded motion bank tags.
  * Five base sectors plus two extension sectors per A/B copy; the 27,200-byte record is validated in main-loop
@@ -26,40 +27,16 @@ static void bank_checksum(uint8_t *raw)
     uint32_t sum = proj_hash(raw, BANK_STORE_SIZE - 4u);
     memcpy(raw + BANK_STORE_SIZE - 4u, &sum, 4);
 }
-/* Pack bits with only 32-bit shifts: pi32v2 has no 64-bit divide helpers. */
-static void bank_bits_put(uint8_t *b, uint32_t *pos, uint32_t v, uint32_t n)
-{
-    while (n--) { b[*pos >> 3] |= (uint8_t)((v & 1u) << (*pos & 7u)); v >>= 1; ++*pos; }
-}
-static uint32_t bank_bits_get(const uint8_t *b, uint32_t *pos, uint32_t n)
-{
-    uint32_t v = 0, i;
-    for (i = 0; i < n; i++, ++*pos) v |= (uint32_t)((b[*pos >> 3] >> (*pos & 7u)) & 1u) << i;
-    return v;
-}
-static int bank_step_unpack(step_t *s, const uint8_t *b)
-{
-    uint32_t pos = 0, i, meta;
-    for (i = 0; i < 4u; i++) s->note[i] = (uint8_t)bank_bits_get(b, &pos, 7u);
-    meta = bank_bits_get(b, &pos, 4u);
-    s->flags = (uint8_t)bank_bits_get(b, &pos, 2u); s->vel = (uint8_t)bank_bits_get(b, &pos, 7u);
-    s->hit = (uint8_t)bank_bits_get(b, &pos, 8u); s->acc = (uint8_t)bank_bits_get(b, &pos, 8u);
-    s->probability = (uint8_t)bank_bits_get(b, &pos, 7u);
-    s->n = (meta & 7u) < 5u ? meta & 7u : 0u;
-    s->time = (meta & 7u) < 5u ? ST_NOTE : (meta & 7u) == 5u ? ST_TIE : ST_REST;
-    if (meta & 8u) s->flags |= SF_RECORDED;
-    return (meta & 7u) < 7u && s->probability <= 101u && step_acc_valid(s);
-}
 static int bank_step_pack(uint8_t *b, const step_t *s)
 {
     if (s->n > 4u || s->time > ST_REST || s->flags > 7u || s->vel > 127u || s->probability > 101u || !step_acc_valid(s)) return 0;
     uint32_t pos = 0;
     memset(b, 0, 8u);
-    for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; bank_bits_put(b, &pos, s->note[j], 7u); }
-    bank_bits_put(b, &pos, (s->time == ST_NOTE ? s->n : s->time == ST_TIE ? 5u : 6u) | (s->flags & SF_RECORDED ? 8u : 0u), 4u);
-    bank_bits_put(b, &pos, s->flags & 3u, 2u);
-    bank_bits_put(b, &pos, s->vel, 7u); bank_bits_put(b, &pos, s->hit, 8u);
-    bank_bits_put(b, &pos, s->acc, 8u); bank_bits_put(b, &pos, s->probability, 7u);
+    for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; wire_bits_put(b, &pos, s->note[j], 7u); }
+    wire_bits_put(b, &pos, (s->time == ST_NOTE ? s->n : s->time == ST_TIE ? 5u : 6u) | (s->flags & SF_RECORDED ? 8u : 0u), 4u);
+    wire_bits_put(b, &pos, s->flags & 3u, 2u);
+    wire_bits_put(b, &pos, s->vel, 7u); wire_bits_put(b, &pos, s->hit, 8u);
+    wire_bits_put(b, &pos, s->acc, 8u); wire_bits_put(b, &pos, s->probability, 7u);
     return 1;
 }
 static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
@@ -117,7 +94,7 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
                 if (b == raw[BANK_ACTIVE_OFF + k] && v != proj_scratch.t[k].p[P_SLEN + i]) return 0;
             }
             if (b == raw[BANK_ACTIVE_OFF + k]) continue;
-            for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) { step_t s; if (!bank_step_unpack(&s, raw + pos)) return 0; }
+            for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) { step_t s; if (!step_wire_unpack(&s, raw + pos)) return 0; }
         }
     }
     for (uint32_t i = 0; i < CHAIN_ROWS * NTRK; i++) if (raw[BANK_CHAIN_OFF + i] >= NPAT) return 0;
@@ -160,7 +137,7 @@ static void bank_restore(const uint8_t *raw)
             pattern_t *p = pattern_at(k, b);
             for (uint32_t i = 0; i < 4u; i++) p->timing[i] = raw[BANK_TIMING_OFF + (k * NPAT + b) * 4u + i];
             if (b == trk[k].pattern) memcpy(p->step, trk[k].step, sizeof p->step);
-            else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) bank_step_unpack(&p->step[i], raw + pos);
+            else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) step_wire_unpack(&p->step[i], raw + pos);
         }
     }
     motion_unguard(f);

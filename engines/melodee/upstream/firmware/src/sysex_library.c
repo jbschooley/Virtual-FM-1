@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Incoming dumps retain their native names and bytes until the player chooses
  * a destination. The receive ISR never writes flash or changes a track. */
 static struct {
@@ -16,7 +17,6 @@ static uint32_t library_engine(void)
 {
     return sx_import.count && !ui.home && cur_page()->graph == GR_USER ? sx_import.engine : TSEL->eng_req;
 }
-static uint32_t library_native(void) { return sx_import.count && sx_import.general && !ui.home && cur_page()->graph==GR_USER ? 0u : native_limit(library_engine()); }
 static void bulk_clear(void) { bulk.on = 0; ui.note_copy = ui.note_move = 0; ui.force = 1; }
 static int bulk_has(uint32_t k)
 {
@@ -53,13 +53,12 @@ static void sysex_commit(void)
     if (!sx_import.count) return;
     if (transport_busy()) { ui_message("STOP TO IMPORT"); return; }
     uint32_t saved = 0;
-    while (saved < sx_import.count) {
-        int rc = sx_import.general ? general_sysex_save(sx_import.first+saved,sx_import.data+saved*sx_import.size) : native_put(sx_import.engine,sx_import.first+saved,sx_import.data+saved*sx_import.size);
-        if (rc == 1 || rc == 2) { /* Keep only the unsaved suffix for an honest retry. */
-            if(saved){sx_import.data+=saved*sx_import.size;sx_import.count-=saved;sx_import.first+=saved;ui.uslot=(uint8_t)sx_import.first;}
-            ui_message("IMPORT SAVE ERROR"); return;
-        }
-        saved++;
+    int rc=0;
+    if(!sx_import.general)rc=shared_import(sx_import.engine,sx_import.first,sx_import.count,sx_import.data,sx_import.size,&saved);
+    else while(saved<sx_import.count){rc=general_sysex_save(sx_import.first+saved,sx_import.data+saved*sx_import.size);if(rc==1 || rc==2)break;saved++;}
+    if(rc==1 || rc==2){
+        if(saved){sx_import.data+=saved*sx_import.size;sx_import.count-=saved;sx_import.first+=saved;ui.uslot=sx_import.first;}
+        ui_message("IMPORT SAVE ERROR");return;
     }
     sx_import.count=0;if(fm6_rx_ready==2u)fm6_rx_ready=0;bulk_clear();ui_message("PATCHES IMPORTED");
 }
@@ -67,16 +66,18 @@ static void sysex_choose(void)
 {
     if (transport_busy()) { ui_message("STOP TO IMPORT"); return; }
     uint32_t first = ui.uslot;
-    if (first + sx_import.count > (sx_import.general?UP_SLOTS:native_limit(sx_import.engine))) { ui_message("NOT ENOUGH SLOTS"); return; }
+    if (first + sx_import.count > UP_SLOTS) { ui_message("NOT ENOUGH SLOTS"); return; }
     sx_import.first = (uint16_t)first;
-    for(uint32_t k=first;k<first+sx_import.count;k++)if(sx_import.general?(up_used(k)||up_old(k)):(native_used(sx_import.engine,k)||native_old(sx_import.engine,k))){confirm_open(CF_IMPORT,0);return;}
+    for(uint32_t k=first;k<first+sx_import.count;k++)if((up_used(k)||up_old(k))){confirm_open(CF_IMPORT,0);return;}
     sysex_commit();
 }
 /* Native single-voice frames preserve each selected slot's name on USB. */
 static int library_send(uint32_t e, uint32_t k)
 {
 #if MELODEE_OTA
-    if(!native_limit(e))return general_sysex_send(k);
+    if(!up_used(k))return 1;
+    e=up_engine(k);
+    if(!native_limit(e) || !native_used(e,k))return general_sysex_send(k);
     if (!usb.config || !native_used(e,k)) return 1;
     uint8_t raw[CZ_BYTES], frame[320]; uint32_t n;
     memcpy(raw,native_raw(e,k),native_size(e));
@@ -92,19 +93,14 @@ static int library_send(uint32_t e, uint32_t k)
 static void bulk_erase(void)
 {
     if(transport_busy()){ui_message("STOP TO ERASE");return;}
-    uint32_t e=bulk.engine;
-    for (uint32_t k = 0; k < (native_limit(e) ? native_limit(e) : UP_SLOTS); k++)
-        if (bulk_has(k) && (native_limit(e) ? native_old(e,k) : up_old(k))) { ui_message("ERASE OLD SLOT FIRST"); return; }
-    for(uint32_t k=0;k<(native_limit(e)?native_limit(e):UP_SLOTS);k++)if(bulk_has(k)&& (native_limit(e)?native_used(e,k):up_used(k))){
-        if(native_limit(e)){int rc=native_put(e,k,0);if(rc==1||rc==2){ui_message("ERASE ERROR");return;}}
-        else {up_ui_named(1,k,0);if(up_used(k))return;}
-    }
+    for(uint32_t k=0;k<UP_SLOTS;k++)if(bulk_has(k) && up_old(k)){ui_message("ERASE OLD SLOT FIRST");return;}
+    for(uint32_t k=0;k<UP_SLOTS;k++)if(bulk_has(k) && up_used(k)){up_ui_named(1,k,0);if(up_used(k))return;}
     bulk_clear();ui_message("PRESETS ERASED");
 }
 static void bulk_erase_ask(void) { if(transport_busy())ui_message("STOP TO ERASE");else confirm_open(CF_BULK_ERASE,0); }
 static void bulk_send(void)
 {
-    for(uint32_t k=0;k<(native_limit(bulk.engine)?native_limit(bulk.engine):UP_SLOTS);k++)if(bulk_has(k)&&(native_limit(bulk.engine)?native_used(bulk.engine,k):up_used(k)))if(library_send(bulk.engine,k)){ui_message("SYSEX SEND ERROR");return;}
+    for(uint32_t k=0;k<UP_SLOTS;k++)if(bulk_has(k)&&up_used(k))if(library_send(bulk.engine,k)){ui_message("SYSEX SEND ERROR");return;}
     ui_message("PRESETS SENT");
 }
 static void library_send_current(void) { ui_message(library_send(library_engine(),ui.uslot)?"SYSEX SEND ERROR":"PRESET SENT"); }

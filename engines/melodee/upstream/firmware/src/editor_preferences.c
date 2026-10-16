@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Optional device preferences, advertised in INFO. No preset format changes. The font weight
  * (ED_UI_FONT) is gone: one weight; UI_SET of it answers rc 2 (not supported), UI_STATE 127. */
 enum { ED_UI_PALETTE = 1, ED_UI_FONT = 2, ED_UI_MONITOR = 4, ED_UI_FAVORITES = 8, ED_UI_RECORDING = 16, ED_UI_PERFORMANCE = 32 };
@@ -31,15 +32,12 @@ static void ed_ui_state(void)
 #endif
 #ifdef MELODEE_FAVORITES
     ed_b(favorites.filter);
-    sig = 2166136261u;
-    for (uint32_t i = 0; i < sizeof favorites; i++)
-        sig = (sig ^ ((const uint8_t *)&favorites)[i]) * 16777619u;
-    for (uint32_t i = 0; i < sizeof favorites_user_hi; i++)
-        sig = (sig ^ ((const uint8_t *)&favorites_user_hi)[i]) * 16777619u;
+    sig = fnv(fnv(2166136261u, &favorites, sizeof favorites),
+              &favorites_user_hi, sizeof favorites_user_hi);
 #else
     ed_b(127);
 #endif
-    for(uint32_t bank=0;bank<5u;bank++){if(!p5_meta_ready[bank])p5_user_bank(bank);sig=(sig^p5_meta[bank].favorites)*16777619u;}
+    sig=(sig^up_gen)*16777619u;
     ed_u28(sig);
     ed_u28(up_gen);
     ed_b(settings_click);ed_b(settings_click_level);ed_b(settings_countin);ed_b(settings_preview);ed_b(settings_chord_add);

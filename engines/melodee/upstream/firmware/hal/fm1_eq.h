@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* AC79 EQ, synchronous mono float cascade. Register/row layout follows the
  * V1.2.1 SDK eq.c: 0x1e000 CON0..FLT_ADR, 0x1e800 eight-word rows.
  * No SDK scheduler, IRQ handler, allocation, or unbounded wait in audio.

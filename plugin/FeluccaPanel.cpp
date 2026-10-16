@@ -127,9 +127,9 @@ const GroupDef kMelodeeGroups[] = {
     {"Arpeggiator", 17, 24},
     {"Scale", 25, 28, 83},
     {"Sequencer", 29, 32, 8},
-    {"Insert 1", 96, 99},
-    {"Insert 2", 100, 103},
-    {"Insert 3", 104, 107},
+    {"Insert 1", 96, 99, 111},          // (1.4: each insert's TONE, 111..113)
+    {"Insert 2", 100, 103, 112},
+    {"Insert 3", 104, 107, 113},
     {"Sends", 108, 110},
     {"Drum lanes", 84, 91},
     {"Mix", 0, 0},
@@ -146,8 +146,8 @@ const std::vector<int> kSloopGlobals = {0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 2
 const std::vector<int> kMelodee013Globals = {0, 1, 3, 21, 8, 9, 10, 11, 24};
 const std::vector<int> kMelodee110Globals = {0, 1, 3, 21, 4, 5, 6, 7, 25, 26, 8, 9, 10, 11, 24};
 const std::vector<int> kMelodeeGlobals = {0, 1, 3, 21, 39, 40};
-const struct { const char* title; int first, last; } kMelodeeReturnGroups[] = {
-    {"Send FX 1", 27, 30}, {"Send FX 2", 31, 34}, {"Send FX 3", 35, 38}};
+const struct { const char* title; int first, last, tone; } kMelodeeReturnGroups[] = {   // (1.4: each slot's TONE, 42..44)
+    {"Send FX 1", 27, 30, 42}, {"Send FX 2", 31, 34, 43}, {"Send FX 3", 35, 38, 44}};
 
 const char* const kInfoText = "The keyboard plays the selected part. MIDI channels 1-4 play parts 1-4 (GLO > SYSTEM > ROUT SEL: every channel the selected part).";
 const char* const kMelodeeInfoText = "The keyboard plays the selected part. The drum channel (GLO > SYSTEM > DRUM, 10 at first) plays the first DRUM part, MIDI channels 1-4 parts 1-4 (ROUT SEL: the selected part), any other channel the selected part.";
@@ -792,6 +792,7 @@ void FeluccaSoundPage::build() {
             addHeader(g);
             for (int id = r.first; id <= r.last; ++id)
                 if (id < f->globalCount()) addControl(g, id, f->globalDesc(id));
+            if (r.tone < f->globalCount()) addControl(g, r.tone, f->globalDesc(r.tone));
             if (!g.controls.empty()) groups_.push_back(std::move(g));
         }
     loading_ = false;
