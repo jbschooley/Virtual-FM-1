@@ -54,6 +54,9 @@
 #include "Panels.h"
 #include "Fm1SeqPanel.h"
 #if FM1_FELUCCA
+#include "Fm1OpenDevice.h"
+#endif
+#if FM1_FELUCCA
  #include "FeluccaSync.h"
 #endif
 #if FM1_FELUCCA
@@ -292,6 +295,140 @@ static int checks() {
             r.setStateInformation(away.getData(), int(away.getSize()));
             r.setFirmware("fm1open");
             CHECK(r.fm1open() && r.fm1open()->projects() == flash, "a project saved while set to another firmware keeps FM1 Open's");
+        }
+        {   // syncing with an FM-1 running FM1 Open: its project transfer protocol (app/transfer.c), here against a
+            // second engine standing for the device (it compiles the same transfer.c), as M-VAVE's workbench does it
+            auto dev = std::make_shared<Fm1OpenEngine>(), mine = std::make_shared<Fm1OpenEngine>();
+            fm1open::EngineEndpoint de(dev), me(mine);
+            fm1open::Client device(de), ours(me);
+            juce::String err;
+            auto info = device.info(err);
+            CHECK(info && info->version == 4 && info->slots == 16 && info->projectBytes == 4064, "info: V12's projects, 16 slots (" + err + ")");
+            auto demo3 = dev->factoryProject(3);
+            CHECK(demo3 && dev->importProject(*demo3), "the device plays a demo project");
+            const auto playing = dev->exportProject();
+            auto pulled = device.project(err);
+            CHECK(pulled && playing && *pulled == *playing, "Pull: the project it plays, byte for byte (" + err + ")");
+            CHECK(pulled && ours.setProject(*pulled, err) && mine->exportProject() == playing && mine->projectName() == dev->projectName(),
+                  "into this instance: the same project (" + err + ")");
+            // a track's sound both ways (its source and settings: 223 bytes)
+            auto t2 = device.download(2, 1, err);
+            auto demo5 = mine->factoryProject(5);
+            CHECK(t2 && t2->size() == 223 && demo5 && mine->importProject(*demo5), "a track's sound read from the device");
+            CHECK(t2 && ours.upload(2, 1, *t2, err) && ours.download(2, 1, err) == t2, "and written to this instance's track 2 (" + err + ")");
+            // Send, then kept in a slot (read back from the slot), names, an empty slot, loading one
+            auto sent = mine->exportProject();
+            CHECK(sent && device.setProject(*sent, err) && dev->exportProject() == sent, "Send: this instance's project plays on the device (" + err + ")");
+            CHECK(device.saveToSlot(4, err), "and is kept in slot 5, read back from there (" + err + ")");
+            auto n5 = device.slotName(4, err), n6 = device.slotName(5, err);
+            CHECK(n5 && n6 && *n5 == juce::String(mine->projectName()).trim().toStdString() && n6->empty(), "slot 5 named as the project, slot 6 empty");
+            CHECK(dev->importProject(*demo3) && device.loadSlot(4, err) && dev->exportProject() == sent, "loading slot 5 brings it back (" + err + ")");
+            CHECK(!device.loadSlot(5, err) && err.contains("empty"), "an empty slot: said so (" + err + ")");
+            // the sample bank: one other than the demo bank (sample 1 renamed, its CRC made again: the bank's own,
+            // with its CRC and commit words as zeros), sent and read back, then into this instance and kept with
+            // the host's project
+            auto bank = device.samples(err);
+            CHECK(bank && bank->size() >= 512, "the device's sample bank read (" + err + ")");
+            if (bank && bank->size() >= 512) {
+                auto other = *bank;
+                other[44] = uint8_t(other[44] == 'Z' ? 'Y' : 'Z');   // (entry 0's name: header 32 + offset, frames, bytes)
+                auto z = other;
+                std::fill(z.begin() + 12, z.begin() + 20, uint8_t(0));
+                const uint32_t crc = fm1open::crc32(z.data(), z.size());
+                for (int i = 0; i < 4; ++i) other[size_t(12 + i)] = uint8_t(crc >> (8 * i));
+                CHECK(device.setSamples(other, err) && device.samples(err) == other, "Send: another sample bank, read back the same (" + err + ")");
+                auto broken = other;
+                broken[600] ^= 0x55;   // (its CRC no longer matches)
+                juce::String why;
+                CHECK(!device.setSamples(broken, why) && device.samples(err) == other, "a damaged bank is refused, the one there kept (" + why + ")");
+                err.clear();
+                auto pulledBank = device.samples(err);
+                CHECK(mine->samples().empty() && pulledBank && ours.setSamples(*pulledBank, err) && ours.samples(err) == other && !mine->samples().empty(),
+                      "Pull: into this instance, which keeps it (not its demo bank any more) (" + err + ")");
+                // (its flash as it holds it, for the host's project: given back, the same bank)
+                const auto flash = mine->projects(), held = mine->samples();
+                auto fresh = std::make_shared<Fm1OpenEngine>();
+                fm1open::EngineEndpoint fe(fresh);
+                fm1open::Client freshC(fe);
+                CHECK(fresh->samples().empty() && fresh->setFlash(flash, held) && freshC.samples(err) == other && fresh->setProjects(flash)
+                          && freshC.samples(err) == other,
+                      "a written bank comes back with the projects, and stays when only the projects are set again (" + err + ")");
+                {   // and with the host's project: an instance holding that bank saved, then opened again
+                    fm1open::EngineEndpoint pe(p.fm1open());
+                    fm1open::Client pc(pe);
+                    juce::MemoryBlock st;
+                    const bool written = pc.setSamples(other, err);
+                    p.getStateInformation(st);
+                    FM1Processor q2;
+                    q2.setStateInformation(st.getData(), int(st.getSize()));
+                    fm1open::EngineEndpoint qe(q2.fm1open());
+                    fm1open::Client qc(qe);
+                    CHECK(written && q2.fm1open() && qc.samples(err) == other, "a sample bank written to an instance comes back with the host's project (" + err + ")");
+                }
+            }
+            // a damaged request is not answered; a lost reply: the same request again gets the cached reply
+            auto bad = fm1open::frame(0, 77, {});
+            bad[bad.size() - 2] ^= 1;
+            CHECK(!de.ask(bad), "a request with a wrong sum: no answer");
+            struct Lossy : fm1open::Endpoint {
+                fm1open::Endpoint& e;
+                int asked = 0;
+                explicit Lossy(fm1open::Endpoint& x) : e(x) {}
+                std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                    auto r = e.ask(q);
+                    return ++asked % 2 == 1 ? std::nullopt : r;   // (every other reply lost on the way)
+                }
+            } lossy(de);
+            fm1open::Client again(lossy);
+            auto viaLoss = again.project(err);
+            CHECK(viaLoss && viaLoss == dev->exportProject() && lossy.asked > 60, "every other reply lost: each request asked again, the project still whole (" + err + ")");
+            {   // writes with every other reply lost: a chunk, a finish, a slot save asked again with the same token get
+                // FM1 Open's cached reply (done once); with a new token a chunk would be refused (not where the transfer is)
+                auto demo7 = dev->factoryProject(7);
+                CHECK(demo7 && again.setProject(*demo7, err) && dev->exportProject() == demo7 && again.saveToSlot(6, err),
+                      "Send and a slot save with every other reply lost: done once each (" + err + ")");
+                auto lossyBank = device.samples(err);
+                CHECK(lossyBank && again.setSamples(*lossyBank, err) && device.samples(err) == lossyBank,
+                      "a sample bank sent with every other reply lost: whole (" + err + ")");
+            }
+            {   // a busy flash (FM1_FLASH_BUSY, status 67): FM1 Open caches that reply too, so it is asked again with a new
+                // token, a few times; one that stays busy is given up with its reason
+                struct Busy : fm1open::Endpoint {
+                    fm1open::Endpoint& e;
+                    int busyFor, busied = 0, asked = 0;
+                    Busy(fm1open::Endpoint& x, int n) : e(x), busyFor(n) {}
+                    std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                        ++asked;
+                        const auto r = fm1open::parse(q);
+                        if (r && r->command == 7 && busied < busyFor) { ++busied; return fm1open::frame(7 | 64, r->token, {67}); }
+                        return e.ask(q);
+                    }
+                };
+                Busy once(de, 1), always(de, 99);
+                fm1open::Client c1(once), c2(always);
+                juce::String e1, e2;
+                CHECK(c1.saveToSlot(7, e1) && once.busied == 1, "a slot save answered busy once: asked again, saved (" + e1 + ")");
+                CHECK(!c2.saveToSlot(7, e2) && always.busied == fm1open::Client::kBusyTries && e2.contains("busy"),
+                      "one that stays busy: given up after " + juce::String(fm1open::Client::kBusyTries) + " tries, said so (" + e2 + ")");
+            }
+            {   // a sample bank's write cut off after FM1 Open erased its bank: said to have left it with none
+                struct Cut : fm1open::Endpoint {
+                    fm1open::Endpoint& e;
+                    int chunks = 0;
+                    explicit Cut(fm1open::Endpoint& x) : e(x) {}
+                    std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                        const auto r = fm1open::parse(q);
+                        if (r && r->command == 13 && ++chunks > 3) return std::nullopt;   // (the link gone mid-write)
+                        return e.ask(q);
+                    }
+                } cut(de);
+                fm1open::Client cc(cut);
+                auto b = device.samples(err);
+                bool emptied = false, notYet = true;
+                juce::String why;
+                CHECK(b && !cc.setSamples(*b, why, {}, &emptied) && emptied, "a bank write cut off after the erase: the FM-1 left with none, said (" + why + ")");
+                CHECK(b && device.setSamples(*b, err, {}, &notYet) && !notYet && device.samples(err) == b, "and sent again whole, it has it (" + err + ")");
+            }
         }
         {   // its Device view: its screen and panel
             FeluccaDeviceView view(p);

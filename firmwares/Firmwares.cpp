@@ -231,9 +231,10 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "sloop") return sloop;
     if (firmwareId == "melodee") return melodee;
     // M-VAVE's FM1 Open: its release V12 answers FM-1_8000012 (app/version.h). Played by the plugin
-    // (engines/fm1open); its identity seen from an FM-1 running V12 (2026-10-16); not synced with one yet
+    // (engines/fm1open); its identity seen from an FM-1 running V12 (2026-10-16); synced through its project
+    // transfer protocol (Pull and Send; not yet tried with an FM-1)
     static const std::vector<KnownVersion> fm1open = {
-        {8000012, "V12", Support::Current, "the plugin plays it; syncing with an FM-1 running it is not done yet"},
+        {8000012, "V12", Support::Current, "Pull and Send (no Live: FM1 Open has no message for one value changed)"},
     };
     if (firmwareId == "fm1open") return fm1open;
     // ChoralRoot: every release answers FM-1_920; its INFO names the release ("ChoralRoot 0.23"). 0.24-beta1
@@ -479,6 +480,23 @@ public:
 private:
     juce::String name_, what_;
 };
+
+// M-VAVE's FM1 Open: played by the plugin, and synced through its own project transfer protocol
+// (firmwares/fm1open/Fm1OpenSync.h; the instance's FM-1 tab), not FM-1+VA's preset messages
+class Fm1OpenFirmware : public Firmware {
+public:
+    juce::String name() const override { return "FM1 Open"; }
+    juce::String summary() const override {
+        return "FM1 Open: Pull and Send (its project, a track's sound, its slots and sample bank); no Live (FM1 Open has no message for one value changed)";
+    }
+    bool has(Feature) const override { return false; }   // (FM-1+VA's: FM1 Open's sync is its own)
+    juce::String cannot(Feature) const override {
+        return "This FM-1 runs FM1 Open: Pull and Send its project, a track's sound, its slots and its sample bank on the FM-1 tab. "
+               "Live is not possible: FM1 Open has no message for one value changed, and a sound sent whole would cut what plays.";
+    }
+    std::vector<Bytes> editMessages(const Sound&, edit::Channels) const override { return {}; }
+    std::vector<Bytes> editChanges(const Sound&, const Sound&, edit::Channels) const override { return {}; }
+};
 }  // namespace
 
 std::unique_ptr<Firmware> makeUnsupportedFirmware(const juce::String& name, const juce::String& what) {
@@ -500,7 +518,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "choralroot") f = makeFeluccaFirmware("ChoralRoot");
     else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
     else if (which == "other") f = makeUnsupportedFirmware(otherFirmwareName(id));
-    else if (which == "fm1open") f = makeUnsupportedFirmware("FM1 Open", "the plugin plays it; syncing with an FM-1 is not done yet");
+    else if (which == "fm1open") f = std::make_unique<Fm1OpenFirmware>();
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

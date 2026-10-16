@@ -17,6 +17,12 @@ const char* const kKnobs[7] = {"SELECT", "ALGORITHM", "PRESETS", "KNOB 1", "KNOB
 const int kEncoder[7] = {0, 1, 6, 2, 3, 4, 5};
 constexpr int kPlay = 12;
 constexpr int kLeds = 168;   // sim_state: the 41 LEDs (14 buttons, 27 keys) from here
+constexpr uint32_t kSampleBytes = 466944;   // GROOVE_SAMPLE_BYTES, after FO_PROJECTS_BYTES
+uint64_t fnv(const uint8_t* p, size_t n) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
+    return h;
+}
 bool anyPlaying(const uint8_t* s) {
     for (int t = 0; t < 8; ++t) if (s[8 + t * 20 + 6]) return true;
     return false;
@@ -47,6 +53,7 @@ Fm1OpenEngine::Fm1OpenEngine() {
     ++gInstances;
     auto g = bind();
     fo_fo_boot(1);
+    demoSamples_ = fnv(fo_fo_flash() + FO_PROJECTS_BYTES, kSampleBytes);
 }
 
 Fm1OpenEngine::~Fm1OpenEngine() {
@@ -194,15 +201,51 @@ std::vector<uint8_t> Fm1OpenEngine::projects() const {
     return {f, f + FO_PROJECTS_BYTES};
 }
 
+void Fm1OpenEngine::bootFrom(const uint8_t* projects, const std::vector<uint8_t>& samples) {
+    fo_state_init(state_.get());
+    fo_fo_boot(1);   // (empty storage and the demo sample bank, as the device after an install)
+    uint8_t* f = fo_fo_flash();
+    if (demoSamples_ == 0) demoSamples_ = fnv(f + FO_PROJECTS_BYTES, kSampleBytes);
+    if (projects) std::memcpy(f, projects, FO_PROJECTS_BYTES);
+    if (samples.size() == kSampleBytes) std::memcpy(f + FO_PROJECTS_BYTES, samples.data(), kSampleBytes);
+    fo_fo_boot(0);   // powered on again from them
+    blockPos_ = FO_BLOCK_FRAMES;
+}
+
 bool Fm1OpenEngine::setProjects(const std::vector<uint8_t>& bytes) {
     if (!state_ || bytes.size() != size_t(FO_PROJECTS_BYTES)) return false;
     auto g = bind();
-    fo_state_init(state_.get());
-    fo_fo_boot(1);   // (empty storage and the demo sample bank, as the device after an install)
-    std::memcpy(fo_fo_flash(), bytes.data(), bytes.size());
-    fo_fo_boot(0);   // powered on again from them
-    blockPos_ = FO_BLOCK_FRAMES;
+    std::vector<uint8_t> kept;   // (its sample bank stays, if one was written to it)
+    const uint8_t* f = fo_fo_flash();
+    if (demoSamples_ != 0 && fnv(f + FO_PROJECTS_BYTES, kSampleBytes) != demoSamples_) kept.assign(f + FO_PROJECTS_BYTES, f + FO_PROJECTS_BYTES + kSampleBytes);
+    bootFrom(bytes.data(), kept);
     return true;
+}
+
+bool Fm1OpenEngine::setFlash(const std::vector<uint8_t>& projects, const std::vector<uint8_t>& samples) {
+    if (!state_ || projects.size() != size_t(FO_PROJECTS_BYTES) || (!samples.empty() && samples.size() != kSampleBytes)) return false;
+    auto g = bind();
+    bootFrom(projects.data(), samples);
+    return true;
+}
+
+std::vector<uint8_t> Fm1OpenEngine::samples() const {
+    if (!state_) return {};
+    auto g = bind();
+    const uint8_t* f = fo_fo_flash() + FO_PROJECTS_BYTES;
+    if (demoSamples_ == 0 || fnv(f, kSampleBytes) == demoSamples_) return {};
+    return {f, f + kSampleBytes};
+}
+
+std::vector<std::vector<uint8_t>> Fm1OpenEngine::request(const std::vector<uint8_t>& sysex) {
+    std::vector<std::vector<uint8_t>> out;
+    if (!state_ || sysex.size() < 6 || sysex.front() != 0xF0 || sysex.back() != 0xF7) return out;
+    auto g = bind();
+    uint8_t b[128];
+    while (fo_fo_take_sysex(b) != 0) {}   // (anything it sent before: not this request's)
+    fo_fo_midi(sysex.data(), unsigned(sysex.size()));
+    for (unsigned n; (n = fo_fo_take_sysex(b)) != 0;) out.emplace_back(b, b + n);
+    return out;
 }
 
 uint32_t Fm1OpenEngine::heapUsed() const {

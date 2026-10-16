@@ -12,8 +12,8 @@ FM-1+VA, Felucca, Hügelton's multi-engine firmware, SLOOP, isod89's
 groovebox built on Felucca, or Melodee, Kerem Kilic's multi-engine firmware
 built on Felucca. The plugin runs Felucca, SLOOP and Melodee from their own
 source, with their screen, front panel, sequencer and projects. It also plays
-**FM1 Open**, M-VAVE's own open firmware, from its source (not synced with an
-FM-1 yet).
+**FM1 Open**, M-VAVE's own open firmware, from its source, and pulls from and
+sends to an FM-1 running it (no Live).
 
 It works on its own as a synth too; the FM-1 is only needed for syncing.
 
@@ -174,7 +174,16 @@ project saves its own current preset, edits, patterns and arpeggiator.
   sound sources (DX7-style FM, 303 bass, 808 drums, PSG, Pluck, the sampler with
   its demo samples), its sequencer and its 16 demo projects, played on its own
   front panel and screen (the Device view). Its projects are saved with your
-  host's project.
+  host's project. With an FM-1 running FM1 Open V12 (its FM-1 tab): pull or send
+  the project it plays (and keep it in one of its 16 slots), a track's sound,
+  a slot loaded and pulled, and its sample bank. The project a Send replaces, and
+  the sample bank a sample Send replaces, are saved in the library first
+  (`FM1 Open/Backups`, as `.fm1` and `.fm1s` files M-VAVE's workbench imports);
+  what a slot held before a Send saves into it is not kept. A sample Send cannot
+  be stopped once writing starts (FM1 Open erases its bank first). No Live: FM1
+  Open has no message for one value changed, and a sound sent whole would cut
+  what plays. Tried with an FM-1 running V12: Pull, Send, a track's sound, the
+  slots' names and the sample bank (saving into a slot not yet).
 
 ## Not done yet
 
@@ -192,10 +201,10 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **Felucca** and **SLOOP**: their user sample slots are empty.
 - **Melodee**: its Sequencer tab edits, pulls and sends the pattern bank each
   part plays (the Sync page's Pull and Send carry all of them).
-- **FM1 Open**: no syncing with an FM-1 running it, no host parameters, its
-  clock is its own (not the host's tempo), and its sample bank is its demo bank.
-  It runs the code of M-VAVE's browser preview, whose sound M-VAVE says may
-  differ from the device's.
+- **FM1 Open**: no Live with an FM-1 running it, no host parameters, and its
+  clock is its own (not the host's tempo); its sample bank is its demo bank
+  until one is pulled from an FM-1. It runs the code of M-VAVE's browser
+  preview, whose sound M-VAVE says may differ from the device's.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.

@@ -113,7 +113,7 @@ void FM1Editor::showFirmware() {
     } else felucca_.reset();
     const bool isFm1Open = std::string(f.id) == "fm1open";
     if (isFm1Open && plays) {
-        if (!fm1open_) { fm1open_ = std::make_unique<FeluccaDeviceView>(proc_); addAndMakeVisible(*fm1open_); resized(); }
+        if (!fm1open_) { fm1open_ = std::make_unique<Fm1OpenPanel>(proc_); addAndMakeVisible(*fm1open_); resized(); }
     } else fm1open_.reset();
    #else
     const bool isFm1Open = false;
