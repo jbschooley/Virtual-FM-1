@@ -14,6 +14,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"melodee_013", "Melodee", false, false},   // 0.13, kept for the projects made with it (engines/melodee013)
         {"felucca_103", "Felucca", false, false},   // 1.0.3, kept the same way (engines/felucca103)
         {"melodee_110", "Melodee", false, false},   // 1.1.0, kept for the projects made with it (engines/melodee110)
+        {"fm1open", "FM1 Open", false, false},      // M-VAVE's own (engines/fm1open): plays; no sync with a device yet
     };
     return choices;
 }
@@ -24,6 +25,10 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
 }
 
 std::string firmwareIdFor(const Identity& id) {
+    // M-VAVE's FM1 Open (m-vave/fm1_open): its releases answer FM-1_8NNNNNN (V12: FM-1_8000012,
+    // app/version.h), its other builds FM1_OFFICIAL_OPEN or FM1_COMMUNITY_<n> (sdk/WebUpdate.js openIdentity)
+    if (id.model == "FM-1" && id.product.empty() && id.version >= 8000000 && id.version <= 8999999) return "fm1open";
+    if (id.product == "FM1_OFFICIAL_OPEN" || id.product.rfind("FM1_COMMUNITY_", 0) == 0) return "fm1open";
     if (id.isStock()) return "fm1_stock";
     // SLOOP (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
     // does, FM-1_900: its editor's INFO says SLOOP ("FELUCCA SLOOP 2.3")
@@ -165,6 +170,12 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     if (firmwareId == "felucca") return felucca;
     if (firmwareId == "sloop") return sloop;
     if (firmwareId == "melodee") return melodee;
+    // M-VAVE's FM1 Open: its release V12 answers FM-1_8000012 (app/version.h). Played by the plugin
+    // (engines/fm1open); not tried with an FM-1, and not synced with one yet
+    static const std::vector<KnownVersion> fm1open = {
+        {8000012, "V12", Support::Current, "the plugin plays it; syncing with an FM-1 running it is not done yet"},
+    };
+    if (firmwareId == "fm1open") return fm1open;
     // a release kept beside it: the one it plays (a synth on it is synced with)
     if (const auto* k = keptRelease(firmwareId)) {
         static const std::vector<std::vector<KnownVersion>> lists = [] {   // (one each, in keptReleases' order)
@@ -231,6 +242,11 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
 VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
     VersionCheck c;
     c.firmwareId = firmwareIdFor(id);
+    if (c.firmwareId == "fm1open" && !id.product.empty()) {   // a build of FM1 Open that is not a release
+        c.support = Support::Older;
+        c.text = id.name() + ": a build of FM1 Open (not a release); the plugin plays V12 and does not sync with FM1 Open yet";
+        return c;
+    }
     if (c.firmwareId == "melodee_synth") {   // (not a choice: no instance plays it, none syncs with it)
         c.support = Support::Older;
         c.text = id.name() + ": Melodee Synth only, which the plugin does not support yet";
@@ -380,6 +396,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
     else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
     else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
+    else if (which == "fm1open") f = makeUnsupportedFirmware("FM1 Open");   // (played, not synced yet)
     else f = makeFmVaFirmware();
     f->version = id.version;
     return f;

@@ -39,6 +39,7 @@ private:
    #if FM1_FELUCCA
     std::unique_ptr<FeluccaPanel> felucca_;   // while set to Felucca or SLOOP
     juce::String feluccaFor_;                 // which of them it was built for
+    std::unique_ptr<FeluccaDeviceView> fm1open_;   // while set to FM1 Open: its front panel and screen
    #endif
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
     LibraryPanel library_;

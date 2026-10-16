@@ -275,7 +275,7 @@ void FM1Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     hostRate_ = sampleRate;
     hostBlock_ = std::max(1, samplesPerBlock);
    #if FM1_FELUCCA
-    if (felucca_) prepareFelucca();
+    if (felucca_ || fm1open_) prepareFelucca();
    #endif
     keyboardMidi.reset(sampleRate);
     sequencer.prepare(sampleRate);
@@ -367,7 +367,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     synth_.setPitchBendRange(bendUp_.load(), bendDown_.load());
 
    #if FM1_FELUCCA
-    const bool isFelucca = felucca_ != nullptr;
+    const bool isFelucca = felucca_ != nullptr || fm1open_ != nullptr;   // (FM1 Open routes its channels itself too)
    #else
     const bool isFelucca = false;
    #endif
@@ -387,6 +387,7 @@ void FM1Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const juce::AudioPlayHead::PositionInfo* pos = nullptr;
     if (auto* ph = getPlayHead()) if (auto p = ph->getPosition()) { posInfo = *p; pos = &posInfo; }
    #if FM1_FELUCCA
+    if (fm1open_) { renderFm1Open(buffer, midi); return; }
     if (isFelucca) { renderFelucca(buffer, midi, pos); return; }
    #endif
 
@@ -633,6 +634,22 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
             if (!FeluccaEngine::has(flavor, release)) continue;
             if (auto fs = feluccaState(flavor, release); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
         }
+    {   // FM1 Open's projects and settings (its flash before the sample bank), compressed
+        std::vector<uint8_t> projects;
+        if (auto fo = fm1open()) projects = fo->projects();
+        else { std::lock_guard<std::mutex> g(felStateLock_); projects = fm1openSaved_; }
+        if (!projects.empty()) {
+            juce::MemoryOutputStream packed;
+            {
+                juce::GZIPCompressorOutputStream z(packed, 9);
+                z.write(projects.data(), projects.size());
+            }
+            juce::ValueTree fo("Fm1Open");
+            fo.setProperty("version", "V12", nullptr);
+            fo.setProperty("flash", packed.getMemoryBlock().toBase64Encoding(), nullptr);
+            v.addChild(fo, -1, nullptr);
+        }
+    }
    #endif
     v.setProperty("fxChannel", channels.fx, nullptr);
     v.setProperty("midiIn", link.ports().inputId, nullptr);
@@ -828,6 +845,27 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (FeluccaEngine::has(f, FeluccaEngine::Release(r)))
                 setFeluccaState(music[stateName(f, FeluccaEngine::Release(r))], f, FeluccaEngine::Release(r));
     feluccaChanged();
+    {   // FM1 Open's projects, if the project has them: into its engine, or kept for when it has one
+        std::vector<uint8_t> projects;
+        juce::MemoryBlock packed;
+        if (auto fo = v.getChildWithName("Fm1Open"); fo.isValid() && packed.fromBase64Encoding(fo.getProperty("flash").toString())) {
+            juce::MemoryInputStream in(packed, false);
+            juce::GZIPDecompressorInputStream z(in);
+            juce::MemoryBlock raw;
+            z.readIntoMemoryBlock(raw);
+            if (raw.getSize() == 69632) projects.assign(static_cast<const uint8_t*>(raw.getData()), static_cast<const uint8_t*>(raw.getData()) + raw.getSize());
+        }
+        if (auto fo = fm1open()) {
+            if (!projects.empty()) {
+                suspendProcessing(true);
+                fo->setProjects(projects);
+                suspendProcessing(false);
+            }
+        } else {
+            std::lock_guard<std::mutex> g(felStateLock_);
+            fm1openSaved_ = projects;
+        }
+    }
    #endif
     // the ports it was connected to: the app connects to them again; a plugin only when asked
     // (several instances in a project would each take the synth)
@@ -1049,6 +1087,7 @@ juce::String FM1Processor::firmwareId() const { return fm1::firmwareChoices()[si
 bool FM1Processor::emulates() const {
    #if FM1_FELUCCA
     if (fm1::isFeluccaFamily(fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id)) return felucca_ != nullptr;
+    if (std::string(fm1::firmwareChoices()[size_t(firmwareIndex_.load())].id) == "fm1open") return fm1open_ != nullptr;
    #endif
     return fm1::firmwareChoices()[size_t(firmwareIndex_.load())].supported;
 }
@@ -1102,6 +1141,44 @@ void FM1Processor::renderFelucca(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         felL_.process(l, need, buffer.getWritePointer(0), n);
         if (chans > 1) felR_.process(r, need, buffer.getWritePointer(1), n);
         else {   // a mono bus: both sides, mixed
+            if (mono_.getNumSamples() < n) mono_.setSize(1, n, false, false, true);
+            felR_.process(r, need, mono_.getWritePointer(0), n);
+            buffer.addFrom(0, 0, mono_, 0, 0, n);
+            buffer.applyGain(0.5f);
+        }
+    } else {
+        buffer.copyFrom(0, 0, l, n);
+        if (chans > 1) buffer.copyFrom(1, 0, r, n);
+        else { buffer.addFrom(0, 0, r, n); buffer.applyGain(0.5f); }
+    }
+    midi.clear();
+}
+
+// M-VAVE's FM1 Open: at 44.1 kHz as Felucca (converted the same way), the host's MIDI into its own
+// input. Its clock is its own (the host's tempo and transport: not yet).
+void FM1Processor::renderFm1Open(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) {
+    auto& f = *fm1open_;
+    const int n = buffer.getNumSamples();
+    if (buffer.getNumChannels() == 0) { midi.clear(); return; }
+    const int need = felConvert_ ? felL_.inputNeeded(n) : n;
+    if (felBuf_.getNumSamples() < need) felBuf_.setSize(2, need, false, false, true);
+    float* l = felBuf_.getWritePointer(0);
+    float* r = felBuf_.getWritePointer(1);
+    int p0 = 0;
+    for (const auto meta : midi) {
+        const auto m = meta.getMessage();
+        int at = felConvert_ && n > 0 ? int(juce::int64(meta.samplePosition) * need / n) : meta.samplePosition;
+        at = juce::jlimit(0, std::max(0, need - 1), at);
+        if (at > p0) { f.render(l + p0, r + p0, at - p0); p0 = at; }
+        // (SysEx from the host only in a plugin, as for Felucca: the app's MIDI input is a device's port)
+        if (!m.isSysEx() || wrapperType != wrapperType_Standalone) f.midi(m.getRawData(), m.getRawDataSize());
+    }
+    if (p0 < need) f.render(l + p0, r + p0, need - p0);
+    const int chans = buffer.getNumChannels();
+    if (felConvert_) {
+        felL_.process(l, need, buffer.getWritePointer(0), n);
+        if (chans > 1) felR_.process(r, need, buffer.getWritePointer(1), n);
+        else {
             if (mono_.getNumSamples() < n) mono_.setSize(1, n, false, false, true);
             felR_.process(r, need, mono_.getWritePointer(0), n);
             buffer.addFrom(0, 0, mono_, 0, 0, n);
@@ -1536,6 +1613,36 @@ void FM1Processor::setFirmware(const juce::String& id) {
             felResync_ = true;
             suspendProcessing(false);
             if (felucca_) feluccaChanged();
+        }
+    }
+    {   // M-VAVE's FM1 Open the same way: an engine while set to it, its projects kept when switching away
+        const bool want = std::string(choices[size_t(index)].id) == "fm1open";
+        if (!want && fm1open_) {
+            auto kept = fm1open_->projects();
+            {
+                std::lock_guard<std::mutex> g(felStateLock_);
+                fm1openSaved_ = kept;
+            }
+            suspendProcessing(true);
+            std::atomic_store(&fm1open_, std::shared_ptr<Fm1OpenEngine>());
+            if (prepared_) prepareEngine();
+            suspendProcessing(false);
+        } else if (want && !fm1open_) {
+            auto next = std::make_shared<Fm1OpenEngine>();
+            if (!next->valid()) {
+                status("FM1 Open could not start in this instance; it is silent.");
+            } else {
+                std::vector<uint8_t> saved;
+                {
+                    std::lock_guard<std::mutex> g(felStateLock_);
+                    saved.swap(fm1openSaved_);
+                }
+                if (!saved.empty()) next->setProjects(saved);
+                suspendProcessing(true);
+                std::atomic_store(&fm1open_, next);
+                prepareFelucca();
+                suspendProcessing(false);
+            }
         }
     }
    #endif

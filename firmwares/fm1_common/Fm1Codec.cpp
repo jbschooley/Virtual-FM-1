@@ -290,6 +290,7 @@ Sound soundFromReply(const Reply& r) {
 const Bytes kIdentityQuery = {0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7};
 
 std::string Identity::name() const {
+    if (!product.empty()) return product;
     char buf[64];
     std::snprintf(buf, sizeof buf, "%s_%03d", model.c_str(), version);
     return buf;
@@ -321,7 +322,14 @@ std::optional<Identity> parseIdentity(const uint8_t* sx, size_t n) {
         Bytes enc;
         for (size_t i = 14; i < 34; ++i) enc.push_back(uint8_t((d[i] + 0x30) & 0xFF));
         v = digits(enc, sepIx + 1);
-        if (v.empty()) return std::nullopt;
+    }
+    if (v.empty()) {   // FM1 Open's builds (FM1_OFFICIAL_OPEN, FM1_COMMUNITY_<n>): a name, not a number
+        std::string text;
+        for (uint8_t c : plain) { if (c == 0) break; if (c < 0x20 || c > 0x7E) return std::nullopt; text += char(c); }
+        while (!text.empty() && text.back() == ' ') text.pop_back();
+        if (text != "FM1_OFFICIAL_OPEN" && text.rfind("FM1_COMMUNITY_", 0) != 0) return std::nullopt;
+        id.product = text;
+        return id;
     }
     id.version = std::atoi(v.c_str());
     return id;
