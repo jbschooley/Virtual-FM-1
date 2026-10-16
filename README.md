@@ -176,10 +176,14 @@ project saves its own current preset, edits, patterns and arpeggiator.
   front panel and screen (the Device view). Its projects are saved with your
   host's project. With an FM-1 running FM1 Open V12 (its FM-1 tab): pull or send
   the project it plays (and keep it in one of its 16 slots), a track's sound,
-  a slot loaded and pulled, and its sample bank; what a Send replaces is saved in
-  the library first (`FM1 Open/Backups`, as `.fm1` and `.fm1s` files M-VAVE's
-  workbench imports). No Live: FM1 Open has no message for one value changed, and
-  a sound sent whole would cut what plays. Not yet tried with an FM-1.
+  a slot loaded and pulled, and its sample bank. The project a Send replaces, and
+  the sample bank a sample Send replaces, are saved in the library first
+  (`FM1 Open/Backups`, as `.fm1` and `.fm1s` files M-VAVE's workbench imports);
+  what a slot held before a Send saves into it is not kept. A sample Send cannot
+  be stopped once writing starts (FM1 Open erases its bank first). No Live: FM1
+  Open has no message for one value changed, and a sound sent whole would cut
+  what plays. Tried with an FM-1 running V12: Pull, Send, a track's sound, the
+  slots' names and the sample bank (saving into a slot not yet).
 
 ## Not done yet
 

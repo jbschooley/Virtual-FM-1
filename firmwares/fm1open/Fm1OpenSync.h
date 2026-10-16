@@ -89,7 +89,11 @@ public:
     std::optional<std::string> slotName(int slot, juce::String& error);   // "" an empty slot
     bool rename(const std::string& name, juce::String& error);            // the project playing's name (12 printable)
     std::optional<Bytes> samples(juce::String& error, const Progress& progress = {});
-    bool setSamples(const Bytes& bank, juce::String& error, const Progress& progress = {});   // checked by reading it back
+    // checked by reading it back. FM1 Open erases its bank first (samples.c): from then until the write
+    // finishes, it goes on whatever progress returns (a stop there would leave the FM-1 with no bank), and
+    // *erased says when a failure did leave the FM-1 with none (until a bank is sent again whole)
+    bool setSamples(const Bytes& bank, juce::String& error, const Progress& progress = {}, bool* erased = nullptr);
+    static constexpr int kBusyTries = 5, kBusyWaitMs = 200;   // a busy flash asked again (with a new token)
 private:
     std::optional<Bytes> query(int command, const Bytes& payload, juce::String& error, bool emptyOK = false, bool* empty = nullptr);
     Endpoint& e_;
