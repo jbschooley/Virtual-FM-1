@@ -224,9 +224,16 @@ if(FM1_BUILD_FELUCCA)
     set(fm1CoreFlags_melodee110 -ffp-contract=off)   # (1.1.0 as engines/melodee was built: see above)
     fm1_core(melodee110 m110)
     fm1_core(felucca103 f103)
+    # M-VAVE's FM1 Open V12 (engines/fm1open): its app on the open engine of its browser preview, built
+    # as that preview is (tools/Build-Web.ps1: its flags and include order), one core the same way
+    set(fo ${CMAKE_SOURCE_DIR}/engines/fm1open/upstream)
+    set(fm1CoreFlags_fm1open -fwrapv -ffp-contract=off -fno-fast-math -DFM1_HOST_TEST -DFM1_OPEN_WEB
+        -I${fo}/web/engine -I${fo}/web/synth -I${fo}/third_party/synth -I${fo}/sdk/include -I${fo}/app/synth -I${fo}/app)
+    fm1_core(fm1open fo)
     add_library(fm1_felucca STATIC engines/felucca/FeluccaEngine.cpp ${feluccaObjects} ${sloopObjects} ${melodeeObjects}
-                ${melodee013Objects} ${melodee110Objects} ${felucca103Objects})
-    target_include_directories(fm1_felucca PUBLIC engines/felucca PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee
+                ${melodee013Objects} ${melodee110Objects} ${felucca103Objects}
+                engines/fm1open/Fm1OpenEngine.cpp ${fm1openObjects})
+    target_include_directories(fm1_felucca PUBLIC engines/felucca engines/fm1open PRIVATE ${CMAKE_BINARY_DIR}/felucca ${CMAKE_BINARY_DIR}/sloop ${CMAKE_BINARY_DIR}/melodee
                                ${CMAKE_BINARY_DIR}/melodee013 ${CMAKE_BINARY_DIR}/melodee110 ${CMAKE_BINARY_DIR}/felucca103)
     target_compile_definitions(fm1_felucca PUBLIC FM1_FELUCCA=1)
 endif()
@@ -300,6 +307,10 @@ if(FM1_BUILD_FELUCCA)
         add_test(NAME melodee110_regress COMMAND melodee110_regress ${CMAKE_SOURCE_DIR}/engines/melodee110/upstream/tests/golden.txt no-cpu-budget)
     endif()
     # the copies: independent, and playing
+    add_executable(fm1open_test tests/fm1open_test.cpp)
+    target_link_libraries(fm1open_test PRIVATE fm1_felucca)
+    target_compile_definitions(fm1open_test PRIVATE FM1OPEN_FROZEN="${CMAKE_SOURCE_DIR}/tests/fm1open-frozen.txt")
+    add_test(NAME fm1open_test COMMAND fm1open_test)
     add_executable(felucca_test tests/felucca_test.cpp)
     target_link_libraries(felucca_test PRIVATE fm1_felucca)
     target_compile_definitions(felucca_test PRIVATE FELUCCA_FROZEN="${CMAKE_SOURCE_DIR}/tests/felucca-frozen.txt"

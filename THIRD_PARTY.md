@@ -68,6 +68,14 @@
 - **baud girl's VA preset packs** (D01-D32 of `presets/stock-fm1va.syx`): her VA
   sounds for FM-1+VA, read from an FM-1 they were loaded on. No licence is
   granted for them; the rights stay with baud girl.
+- **FM1 Open** (`engines/fm1open/upstream`): M-VAVE's FM-1 firmware project, release
+  V12: its application and the open engine of its browser preview (not its binary
+  SDK). GPL-3.0-only with M-VAVE's linking exception, copyright 2026 珠海笙科智能科技有限公司
+  (M-VAVE), including its demo projects and synthesized demo samples; its FM engine
+  adapts MSFA and Dexed (Apache-2.0), its 303, 808, Pluck and PSG cores adapt Open303,
+  DaisySP, stmlib and emu2149 (MIT), its sample codec SEA (MIT). Their notices are in
+  `upstream/THIRD_PARTY.md`, its licence in `upstream/LICENSE.md`. See
+  `engines/fm1open/UPSTREAM.md`.
 - **JUCE 9** (`third_party/JUCE`, not vendored): dual-licensed under the
   AGPLv3 and a commercial licence. Open-source builds of this plugin use JUCE
   under the AGPLv3, which GPLv3 section 13 permits combining with.

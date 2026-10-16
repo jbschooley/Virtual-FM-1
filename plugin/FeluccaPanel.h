@@ -30,7 +30,7 @@ private:
     struct PanelKey;
     void build();
     void timerCallback() override;
-    std::shared_ptr<FeluccaEngine> engine() const { return proc_.felucca(); }
+    std::shared_ptr<DevicePanel> engine() const { return proc_.devicePanel(); }   // (Felucca's family's, or FM1 Open's)
     FM1Processor& proc_;
     juce::Image screen_{juce::Image::RGB, 240, 240, true};
     std::vector<uint16_t> px_;

@@ -11,7 +11,9 @@ Each instance is set to one of the FM-1's firmwares: M-VAVE's own, baud girl's
 FM-1+VA, Felucca, Hügelton's multi-engine firmware, SLOOP, isod89's
 groovebox built on Felucca, or Melodee, Kerem Kilic's multi-engine firmware
 built on Felucca. The plugin runs Felucca, SLOOP and Melodee from their own
-source, with their screen, front panel, sequencer and projects.
+source, with their screen, front panel, sequencer and projects. It also plays
+**FM1 Open**, M-VAVE's own open firmware, from its source (not synced with an
+FM-1 yet).
 
 It works on its own as a synth too; the FM-1 is only needed for syncing.
 
@@ -167,6 +169,12 @@ project saves its own current preset, edits, patterns and arpeggiator.
   the projects made with them (1.0 retired 0.13's LOFI, PHASE, VOICE and NOISE;
   1.2 removed 1.1's delay, reverb, chorus and slicer): a project saved with one
   opens on it, and it syncs fully with an FM-1 still on that release.
+- **FM1 Open V12**, M-VAVE's own firmware ([m-vave/fm1_open](https://github.com/m-vave/fm1_open)),
+  built from the open source of its browser preview: its eight tracks and six
+  sound sources (DX7-style FM, 303 bass, 808 drums, PSG, Pluck, the sampler with
+  its demo samples), its sequencer and its 16 demo projects, played on its own
+  front panel and screen (the Device view). Its projects are saved with your
+  host's project.
 
 ## Not done yet
 
@@ -184,6 +192,10 @@ project saves its own current preset, edits, patterns and arpeggiator.
 - **Felucca** and **SLOOP**: their user sample slots are empty.
 - **Melodee**: its Sequencer tab edits, pulls and sends the pattern bank each
   part plays (the Sync page's Pull and Send carry all of them).
+- **FM1 Open**: no syncing with an FM-1 running it, no host parameters, its
+  clock is its own (not the host's tempo), and its sample bank is its demo bank.
+  It runs the code of M-VAVE's browser preview, whose sound M-VAVE says may
+  differ from the device's.
 
 [`docs/FIRMWARE-GAPS.md`](docs/FIRMWARE-GAPS.md) lists each gap and what to
 look for in baud girl's source once it is published.

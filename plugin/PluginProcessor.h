@@ -17,6 +17,7 @@
 #include "LibraryStore.h"
 #if FM1_FELUCCA
  #include "FeluccaEngine.h"
+ #include "Fm1OpenEngine.h"
  #include "FeluccaDevice.h"
  #include "FeluccaSeq.h"
 #endif
@@ -112,6 +113,13 @@ public:
     // While set to Felucca (null if no copy was free). Shared: a caller holding it keeps the
     // engine alive while a switch away (perhaps on another thread) lets go of it.
     std::shared_ptr<FeluccaEngine> felucca() const { return std::atomic_load(&felucca_); }
+    // While set to M-VAVE's FM1 Open (engines/fm1open): its engine, shared the same way
+    std::shared_ptr<Fm1OpenEngine> fm1open() const { return std::atomic_load(&fm1open_); }
+    // the front panel the Device tab plays: Felucca's (SLOOP's, Melodee's) or FM1 Open's
+    std::shared_ptr<DevicePanel> devicePanel() const {
+        if (auto f = felucca()) return f;
+        return fm1open();
+    }
     // Felucca's sound changed other than by automation (its editor, a preset, a project):
     // the host's parameters follow (track -1: all). Message thread.
     void feluccaChanged(int track = -1);
@@ -209,6 +217,9 @@ private:
     std::atomic<int> firmwareIndex_{1};               // into fm1::firmwareChoices()
    #if FM1_FELUCCA
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
+    std::shared_ptr<Fm1OpenEngine> fm1open_;          // the same, while set to FM1 Open
+    std::vector<uint8_t> fm1openSaved_;               // its projects area while it has no engine (felStateLock_)
+    void renderFm1Open(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
     // Felucca's, SLOOP's and Melodee's state while they have no engine, each release apart (flavorIndex):
     // kept, saved
     juce::ValueTree feluccaSaved_[3 * FeluccaEngine::kReleases];

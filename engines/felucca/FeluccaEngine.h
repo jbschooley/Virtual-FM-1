@@ -25,6 +25,7 @@
 
 extern "C" {
 #include "felucca_core.h"
+#include "DevicePanel.h"
 }
 
 struct FeluccaCopy {
@@ -33,7 +34,7 @@ struct FeluccaCopy {
 #undef FEL_MEMBER
 };
 
-class FeluccaEngine {
+class FeluccaEngine : public DevicePanel {
 public:
     // Which firmware: Felucca, SLOOP (engines/sloop) or Melodee (engines/melodee), both built from
     // Felucca and behind the same API
@@ -51,7 +52,7 @@ public:
     explicit FeluccaEngine(Flavor f = Flavor::Felucca, Release r = Release::Current);
     Flavor flavor() const { return flavor_; }
     Release release() const { return release_; }
-    ~FeluccaEngine();
+    ~FeluccaEngine() override;
     FeluccaEngine(const FeluccaEngine&) = delete;
     FeluccaEngine& operator=(const FeluccaEngine&) = delete;
 
@@ -75,14 +76,14 @@ public:
     std::optional<std::vector<uint8_t>> ask(const std::vector<uint8_t>& sysex);
     // The front panel, by Felucca's own labels (FX, SCL ... OCT+) and knob roles (SELECT ...
     // KNOB 4); the 27 keys from the lowest. The main loop sees them within 16 ms of audio.
-    std::vector<std::string> buttonNames() const;
-    std::vector<std::string> knobNames() const;
-    void button(int label, bool down);
-    void key(int index, bool down);
-    void knob(int role, int steps);
+    std::vector<std::string> buttonNames() const override;
+    std::vector<std::string> knobNames() const override;
+    void button(int label, bool down) override;
+    void key(int index, bool down) override;
+    void knob(int role, int steps) override;
     // The screen, after drawing what changed: 240 x 240, RGB565 (native byte order).
     static constexpr int kScreen = 240;
-    void draw(std::vector<uint16_t>& rgb565);
+    void draw(std::vector<uint16_t>& rgb565) override;
     void transport(bool play);                 // PLAY: the next block starts or stops it
     int selected() const;                      // the selected part: Felucca's keys play it
     void select(int track);                    // as ALGORITHM does on the device
@@ -92,7 +93,7 @@ public:
     unsigned scaleMask(int track) const;       // its scale, 12 bits from its ROOT (bit 0: the root)
     // the panel's LEDs: the 14 buttons by label, the 27 keys, PLAY's green LED (Felucca); each
     // 0 dark, 1 the background glow, 2 dim (SLOOP's guide), 3 lit
-    std::vector<uint8_t> leds() const;
+    std::vector<uint8_t> leds() const override;
     std::vector<std::string> laneNames(int track) const;   // its drum lanes (Felucca: 8 on any track; SLOOP: the drum track's 16)
     // SLOOP's live sections, song and solo (sloop_core.c FEL(arr_do) / arr_state / arr_chain);
     // Felucca: -1, nothing

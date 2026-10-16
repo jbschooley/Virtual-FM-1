@@ -105,11 +105,17 @@ void FM1Editor::showFirmware() {
         if (!felucca_) { felucca_ = std::make_unique<FeluccaPanel>(proc_); feluccaFor_ = f.id; addAndMakeVisible(*felucca_); resized(); }
         else felucca_->refresh();
     } else felucca_.reset();
+    const bool isFm1Open = std::string(f.id) == "fm1open";
+    if (isFm1Open && plays) {
+        if (!fm1open_) { fm1open_ = std::make_unique<FeluccaDeviceView>(proc_); addAndMakeVisible(*fm1open_); resized(); }
+    } else fm1open_.reset();
+   #else
+    const bool isFm1Open = false;
    #endif
-    tabs_.setVisible(!isFelucca && plays);
+    tabs_.setVisible(!isFelucca && !isFm1Open && plays);
     unsupported_.setVisible(!plays);
     juce::String why;
-    if (isFelucca) {
+    if (isFelucca || isFm1Open) {
        #if FM1_FELUCCA
         why = juce::String(f.name) + " could not start in this instance, so it is silent.\n"
               "Choose another firmware and then " + juce::String(f.name) + " again.";
@@ -261,5 +267,6 @@ void FM1Editor::resized() {
     unsupported_.setBounds(r);
    #if FM1_FELUCCA
     if (felucca_) felucca_->setBounds(r);
+    if (fm1open_) fm1open_->setBounds(r);
    #endif
 }

@@ -179,6 +179,22 @@ Felucca 1.0.3 beside 1.5):
   engine parameters: 84 on 0.13, 96 on 1.1.0, 111 on 1.3); the Sound page has each release's groups
   (`plugin/FeluccaPanel.cpp`).
 
+## A firmware whose sources are separate units (FM1 Open)
+
+`engines/fm1open` builds M-VAVE's FM1 Open the same way (one core, `fel_state.py`), but its
+sources were written as separate compilation units, so its core (`fm1open_core.c`) adds three
+things (see `engines/fm1open/UPSTREAM.md`):
+
+- the file-local names two of its files share (a `static` function or variable, an enum constant)
+  are renamed around that file's `#include` (`#define name fofile_<file>_name` ... `#undef`); a new
+  clash after an update stops the build with "redefinition of";
+- its external names all get the copy's prefix from a generated header (`gen_names.py` writes
+  `fm1open_names.h`; run it after an update), so none meets another core's at link time;
+- its `malloc`, `calloc` and `free` come from an arena in the state, as rule 5 above asks.
+
+It is driven by its own class (`Fm1OpenEngine`, not `FeluccaEngine`: it has no editor protocol or
+parameters), and the Device tab plays any firmware's front panel through `DevicePanel`.
+
 ## Versions
 
 Each firmware's releases the plugin knows are listed in `knownVersions()`

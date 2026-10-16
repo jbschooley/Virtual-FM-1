@@ -231,6 +231,81 @@ static int checks() {
                   "each replacement keeps its own copy (two within a second too)");
         }
     }
+   #if FM1_FELUCCA
+    {   // M-VAVE's FM1 Open (engines/fm1open): a choice the plugin plays; recognised by its identities
+        auto reply = [](const std::string& text) {   // its identity reply, as the FM-1's updater answers it
+            fm1::Bytes d = {0x00, 0x59, 0x11, 27, 0, 0};
+            for (size_t i = 0; i < 27; ++i) d.push_back(i < text.size() ? uint8_t(text[i]) : uint8_t(0));
+            d.push_back(0);
+            fm1::Bytes sx = {0xF0};
+            const auto packed = fm1::pack7(d.data(), d.size());
+            sx.insert(sx.end(), packed.begin(), packed.end());
+            sx.push_back(0xF7);
+            return fm1::parseIdentity(sx.data(), sx.size());
+        };
+        const auto v12 = reply("FM-1_8000012"), official = reply("FM1_OFFICIAL_OPEN"), community = reply("FM1_COMMUNITY_7");
+        CHECK(v12 && v12->version == 8000012 && fm1::firmwareIdFor(*v12) == "fm1open" && !v12->isStock(),
+              "FM1 Open V12's identity (FM-1_8000012) is FM1 Open, not Felucca's FM-1_9XY rule");
+        CHECK(official && community && official->name() == "FM1_OFFICIAL_OPEN" && fm1::firmwareIdFor(*official) == "fm1open"
+                  && fm1::firmwareIdFor(*community) == "fm1open" && !official->isStock(),
+              "and its other builds (FM1_OFFICIAL_OPEN, FM1_COMMUNITY_<n>), never taken for the stock firmware");
+        const auto stock = reply("FM-1_015"), mel = reply("FM-1_91034");
+        CHECK(stock && fm1::firmwareIdFor(*stock) == "fm1_stock" && mel && fm1::firmwareIdFor(*mel) == "felucca" && !reply("FM1_SOMETHING"),
+              "the other rules as before (an unknown name still refused)");
+        CHECK(fm1::isFirmwareChoice("fm1open") && fm1::firmwareChoice("fm1open").label() == "FM1 Open V12" && !fm1::isFeluccaFamily("fm1open")
+                  && fm1::checkVersion(*v12, "fm1open").support == fm1::Support::Current && fm1::runs(*v12, "fm1open") && !fm1::runs(*v12, "felucca"),
+              "FM1 Open V12: a choice of its own, an FM-1 on V12 runs it");
+        CHECK(fm1::checkVersion(*official, "fm1open").text.find("not a release") != std::string::npos, "a build that is not a release says so");
+
+        freshDataDir();
+        FM1Processor p;
+        p.prepareToPlay(44100.0, 256);
+        p.setFirmware("fm1open");
+        auto fo = p.fm1open();
+        CHECK(p.emulates() && fo && fo->valid() && !p.felucca() && p.devicePanel() == fo, "set to FM1 Open: it plays, its panel is the Device view's");
+        auto demo = fo ? fo->factoryProject(10) : std::nullopt;
+        CHECK(demo && fo->importProject(*demo), "a demo project loads");
+        if (fo) fo->transport(true);
+        juce::AudioBuffer<float> buf(2, 256);
+        float peak = 0.0f;
+        for (int k = 0; k < 200; ++k) {
+            juce::MidiBuffer m;
+            buf.clear();
+            p.processBlock(buf, m);
+            peak = std::max(peak, buf.getMagnitude(0, 256));
+        }
+        CHECK(peak > 0.01f, "and plays through the plugin");
+        {   // its projects: with the host's project, and when switching away and back
+            const auto flash = fo ? fo->projects() : std::vector<uint8_t>{};
+            juce::MemoryBlock state;
+            p.getStateInformation(state);
+            FM1Processor q;
+            q.setStateInformation(state.getData(), int(state.getSize()));
+            CHECK(q.firmwareId() == "fm1open" && q.fm1open() && q.fm1open()->projects() == flash, "its projects and settings come back with the host's project");
+            q.setFirmware("melodee");
+            CHECK(!q.fm1open(), "switched away, it lets its engine go");
+            juce::MemoryBlock away;
+            q.getStateInformation(away);
+            q.setFirmware("fm1open");
+            CHECK(q.fm1open() && q.fm1open()->projects() == flash, "and back: its projects as they were");
+            FM1Processor r;
+            r.setStateInformation(away.getData(), int(away.getSize()));
+            r.setFirmware("fm1open");
+            CHECK(r.fm1open() && r.fm1open()->projects() == flash, "a project saved while set to another firmware keeps FM1 Open's");
+        }
+        {   // its Device view: its screen and panel
+            FeluccaDeviceView view(p);
+            view.setSize(900, 500);
+            view.setVisible(true);
+            view.refreshScreen();
+            std::vector<uint16_t> px;
+            if (fo) fo->draw(px);
+            bool lit = false;
+            for (auto v : px) lit = lit || v != 0;
+            CHECK(lit && view.getNumChildComponents() >= 14 + 7 + 27, "the Device view shows FM1 Open's screen, 14 buttons, 7 encoders and 27 keys");
+        }
+    }
+   #endif
     // the releases the plugin knows, and what it makes of others
     {
         using fm1::Support;

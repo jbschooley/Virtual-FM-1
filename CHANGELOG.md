@@ -53,6 +53,16 @@ for the code. New work goes under the next version at the top.
   answer alike, both are named. The plugin now asks a firmware for its name
   from FM-1_200 up (it asked from FM-1_900).
 
+### Added
+
+- **FM1 Open V12**, M-VAVE's own open firmware, as a firmware choice: built
+  from the open source of its browser preview (not M-VAVE's closed engine), its
+  eight tracks and six sound sources, sequencer and 16 demo projects play on its
+  own front panel and screen, and its projects are saved with the host's
+  project. An FM-1 running it is recognised (FM-1_8000012, and M-VAVE's other
+  FM1 Open builds), but not synced with yet; no host parameters yet. Not tried
+  with an FM-1.
+
 ## [0.9.2] - 2026-10-16
 
 ### Fixed

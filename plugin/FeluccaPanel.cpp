@@ -348,7 +348,7 @@ struct FeluccaDeviceView::Key : juce::Component {
 
 FeluccaDeviceView::FeluccaDeviceView(FM1Processor& p) : proc_(p) {}
 
-// the controls, by Felucca's own names, once there is a Felucca to ask
+// the controls, by the firmware's own names, once there is an engine to ask
 void FeluccaDeviceView::build() {
     auto f = engine();
     if (!f || !buttons_.isEmpty()) return;

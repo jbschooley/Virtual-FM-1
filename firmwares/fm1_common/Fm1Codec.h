@@ -127,8 +127,9 @@ struct Identity {
     int version = 0;     // 89 for FM-1_089
     std::string editor;  // FM-1_9XY: the name its editor protocol gives (INFO): "FELUCCA v1.0", "FELUCCA SLOOP 2.2"
     bool noSteps = false;  // FM-1_9XY: its INFO has no steps (NSTEP 0: Melodee's Synth only build)
+    std::string product;   // an identity with no number after its "_" (FM1 Open's FM1_OFFICIAL_OPEN): all of it
     std::string name() const;
-    bool isStock() const { return version <= kLastStockVersion; }
+    bool isStock() const { return product.empty() && version <= kLastStockVersion; }
     bool canReadBack() const { return !isStock(); }
 };
 
