@@ -110,9 +110,10 @@ int main(int argc, char** argv) {
    #if FM1_FELUCCA
     // an FM-1 running SLOOP or Melodee: its dialect, and one of the plugin's own on the other side
     const auto fw = fm1::firmwareIdFor(*session.lastIdentity());
-    const bool slp = fw == "sloop", mel = fw == "melodee";
-    const felucca::Dialect& dl = slp ? felucca::sloopDialect() : mel ? felucca::melodeeDialect() : felucca::feluccaDialect();
-    const auto flavor = slp ? FeluccaEngine::Flavor::Sloop : mel ? FeluccaEngine::Flavor::Melodee : FeluccaEngine::Flavor::Felucca;
+    const bool slp = fw == "sloop", mel = fw == "melodee", chr = fw == "choralroot";
+    const felucca::Dialect& dl = slp ? felucca::sloopDialect() : mel ? felucca::melodeeDialect() : chr ? felucca::choralrootDialect() : felucca::feluccaDialect();
+    const auto flavor = slp ? FeluccaEngine::Flavor::Sloop : mel ? FeluccaEngine::Flavor::Melodee : chr ? FeluccaEngine::Flavor::ChoralRoot
+                                                                                                         : FeluccaEngine::Flavor::Felucca;
    #else
     const felucca::Dialect& dl = felucca::feluccaDialect();
    #endif
