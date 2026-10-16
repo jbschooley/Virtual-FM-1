@@ -15,7 +15,11 @@ extern "C" {
 #include "melodee013_core.inc"
 #include "melodee110_core.inc"
 #include "felucca103_core.inc"
+#include "choralroot_core.inc"
 #undef FELUCCA_CORE_DECLARE
+// ChoralRoot's restarts (choralroot_core.c): one due, with its flash image; the next power-on's image
+uint32_t chr_restart_take(const uint8_t** image, uint32_t* n);
+void chr_boot_from(const uint8_t* image);
 }
 
 namespace {
@@ -51,22 +55,30 @@ const FeluccaCopy kFelucca103 =   // (engines/felucca103)
 #include "felucca103_core.inc"
 #undef FELUCCA_CORE_TABLE
 ;
+const FeluccaCopy kChoralRoot =   // (engines/choralroot)
+#define FELUCCA_CORE_TABLE
+#include "choralroot_core.inc"
+#undef FELUCCA_CORE_TABLE
+;
 #undef FEL_ENTRY
 
 // Each firmware's built-in releases, by FeluccaEngine::Release (null: none kept)
-const FeluccaCopy* const kCores[3][FeluccaEngine::kReleases] = {
+const FeluccaCopy* const kCores[4][FeluccaEngine::kReleases] = {
     {&kFelucca, &kFelucca103, nullptr},   // Felucca
     {&kSloop, nullptr, nullptr},          // SLOOP
     {&kMelodee, &kMelodee013, &kMelodee110},   // Melodee
+    {&kChoralRoot, nullptr, nullptr},     // ChoralRoot
 };
-int flavorRow(FeluccaEngine::Flavor f) { return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : 0; }
+int flavorRow(FeluccaEngine::Flavor f) {
+    return f == FeluccaEngine::Flavor::Sloop ? 1 : f == FeluccaEngine::Flavor::Melodee ? 2 : f == FeluccaEngine::Flavor::ChoralRoot ? 3 : 0;
+}
 int releaseCol(FeluccaEngine::Release r) { const int i = int(r); return i >= 0 && i < FeluccaEngine::kReleases ? i : 0; }
 // (a release that is not built in: the current one)
 const FeluccaCopy& coreOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
     const auto* c = kCores[flavorRow(f)][releaseCol(r)];
     return c ? *c : *kCores[flavorRow(f)][0];
 }
-std::atomic<int> gInstances[3 * FeluccaEngine::kReleases];
+std::atomic<int> gInstances[4 * FeluccaEngine::kReleases];
 int indexOf(FeluccaEngine::Flavor f, FeluccaEngine::Release r) {
     return flavorRow(f) * FeluccaEngine::kReleases + (FeluccaEngine::has(f, r) ? releaseCol(r) : 0);
 }
@@ -415,6 +427,22 @@ void FeluccaEngine::objectsDone() {
     if (!core_) return;
     auto g = bind();
     core_->objects_done();
+    restartIfDue();
+}
+
+// ChoralRoot restarts for a restored settings record and for 72 RESTART, as the unit does: a power-on
+// from the flash it has (the rest of the instance as new; its reply, if any, already taken)
+void FeluccaEngine::restartIfDue() {
+    if (flavor_ != Flavor::ChoralRoot) return;
+    const uint8_t* image = nullptr;
+    uint32_t n = 0;
+    if (!chr_restart_take(&image, &n)) return;
+    const std::vector<uint8_t> flash(image, image + n);   // (the image is in the state state_init sets up again)
+    core_->state_init(state_.get());
+    core_->bind(state_.get());
+    chr_boot_from(flash.data());
+    core_->init();
+    blockPos_ = ctl_;
 }
 
 std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8_t>& m) {
@@ -425,6 +453,7 @@ std::vector<std::vector<uint8_t>> FeluccaEngine::request(const std::vector<uint8
     feed(m.data(), int(m.size()));
     core_->service();
     drain();
+    restartIfDue();
     out.swap(sxDone_);
     return out;
 }
@@ -436,6 +465,7 @@ std::optional<std::vector<uint8_t>> FeluccaEngine::ask(const std::vector<uint8_t
     feed(m.data(), int(m.size()));
     core_->service();
     drain();
+    restartIfDue();
     // the reply: the first message of the same command (F0 7D 46 4C cmd ..); the rest stays
     // for takeSysex (pushes it made, and what its main loop sent meanwhile)
     for (auto it = sxDone_.begin(); it != sxDone_.end(); ++it)

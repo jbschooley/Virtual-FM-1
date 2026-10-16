@@ -15,6 +15,7 @@ const std::vector<FirmwareChoice>& firmwareChoices() {
         {"felucca_103", "Felucca", false, false},   // 1.0.3, kept the same way (engines/felucca103)
         {"melodee_110", "Melodee", false, false},   // 1.1.0, kept for the projects made with it (engines/melodee110)
         {"fm1open", "FM1 Open", false, false},      // M-VAVE's own (engines/fm1open): plays; no sync with a device yet
+        {"choralroot", "ChoralRoot", false, false},   // Quixotic7's (engines/choralroot): plays; its backup syncs
     };
     return choices;
 }
@@ -31,7 +32,7 @@ const FirmwareChoice& firmwareChoice(const std::string& id) {
 std::string otherFirmwareName(const Identity& id) {
     const std::string& info = id.editor;
     static const std::pair<const char*, const char*> byInfo[] = {
-        {"ChoralRoot ", "ChoralRoot"}, {"CoralFlower ", "CoralFlower"}, {"PurpleMonkey ", "PurpleMonkey"}, {"X0X ", "X0X"},
+        {"CoralFlower ", "CoralFlower"}, {"PurpleMonkey ", "PurpleMonkey"}, {"X0X ", "X0X"},
         {"JANGADA ", "Jangada"}, {"FELUCCA ORBIT", "ORBIT"}, {"FELUCCA DUELL", "DUELL"}, {"FELUCCA OPTIMIST", "Optimist"}};
     for (auto [prefix, name] : byInfo)
         if (info.rfind(prefix, 0) == 0) return name;
@@ -65,6 +66,9 @@ std::string firmwareIdFor(const Identity& id) {
     if (id.model == "FM-1" && id.product.empty() && id.version >= 8000000 && id.version < 8000100) return "fm1open";
     if (id.product == "FM1_OFFICIAL_OPEN" || id.product.rfind("FM1_COMMUNITY_", 0) == 0) return "fm1open";
     if (id.isStock()) return "fm1_stock";
+    // ChoralRoot (Quixotic7/ChoralRootFM1, from Felucca) answers FM-1_920 in every release, as a Felucca 2.0
+    // would: its INFO names it ("ChoralRoot 0.23"), before Felucca's rules and the firmwares known by name
+    if (id.editor.rfind("ChoralRoot ", 0) == 0) return "choralroot";
     if (!otherFirmwareName(id).empty()) return "other";
     // SLOOP (isod89/sloop-fm1, from a Felucca before 1.0) answers as a Felucca development build
     // does, FM-1_900: its editor's INFO says SLOOP ("FELUCCA SLOOP 2.3")
@@ -233,6 +237,14 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
         {8000012, "V12", Support::Current, "Pull and Send (no Live: FM1 Open has no message for one value changed)"},
     };
     if (firmwareId == "fm1open") return fm1open;
+    // ChoralRoot: every release answers FM-1_920; its INFO names the release ("ChoralRoot 0.23"). 0.24-beta1
+    // changed none of its backup objects or their formats (cr_backup.c, storage.c the same; its settings record
+    // the same, with a fourth Key Touch, Vel + Poly AT, that 0.23 reads as Fixed)
+    static const std::vector<KnownVersion> choralroot = {
+        {920, "0.23", Support::Current, ""},   // (not yet tried on an FM-1)
+        {920, "0.24-beta1", Support::Older, "synced as 0.23 (the same backup), not tried on an FM-1; its Key Touch Vel + Poly AT reads as Fixed in the plugin"},
+    };
+    if (firmwareId == "choralroot") return choralroot;
     // a release kept beside it: the one it plays (a synth on it is synced with)
     if (const auto* k = keptRelease(firmwareId)) {
         static const std::vector<std::vector<KnownVersion>> lists = [] {   // (one each, in keptReleases' order)
@@ -343,6 +355,30 @@ VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
         c.newer = sloopNewer(release, current.label);
         c.text = id.name() + ": Melodee " + release + (c.newer ? ", newer than the plugin's " : ", older than the plugin's ") + current.label
                + "; synced as " + current.label + " (not tried). Update both to the same release for the same sounds";
+        if (!c.newer) c.support = Support::Older;
+        return c;
+    }
+    if (c.firmwareId == "choralroot") {   // its release from its INFO ("ChoralRoot 0.23"; its single-core package's "ChoralRoot 0.23 1-core")
+        const auto& current = currentVersion("choralroot");
+        std::string release = id.editor.substr(11);
+        if (const auto at = release.find(' '); at != std::string::npos) release.resize(at);   // (cr_ui.h CR_VERSION)
+        c.known = &current;
+        c.support = current.support;
+        if (release == current.label) {
+            c.text = id.name() + ": ChoralRoot " + std::string(current.label);
+            return c;
+        }
+        for (const auto& v : knownVersions("choralroot"))
+            if (release == v.label && &v != &current) {
+                c.known = &v;
+                c.support = v.support;
+                c.text = id.name() + ": ChoralRoot " + release + ", " + v.note;
+                return c;
+            }
+        c.known = nullptr;
+        c.newer = sloopNewer(release, current.label);
+        c.text = id.name() + ": ChoralRoot " + release + (c.newer ? ", newer than the plugin's " : ", older than the plugin's ") + current.label
+               + "; synced as " + current.label + " (not tried). Its backup may hold other objects than " + current.label + "'s";
         if (!c.newer) c.support = Support::Older;
         return c;
     }
@@ -479,6 +515,7 @@ std::unique_ptr<Firmware> firmwareFor(const Identity& id) {
     else if (which == "felucca") f = makeFeluccaFirmware();
     else if (which == "sloop") f = makeFeluccaFirmware("SLOOP");
     else if (which == "melodee") f = makeFeluccaFirmware("Melodee");
+    else if (which == "choralroot") f = makeFeluccaFirmware("ChoralRoot");
     else if (which == "melodee_synth") f = makeUnsupportedFirmware("Melodee Synth only");
     else if (which == "other") f = makeUnsupportedFirmware(otherFirmwareName(id));
     else if (which == "fm1open") f = std::make_unique<Fm1OpenFirmware>();

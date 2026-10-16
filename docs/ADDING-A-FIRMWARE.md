@@ -202,6 +202,28 @@ which compiles the same `transfer.c` (its browser build's `fm1_midi_send` drops
 replies; the core keeps them, `fo_take_sysex`). A firmware update that changes the
 protocol is matched against the workbench's client of the same release.
 
+## A firmware built through its own emulator (ChoralRoot)
+
+ChoralRoot ships an emulator for a computer (`tools/emu`), whose firmware side builds the
+firmware's sources as one unit behind a small boundary (`emu_hooks.h`: the panel, the screen,
+the 1 ms timer, a UI frame, the audio interrupt, MIDI in and out). `engines/choralroot` includes
+that file unchanged and drives the boundary, instead of repeating the firmware's own `main.c`
+(see `engines/choralroot/UPSTREAM.md`):
+
+- what the emulator does with the host is replaced inside the core, by macros around the include:
+  its process calls (`exit`, `atexit`, `printf`) are no-ops, and its flash file is read from memory
+  only at a restart (the flash otherwise lives in the state, as for the others);
+- what the emulator has no transport for, the core supplies: its backup protocol's SysEx is
+  assembled from the USB port and handed to the handler, its replies sent back as packets;
+- its external names get the copy's prefix from `gen_names.py`, as FM1 Open's do; the core's
+  own functions beside the API (`chr_restart_take`, `chr_boot_from`) are written `FEL(...)`;
+- the interrupt's half buffer (128 frames) is given out in `FeluccaEngine`'s 32-frame blocks:
+  `FEL(ctl)` must not exceed 32.
+
+It is played by `FeluccaEngine` (Flavor `ChoralRoot`) and synced through `FeluccaSync` with a
+dialect that has only the backup (`choralrootDialect`: no music object, a restart after a
+restore); its editor shows only the Device and Sync tabs (`ChoralRootPanel`).
+
 ## Versions
 
 Each firmware's releases the plugin knows are listed in `knownVersions()`

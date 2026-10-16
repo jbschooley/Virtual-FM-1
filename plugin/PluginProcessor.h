@@ -167,7 +167,7 @@ public:
     // null: for change gestures.
     juce::RangedAudioParameter* feluccaParam(int track, int index) const {
         auto f = felucca();
-        if (!f) return nullptr;
+        if (!f || f->flavor() == FeluccaEngine::Flavor::ChoralRoot) return nullptr;   // (ChoralRoot: none)
         const int e = felparams::entryFor(track, index, f->flavor() == FeluccaEngine::Flavor::Sloop, f->flavor() == FeluccaEngine::Flavor::Melodee,
                                           int(f->release()));
         return e >= 0 ? felParams_[size_t(e)] : nullptr;
@@ -240,8 +240,8 @@ private:
     std::vector<std::string> fm1openSlots_;           // the connected FM-1's user slot names, as last listed
     void renderFm1Open(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
     // Felucca's, SLOOP's and Melodee's state while they have no engine, each release apart (flavorIndex):
-    // kept, saved
-    juce::ValueTree feluccaSaved_[3 * FeluccaEngine::kReleases];
+    // kept, saved (ChoralRoot's: none, it has no music object)
+    juce::ValueTree feluccaSaved_[4 * FeluccaEngine::kReleases];
     std::vector<float> felApplied_;                   // audio thread: the host values last given to Felucca
     std::atomic<bool> felResync_{true};               // next block: take the host's values as given, apply none
     bool felHostPlaying_ = false;                     // audio thread: the host's transport, last block

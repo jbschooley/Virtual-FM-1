@@ -14,7 +14,8 @@ class FeluccaFirmware : public Firmware {
 public:
     explicit FeluccaFirmware(juce::String name) : name_(std::move(name)) {}
     juce::String name() const override { return name_; }
-    juce::String summary() const override { return name_ + ": Pull, Send and Live in its editor"; }
+    // (ChoralRoot speaks only the backup part of the protocol: no Live)
+    juce::String summary() const override { return name_ + (name_ == "ChoralRoot" ? ": Pull and Send in its editor" : ": Pull, Send and Live in its editor"); }
     bool has(Feature) const override { return false; }
     juce::String cannot(Feature f) const override {
         switch (f) {

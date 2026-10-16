@@ -52,6 +52,7 @@ FM1Editor::FM1Editor(FM1Processor& p)
         library_.setStatus(s);
        #if FM1_FELUCCA
         if (felucca_) felucca_->setStatus(s);   // (the library above is not shown then)
+        if (choralroot_) choralroot_->setStatus(s);
        #endif
     };
     if (auto said = proc_.takePendingStatus(); said.isNotEmpty()) proc_.onStatus(said);   // (said before the editor opened)
@@ -100,7 +101,12 @@ void FM1Editor::showFirmware() {
     const bool isFelucca = fm1::isFeluccaFamily(f.id);   // Felucca, SLOOP or Melodee: the same panels
     const bool plays = proc_.emulates();
    #if FM1_FELUCCA
-    if (isFelucca && plays) {
+    const bool isChoralRoot = std::string(f.id) == "choralroot";   // (its own panel: the device and its backup)
+    if (isChoralRoot && plays) {
+        if (!choralroot_) { choralroot_ = std::make_unique<ChoralRootPanel>(proc_); addAndMakeVisible(*choralroot_); resized(); }
+        else choralroot_->refresh();
+    } else choralroot_.reset();
+    if (isFelucca && !isChoralRoot && plays) {
         if (felucca_ && feluccaFor_ != f.id) felucca_.reset();   // (built for the other one)
         if (!felucca_) { felucca_ = std::make_unique<FeluccaPanel>(proc_); feluccaFor_ = f.id; addAndMakeVisible(*felucca_); resized(); }
         else felucca_->refresh();
@@ -268,5 +274,6 @@ void FM1Editor::resized() {
    #if FM1_FELUCCA
     if (felucca_) felucca_->setBounds(r);
     if (fm1open_) fm1open_->setBounds(r);
+    if (choralroot_) choralroot_->setBounds(r);
    #endif
 }

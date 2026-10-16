@@ -34,7 +34,8 @@ const std::vector<FirmwareChoice>& firmwareChoices();
 const FirmwareChoice& firmwareChoice(const std::string& id);   // the default (FM-1+VA) for an unknown id
 std::string firmwareIdFor(const Identity& id);                // which choice a connected synth runs
 bool isFirmwareChoice(const std::string& id);                 // a choice an instance can be set to
-// Felucca, SLOOP or Melodee: played by FeluccaEngine (engines/felucca, engines/sloop, engines/melodee),
+// Felucca, SLOOP, Melodee or ChoralRoot: played by FeluccaEngine (engines/felucca, engines/sloop, engines/melodee,
+// engines/choralroot),
 // synced through FeluccaSync
 // A choice for a firmware's previous release, kept beside the current one for the projects made with
 // it ("melodee_013": Melodee 0.13), and the firmware it is a release of ("melodee")
@@ -59,7 +60,7 @@ const KeptRelease* keptRelease(const std::string& family, int release);
 // the kept release a project's music saved with this version is for (null: the current one)
 const KeptRelease* keptReleaseFor(const std::string& family, const std::string& savedVersion);
 inline bool isPreviousRelease(const std::string& choiceId) { return familyOf(choiceId) != choiceId; }
-inline bool isFeluccaFamily(const std::string& id) { const auto f = familyOf(id); return f == "felucca" || f == "sloop" || f == "melodee"; }
+inline bool isFeluccaFamily(const std::string& id) { const auto f = familyOf(id); return f == "felucca" || f == "sloop" || f == "melodee" || f == "choralroot"; }
 // Whether a connected synth runs what an instance set to this choice plays: the same firmware and, for
 // a previous release's choice, that release (the current choice takes any release of it, said by
 // checkVersion)

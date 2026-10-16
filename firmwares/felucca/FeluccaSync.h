@@ -54,6 +54,8 @@ struct Dialect {
     int drumTrack = -1, drumStep = -1;         // SLOOP: its drum track's steps go whole by DRUM_STEP (33), not TRACK_STEP
     const char* device = nullptr;             // the library's device file, if not "<name> device.json" (a previous release kept)
     int release = 0;                           // a kept release's number (fm1::KeptRelease::release), 0 the current one
+    bool music = true;                         // object 0 is the music now (ChoralRoot: no such object)
+    int restart = 0;                           // a command that restarts the synth after a restore (ChoralRoot's 72), 0 none
 };
 const Dialect& feluccaDialect();
 const Dialect& sloopDialect();
@@ -62,6 +64,9 @@ const Dialect& melodee013Dialect();         // Melodee 0.13, kept for the projec
 const Dialect& melodee110Dialect();         // Melodee 1.1.0, kept the same way
 const Dialect& felucca103Dialect();         // Felucca 1.0.3, kept the same way
 bool isMelodee(const Dialect& d);           // any release of Melodee
+const Dialect& choralrootDialect();         // ChoralRoot: the backup only (no editor, no live)
+bool isChoralRoot(const Dialect& d);
+std::vector<int> storedIds(const Dialect& d);   // the objects a device file keeps: d.ids from 1 to lastObject
 // a firmware's dialect ("felucca", "sloop", "melodee") for one of its releases (0 the current one, else
 // fm1::KeptRelease::release); the current one for a release it does not have
 const Dialect& dialectFor(const std::string& family, int release = 0);

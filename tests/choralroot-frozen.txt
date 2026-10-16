@@ -1,0 +1,8 @@
+power-on, nothing played	3a318232344a5825
+key 16 held 1.4 s	38442a68cb59cbf6
+key 20 held 1.4 s	8c700e19e04d9fd4
+key 12 held 1.4 s	0acd5fa14ce095a1
+key 26 held 1.4 s	0d7776538c817f4c
+MIDI note 48 on channel 1	49cda0ea563204c3
+MIDI notes 60 64 67 on channel 1	b133cbc6be59b532
+OCT+ then key 12	8f4099e0535d5d83

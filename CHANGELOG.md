@@ -92,6 +92,19 @@ for the code. New work goes under the next version at the top.
   changed, and a sound sent whole would cut what plays. No host parameters yet.
   Tried with an FM-1 running V12: Pull, Send, a track's sound, the slots' names
   and the sample bank both ways (saving into a slot not yet).
+- **ChoralRoot 0.23**, Quixotic7's chord instrument built from Felucca, as a
+  firmware choice: built from its source as its own emulator builds it (the
+  single-core package), played on its own front panel and screen (the Device
+  tab). An FM-1 running it is recognised by its INFO ("ChoralRoot 0.23"; it
+  answers FM-1_920 in every release); 0.24-beta1 changed none of its backup
+  and is synced as 0.23. Its Sync page pulls from and sends to it what its
+  backup carries (the sound pool, favourites, loop slots, CZ-1 banks and FM6
+  bank; each side keeps its own settings), backing up the FM-1 to the library
+  first and restarting it after a Send, as ChoralRoot's own page does; its
+  device file is `ChoralRoot/ChoralRoot device.json`. Its protocol has nothing
+  else, so there are no host parameters, Live, sound copies or patterns, and
+  its sounds and loops are not saved with the host's project (only in the
+  device file). Not yet tried with an FM-1.
 
 ## [0.9.2] - 2026-10-16
 
