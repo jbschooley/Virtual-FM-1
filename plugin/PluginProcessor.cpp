@@ -241,7 +241,8 @@ void FM1Processor::backgroundTick() {
         if (!present) {
             link.close();
             if (live_) setLive(false);
-            if (onStatus) onStatus("The FM-1 was disconnected.");
+            if (onStatus) onStatus(restarting_.exchange(false) ? "The FM-1 restarts after the Send and has left USB meanwhile: " + reconnectText() + "."
+                                                               : juce::String("The FM-1 was disconnected."));
         }
     } else if (autoConnect_ && wrapperType == wrapperType_Standalone) {
         if (auto p = Fm1Link::findFm1()) {
@@ -893,6 +894,7 @@ void FM1Processor::setStateInformation(const void* data, int size) {
 bool FM1Processor::connect(const juce::String& inputId, const juce::String& outputId, bool quiet) {
     // tests that load the plugin must not talk to a real FM-1 that happens to be plugged in
     if (juce::SystemStats::getEnvironmentVariable("FM1_NO_DEVICE", {}).isNotEmpty()) return false;
+    restarting_ = false;
     bool ok = link.open(inputId, outputId);
     if (ok) { autoConnect_ = true; session.identify(); }
     if (onStatus && (ok || !quiet)) onStatus(ok ? "Connected to " + link.ports().inputName : "Could not open those MIDI ports.");
@@ -1389,7 +1391,8 @@ bool FM1Processor::feluccaSend() {
     const auto& d = felucca::dialectOf(*f);
     const auto id = session.lastIdentity();
     const juce::String release = id ? juce::String(id->editor) : juce::String();
-    return session.job("Backing up the FM-1, then sending everything to it...", [f, &d, release](fm1::Port& p) {
+    restarting_ = false;
+    return session.job("Backing up the FM-1, then sending everything to it...", [this, f, &d, release, again = reconnectText()](fm1::Port& p) {
         felucca::LinkEndpoint synth(p.link, d);
         auto progress = [&p](int done, int total, const juce::String& text) { p.progress(done, total, text); return !p.cancelled(); };
         juce::String err;
@@ -1408,8 +1411,18 @@ bool FM1Processor::feluccaSend() {
             return Fm1Session::JobResult{false, "Nothing sent: " + why + ". Its backup: " + kept};
         if (!felucca::restore(synth, *ours, progress, err))
             return Fm1Session::JobResult{false, "Sending stopped: " + err + ". The FM-1's backup from before: " + kept};
+        if (d.restart) {   // (ChoralRoot: restarted, it leaves USB: usb_detach)
+            restarting_ = true;
+            return Fm1Session::JobResult{true, "Sent the " + everything(d) + " to the FM-1, which restarts now and leaves USB meanwhile: " + again
+                                                   + ". Its backup from before: " + kept};
+        }
         return Fm1Session::JobResult{true, "Sent the " + everything(d) + " to the FM-1. Its backup from before: " + kept};
     });
+}
+
+juce::String FM1Processor::reconnectText() const {
+    return wrapperType == wrapperType_Standalone ? "the app connects to it again when it is back"
+                                                 : "connect again (Find FM-1) when it is back";
 }
 
 bool FM1Processor::feluccaPullSound(int track) {

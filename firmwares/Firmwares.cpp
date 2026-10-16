@@ -294,7 +294,9 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
     if (firmwareIdFor(id) == "choralroot") {   // its backup objects as 0.23 has them from 0.22: an older one's differ
         std::string release = id.editor.size() > 11 ? id.editor.substr(11) : std::string();
         if (const auto at = release.find(' '); at != std::string::npos) release.resize(at);
-        if (release.empty() || !sloopNewer("0.22", release)) return {};
+        // by its INFO's backup version (43 01 v: 3 from 0.22) when it gives one, else by its release
+        if (id.backup >= 0 ? id.backup >= 3 : release.empty() || !sloopNewer("0.22", release)) return {};
+        if (release.empty()) release = "(backup version " + std::to_string(id.backup) + ")";
         return "This FM-1 runs ChoralRoot " + release + ", whose backup holds other objects than " + std::string(currentVersion("choralroot").label)
                + "'s: update it with ChoralRoot's installer to send to it. Pull still works.";
     }

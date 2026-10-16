@@ -140,7 +140,7 @@ const Dialect& choralrootDialect() {
                             40, 41, 42, 43, 44, 45, 46, 47, 48, 49},
                            {8, 14, 15, 16, 17, 18, 19, 20, 21, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 23,
                             40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 1}, 62, false, "felucca-backup",
-                           {}, -1, -1, nullptr, 0, false, 72};
+                           {}, -1, -1, nullptr, 0, false, 72, 120};
     return d;
 }
 bool isChoralRoot(const Dialect& d) { return std::string(d.name) == "ChoralRoot"; }
@@ -266,13 +266,18 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         juce::MemoryOutputStream data;
         // (as each editor allows: a sample 80 KB; Melodee's music and projects 27904 bytes (1.0; 0.13: 27752), its
         // PROPHET banks 3600; the rest 3840, ChoralRoot's all: storage.c's ST_PAYLOAD_MAX)
-        if (choral && std::find(ids.begin(), ids.end(), id) == ids.end()) {
-            error = "object " + juce::String(id) + " is not one of ChoralRoot 0.23's (a backup of another release)";
+        // (ChoralRoot before 0.22: its sound objects 6, 7, 9..13, 22, which 0.23 no longer lists: read, and left out of
+        // what is restored, as its page restores only the objects the synth lists)
+        static const std::vector<int> choralLegacy = {6, 7, 9, 10, 11, 12, 13, 22};
+        const bool known = std::find(ids.begin(), ids.end(), id) != ids.end()
+                           || (choral && std::find(choralLegacy.begin(), choralLegacy.end(), id) != choralLegacy.end());
+        if (choral && !known) {
+            error = "object " + juce::String(id) + " is not one of ChoralRoot's (a backup of another release)";
             return false;
         }
         const int most = choral ? 3840 : id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? (&d == &melodee013Dialect() ? 27752 : 27904)
                        : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
-        if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
+        if (!known || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
             error = "object " + juce::String(id) + " is damaged";
             return false;
@@ -461,15 +466,39 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
         // the reply names what it answers (step, object): another one's (late) is not this one's
         return g.size() >= 3 && g[0] == q[0] && g[1] == q[1] ? int(g[2]) : -1;
     };
+    // busy (rc 3): asked again each second, dl.busyWait times (ChoralRoot: it writes nothing while a loop plays or
+    // records, and keeps the session meanwhile), saying so; -2 when cancelled meanwhile
+    const juce::String busyText = juce::String(dl.name) + " is busy: a loop plays or records on the FM-1. Stop the loop there";
+    auto waitBusy = [&](const std::vector<uint8_t>& q, int timeout, int rc) {
+        for (int k = 0; rc == 3 && k < dl.busyWait; ++k) {
+            if (progress && !progress(int(done), int(total), busyText + " (" + juce::String(dl.busyWait - k) + " s)...")) return -2;
+            juce::Thread::sleep(1000);
+            rc = put(q, timeout);
+        }
+        return rc;
+    };
     auto say = [&dl](int rc) {
         switch (rc) {
+            case -2: return juce::String("cancelled");
             case -1: return juce::String("no answer");
             case 2: return juce::String("it failed validation");
-            case 3: return juce::String(dl.listVersion ? "the synth could not stop playing" : "the synth is playing: stop it first");
+            case 3: return juce::String(dl.busyWait ? juce::String(dl.name) + " stayed busy: a loop plays or records on the FM-1; stop it there, then send again"
+                                        : dl.listVersion ? "the synth could not stop playing" : "the synth is playing: stop it first");
             case 4: return juce::String("its flash write failed");
             case 5: return juce::String("the synth started over");
             default: return "rc " + juce::String(rc);
         }
+    };
+    // what was written before a failure, said where the synth answers busy (ChoralRoot: a restore stopped there
+    // leaves the objects before it written, and no restart)
+    std::vector<int> written;
+    auto partly = [&]() -> juce::String {
+        if (!dl.busyWait) return {};
+        if (written.empty()) return ". Nothing was written";
+        juce::StringArray ids;
+        for (int w : written) ids.add(juce::String(w));
+        return ". Written before it: object" + juce::String(written.size() == 1 ? " " : "s ") + ids.joinIntoString(", ")
+               + "; nothing restarted. Send again to write everything";
     };
     for (int id : dl.restoreOrder) {
         auto it = objects.find(id);
@@ -490,7 +519,11 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
             std::vector<uint8_t> q = {0, uint8_t(id)};
             u32(q, uint32_t(b.size()));
             u32(q, b.empty() ? 0u : crc32(b));
-            if (int rc = put(q, kFlash); rc != 0) { error = "the synth refused object " + juce::String(id) + " (" + say(rc) + ")"; return false; }
+            if (int rc = waitBusy(q, kFlash, put(q, kFlash)); rc != 0) {
+                if (rc == -2 || rc == 3) put({3, uint8_t(id)}, kAsk);   // (the session it may keep: ended)
+                error = (rc == -2 ? juce::String("cancelled") : "the synth refused object " + juce::String(id) + " (" + say(rc) + ")") + partly();
+                return false;
+            }
             pieceRc = 0;
             for (size_t off = 0; off < b.size() && pieceRc == 0; off += kPutPiece) {
                 const size_t n = std::min<size_t>(kPutPiece, b.size() - off);
@@ -501,12 +534,13 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
                 done += uint32_t(n);
                 if (progress && !progress(int(done), int(total), juce::String("Writing ") + dl.name + "'s objects...")) {
                     put({3, uint8_t(id)}, kAsk);   // abort: nothing of it is written
-                    error = "cancelled";
+                    error = "cancelled" + partly();
                     return false;
                 }
             }
             if (pieceRc == 0) {
-                commitRc = put({2, uint8_t(id)}, kFlash);
+                commitRc = waitBusy({2, uint8_t(id)}, kFlash, put({2, uint8_t(id)}, kFlash));
+                if (commitRc == -2 || commitRc == 3) put({3, uint8_t(id)}, kAsk);
                 if (commitRc != 2 && commitRc != -1) break;   // taken, or a failure starting over cannot mend
                 continue;
             }
@@ -515,14 +549,16 @@ bool restore(Endpoint& to, const Objects& objects, const Progress& progress, juc
         if (pieceRc != 0) {
             put({3, uint8_t(id)}, kAsk);
             error = "the synth refused a piece of object " + juce::String(id) + " (" + say(pieceRc) + ", at byte "
-                    + juce::String(int(failedAt)) + ", " + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
+                    + juce::String(int(failedAt)) + ", " + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)") + partly();
             return false;
         }
         if (commitRc != 0) {
-            error = "the synth did not take object " + juce::String(id) + " (" + say(commitRc) + ", "
-                    + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)");
+            error = commitRc == -2 ? "cancelled" + partly()
+                                   : "the synth did not take object " + juce::String(id) + " (" + say(commitRc) + ", "
+                                         + juce::String(attempts) + (attempts == 1 ? " try)" : " tries)") + partly();
             return false;
         }
+        written.push_back(id);
     }
     // ChoralRoot: restarted, so everything restored loads (its settings wait for that), as its page does it
     if (dl.restart) {

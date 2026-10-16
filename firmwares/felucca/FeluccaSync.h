@@ -56,6 +56,8 @@ struct Dialect {
     int release = 0;                           // a kept release's number (fm1::KeptRelease::release), 0 the current one
     bool music = true;                         // object 0 is the music now (ChoralRoot: no such object)
     int restart = 0;                           // a command that restarts the synth after a restore (ChoralRoot's 72), 0 none
+    int busyWait = 0;                          // a PUT begin or commit answered busy (rc 3: ChoralRoot while a loop plays or
+                                               // records) asked again each second, this many times (its page: 120); 0 not
 };
 const Dialect& feluccaDialect();
 const Dialect& sloopDialect();

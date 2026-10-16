@@ -131,6 +131,9 @@ public:
     juce::String feluccaWritesRefused() const; // connected to one the plugin only reads from (SLOOP 2.3): why
     bool feluccaPull();
     bool feluccaSend();
+    // After a Send ChoralRoot restarts and leaves USB meanwhile: how it is connected again (the app
+    // connects by itself; a plugin only when asked)
+    juce::String reconnectText() const;
     // One part's sound (engine, preset, values, FM6 patch) from the connected FM-1 running Felucca
     // into this instance, or from here to it (its RAM: not saved there)
     bool feluccaPullSound(int track);
@@ -313,6 +316,7 @@ private:
     void reportLibrary();
     juce::String lastLibraryReport_;
     bool autoConnect_ = true;    // the app: connect when the synth appears; off after the user disconnects by hand
+    std::atomic<bool> restarting_{false};   // a Send just restarted the synth (ChoralRoot): it leaves USB
     Background background_{*this};
     void timerCallback() override;               // live sending
     void applyEditName();

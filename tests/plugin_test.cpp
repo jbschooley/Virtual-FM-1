@@ -501,6 +501,10 @@ static int checks() {
         CHECK(fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.21"}).find("Pull still works") != std::string::npos
                   && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.22"}).empty() && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.23 1-core"}).empty(),
               "ChoralRoot before 0.22 (other backup objects): pulled from only; 0.22 and 0.23 sent to");
+        CHECK(fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot dev-1a2b", false, 2}).find("runs ChoralRoot dev-1a2b, whose backup") != std::string::npos
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot dev-1a2b", false, 3}).empty()
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.23", false, 2}).find("Pull still works") != std::string::npos,
+              "its INFO's backup version (43 01 v), when it gives one, decides: before 3 pulled from only, whatever its release says");
         CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA v1.6-dev"}).text.find("development build") != std::string::npos,
               "a Felucca build that is not a release (FM-1_900, its INFO Felucca's: with none, Hortator, below)");
         {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it
@@ -737,6 +741,8 @@ static int checks() {
             auto f = p.felucca();
             CHECK(p.emulates() && f && f->flavor() == Fl::ChoralRoot && f->version() == "v0.23" && p.devicePanel() == f && !p.feluccaParam(0, 0),
                   "set to ChoralRoot: it plays, its panel is the Device view's, no host parameters");
+            CHECK(p.reconnectText() == "connect again (Find FM-1) when it is back",
+                  "after a Send's restart (the FM-1 leaves USB) a plugin, not the app, says to connect again: " + p.reconnectText());
             juce::AudioBuffer<float> buf(2, 256);
             float peak = 0.0f;
             for (int k = 0; k < 200; ++k) {
@@ -810,6 +816,67 @@ static int checks() {
             CHECK(felucca::readBackup(file, back, err, d) && back == *mine, "its backup file reads back: " + err);
             CHECK(!felucca::readBackup(file, back, err, felucca::feluccaDialect()) && err.contains("ChoralRoot"), "and is not taken as Felucca's: " + err);
             file.deleteFile();
+            // busy (a loop records): a Send waits, asking again each second as its page does; given up, it says what it
+            // wrote. (Its dialect's 120 tries shortened to 2: its replies are its own.)
+            struct Busy : felucca::Endpoint {
+                felucca::VirtualEndpoint v;
+                felucca::Dialect dl = felucca::choralrootDialect();
+                std::function<void(const std::vector<uint8_t>& q, int rc)> seen;
+                int busy = 0;
+                bool restarted = false;
+                explicit Busy(std::shared_ptr<FeluccaEngine> f) : v(std::move(f)) { dl.busyWait = 2; }
+                const felucca::Dialect& dialect() const override { return dl; }
+                std::optional<felucca::Bytes> ask(const felucca::Bytes& q, int t) override {
+                    auto r = v.ask(q, t);
+                    const auto g = r ? felucca::argsOf(*r) : std::vector<uint8_t>{};
+                    if (felucca::commandOf(q) == dl.restart) restarted = true;
+                    if (felucca::commandOf(q) == dl.backupPut && g.size() >= 3) {
+                        if (g[2] == 3) ++busy;
+                        if (seen) seen(felucca::argsOf(q), int(g[2]));
+                    }
+                    return r;
+                }
+                std::vector<felucca::Bytes> pushes() override { return v.pushes(); }
+            };
+            auto press = [&run](FeluccaEngine& e, int b) { e.button(b, true); run(e, 0.05); e.button(b, false); run(e, 0.3); };
+            juce::StringArray said;
+            const felucca::Progress note = [&said](int, int, const juce::String& s) { said.add(s); return true; };
+            {
+                auto e = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+                run(*e, 0.5);
+                press(*e, 11);   // REC: a loop records
+                Busy ep(e);
+                ep.seen = [&](const std::vector<uint8_t>&, int rc) { if (rc == 3 && ep.busy == 1) press(*e, 10); };   // stopped (PLAY) meanwhile
+                const bool wasBusy = e->playing();
+                CHECK(wasBusy && felucca::restore(ep, send, note, err) && ep.busy == 1 && ep.restarted && felucca::objectsOf(*e) == *mine
+                          && said.joinIntoString("|").contains("ChoralRoot is busy: a loop plays or records on the FM-1. Stop the loop there (2 s)"),
+                      "busy when sent: it waited, said so, asked again, and wrote everything once the loop stopped: " + err);
+            }
+            {
+                auto e = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+                run(*e, 0.5);
+                press(*e, 11);
+                Busy ep(e);
+                const bool sent = felucca::restore(ep, send, note, err);
+                const auto left = felucca::objectsOf(*e);
+                CHECK(!sent && ep.busy == 3 && !ep.restarted
+                          && err.contains("stayed busy: a loop plays or records on the FM-1; stop it there, then send again") && err.endsWith("Nothing was written")
+                          && std::all_of(left.begin(), left.end(), [](const auto& o) { return o.second.empty(); }),
+                      "busy all along: given up after its tries, nothing written, nothing restarted: " + err);
+                press(*e, 10);
+                Busy again(e);
+                CHECK(felucca::restore(again, send, {}, err) && felucca::objectsOf(*e) == *mine, "and sent again once it stopped: all of it (no session left open) " + err);
+            }
+            {
+                auto e = std::make_shared<FeluccaEngine>(Fl::ChoralRoot);
+                run(*e, 0.5);
+                Busy ep(e);
+                const int first = d.restoreOrder.front() == 0 ? d.restoreOrder[1] : d.restoreOrder.front();
+                ep.seen = [&](const std::vector<uint8_t>& q, int rc) { if (q.size() >= 2 && q[0] == 2 && rc == 0 && !e->playing()) press(*e, 11); };   // a loop records after the first
+                CHECK(!felucca::restore(ep, send, note, err) && !ep.restarted && err.contains("stayed busy")
+                          && err.contains("Written before it: object " + juce::String(first) + "; nothing restarted. Send again to write everything"),
+                      "busy from the second object on: says which it wrote, nothing restarted: " + err);
+            }
         }
 
         {   // the device file: what one instance saves, another set to ChoralRoot loads
@@ -834,6 +901,35 @@ static int checks() {
             felucca::DeviceStore sb(d);
             std::vector<uint8_t> sa1, sb1;
             CHECK(sb.load(b).isEmpty() && a.object(1, sa1) && b.object(1, sb1) && !sa1.empty() && sa1 == sb1, "another instance loads it: the same settings");
+            // one busy as it loads (a loop records: it writes no object) takes the file once it stops, saying nothing meanwhile
+            FeluccaEngine c(Fl::ChoralRoot);
+            for (int k = 0; k < 60; ++k) c.render(l.data(), r.data(), 256);
+            auto press = [&](int btn) { c.button(btn, true); for (int k = 0; k < 9; ++k) c.render(l.data(), r.data(), 256);
+                                        c.button(btn, false); for (int k = 0; k < 50; ++k) c.render(l.data(), r.data(), 256); };
+            press(11);
+            felucca::DeviceStore sc(d);
+            std::vector<uint8_t> sc1;
+            CHECK(c.playing() && sc.load(c).isEmpty() && sc.tick(c).isEmpty() && c.object(1, sc1) && sc1.empty(), "busy as it loads: waits, nothing said");
+            press(10);
+            CHECK(!c.playing() && sc.tick(c).isEmpty() && c.object(1, sc1) && sc1 == sa1, "stopped: the file taken");
+            // a backup from before 0.22 (its page's file) holds sound objects 0.23 no longer lists (6, 7, 9..13, 22): read and
+            // left out, as its page restores only the objects the synth lists; the rest taken. An id it never had: refused
+            auto older = juce::JSON::parse(felucca::backupJson(felucca::objectsOf(a), "ChoralRoot 0.21", d));
+            auto* list = older.getProperty("objects", {}).getArray();
+            auto* legacy = new juce::DynamicObject(*list->getReference(0).getDynamicObject());   // (object 1's bytes, crc and size)
+            legacy->setProperty("id", 9);
+            list->add(juce::var(legacy));
+            path.replaceWithText(juce::JSON::toString(older));
+            felucca::Objects back;
+            juce::String err;
+            FeluccaEngine e(Fl::ChoralRoot);
+            felucca::DeviceStore se(d);
+            std::vector<uint8_t> se1;
+            CHECK(felucca::readBackup(path, back, err, d) && back.count(9) && se.load(e).isEmpty() && e.object(1, se1) && se1 == sa1,
+                  "a backup from before 0.22: read, its object 9 left out, the rest taken " + err);
+            legacy->setProperty("id", 30);
+            path.replaceWithText(juce::JSON::toString(older));
+            CHECK(!felucca::readBackup(path, back, err, d) && err.contains("object 30 is not one of ChoralRoot's"), "an object ChoralRoot never had: refused: " + err);
         }
     }
 

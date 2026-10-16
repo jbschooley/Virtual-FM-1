@@ -329,6 +329,27 @@ int main(int argc, char** argv) {
         session.identify(); waitIdle(session, 5000);
         CHECK(identity && !identity->noSteps && fm1::firmwareIdFor(*identity) == "melodee", "and one on Melodee itself as Melodee");
         CHECK(!progress.empty() && progress.back().text.contains("Melodee: Pull"), "with Melodee's profile, not the one before it at the same FM-1_900");
+        // ChoralRoot's: no engines, no tracks, then its tags: 42 01 3 backup caps, 43 01 v its backup's version, 49 08 its ID
+        auto choralrootInfo = [](uint8_t backup) {
+            const char* name = "ChoralRoot 0.23";
+            fm1::Bytes b(name, name + std::strlen(name));
+            b.insert(b.end(), {0, 0, 0, 0, 0, 0, 0, 0, 0x42, 1, 3, 0x43, 1, backup, 0x49, 8, '0', '1', '2', '3', '4', '5', '6', '7'});
+            return b;
+        };
+        fake.identityVersion = 920;
+        fake.info = choralrootInfo(3);
+        identity.reset();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && identity->editor == "ChoralRoot 0.23" && identity->backup == 3 && fm1::writesRefused(*identity).empty(),
+              "ChoralRoot's INFO: its backup version (43 01 3) read");
+        fake.info = choralrootInfo(2);
+        identity.reset();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && identity->backup == 2 && !fm1::writesRefused(*identity).empty(), "one that gives 2: pulled from only");
+        fake.info = melodeeInfo("MELODEE v1.1.0", 64);
+        identity.reset();
+        session.identify(); waitIdle(session, 5000);
+        CHECK(identity && identity->backup == -1, "Melodee's INFO gives none");
         fake.info.clear();
     }
     fake.identityVersion = 904; identity.reset();

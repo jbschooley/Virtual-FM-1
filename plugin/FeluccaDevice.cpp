@@ -116,7 +116,10 @@ juce::String DeviceStore::load(FeluccaEngine& f) {
     blocked_ = false;
     lastError_ = {};
     if (file_.existsAsFile()) {
+        // ChoralRoot busy (a loop plays or records: it writes no object): the file is taken once it is not (tick)
+        if (isChoralRoot(dialect_) && f.playing()) { blocked_ = true; seen_ = 0; return {}; }
         lastError_ = loadInto(f);
+        if (lastError_.isNotEmpty() && isChoralRoot(dialect_) && f.playing()) { blocked_ = true; seen_ = 0; lastError_ = {}; return {}; }
         // a file it cannot read or Felucca refuses (damaged, from a newer editor) is never
         // written over: saving waits until the file changes and reads
         blocked_ = lastError_.isNotEmpty();
@@ -133,14 +136,16 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
     auto report = [this](const juce::String& e) { if (e == lastError_) return juce::String(); lastError_ = e; return e; };
     const auto hash = fileHash();
     const bool changedThere = file_.existsAsFile() && hash != seen_;
-    // SLOOP 2.4 refuses its user presets and FM6 bank (6, 7, 8) while it plays: another instance's
-    // save waits until it stops (and so does saving its own changes, which would write over it)
-    if (changedThere && f.flavor() == FeluccaEngine::Flavor::Sloop && f.playing()) return {};
+    // SLOOP 2.4 refuses its user presets and FM6 bank (6, 7, 8) while it plays, and ChoralRoot every object while a
+    // loop plays or records: another instance's save waits until it stops (and so does saving its own changes,
+    // which would write over it)
+    if (changedThere && (f.flavor() == FeluccaEngine::Flavor::Sloop || isChoralRoot(dialect_)) && f.playing()) return {};
     if (blocked_) {   // only a changed file that reads lets it save again
         if (!changedThere) return {};
         seen_ = hash;
         auto e = loadInto(f);
         blocked_ = e.isNotEmpty();
+        if (blocked_ && isChoralRoot(dialect_) && f.playing()) { seen_ = 0; return {}; }   // (busy since: again later)
         return blocked_ ? report(e) : juce::String();
     }
     Objects now;
@@ -159,7 +164,11 @@ juce::String DeviceStore::tick(FeluccaEngine& f) {
         for (int id : dialect_.restoreOrder) {
             auto it = theirs.find(id);   // (an archive from before FM6 has no 8: the bank stays)
             if (id == 0 || it == theirs.end() || now[id] != known_[id] || it->second == now[id]) continue;
-            if (f.putObject(id, it->second) != 0) { f.objectsDone(); return report(file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + "."); }
+            if (f.putObject(id, it->second) != 0) {
+                f.objectsDone();
+                if (isChoralRoot(dialect_) && f.playing()) { seen_ = 0; return {}; }   // (busy since: the rest the next time)
+                return report(file_.getFileName() + ": " + dialect_.name + " refused object " + juce::String(id) + ".");
+            }
             if (f.object(id, b)) now[id] = b;
         }
         f.objectsDone();
