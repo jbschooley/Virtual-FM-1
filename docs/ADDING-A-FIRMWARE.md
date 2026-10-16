@@ -195,6 +195,13 @@ things (see `engines/fm1open/UPSTREAM.md`):
 It is driven by its own class (`Fm1OpenEngine`, not `FeluccaEngine`: it has no editor protocol or
 parameters), and the Device tab plays any firmware's front panel through `DevicePanel`.
 
+It syncs through its own project transfer protocol (`app/transfer.c`), in
+`firmwares/fm1open/Fm1OpenSync`: its `Client` does what M-VAVE's workbench does
+(`sdk/WebUpdate.js`, `Library`), over the MIDI link or over the plugin's own engine,
+which compiles the same `transfer.c` (its browser build's `fm1_midi_send` drops
+replies; the core keeps them, `fo_take_sysex`). A firmware update that changes the
+protocol is matched against the workbench's client of the same release.
+
 ## Versions
 
 Each firmware's releases the plugin knows are listed in `knownVersions()`

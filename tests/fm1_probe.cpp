@@ -27,6 +27,8 @@
 #include "Firmwares.h"
 #if FM1_FELUCCA
  #include "FeluccaEngine.h"
+ #include "Fm1OpenEngine.h"
+ #include "Fm1OpenSync.h"
 #endif
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -121,6 +123,84 @@ int main(int argc, char** argv) {
         std::vector<int> v; for (int i = a; i <= b; ++i) v.push_back(i); return v;
     };
 
+   #if FM1_FELUCCA
+    // fm1open-sync <backup> [save] [samples]: an FM-1 running FM1 Open, through its project transfer protocol,
+    // against the plugin's own FM1 Open. Its project playing and sample bank are saved first to <backup>.fm1
+    // and <backup>.fm1s (M-VAVE's workbench imports them), and its project is put back at the end. Writes the
+    // project it plays and a track of it; with "save", an empty slot too (FM1 Open cannot empty it again);
+    // with "samples", its sample bank, rewritten as it was (FM1 Open erases it first: a cut leaves none)
+    if (cmd == "fm1open-sync" && argc > 2) {
+        int fails = 0;
+        auto check = [&](bool ok, const juce::String& what) { std::printf("%s: %s\n", what.toRawUTF8(), ok ? "ok" : "FAILED"); std::fflush(stdout); if (!ok) ++fails; };
+        bool save = false, samples = false;
+        for (int i = 3; i < argc; ++i) { save = save || std::string(argv[i]) == "save"; samples = samples || std::string(argv[i]) == "samples"; }
+        struct Mine : fm1open::Endpoint {   // the plugin's own FM1 Open, as fm1open::EngineEndpoint (plugin/Fm1OpenDevice.h)
+            std::shared_ptr<Fm1OpenEngine> e = std::make_shared<Fm1OpenEngine>();
+            std::optional<fm1open::Bytes> ask(const fm1open::Bytes& q) override {
+                const auto r = fm1open::parse(q);
+                for (auto& m : e->request(q))
+                    if (auto a = fm1open::parse(m); r && a && a->command == (r->command | 64) && a->token == r->token) return m;
+                return std::nullopt;
+            }
+        } mine;
+        fm1open::LinkEndpoint synth(link);
+        fm1open::Client fm1(synth), plugin(mine);
+        juce::String err;
+        auto progress = [](int done, int total) { std::printf("\r  %d / %d", done, total); std::fflush(stdout); return true; };
+        const auto base = juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]);
+        auto info = fm1.info(err);
+        check(info.has_value(), "info (" + err + ")");
+        if (!info) return 1;
+        std::printf("  FM1 Open projects v%d (%d bytes), %d slots, slot %d playing\n", info->version, info->projectBytes, info->slots, info->slot + 1);
+        // 1. what it has, kept
+        auto before = fm1.project(err);
+        check(before.has_value(), "its project read (" + err + ")");
+        if (!before) return 1;
+        const auto file = fm1open::projectFile(*before);
+        check(base.withFileExtension("fm1").replaceWithData(file.data(), file.size()), "its project saved: " + base.withFileExtension("fm1").getFullPathName());
+        auto bank = fm1.samples(err, progress);
+        std::printf("\n");
+        check(bank.has_value(), "its sample bank read (" + err + ")");
+        if (bank) check(base.withFileExtension("fm1s").replaceWithData(bank->data(), bank->size()), "its sample bank saved: " + base.withFileExtension("fm1s").getFullPathName());
+        // 2. Pull: into the plugin's FM1 Open, byte for byte
+        const auto v12 = fm1open::upgradeProject(*before);
+        check(!v12.empty() && plugin.setProject(v12, err) && mine.e->exportProject() == v12, "pull: into the plugin's FM1 Open (" + err + ")");
+        // 3. Send: a demo project, played and read back
+        auto demo = mine.e->factoryProject(3);
+        check(demo && fm1.setProject(*demo, err) && fm1.project(err) == demo, "send: the plugin's demo project 4, read back (" + err + ")");
+        // 4. a track's sound both ways: track 2 of demo 6 to the FM-1, then read back into the plugin
+        auto demo6 = mine.e->factoryProject(5);
+        auto t2 = demo6 && mine.e->importProject(*demo6) ? plugin.download(2, 1, err) : std::nullopt;
+        check(t2 && fm1.upload(2, 1, *t2, err) && fm1.download(2, 1, err) == t2, "a track's sound to the FM-1, read back (" + err + ")");
+        // 5. its slots: names; one loaded and read; with "save", the project playing kept in the first empty slot
+        std::vector<std::string> names;
+        for (int s = 0; s < fm1open::kSlots; ++s) if (auto n = fm1.slotName(s, err)) names.push_back(*n);
+        check(int(names.size()) == fm1open::kSlots, "its 16 slot names read (" + err + ")");
+        for (int s = 0; s < int(names.size()); ++s) std::printf("  slot %2d: %s\n", s + 1, names[size_t(s)].empty() ? "(empty)" : names[size_t(s)].c_str());
+        const auto used = std::find_if(names.begin(), names.end(), [](const std::string& n) { return !n.empty(); });
+        if (used != names.end()) {
+            const int s = int(used - names.begin());
+            check(fm1.loadSlot(s, err) && fm1.project(err).has_value(), "slot " + juce::String(s + 1) + " loaded and read (" + err + ")");
+        }
+        if (save) {
+            const auto empty = std::find_if(names.begin(), names.end(), [](const std::string& n) { return n.empty(); });
+            if (empty == names.end()) std::printf("  no empty slot: nothing saved\n");
+            else {
+                const int s = int(empty - names.begin());
+                check(fm1.setProject(*demo, err) && fm1.saveToSlot(s, err), "the demo project saved in slot " + juce::String(s + 1) + ", read back from there (" + err + ")");
+            }
+        }
+        // 6. with "samples": its sample bank written again as it was (read back the same), and into the plugin's
+        if (samples && bank) {
+            check(fm1.setSamples(*bank, err, progress), "\nits sample bank written again, read back the same (" + err + ")");
+            check(plugin.setSamples(*bank, err) && plugin.samples(err) == bank, "and into the plugin's FM1 Open (" + err + ")");
+        }
+        // 7. put back what it played
+        check(fm1.setProject(*before, err), "its project put back (" + err + ")");
+        std::printf("%s\n", fails ? "FAILED" : "all ok");
+        return fails ? 1 : 0;
+    }
+   #endif
     if (cmd == "pull" || cmd == "dump") {
         auto slots = cmd == "dump" ? range(0, 127) : range(0, 3);
         if (cmd == "dump") { slots.clear(); for (int i = 0; i < 128; ++i) slots.push_back(i); }

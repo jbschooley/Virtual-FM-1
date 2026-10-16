@@ -49,8 +49,9 @@ set(FM1_DEVICE_SOURCES
     firmwares/baudgirl_fm1va/FmVaFirmware.cpp
     firmwares/felucca/FeluccaFirmware.cpp
     firmwares/felucca/FeluccaSync.cpp
-    firmwares/felucca/FeluccaSeq.cpp)
-set(FM1_DEVICE_INCLUDES core firmwares firmwares/felucca)
+    firmwares/felucca/FeluccaSeq.cpp
+    firmwares/fm1open/Fm1OpenSync.cpp)
+set(FM1_DEVICE_INCLUDES core firmwares firmwares/felucca firmwares/fm1open)
 if(NOT MSVC)
     target_compile_options(fm1_sync PRIVATE -Wall -Wextra)
 endif()
@@ -402,6 +403,7 @@ if(FM1_BUILD_PLUGIN)
         plugin/BankModel.cpp
         plugin/LibraryStore.cpp
         plugin/FeluccaPanel.cpp
+        plugin/Fm1OpenPanel.cpp
         plugin/FeluccaSeqPanel.cpp
         plugin/FeluccaMidi.cpp
         plugin/ChosenFile.cpp

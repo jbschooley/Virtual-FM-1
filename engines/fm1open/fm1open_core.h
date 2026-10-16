@@ -38,6 +38,7 @@ enum {
     X(uint8_t *, fo_flash, (void))                                                                \
     X(uint32_t, fo_flash_size, (void))                                                            \
     X(uint32_t, fo_flash_revision, (void))                                                        \
+    X(unsigned, fo_take_sysex, (uint8_t *out))          /* a SysEx it sent (128 bytes room), its length; 0 none */ \
     X(int, fo_export, (uint8_t *out))                   /* the project playing, FO_PROJECT_BYTES; 0 ok */ \
     X(int, fo_import, (const uint8_t *in, unsigned n))  /* into the project playing; 0 ok */     \
     X(int, fo_factory_project, (unsigned index, uint8_t *out)) /* a demo project's bytes; 0 ok */ \
