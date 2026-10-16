@@ -102,8 +102,16 @@ Bytes paramWrite(int track, int id, int value) {
     return frame(kTrackParam, a);
 }
 
+// A step read or written asked again once if no answer comes: about one reply in a few thousand is lost on
+// the FM-1's USB MIDI, and a pattern is 64 of them. Both may be sent twice (a write sets the same values), and
+// the reply names the track and step it answers, so a late one to the first try is never taken for another's
+static std::optional<Bytes> askStep(Endpoint& e, const Bytes& q) {
+    if (auto r = e.ask(q, kAsk)) return r;
+    return e.ask(q, kAsk);
+}
+
 std::optional<Step> readStep(Endpoint& e, int track, int index) {
-    auto r = e.ask(frame(kTrackStep, {uint8_t(track), uint8_t(index)}), kAsk);
+    auto r = askStep(e, frame(kTrackStep, {uint8_t(track), uint8_t(index)}));
     if (!r) return std::nullopt;
     auto a = argsOf(*r);
     if (a.size() < 2 || a[0] != track || a[1] != index) return std::nullopt;
@@ -240,7 +248,7 @@ bool writePattern(Endpoint& e, int track, const TrackPattern& p, juce::String& e
         if (values[i] != knownValues[i] && !e.ask(paramWrite(track, ids[i], values[i]), kAsk)) { error = "no answer to TRACK_PARAM"; return false; }
     for (size_t i = 0; i < p.steps.size(); ++i) {
         if (known && i < known->steps.size() && known->steps[i] == p.steps[i]) continue;
-        if (!e.ask(stepWrite(d, track, int(i), p.steps[i]), kAsk)) { error = "no answer to TRACK_STEP"; return false; }
+        if (!askStep(e, stepWrite(d, track, int(i), p.steps[i]))) { error = "no answer to TRACK_STEP"; return false; }
     }
     for (size_t i = 0; i < p.drums.size(); ++i) {
         if (known && i < known->drums.size() && known->drums[i] == p.drums[i]) continue;

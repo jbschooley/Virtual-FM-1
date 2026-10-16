@@ -246,6 +246,7 @@ int main(int argc, char** argv) {
         check(felucca::copySequencer(synth, mine, 4, err), "pull into the plugin's Felucca (" + err + ")");
         felucca::Step st;
         st.n = 1; st.note = {60, 0, 0, 0}; st.time = felucca::kNote; st.vel = 100; st.ratchet = 3; st.nudge = -3;
+        st.cond = 5;   // (1.6: a condition, 2:3)
         mine.ask(felucca::stepWrite(felucca::feluccaDialect(), 0, 5, st), 0);
         felucca::Chain c;
         c.rows = {{0, 2}, {1, 1}};
@@ -262,11 +263,11 @@ int main(int argc, char** argv) {
             for (auto& ev : m->events) if (ev.lock && ev.step == 9 && ev.param == lp && ev.value == 33) return true;
             return false;
         };
-        auto stepOk = [&](felucca::Endpoint& e) { auto s = felucca::readStep(e, 0, 5); return s && s->ratchet == 3 && s->nudge == -3 && s->note[0] == 60; };
+        auto stepOk = [&](felucca::Endpoint& e) { auto s = felucca::readStep(e, 0, 5); return s && s->ratchet == 3 && s->nudge == -3 && s->note[0] == 60 && s->cond == 5; };
         auto lanesOk = [&](felucca::Endpoint& e) { auto ch = felucca::readChain(e); return ch && ch->rows.size() == 2 && ch->lanes == c.lanes; };
         check(stepOk(mine) && lanesOk(mine) && hasLock(mine), "set in the plugin's Felucca (lock on parameter " + juce::String(lp) + ")");
         check(felucca::copySequencer(mine, synth, 4, err), "send (" + err + ")");
-        check(stepOk(synth), "the FM-1's step 6: ratchet 3, nudge -3");
+        check(stepOk(synth), "the FM-1's step 6: ratchet 3, nudge -3, condition 5");
         check(lanesOk(synth), "the FM-1's chain: its lanes");
         check(hasLock(synth), "the FM-1's motion: the lock");
         check(felucca::copySequencer(synth, back, 4, err), "pull into a new Felucca (" + err + ")");

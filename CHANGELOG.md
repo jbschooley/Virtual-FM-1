@@ -16,7 +16,9 @@ for the code. New work goes under the next version at the top.
   conditions, and Pull, Send and Live carry them. Projects made with 1.5.1 open
   on it (the same format). An FM-1 on Felucca 1.5.1 or older is pulled from only
   (1.5 cannot open a project holding a step condition): update it with
-  Felucca's installer. Not yet tried with an FM-1 running 1.6.1. Automation
+  Felucca's installer. Tried with an FM-1 running 1.6.1: Pull, Send (every
+  object read back the same), the Sequencer's steps with a condition, ratchet
+  and nudge, the chain's lanes and a motion lock both ways, and Live. Automation
   recorded with 1.5.1 on a part's modulation destinations ("Felucca P1 M1DST"
   to M4DST), its QUANT, or a DRUM part's KIT (its E0) can land on a
   neighbouring value now, as those lists grew: check it.
@@ -55,6 +57,12 @@ for the code. New work goes under the next version at the top.
   (most answer as Felucca does, or with Felucca's own numbers). Where two
   answer alike, both are named. The plugin now asks a firmware for its name
   from FM-1_200 up (it asked from FM-1_900).
+
+### Fixed
+
+- **A pattern's Pull or Send no longer fails on one lost reply.** About one
+  reply in a few thousand is lost on the FM-1's USB MIDI; a pattern's steps are
+  now asked again once (Felucca, SLOOP, Melodee).
 
 ### Added
 
