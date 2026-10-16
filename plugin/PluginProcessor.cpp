@@ -7,6 +7,9 @@
 #include "Fm1Json.h"
 #include "SeqMidi.h"
 #include "PluginEditor.h"
+#if FM1_FELUCCA
+#include "Fm1OpenDevice.h"
+#endif
 
 #if FM1_FELUCCA
 // Whether a host parameter is one of the firmware the engine plays: Felucca's, SLOOP's or Melodee's
@@ -634,19 +637,24 @@ void FM1Processor::getStateInformation(juce::MemoryBlock& dest) {
             if (!FeluccaEngine::has(flavor, release)) continue;
             if (auto fs = feluccaState(flavor, release); fs.isValid() && (fs.getNumProperties() > 0 || fs.getNumChildren() > 0)) v.addChild(fs, -1, nullptr);
         }
-    {   // FM1 Open's projects and settings (its flash before the sample bank), compressed
-        std::vector<uint8_t> projects;
-        if (auto fo = fm1open()) projects = fo->projects();
-        else { std::lock_guard<std::mutex> g(felStateLock_); projects = fm1openSaved_; }
-        if (!projects.empty()) {
+    {   // FM1 Open's projects and settings (its flash before the sample bank), compressed; its sample
+        // bank too when one was written to it (a Pull from an FM-1), not its demo bank
+        std::vector<uint8_t> projects, samples;
+        if (auto fo = fm1open()) { projects = fo->projects(); samples = fo->samples(); }
+        else { std::lock_guard<std::mutex> g(felStateLock_); projects = fm1openSaved_; samples = fm1openSavedSamples_; }
+        auto pack = [](const std::vector<uint8_t>& b) {
             juce::MemoryOutputStream packed;
             {
                 juce::GZIPCompressorOutputStream z(packed, 9);
-                z.write(projects.data(), projects.size());
+                z.write(b.data(), b.size());
             }
+            return packed.getMemoryBlock().toBase64Encoding();
+        };
+        if (!projects.empty()) {
             juce::ValueTree fo("Fm1Open");
             fo.setProperty("version", "V12", nullptr);
-            fo.setProperty("flash", packed.getMemoryBlock().toBase64Encoding(), nullptr);
+            fo.setProperty("flash", pack(projects), nullptr);
+            if (!samples.empty()) fo.setProperty("samples", pack(samples), nullptr);
             v.addChild(fo, -1, nullptr);
         }
     }
@@ -845,25 +853,31 @@ void FM1Processor::setStateInformation(const void* data, int size) {
             if (FeluccaEngine::has(f, FeluccaEngine::Release(r)))
                 setFeluccaState(music[stateName(f, FeluccaEngine::Release(r))], f, FeluccaEngine::Release(r));
     feluccaChanged();
-    {   // FM1 Open's projects, if the project has them: into its engine, or kept for when it has one
-        std::vector<uint8_t> projects;
-        juce::MemoryBlock packed;
-        if (auto fo = v.getChildWithName("Fm1Open"); fo.isValid() && packed.fromBase64Encoding(fo.getProperty("flash").toString())) {
+    {   // FM1 Open's projects (and a sample bank written to it), if the project has them: into its engine,
+        // or kept for when it has one
+        auto unpack = [](const juce::ValueTree& t, const char* name, size_t size) {
+            std::vector<uint8_t> out;
+            juce::MemoryBlock packed;
+            if (!t.isValid() || !packed.fromBase64Encoding(t.getProperty(name).toString())) return out;
             juce::MemoryInputStream in(packed, false);
             juce::GZIPDecompressorInputStream z(in);
             juce::MemoryBlock raw;
             z.readIntoMemoryBlock(raw);
-            if (raw.getSize() == 69632) projects.assign(static_cast<const uint8_t*>(raw.getData()), static_cast<const uint8_t*>(raw.getData()) + raw.getSize());
-        }
+            if (raw.getSize() == size) out.assign(static_cast<const uint8_t*>(raw.getData()), static_cast<const uint8_t*>(raw.getData()) + raw.getSize());
+            return out;
+        };
+        const auto t = v.getChildWithName("Fm1Open");
+        const auto projects = unpack(t, "flash", 69632), samples = projects.empty() ? std::vector<uint8_t>() : unpack(t, "samples", 466944);
         if (auto fo = fm1open()) {
             if (!projects.empty()) {
                 suspendProcessing(true);
-                fo->setProjects(projects);
+                fo->setFlash(projects, samples);   // (no samples: its demo bank)
                 suspendProcessing(false);
             }
         } else {
             std::lock_guard<std::mutex> g(felStateLock_);
             fm1openSaved_ = projects;
+            fm1openSavedSamples_ = samples;
         }
     }
    #endif
@@ -1417,6 +1431,173 @@ bool FM1Processor::feluccaSendSound(int track) {
     });
 }
 
+// ---- FM1 Open: Pull and Send through its project transfer protocol ----
+
+bool FM1Processor::fm1openSynth() const {
+    auto id = session.lastIdentity();
+    return link.isOpen() && id && fm1::firmwareIdFor(*id) == "fm1open" && firmwareId() == "fm1open";
+}
+
+namespace {
+using Fm1OpenResult = Fm1Session::JobResult;
+// what a Send or a sample write replaces on the FM-1, kept in the library as M-VAVE's workbench saves it
+// (.fm1 projects, .fm1s sample banks: its Import takes them back)
+juce::String saveFm1OpenBackup(const fm1open::Bytes& bytes, const char* extension) {
+    auto f = LibraryStore::root().getChildFile("FM1 Open").getChildFile("Backups")
+                 .getChildFile("FM-1 " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") + extension);
+    f.getParentDirectory().createDirectory();
+    return f.replaceWithData(bytes.data(), bytes.size()) ? f.getFullPathName() : juce::String();
+}
+}  // namespace
+
+bool FM1Processor::fm1openPull() {
+    auto f = fm1open();
+    if (!f || !fm1openSynth()) return false;
+    return session.job("Reading the project the FM-1 plays...", [f](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        auto progress = [&p](int done, int total) { p.progress(done, total, {}); return !p.cancelled(); };
+        juce::String err;
+        auto project = theirs.project(err, progress);
+        if (!project) return Fm1OpenResult{false, "Could not read the FM-1's project: " + err + "."};
+        const auto v12 = fm1open::upgradeProject(*project);
+        if (v12.empty()) return Fm1OpenResult{false, "The FM-1's project is not one FM1 Open V12 opens."};
+        if (!ours.setProject(v12, err)) return Fm1OpenResult{false, "Read the FM-1's project, but the plugin's FM1 Open refused it: " + err + "."};
+        return Fm1OpenResult{true, "Pulled the project the FM-1 plays (" + juce::String(f->projectName()).trim() + ")."};
+    });
+}
+
+bool FM1Processor::fm1openSend(int slot) {
+    auto f = fm1open();
+    if (!f || !fm1openSynth() || slot >= fm1open::kSlots) return false;
+    return session.job("Backing up the FM-1's project, then sending this one...", [f, slot](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        auto progress = [&p](int done, int total) { p.progress(done, total, {}); return !p.cancelled(); };
+        juce::String err;
+        auto before = theirs.project(err);
+        if (!before) return Fm1OpenResult{false, "Nothing sent: could not back up the FM-1's project first (" + err + ")."};
+        const auto kept = saveFm1OpenBackup(fm1open::projectFile(*before), ".fm1");
+        if (kept.isEmpty()) return Fm1OpenResult{false, "Nothing sent: could not save the FM-1's project in the library."};
+        auto project = ours.project(err);
+        if (!project) return Fm1OpenResult{false, "Nothing sent: the plugin's FM1 Open gave no project (" + err + ")."};
+        if (!theirs.setProject(*project, err, progress))
+            return Fm1OpenResult{false, "Sending stopped: " + err + ". The FM-1's project from before: " + kept};
+        if (slot >= 0 && !theirs.saveToSlot(slot, err))
+            return Fm1OpenResult{false, "Sent, but not saved in slot " + juce::String(slot + 1) + ": " + err + ". The FM-1's project from before: " + kept};
+        return Fm1OpenResult{true, juce::String("Sent this project to the FM-1") + (slot >= 0 ? ", saved in slot " + juce::String(slot + 1) : juce::String(" (it plays it; not saved in a slot)"))
+                                   + ". Its project from before: " + kept};
+    });
+}
+
+bool FM1Processor::fm1openPullSound(int track) {
+    auto f = fm1open();
+    if (!f || !fm1openSynth() || track < 0 || track >= fm1open::kTracks) return false;
+    return session.job("Reading track " + juce::String(track + 1) + "'s sound from the FM-1...", [f, track](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        juce::String err;
+        auto sound = theirs.download(2, track, err);
+        if (!sound) return Fm1OpenResult{false, "Could not read track " + juce::String(track + 1) + "'s sound: " + err + "."};
+        if (!ours.upload(2, track, *sound, err)) return Fm1OpenResult{false, "The plugin's FM1 Open refused track " + juce::String(track + 1) + "'s sound: " + err + "."};
+        return Fm1OpenResult{true, "Track " + juce::String(track + 1) + "'s sound read from the FM-1."};
+    });
+}
+
+bool FM1Processor::fm1openSendSound(int track) {
+    auto f = fm1open();
+    if (!f || !fm1openSynth() || track < 0 || track >= fm1open::kTracks) return false;
+    return session.job("Sending track " + juce::String(track + 1) + "'s sound to the FM-1...", [f, track](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        juce::String err;
+        auto sound = ours.download(2, track, err);
+        if (!sound) return Fm1OpenResult{false, "The plugin's FM1 Open gave no sound for track " + juce::String(track + 1) + " (" + err + ")."};
+        if (!theirs.upload(2, track, *sound, err)) return Fm1OpenResult{false, "Could not send track " + juce::String(track + 1) + "'s sound: " + err + "."};
+        return Fm1OpenResult{true, "Track " + juce::String(track + 1) + "'s sound sent to the FM-1 (its project playing; not saved in a slot)."};
+    });
+}
+
+bool FM1Processor::fm1openListSlots() {
+    if (!fm1openSynth()) return false;
+    return session.job("Reading the FM-1's project slots...", [this](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::Client theirs(synth);
+        juce::String err;
+        std::vector<std::string> names;
+        for (int s = 0; s < fm1open::kSlots; ++s) {
+            auto n = theirs.slotName(s, err);
+            if (!n) return Fm1OpenResult{false, "Could not read slot " + juce::String(s + 1) + "'s name: " + err + "."};
+            names.push_back(*n);
+            p.progress(s + 1, fm1open::kSlots, {});
+        }
+        { std::lock_guard<std::mutex> g(fm1openSlotsLock_); fm1openSlots_ = names; }
+        juce::MessageManager::callAsync([this, alive = std::weak_ptr<bool>(alive_)] { if (alive.lock() && onFm1OpenSlots) onFm1OpenSlots(); });
+        int used = 0;
+        for (const auto& n : names) used += !n.empty();
+        return Fm1OpenResult{true, "The FM-1 has " + juce::String(used) + " of its 16 project slots in use."};
+    });
+}
+
+bool FM1Processor::fm1openPullSlot(int slot) {
+    auto f = fm1open();
+    if (!f || !fm1openSynth() || slot < 0 || slot >= fm1open::kSlots) return false;
+    return session.job("Loading slot " + juce::String(slot + 1) + " on the FM-1, then reading it...", [f, slot](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        auto progress = [&p](int done, int total) { p.progress(done, total, {}); return !p.cancelled(); };
+        juce::String err;
+        if (!theirs.loadSlot(slot, err)) return Fm1OpenResult{false, "Could not load slot " + juce::String(slot + 1) + " on the FM-1: " + err + "."};
+        auto project = theirs.project(err, progress);
+        if (!project) return Fm1OpenResult{false, "Loaded slot " + juce::String(slot + 1) + " on the FM-1, but could not read it: " + err + "."};
+        const auto v12 = fm1open::upgradeProject(*project);
+        if (v12.empty() || !ours.setProject(v12, err)) return Fm1OpenResult{false, "The plugin's FM1 Open refused slot " + juce::String(slot + 1) + "'s project: " + err + "."};
+        return Fm1OpenResult{true, "Slot " + juce::String(slot + 1) + " (" + juce::String(f->projectName()).trim() + ") loaded on the FM-1 and pulled."};
+    });
+}
+
+bool FM1Processor::fm1openPullSamples() {
+    auto f = fm1open();
+    if (!f || !fm1openSynth()) return false;
+    return session.job("Reading the FM-1's sample bank (about a minute)...", [f](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        auto progress = [&p](int done, int total) { p.progress(done, total, {}); return !p.cancelled(); };
+        juce::String err;
+        auto bank = theirs.samples(err, progress);
+        if (!bank) return Fm1OpenResult{false, "Could not read the FM-1's sample bank: " + err + "."};
+        if (!ours.setSamples(*bank, err)) return Fm1OpenResult{false, "Read the FM-1's sample bank, but the plugin's FM1 Open refused it: " + err + "."};
+        return Fm1OpenResult{true, "Pulled the FM-1's sample bank (" + juce::String(int(bank->size() / 1024)) + " KB; saved with this project)."};
+    });
+}
+
+bool FM1Processor::fm1openSendSamples() {
+    auto f = fm1open();
+    if (!f || !fm1openSynth()) return false;
+    return session.job("Backing up the FM-1's sample bank, then sending this one (a few minutes)...", [f](fm1::Port& p) {
+        fm1open::LinkEndpoint synth(p.link);
+        fm1open::EngineEndpoint mine(f);
+        fm1open::Client theirs(synth), ours(mine);
+        auto progress = [&p](int done, int total) { p.progress(done, total, {}); return !p.cancelled(); };
+        juce::String err;
+        auto before = theirs.samples(err, progress);
+        if (!before) return Fm1OpenResult{false, "Nothing sent: could not back up the FM-1's sample bank first (" + err + ")."};
+        const auto kept = saveFm1OpenBackup(*before, ".fm1s");
+        if (kept.isEmpty()) return Fm1OpenResult{false, "Nothing sent: could not save the FM-1's sample bank in the library."};
+        auto bank = ours.samples(err);
+        if (!bank) return Fm1OpenResult{false, "Nothing sent: the plugin's FM1 Open gave no sample bank (" + err + ")."};
+        if (!theirs.setSamples(*bank, err, progress))
+            return Fm1OpenResult{false, "Sending the sample bank stopped: " + err + ". The FM-1's bank from before: " + kept};
+        return Fm1OpenResult{true, "Sent the sample bank to the FM-1 (every project there uses it). Its bank from before: " + kept};
+    });
+}
+
 bool FM1Processor::feluccaLive(bool on) {
     if (!on) { if (felLive_) session.cancel(); return true; }
     auto f = felucca();
@@ -1622,9 +1803,11 @@ void FM1Processor::setFirmware(const juce::String& id) {
         const bool want = std::string(choices[size_t(index)].id) == "fm1open";
         if (!want && fm1open_) {
             auto kept = fm1open_->projects();
+            auto keptSamples = fm1open_->samples();
             {
                 std::lock_guard<std::mutex> g(felStateLock_);
                 fm1openSaved_ = kept;
+                fm1openSavedSamples_ = keptSamples;
             }
             suspendProcessing(true);
             std::atomic_store(&fm1open_, std::shared_ptr<Fm1OpenEngine>());
@@ -1635,12 +1818,13 @@ void FM1Processor::setFirmware(const juce::String& id) {
             if (!next->valid()) {
                 status("FM1 Open could not start in this instance; it is silent.");
             } else {
-                std::vector<uint8_t> saved;
+                std::vector<uint8_t> saved, savedSamples;
                 {
                     std::lock_guard<std::mutex> g(felStateLock_);
                     saved.swap(fm1openSaved_);
+                    savedSamples.swap(fm1openSavedSamples_);
                 }
-                if (!saved.empty()) next->setProjects(saved);
+                if (!saved.empty()) next->setFlash(saved, savedSamples);
                 suspendProcessing(true);
                 std::atomic_store(&fm1open_, next);
                 prepareFelucca();

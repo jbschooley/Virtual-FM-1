@@ -146,6 +146,21 @@ public:
     bool feluccaPullPatterns();
     bool feluccaSendPatterns();
     bool feluccaLiveOn() const { return felLive_.load(); }
+    // A connected FM-1 running FM1 Open, synced through its project transfer protocol (session jobs;
+    // firmwares/fm1open/Fm1OpenSync.h): the project it plays, a track's sound, its 16 user slots, its sample
+    // bank. What a Send or a sample write replaces on the FM-1 is saved in the library first. No Live: FM1
+    // Open has no message for one value changed (a sound written whole would cut what plays).
+    bool fm1openSynth() const;                  // connected to an FM-1 running FM1 Open
+    bool fm1openPull();                         // the project it plays, into this instance's
+    bool fm1openSend(int slot = -1);            // this instance's project to the one it plays (and into slot 0..15)
+    bool fm1openPullSound(int track);           // a track's sound (its source and settings), either way
+    bool fm1openSendSound(int track);
+    bool fm1openListSlots();                    // its user slots' names: fm1openSlotNames(), then onFm1OpenSlots
+    bool fm1openPullSlot(int slot);             // slot 0..15 loaded on the FM-1, then pulled
+    bool fm1openPullSamples();                  // its sample bank, into this instance (saved with the project)
+    bool fm1openSendSamples();
+    std::vector<std::string> fm1openSlotNames() const { std::lock_guard<std::mutex> g(fm1openSlotsLock_); return fm1openSlots_; }
+    std::function<void()> onFm1OpenSlots;       // the slot names were read (message thread)
     std::function<void()> onFeluccaLive;   // live sync ended (message thread)
     // The host parameter of Felucca's (or SLOOP's, as it plays) parameter (track -1: a global), or
     // null: for change gestures.
@@ -219,6 +234,9 @@ private:
     std::shared_ptr<FeluccaEngine> felucca_;          // swapped with the audio callback held off
     std::shared_ptr<Fm1OpenEngine> fm1open_;          // the same, while set to FM1 Open
     std::vector<uint8_t> fm1openSaved_;               // its projects area while it has no engine (felStateLock_)
+    std::vector<uint8_t> fm1openSavedSamples_;        // and a sample bank written to it (empty: its demo bank)
+    mutable std::mutex fm1openSlotsLock_;
+    std::vector<std::string> fm1openSlots_;           // the connected FM-1's user slot names, as last listed
     void renderFm1Open(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
     // Felucca's, SLOOP's and Melodee's state while they have no engine, each release apart (flavorIndex):
     // kept, saved
