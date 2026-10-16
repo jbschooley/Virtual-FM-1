@@ -2,7 +2,10 @@
 
 `upstream/` is part of [Felucca](https://github.com/hugelton/Felucca), Leo
 Kuroshita's firmware for the M-VAVE FM-1 (Hügelton Instruments), at
-**v1.5.1** (commit `a4d7ca2e5d52a4c35e2468401f00d883cadbda03`, 2026-10-10). Felucca 1.0.3, which it
+**v1.6.1** (commit `a53ecf428c29c780108fd70a31b71a32a6b5c313`, 2026-10-15), with its
+[Felucca-Engines](https://github.com/hugelton/Felucca-Engines) submodule (`firmware/engines`, commit
+`c46e0086f69bdc26df1cd144dca9e683cc4531dd`): since 1.6.1 the ANALOG, LOFI, TRIO, WHEEL and NOISE engines,
+`dsp.c` and their tables' generator live there, under the MIT licence. Felucca 1.0.3, which it
 replaces (1.0.5 retired three drum kits; 1.1 to 1.5 changed the project format), is kept beside it in
 `engines/felucca103` for the projects made with it.
 It is GPL-3.0-only; see `upstream/LICENSE` and `upstream/LICENSING.md`. The
@@ -14,12 +17,14 @@ Copied unchanged:
 - `firmware/src/` and `firmware/hal/`: the DSP, sequencer and the rest of the
   firmware (the plugin builds only what Felucca's own host build builds)
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: Felucca's
-  regression (92 golden renders in 1.5.1), run by ctest as `felucca_regress`. From 1.0 to 1.0.2
+  regression (98 golden renders in 1.6.1: 1.5.1's 92 unchanged, and the DEEP, TIGHT and PERC kits), run by ctest as `felucca_regress`. From 1.0 to 1.0.2
   three changed, all where SAMPLE's PERC set played (retired in 1.0.2: such a sound is
   the DRUM engine's kit now); none from 1.0.2 to 1.0.3
 - `tools/gen_tables.py`, `gen_samples.py`, `gen_waves.py`,
   `gen_fm6_patches.py`, `gen_aa_font.py`, `gen_aa_icons.py`,
   `gen_aa_keycaps.py`, `gen_ui_palettes.py`, `aa_raster.py`: the generators
+- `firmware/engines/`: the Felucca-Engines submodule's `src/`, `tools/gen_engine_tables.py` (which
+  `gen_tables.py` imports), `LICENSE` (MIT) and `README.md`
 - `LICENSE`, `LICENSING.md`, `LICENSES/`: its licences, and those of the
   parts it takes from others (msfa in FM6, DaisySP and Rings in PHYS; DotGothic16, 1.5, is
   only its web emulator's)
@@ -28,9 +33,10 @@ Copied unchanged:
 `felucca_tables.h`, `felucca_fm6.h` (FM6's factory patches),
 `felucca_samples.h` (the sample sets) and the screen's `ui_fonts.h`,
 `ui_icons.h`, `ui_keycaps.h` and `ui_palettes.h`, made in a full checkout of
-that version as its `tools/build.py` makes them (`generate()`): for example
+that version (with its submodule) as its `tools/build.py` makes them (`generate()`): for example
 `python3 tools/gen_aa_font.py ui_fonts.h --preset inter-tight`. The samples
-and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
+and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied. For 1.6.1 they were generated twice: the
+same bytes both times, and the same as 1.5.1's.
 
 ## Samples
 
@@ -75,13 +81,20 @@ and the font need `assets/`, the icons `web/fukiai.ttf`; neither is copied.
 - Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and MIDI clock in (`G_CLOCK`
   USB or TRS: the plugin gives the host's tempo instead).
 
-## 1.5.1 in the core
+## 1.6.1 in the core
 
-`felucca_core.c` follows 1.5.1's `felucca.c` (`menu_items.c` after `ui.c`; `master.c`, the MASTER pot, is
-only called from `main.c` and not built) and `main.c` (`eng_mem_claim` at power-on, SCREEN OFF counted
-from init). Not built, as the plugin keeps the music: the autosave (`autosave_boot`, `autosave_poll`;
-not a backup object). The power-on LED sweep and idle animation are stubs (the UI's LEDs at once), and
-the breathing and mid-level LEDs (1.1) show dim. Its full backup has the same objects as 1.0.3.
+`felucca_core.c` follows 1.6.1's `felucca.c` (the same order as 1.5.1's; `menu_items.c` after `ui.c`;
+`master.c`, the MASTER pot, is only called from `main.c` and not built) and `main.c` (`eng_mem_claim` at
+power-on, SCREEN OFF counted from init). Not built, as the plugin keeps the music: the autosave
+(`autosave_boot`, `autosave_poll`; not a backup object). The power-on LED sweep and idle animation are
+stubs (the UI's LEDs at once), and the breathing and mid-level LEDs (1.1) show dim. Its full backup has
+the same objects as 1.0.3.
+
+The second core (1.6.1, `hal/fm1_cpu1.*`): `FELUCCA_CPU2` stays at its default, 1, as in Felucca's
+release packages, so MENU > SYSTEM > 2ND CORE (setting 32) is there as on an FM-1 and the editor's MENU
+settings match it. Nothing hands work to a second core: `felucca.c`'s `C1_RUN` (the hardware's) is not
+built, so `fx.c` takes its own (none taken) and this core renders every part, which `fx.c` says is bit
+for bit what one core renders. The setting is kept and does nothing here.
 
 ## Updating
 

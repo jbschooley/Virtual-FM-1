@@ -8,6 +8,18 @@ for the code. New work goes under the next version at the top.
 
 ### Changed
 
+- **Felucca 1.6.1** is built in (it was 1.5.1): step conditions (1:2 to 4:4,
+  FILL, !FILL), MIDI IN TRACK with a channel per part, the VEL and TIME
+  modulation destinations, QNT SEQ+T, the DEEP, TIGHT and PERC drum kits,
+  PHASE's FOLD, a custom palette and the 2ND CORE setting (kept, with no
+  effect in the plugin). The Sequencer tab's CHANCE goes on past 100 into the
+  conditions, and Pull, Send and Live carry them. Projects made with 1.5.1 open
+  on it (the same format). An FM-1 on Felucca 1.5.1 or older is pulled from only
+  (1.5 cannot open a project holding a step condition): update it with
+  Felucca's installer. Not yet tried with an FM-1 running 1.6.1. Automation
+  recorded with 1.5.1 on a part's modulation destinations ("Felucca P1 M1DST"
+  to M4DST), its QUANT, or a DRUM part's KIT (its E0) can land on a
+  neighbouring value now, as those lists grew: check it.
 - **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
   memory is 0.97's, checked in its firmware image), and said to be not tried
   with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.

@@ -6,14 +6,15 @@
  * ends with the row's MENU tab (MI_TAB: its index and name), so the editor can group the settings as the device does.
  * ED_MENU: {row, id}, the 1.0.4 settings in the menu's order, then the later ones as they came (1.1: CLICK, CLICK LEVEL,
  * COUNT-IN, rows of AUDIO; 1.2: RESTORE LAST, SYSTEM; SCALE LEDS, CONTROL; 1.1.5: SCREEN OFF, DISPLAY; 1.2: SCOPE,
- * DISPLAY; STEP PREVIEW, CHORD ENTRY, CONTROL; MIDI IN, MIDI; TUNE, AUDIO; 1.3: HOME, DISPLAY): an index keeps its
+ * DISPLAY; STEP PREVIEW, CHORD ENTRY, CONTROL; MIDI IN, MIDI; TUNE, AUDIO; 1.3: HOME, DISPLAY; 1.5: HELP, SYSTEM;
+ * 1.5.5: SELECT, CONTROL; T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE, MIDI): an index keeps its
  * setting too, so an older editor lists what it knew where it was (the
  * editor groups them by their tab). An id keeps its meaning for good: a new setting takes the next free id
  * (append-only), wherever its row goes; ids 0..126 (127: none).
  * 1.2: MIDI IN (21) and TUNE (22) are the project's G_ROUTE and G_TUNE (menu_items.c MI_PROJECT), the same values as a
  * SET of global 14 / 3: MENU_SET applies them to the music in RAM, kept with the project (the autosave, PROJECT SAVE),
  * not in the settings record: rc 0, nothing for settings_save to write. TUNE is a number (EDM_INT: the cents -50..50,
- * unit "ct"), the only one so far */
+ * unit "ct"), the only one so far. 1.5.5: T1..T4 CHANNEL (26..29), MIDI IN TRACK's channels, the project's as MIDI IN (rc 0) */
 enum { ED_MENU_DESC = 72, ED_MENU_SET };
 enum { EDM_ENUM, EDM_INT };                            /* kind: names follow; or a unit (none yet) */
 static const uint8_t ED_MENU[][2] = {
@@ -30,6 +31,15 @@ static const uint8_t ED_MENU[][2] = {
     {MI_TUNE, 22},                                     /* 1.2: the project's G_TUNE (was GLO > GLOBAL), AUDIO */
     {MI_HOME, 23},                                     /* 1.3 (Discussions #112, #134): HOME SCOPE / TRACKS, DISPLAY */
     {MI_HELP, 24},                                     /* 1.5 (Discussion #156): HELP OFF / ON, SYSTEM */
+    {MI_SELECT, 25},                                   /* 1.5.5 (Discussion #188): SELECT BPM / PAGE, CONTROL */
+    {MI_TCH1, 26}, {MI_TCH2, 27}, {MI_TCH3, 28}, {MI_TCH4, 29},   /* 1.5.5 (#202): T1..T4 CHANNEL, the project's (song.mch)
+                                                       * as MIDI IN: 1..16 OMNI OFF (values 0..17), MIDI */
+    {MI_MFOLLOW, 30},                                  /* 1.5.5 (#208): AUTO SELECT OFF / ON, a setting, MIDI */
+    {MI_SCRWAKE, 31},                                  /* 1.5.5: SCREEN WAKE +MIDI / PANEL, a setting, MIDI */
+#if FELUCCA_CPU2
+    {MI_CPU2, 32},                                     /* 1.6.1, the second core (Discussion #141): 2ND CORE OFF / ON (BETA),
+                                                        * SYSTEM, from the next power-on (a FELUCCA_CPU2=0 build: 0..31) */
+#endif
 };
 #define ED_MENU_N NELEM(ED_MENU)
 

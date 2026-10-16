@@ -184,7 +184,7 @@ int main() {
     }
     {   // a Felucca and a Sloop side by side: each its own
         FeluccaEngine fel, slp{kSloop};
-        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && fel.engines() == 14 && slp.engines() == 12,
+        CHECK(fel.version() == "v1.6.1" && slp.version() == "SLOOP 2.6" && fel.engines() == 14 && slp.engines() == 12,
               "a Felucca instance and a Sloop instance at once, each its own firmware");
     }
 

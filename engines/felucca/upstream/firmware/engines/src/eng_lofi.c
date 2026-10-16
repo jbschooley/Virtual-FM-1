@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MIT
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Chip voice: pulse/triangle/saw/noise/wave RAM, quantised amplitude and a held
  * (downsampled) output; SWEEP bends the pitch down after note-on.

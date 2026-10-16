@@ -40,7 +40,7 @@ At phone size (the iOS app builds from source):
 - To sync with a synth: an **M-VAVE FM-1** on USB running baud girl's
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.97; 0.96, 0.93
   and 0.94 too; 101 synced as 0.97, not tried yet), **[Felucca](https://github.com/hugelton/Felucca)**
-  1.5.1 (1.5 too; 1.0 to 1.4.1 pulled from only; one on 1.0.3 syncs with an
+  1.6.1 (1.6 too, untried; 1.0 to 1.5.1 pulled from only; one on 1.0.3 syncs with an
   instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
   2.5 pulled from only) or
   **[Melodee](https://github.com/keremimo/melodee)** 1.3.4 (1.3.0 to 1.3.3 synced as
@@ -131,16 +131,16 @@ project saves its own current preset, edits, patterns and arpeggiator.
   editors can check against. See [`docs/JSON-FORMAT.md`](docs/JSON-FORMAT.md).
 - **MIDI out**: what the sequencer and arpeggiator play leaves the plugin as
   MIDI, so a host can route it to the synth as well.
-- **Felucca 1.5.1**, built from its source: its thirteen engines on four parts,
+- **Felucca 1.6.1**, built from its source: its thirteen engines on four parts,
   each part's parameters in an editor and as host parameters. Its Library tab
   lists the 32 user presets and four projects to load, save, rename and erase;
   its Device tab shows its own screen, buttons, knobs and keys, so its
   sequencer, projects and user presets work as on the device. Its projects and
   user presets are kept in the library as the file Felucca's web editor uses
   for backups. With an FM-1
-  running Felucca 1.5.1: pull everything, send everything, or keep both in step live;
-  the Sequencer tab carries steps' ratchets and
-  nudges, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
+  running Felucca 1.6.1: pull everything, send everything, or keep both in step live
+  (not yet tried with an FM-1 on 1.6.1); the Sequencer tab carries steps' ratchets,
+  nudges and conditions, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
   beside it, its own firmware choice, for the projects made with it: a project saved
   with 1.0.x opens on it, and it syncs fully with an FM-1 still on 1.0.3.
 - **SLOOP 2.6**, built from its source the same way: its twelve engines (FM6,

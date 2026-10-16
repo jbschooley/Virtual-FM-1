@@ -33,9 +33,10 @@ static int st_erase(uint32_t off)
         return -8;
     f = irq_save();
     audio_silence();
-    rc = FL_FAR(fl_erase4k_ram)(off, &took);
-    irq_restore(f);
-    return rc;
+    fm1__led_lines(0);                          /* (#236) the erase stops the LED scan for ~17 ms (the IRQs are off and its code */
+    rc = FL_FAR(fl_erase4k_ram)(off, &took);    /* is in the flash): one column would stay lit at full duty and the rest dark, a */
+    irq_restore(f);                             /* flash of the whole panel. Dark rows: the panel just drops out; the tick lights */
+    return rc;                                  /* the rows again at its next pass */
 }
 static int st_prog(uint32_t off, const void *src, uint32_t n)
 {

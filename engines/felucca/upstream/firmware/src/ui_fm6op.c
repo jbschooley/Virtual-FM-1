@@ -120,8 +120,9 @@ static void fop_freq(const uint8_t *op, char *s)
 }
 
 /* card slot of an operator page: its label, value (12), unit, gauge (0..1000, -1 none), icon; 0 = shown DIM (a level
- * at 0, the operator silent) */
-static int fop_card(uint32_t slot, const char **label, char *val, const char **unit, int32_t *ratio, uint32_t *icon)
+ * at 0, the operator silent). fop_card_at: as if its byte held vo (>= 0; MENU > LARGE's face, ui_draw.c span_fop) */
+static int fop_card_at(uint32_t slot, int32_t vo, const char **label, char *val, const char **unit, int32_t *ratio,
+                       uint32_t *icon)
 {
     static const char *const STG[4] = {"ATK", "DEC", "SUS", "REL"};
     uint32_t f = fop_field(slot), v;
@@ -144,7 +145,7 @@ static int fop_card(uint32_t slot, const char **label, char *val, const char **u
         *icon = ICON_ENV;
         return 1;
     }
-    v = fm6_patch[song.sel % NTRK][fop_byte(f)];
+    v = vo >= 0 ? (uint32_t)vo : fm6_patch[song.sel % NTRK][fop_byte(f)];
     *ratio = (int32_t)(v * 1000u / fm6_max(fop_byte(f)));
     fmt_int(val, (int32_t)v);
     switch (f) {
@@ -188,4 +189,8 @@ static int fop_card(uint32_t slot, const char **label, char *val, const char **u
         *icon = ICON_RATE;
         return 1;
     }
+}
+static int fop_card(uint32_t slot, const char **label, char *val, const char **unit, int32_t *ratio, uint32_t *icon)
+{
+    return fop_card_at(slot, -1, label, val, unit, ratio, icon);
 }

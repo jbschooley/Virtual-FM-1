@@ -162,10 +162,13 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // 1.0.3 (kept)
     static const std::vector<KnownVersion> felucca = {
         {904, "0.4 beta", Support::Deprecated, "the plugin supports Felucca from 1.0: update it with Felucca's installer"},
-        {910, "1.0.5.2", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
-        {911, "1.1.5.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
-        {914, "1.4.1", Support::Older, "pulled from only: update it to 1.5.1 with Felucca's installer to send to it or go Live"},
-        {915, "1.5.1", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, Live, the sequencer's ratchets, lanes and locks)
+        {910, "1.0.5.2", Support::Older, "pulled from only: update it to 1.6.1 with Felucca's installer to send to it or go Live"},
+        {911, "1.1.5.1", Support::Older, "pulled from only: update it to 1.6.1 with Felucca's installer to send to it or go Live"},
+        {914, "1.4.1", Support::Older, "pulled from only: update it to 1.6.1 with Felucca's installer to send to it or go Live"},
+        // 1.6 stores a step's condition in its chance byte (102..112): 1.5 and 1.5.1 refuse a project holding one
+        // (the slot reads empty there), so they are pulled from only
+        {915, "1.5.1", Support::Older, "pulled from only: update it to 1.6.1 with Felucca's installer to send to it or go Live"},   // (tried 2026-10-11)
+        {916, "1.6.1", Support::Current, ""},   // (not yet tried on an FM-1)
     };
     if (firmwareId == "fm1_stock") return stock;
     // SLOOP: every release answers FM-1_900; its INFO names the release ("FELUCCA SLOOP 2.3")
@@ -251,12 +254,12 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
         return "This FM-1 runs Melodee " + release + ", which does not read Melodee " + current + "'s projects: update it to " + current
                + " with Melodee's installer to send to it or go Live" + (kept ? ", or set this instance to Melodee " + std::string(kept->label) : "") + ". Pull still works.";
     }
-    if (firmwareIdFor(id) == "felucca") {   // 1.5's projects open on no release before 1.5
+    if (firmwareIdFor(id) == "felucca") {   // 1.6's projects open on no release before 1.6 (1.5 refuses a step's condition)
         const std::string release = feluccaRelease(id);
-        const bool before15 = release.empty() ? id.version >= 910 && id.version < 915 : sloopNewer("1.5", release);   // (no INFO: its X.Y)
-        if (!before15) return {};
+        const bool before16 = release.empty() ? id.version >= 910 && id.version < 916 : sloopNewer("1.6", release);   // (no INFO: its X.Y)
+        if (!before16) return {};
         const bool kept = release == "1.0.3" || release.rfind("1.0.3.", 0) == 0;
-        return "This FM-1 runs Felucca " + (release.empty() ? std::string("before 1.5") : release) + ", which does not read Felucca " + std::string(currentVersion("felucca").label)
+        return "This FM-1 runs Felucca " + (release.empty() ? std::string("before 1.6") : release) + ", which does not read Felucca " + std::string(currentVersion("felucca").label)
                + "'s projects: update it with Felucca's installer to send to it or go Live" + (kept ? ", or set this instance to Felucca 1.0.3" : "")
                + ". Pull still works.";
     }
@@ -353,7 +356,7 @@ VersionCheck checkVersion(const Identity& id, const std::string& choiceId) {
             c.text = who + ": Felucca " + release + ", newer than the plugin's " + current.label + "; synced as " + current.label + " (not tried yet)";
             return c;
         }
-        const bool sameFormat = !sloopNewer("1.5", release);   // (1.5 and 1.5.1 read each other's projects)
+        const bool sameFormat = !sloopNewer("1.6", release);   // (1.6 and 1.6.1 read each other's projects)
         const bool kept = release == "1.0.3" || release.rfind("1.0.3.", 0) == 0;
         c.support = Support::Older;
         c.text = who + ": Felucca " + release + ", older than the plugin's " + current.label

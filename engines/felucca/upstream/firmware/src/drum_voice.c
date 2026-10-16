@@ -50,6 +50,13 @@
  *       its stick, a click rim, a bell of a wide metal cluster; a CLAP stand-in from its snare's noise
  *   77  a long kick that swells in, a 226 Hz snare under wide noise, six close claps and a tail, pulse-cluster
  *       hats, a bent tom, claves on RIM, the cymbal on BELL
+ * 1.5.6 (Discussion #216): three more kits put together from the five kits' pieces (the same runs and numbers, data
+ * only; nothing new in the sample loops):
+ *   DEEP   77's swelling kick tuned down 2 semitones, 80's snare, 77's claps, 80's hats, 77's bent tom, 80's rim,
+ *          10's long cymbal on BELL
+ *   TIGHT  short and dry: 55's kick, 66's bright snare, 80's clap, 55's hats, 55's tom, 66's high rim, 80's bell
+ *   PERC   a percussion kit: 10's kick, 77's snare and claps, 66's hats, 66's conga on TOM, 77's claves on RIM, 66's
+ *          two-sine bell
  * Parameters per lane (dv_param_t): TUNE (1/16 semitone from the designed pitch, held in the voice's
  * range), DECAY, TONE, extra, LEVEL, accent, 0..127 each; the designed sound is at DV_DEF's values.
  * Accent adds up to 4 dB, a little more on the transient (click, spike, the claps). At LEVEL 100 the
@@ -69,7 +76,7 @@ enum {
 };
 /* a lane of a model kit as a type: the kit (1..DV_NKIT) in the high 4 bits, the lane in the low 3 (Felucca's own
  * types: 0 above). Its run (the DVT_* it plays through) is the kit's (DV_KIT) */
-#define DV_NKIT 5
+#define DV_NKIT 8                                        /* (1.5.6, #216: DEEP TIGHT PERC after 77) */
 #define DV_KITOF(t) ((uint32_t)(t) >> 4)
 #define DV_KTYPE(kit, lane) ((uint8_t)(((kit) << 4) | (lane)))
 
@@ -180,7 +187,7 @@ typedef struct {
     int16_t v[13];
 } dv_kit_t;
 /* the accent per kit: + (x / 16384) per accent step (75: +4 dB at full, as Felucca's own) */
-static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40};
+static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40, 80, 60, 70};
 static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
     {   /* 80 */
         /* deep sine, a small drop, long decay */
@@ -271,6 +278,57 @@ static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
         {DVT_CLAVE, 32, 1568, 149, 2131, {84, 28000, 10000, 6348, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
         /* the cymbal: 34 ms + 0.3 s */
         {DVT_CYM, 53, 1690, 1100, 7582, {1969, 5120, 1748, 5120, 24000, 16000, 34, 24576, 6554, 5, 0, 0, 0}},
+    },
+    {   /* DEEP (1.5.6): the pieces of 77 80 77 80 80 77 80 10 */
+        /* 77's kick 2 semitones down (66 -> 59 Hz), the swell, tau 140 ms */
+        {DVT_PUNCH, 60, 547, 337, 2590, {26, 450, 0, 1500, 520, 1478, 1800, 4096, 30, 0, 0, 0, 0}},
+        /* 80's snare: shells 173 / 336 Hz, noise 2.7 .. 7 kHz */
+        {DVT_SNARE, 40, 845, 125, 5690, {241, 0, 100, 53, 32767, 11000, 1678, 6827, 30, 0, 28000, 0, 1828}},
+        /* 77's claps: 8 claps 7 ms apart, a tail */
+        {DVT_CLAP, 48, 1393, 281, 8368, {0, 6302, 1585, 1500, 8000, 30000, 52, 322, 6, 0, 0, 0, 0}},
+        /* 80's hats: six squares, band 7.1 kHz */
+        {DVT_HATC, 45, 893, 60, 9017, {1874, 5120, 2020, 2042, 7209, 32767, 0, 3, 0, 0, 0, 0, 0}},
+        {DVT_HATO, 63, 893, 253, 13955, {1874, 5120, 1934, 2042, 1147, 32767, 0, 3, 0, 0, 0, 0, 0}},
+        /* 77's tom 140 Hz bent 7.5 % */
+        {DVT_TOM, 53, 797, 377, 2858, {20, 180, 1523, 2500, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 80's rim: 455 + 1667 Hz into a hard clip */
+        {DVT_RIM, 32, 1113, 12, 4599, {360, 12000, 30000, 32000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 10's cymbal: band 4.2 kHz, 60 ms + 0.9 s */
+        {DVT_CYM, 53, 1014, 3773, 10841, {1766, 3413, 1729, 3413, 16384, 20000, 60, 19661, 0, 2, 0, 0, 0}},
+    },
+    {   /* TIGHT (1.5.6): the pieces of 55 66 80 55 55 55 66 80 */
+        /* 55's kick: 55 Hz dropping from 100, tau 45 ms */
+        {DVT_PUNCH, 60, 531, 103, 4388, {163, 120, 0, 1600, 0, 1444, 1500, 6000, 0, 0, 0, 0, 0}},
+        /* 66's snare: shells 280 / 397 Hz, bright noise, tau 14 ms */
+        {DVT_SNARE, 40, 979, 54, 10633, {107, 0, 100, 120, 6000, 1200, 1907, 8192, 30, 16000, 32767, 32767, 1828}},
+        /* 80's clap: band 1 kHz, 3 teeth 10 ms, tail 90 ms */
+        {DVT_CLAP, 48, 1331, 316, 13485, {0, 4096, 1678, 0, 2000, 30000, 35, 441, 3, 0, 0, 0, 0}},
+        /* 55's hats: a cluster 8 .. 14.7 kHz + noise */
+        {DVT_HATC, 45, 1909, 94, 2473, {1996, 5120, 1940, 2042, 4000, 11469, 18022, 3, 3, 0, 0, 0, 0}},
+        {DVT_HATO, 63, 1909, 354, 1662, {1996, 5120, 1940, 2042, 4000, 11469, 18022, 3, 3, 0, 0, 0, 0}},
+        /* 55's low tom 150 Hz */
+        {DVT_TOM, 53, 824, 179, 4091, {21, 600, 1523, 9000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 66's rim: 1.5 kHz, tau 2.7 ms */
+        {DVT_RIM, 32, 1441, 13, 8636, {304, 26000, 1000, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 80's bell: squares 540 / 800 Hz, band 860 Hz */
+        {DVT_BELL, 50, 1161, 252, 2697, {109, 129, 3413, 30000, 45, 0, 0, 0, 0, 0, 0, 0, 0}},
+    },
+    {   /* PERC (1.5.6): the pieces of 10 77 77 66 66 66 77 66 */
+        /* 10's kick: 62 Hz swept from 90, tau 190 ms */
+        {DVT_PUNCH, 60, 561, 464, 2239, {103, 180, 0, 0, 0, 1233, 2600, 4096, 0, 0, 0, 0, 0}},
+        /* 77's snare: 226 Hz, noise 1.2 .. 8 kHz */
+        {DVT_SNARE, 40, 919, 251, 4125, {0, 0, 100, 37, 0, 20000, 1585, 10240, 25, 32767, 14000, 0, 1828}},
+        /* 77's claps */
+        {DVT_CLAP, 48, 1393, 281, 8368, {0, 6302, 1585, 1500, 8000, 30000, 52, 322, 6, 0, 0, 0, 0}},
+        /* 66's hats: noise through a narrow band at 8 kHz */
+        {DVT_HATC, 45, 1907, 225, 4594, {1907, 1024, 1870, 2042, 0, 0, 7000, 3, 6, 0, 0, 0, 0}},
+        {DVT_HATO, 63, 1907, 197, 6084, {1907, 1024, 1870, 2042, 0, 0, 7000, 3, 6, 0, 0, 0, 0}},
+        /* 66's low conga 157 Hz on TOM */
+        {DVT_CONGA, 53, 819, 94, 5803, {0, 50, 1523, 0, 1500, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 77's claves on RIM: 2350 / 3180 Hz */
+        {DVT_CLAVE, 32, 1568, 149, 2131, {84, 28000, 10000, 6348, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 66's bell: sines 830 / 613 Hz */
+        {DVT_RIM, 40, 1280, 60, 3629, {-84, 30000, 7500, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
     },
 };
 

@@ -366,10 +366,17 @@ static __attribute__((noinline)) void fm6_op_fb(int32_t *out, int32_t phase, int
 }
 
 /* msfa FmCore::render: the six operators of algorithm alg into out (Q24). Unlike msfa, out starts empty:
- * the first carrier sounding writes it, the next ones add. Returns 0 when none sounded (out untouched) */
+ * the first carrier sounding writes it, the next ones add. Returns 0 when none sounded (out untouched). The two buses
+ * are this call's (a bus is read only after this call wrote it: has[]): with two cores on the stack (each core its
+ * own), with one in .bss as up to 1.6 (the ISR's stack as it was) */
+#if !FELUCCA_CPU2
 static int32_t fm6_bus[2][FM6_N];
+#endif
 static int fm6_core_render(int32_t *out, fm6_op_t *op, uint32_t alg, int32_t *fb, int32_t fb_shift)
 {
+#if FELUCCA_CPU2
+    int32_t fm6_bus[2][FM6_N];
+#endif
     const uint8_t *a = FM6_ALG[alg & 31u];
     uint8_t has[3] = {0, 0, 0};
     uint32_t k;

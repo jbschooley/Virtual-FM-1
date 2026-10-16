@@ -742,7 +742,14 @@ FeluccaSeqPage::FeluccaSeqPage(FM1Processor& p) : proc_(p) {
     vel_.onValueChange = [this] { if (!loading_) setStepVelocity(int(vel_.getValue())); };
     chance_.onValueChange = [this] { if (!loading_) setStepChance(int(chance_.getValue())); };
     vel_.setTooltip("The step's velocity (0: the default, 96; an accent plays 127)");
-    chance_.setTooltip("How often the step plays, in percent: 100 always, 0 never");
+    chance_.setTooltip("How often the step plays, in percent: 100 always, 0 never. Felucca 1.6: past 100 its conditions "
+                       "(1:2 plays on the first of every two loops of its track ... 4:4, FILL while FILL is held, !FILL while not)");
+    // Felucca 1.6 (core.h step_chance_v): 0..100 the chance, then 101..111 the conditions, as its knob shows them
+    chance_.textFromValueFunction = [](double v) {
+        static const char* const names[felucca::kConditions] = {"1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4", "FILL", "!FILL"};
+        const int i = int(std::lround(v));
+        return i > 100 && i <= 100 + felucca::kConditions ? juce::String(names[i - 101]) : juce::String(i);
+    };
     time_.addItem("NOTE", 1);
     time_.addItem("TIE", 2);
     time_.addItem("REST", 3);
@@ -1027,7 +1034,9 @@ void FeluccaSeqPage::setStepVelocity(int v) {
 
 void FeluccaSeqPage::setStepChance(int c) {
     if (size_t(sel_) >= pat_.steps.size()) return;
-    pat_.steps[size_t(sel_)].chance = std::clamp(c, 0, 100);
+    auto& s = pat_.steps[size_t(sel_)];
+    s.cond = c > 100 ? std::min(c - 100, felucca::kConditions) : 0;   // (a condition plays at 100 %)
+    s.chance = s.cond ? 100 : std::clamp(c, 0, 100);
     writeStep(sel_);
     grid_->repaint();
 }
@@ -1197,6 +1206,8 @@ void FeluccaSeqPage::loadControls() {
     for (auto* c : std::initializer_list<juce::Component*>{&time_, &accent_, &slide_, &vel_, &velLabel_}) c->setVisible(stepCtl);
     chance_.setVisible(stepCtl && !slp);
     chanceLabel_.setVisible(stepCtl && !slp);
+    const bool conds = felucca::isCurrentFelucca(dialect());   // (1.6: the conditions past 100; 1.0.3 has none)
+    chance_.setRange(0, conds ? 100 + felucca::kConditions : 100, 1);
     juce::String text = "Step " + juce::String(sel_ + 1);
     if (size_t(sel_) < pat_.steps.size()) {
         const auto& s = pat_.steps[size_t(sel_)];
@@ -1204,7 +1215,7 @@ void FeluccaSeqPage::loadControls() {
         accent_.setToggleState(s.flags & felucca::kAccent, juce::dontSendNotification);
         slide_.setToggleState(s.flags & felucca::kSlide, juce::dontSendNotification);
         vel_.setValue(s.vel, juce::dontSendNotification);
-        chance_.setValue(s.chance, juce::dontSendNotification);
+        chance_.setValue(conds && s.cond ? 100 + s.cond : s.chance, juce::dontSendNotification);
         juce::StringArray notes;
         for (int k = 0; k < s.n; ++k) notes.add(noteName(s.note[size_t(k)]));
         if (!drums) text << ":  " << (s.time == felucca::kRest ? juce::String("rest") : s.time == felucca::kTie ? juce::String("tie") : notes.joinIntoString(" "));
