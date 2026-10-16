@@ -150,6 +150,14 @@ def raster_font(spec, px, chars, tracking=0.0, gamma=1.0, tabular=True, kern_min
             bot_max = max(bot_max, y1 - pad)
         glyphs[ch] = (a16, ph)
     h = max(asc + desc, bot_max)
+    kern = kern_pairs(spec, px, chars, tabular, kern_min, font_hi)
+    return {"h": h, "asc": asc, "glyphs": glyphs, "kern": kern, "px": px, "phases": phases}
+
+
+def kern_pairs(spec, px, chars, tabular=True, kern_min=1, font_hi=None):
+    """{(a, b): d16}: the pairs' kerning at px in 1/16 px (shaped at 16 x the size; at least kern_min, at most 127)"""
+    font_hi = font_hi or open_font(spec, px * SS)
+    feats = ["tnum"] if tabular else None
     kern = {}
     lens = {c: font_hi.getlength(c, features=feats) for c in chars if c != " "}
     for a in chars:
@@ -162,7 +170,7 @@ def raster_font(spec, px, chars, tracking=0.0, gamma=1.0, tabular=True, kern_min
             d16 = int(round(d * 16))
             if abs(d16) >= kern_min:
                 kern[(a, b)] = max(-127, min(127, d16))
-    return {"h": h, "asc": asc, "glyphs": glyphs, "kern": kern, "px": px, "phases": phases}
+    return kern
 
 
 def raster_icon(spec, px, codepoint, gamma=1.0):

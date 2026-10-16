@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Exact Sequential v1.03 programs -> factory presets and mock data."""
 import argparse
 import hashlib

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* X0X parameter descriptors, shared by every sound engine.
  *
  * Every user-facing sound parameter is a "pot": an integer 0..max (max is 127 for a

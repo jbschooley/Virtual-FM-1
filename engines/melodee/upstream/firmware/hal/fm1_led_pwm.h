@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* WL82 MCPWM1/3, independent H/L outputs, for the four matrix LED rows.
  * GPIO routing and PWM setup follow AC79 SDK cpu.a gpio.c / pwm.c and
  * asm/gpio.h / WL82.h. Do not use MCPWM0/2: their fixed output pins are

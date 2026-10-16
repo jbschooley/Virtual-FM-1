@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (c) Devin Acker
  * Modifications Copyright (c) 2026 Kerem Kilic (Ellic Studio)
  * License: LICENSES/BSD-3-Clause-uPD933.txt
@@ -18,7 +19,7 @@ static const uint16_t CZ_AMP[128] = {
     3490,3745,4019,4313,4628,4966,5329,5718,6136,6585,7066,7582,8136,8731,9369,10054,
     10789,11577,12423,13331,14305,15351,16473,17676,18968,20355,21842,23438,25151,26990,28962,31079
 };
-typedef struct { float rate[8], level[8]; uint8_t sustain, end; } cz_native_def_t;
+/* Tone-derived definitions live once per active part, outside voice state. */
 /* Native control domains: DCO semitones, DCW 11-bit phase units, DCA 0..127.
  * Preserve the uPD933's rate and target laws, using fractional control time. */
 static float cz_hw_rate(uint32_t raw,uint32_t e)
@@ -33,13 +34,13 @@ static float cz_hw_target(uint32_t raw,uint32_t e)
     if(e==0u)return (float)(raw&63u)*(raw&64u?2.0f:0.0625f);
     return (float)raw*(e==1u?8.0f:1.0f);
 }
-static __attribute__((noinline)) float cz_native_env_tick(cz_native_env_t *e,const cz_native_def_t *d,uint32_t gate)
+static __attribute__((noinline)) float cz_native_env_scaled(cz_native_env_t *e,const cz_native_def_t *d,uint32_t gate,float scale)
 {
     float left=1.0f;
     if(e->gate && !gate && d->sustain<=d->end && e->stage<=d->sustain)e->stage=d->sustain+1u;
     e->gate=(uint8_t)gate;
     for(uint32_t k=0;k<8u && e->stage<=d->end;k++){
-        uint32_t st=e->stage;float rate=d->rate[st],target=st==d->end?0.0f:d->level[st];
+        uint32_t st=e->stage;float rate=d->rate[st]*scale,target=st==d->end?0.0f:d->level[st];
         float delta=target-e->level,dist=fm_fabsf(delta),step=rate*left;
         if(dist>step){e->level+=delta<0.0f?-step:step;break;}
         e->level=target;if(gate && st==d->sustain)break;e->stage++;
@@ -52,28 +53,27 @@ static void cz_native_note_on(track_t *t,voice_t *v)
 {
     cz_voice_t *c=cz_voice(t,v);
     float dc[2]={c->native_dc[0],c->native_dc[1]};
+    cz_native_freq_t freq=c->native_freq;
     phase_note_on(t,v); /* common phase/noise reset; zero has the same float representation */
+    c->native_freq=freq; /* exact input keys also validate a retrigger */
     if(voice_was){c->native_dc[0]=dc[0];c->native_dc[1]=dc[1];}
     for(uint32_t l=0;l<2u;l++)for(uint32_t e=0;e<3u;e++)c->native_eg[l][e].gate=1;
 }
-static __attribute__((noinline)) void cz_native_defs(track_t *t, voice_t *v, cz_native_def_t d[2][3])
+static float cz_native_env_tick(cz_native_env_t *e,const cz_native_def_t *d,uint32_t gate)
+{ return cz_native_env_scaled(e,d,gate,1.0f); }
+static void cz_native_block(track_t *t)
 {
-    const uint8_t *b = cz_patch[(uint32_t)(t - trk) % NTRK].raw;
-    for (uint32_t l = 0; l < 2u; l++) for (uint32_t e = 0; e < 3u; e++) {
-        cz_native_def_t *p = &d[l][e]; uint32_t base = CZ_ENV_BASE[l][e];
-        memset(p, 0, sizeof *p); p->end = b[CZ_ENV_END[l][e]] & 7u; p->sustain = 255;
-        for (uint32_t k = 0; k < 8u; k++) {
-            uint32_t lev = b[base + 2u*k + 1u];
-            p->rate[k] = cz_hw_rate(b[base + 2u*k], e);
-            p->level[k] = cz_hw_target(lev, e);
-            if ((lev & 128u) && p->sustain == 255u && k < p->end) p->sustain = (uint8_t)k;
-            /* Native DCA key-follow is rate scaling; higher keys run faster.
-             * Keep raw key-follow and velocity bytes intact for recalibration. */
-            if (e == 2u) {
-                uint32_t kf = b[16u + l*57u] & 15u;
-                uint32_t note = v->note > 36u ? v->note - 36u : 0u;
-                p->rate[k] *= 1.0f+(float)(kf*note)*(1.0f/96.0f);
-            }
+    cz_part_t *c=cz_part((uint32_t)(t-trk)%NTRK);
+    const uint8_t *b=cz_patch[(uint32_t)(t-trk)%NTRK].raw;
+    if(c->native_valid && !memcmp(c->native_raw,b,128u))return;
+    memcpy(c->native_raw,b,128u);c->native_valid=1;
+    for(uint32_t l=0;l<2u;l++)for(uint32_t e=0;e<3u;e++){
+        cz_native_def_t *d=&c->native_def[l][e];uint32_t base=CZ_ENV_BASE[l][e];
+        d->end=b[CZ_ENV_END[l][e]]&7u;d->sustain=255;
+        for(uint32_t k=0;k<8u;k++){
+            uint32_t lev=b[base+2u*k+1u];
+            d->rate[k]=cz_hw_rate(b[base+2u*k],e);d->level[k]=cz_hw_target(lev,e);
+            if((lev&128u) && d->sustain==255u && k<d->end)d->sustain=(uint8_t)k;
         }
     }
 }
@@ -149,29 +149,39 @@ static __attribute__((noinline)) void cz_native_render(track_t *t,voice_t *v,int
 {
     if(!n)return;
     const uint8_t *b=cz_patch[(uint32_t)(t-trk)%NTRK].raw;
-    cz_voice_t *c=cz_voice(t,v);cz_native_def_t defs[2][3];cz_hw_pd_t pd[2];
+    cz_voice_t *c=cz_voice(t,v);const cz_native_def_t (*defs)[3]=cz_part((uint32_t)(t-trk)%NTRK)->native_def;cz_hw_pd_t pd[2];
     uint32_t inc[2],ph[2]={v->ph[0],v->ph[1]},tg[2]={(uint32_t)v->s[0],(uint32_t)v->s[1]};
     float amp[2][2],step[2];
     uint32_t ls=b[0]&3u,first=ls==1u?1u:0u,last=ls>=2u?1u:first;
     float vib=cz_native_vibrato(c,b),oct=(b[0]>>2)==1u?12.0f:(b[0]>>2)==2u?-12.0f:0.0f;
-    cz_native_defs(t,v,defs);
     for(uint32_t l=0;l<2u;l++){
         uint32_t src=ls==2u?0u:l,off=src*57u;
-        if(src!=l)memcpy(defs[l],defs[src],sizeof defs[l]);
         uint32_t av=15u-(b[20u+off]>>4),al=b[16u+off]>>4;
-        amp[l][0]=cz_native_amp(c->native_eg[l][2].level,al,av,v->vel);
-        float pitch=cz_native_env_tick(&c->native_eg[l][0],&defs[l][0],v->gate);
-        float depth=cz_native_env_tick(&c->native_eg[l][1],&defs[l][1],v->gate);
-        cz_native_env_tick(&c->native_eg[l][2],&defs[l][2],v->gate);
-        amp[l][1]=cz_native_amp(c->native_eg[l][2].level,al,av,v->vel);step[l]=(amp[l][1]-amp[l][0])/(float)n;
+        int heard=l>=first && l<=last;
+        if(heard)amp[l][0]=cz_native_amp(c->native_eg[l][2].level,al,av,v->vel);
+        float pitch=cz_native_env_tick(&c->native_eg[l][0],&defs[src][0],v->gate);
+        float depth=cz_native_env_tick(&c->native_eg[l][1],&defs[src][1],v->gate);
+        uint32_t kfn=v->note>36u?v->note-36u:0u;
+        float rate_scale=1.0f+(float)((b[16u+off]&15u)*kfn)*(1.0f/96.0f);
+        cz_native_env_scaled(&c->native_eg[l][2],&defs[src][2],v->gate,rate_scale);
+        /* Unheard envelopes keep advancing. Their stateless waveform,
+         * amplitude and frequency preparation cannot affect next-note state. */
+        if(!heard)continue;
+        amp[l][1]=cz_native_amp(c->native_eg[l][2].level,al,av,v->vel);
+        float difference=amp[l][1]-amp[l][0];
+        step[l]=n==CTL?difference*(1.0f/CTL):difference/(float)n;
         uint32_t pv=15u-(b[54u+off]>>4),wv=15u-(b[37u+off]>>4);
         pitch*=1.0f-(float)((127u-v->vel)*pv)*(1.0f/(127.0f*15.0f));
         depth*=1.0f-(float)((127u-v->vel)*wv)*(1.0f/(127.0f*15.0f));
         uint32_t kf=b[18u+off],kfnote=v->note>36u?v->note-36u:0u;
-        depth*=96.0f/(float)(96u+kf*kfnote);
+        depth*=(!kf || !kfnote)?1.0f:96.0f/(float)(96u+kf*kfnote);
         float det=l?((float)b[3]+(float)(b[2]>>2)*(1.0f/64.0f))*(b[1]?-1.0f:1.0f):0.0f;
         float nt=fm_clampf((float)m->pitch16*(1.0f/16.0f)+oct+vib+pitch+det,0.0f,2047.0f/16.0f);
-        inc[l]=cz_native_inc(nt,m->fine);
+        cz_native_freq_t *f=&c->native_freq;
+        if(!((f->valid>>l)&1u) || f->note[l]!=nt || f->fine[l]!=m->fine || f->a4[l]!=tuning_a4){
+            f->note[l]=nt;f->fine[l]=m->fine;f->a4[l]=tuning_a4;f->inc[l]=cz_native_inc(nt,m->fine);f->valid|=1u<<l;
+        }
+        inc[l]=f->inc[l];
         uint32_t word=(uint32_t)b[14u+off]<<8|b[15u+off];
         float dep=depth+(float)(m->cutoff+m->shape-(64<<8))*(1.0f/32.0f);
         cz_native_pd(&pd[l],word,dep);

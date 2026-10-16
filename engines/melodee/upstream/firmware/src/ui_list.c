@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* List pages (docs/design README "Pages: lists or knobs", mock/r6_pages SCL): the pages one sets and leaves as a list,
  * a row a setting: KNOB 2 the row, KNOB 1 its value, OCT+ a list value's whole list (SCL's Scale: the SCALES page),
  * OCT- Stage. Only what has more than four settings (Kerem, 2026-10-11: four or fewer are a page's own four knobs;
@@ -22,8 +23,9 @@ static const list_t LISTS[] = {
                               {"FM WH/FT", 2}, {"FM WH/FT", 3}, {"FM BR/AT", 0}, {"FM BR/AT", 1}, {"FM BR/AT", 2},
                               {"FM BR/AT", 3}}},
 };
-#define LIST_Y0 22                                      /* the rows: 20 px, 22 apart from y 22 */
-#define LIST_ROW 22
+#define LIST_Y0 Y_LABEL                                 /* the rows (large type, C): 32 px, 34 apart from y 32 */
+#define LIST_ROW 34
+#define LIST_RH 32
 static struct { uint8_t row, first, page; uint32_t sig; } lst;
 static void vlist_open(uint8_t page, uint8_t slot);     /* ui_popup.c */
 static void edit_param(uint32_t slot, int32_t steps);   /* ui_input.c */
@@ -184,25 +186,55 @@ static void list_scale_pic(int32_t y, int32_t h)
 {
     static const uint8_t WHITE[7] = {0, 2, 4, 5, 7, 9, 11}, BLACK[5][2] = {{1, 0}, {3, 1}, {6, 3}, {8, 4}, {10, 5}};
     uint32_t mask = scale_mask(TSEL), root = (uint32_t)TSEL->p[P_ROOT] % 12u, i;
-    cv_begin(240, (uint32_t)h, T_BG);
-    cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, h, 6, T_PANEL, T_BG);
+    cv_begin(240, (uint32_t)h, T_BG);                   /* (on the background: no panel) */
     for (i = 0; i < 7u; i++) {
         uint32_t n = WHITE[i], on = (mask >> ((n + 12u - root) % 12u)) & 1u;
         uint16_t c = n == root ? T_TEXT : on ? T_THEME : T_SURF;
-        cv_rrect(20 + 29 * (int32_t)i, 8, 27, h - 16, 4, c, T_PANEL);
+        cv_rrect(20 + 29 * (int32_t)i, 4, 27, h - 8, 4, c, T_BG);
     }
     for (i = 0; i < 5u; i++) {
         uint32_t n = BLACK[i][0], on = (mask >> ((n + 12u - root) % 12u)) & 1u;
         uint16_t c = n == root ? T_TEXT : on ? ux_mix(T_BG, T_THEME, 75) : T_BG;
         int32_t x = 20 + 29 * BLACK[i][1] + 19;
-        cv_rrect(x, 8, 16, (h - 16) * 58 / 100, 3, T_LINE, T_PANEL);
-        cv_rrect(x + 1, 9, 14, (h - 16) * 58 / 100 - 2, 2, c, T_LINE);
+        cv_rrect(x, 4, 16, (h - 8) * 58 / 100, 3, T_LINE, T_BG);
+        cv_rrect(x + 1, 5, 14, (h - 8) * 58 / 100 - 2, 2, c, T_LINE);
     }
     cv_blit(0, (uint32_t)y);
 }
 
-/* n rows from LIST_Y0, row r's label and value from cap (1: a list behind it, ">"), row lifted, first .. first + vis
- * shown, where they are as a bar at the right */
+/* a row (large type, C: the lists, the menu, the slots, the sheets) at canvas row y: its name at the left and its value
+ * at the right (the text face, capitals on the row's middle; a value ON / OFF a badge), "more" (a list behind it) a
+ * ">" after the value. Row k of a list has a colour (T_KNOB(k), the four in turn): its value in it; the row picked
+ * tinted in it, its name in text; the others' names secondary (vc T_DIM: dim). Returns the value's left edge */
+static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, int on, int more, uint32_t k)
+{
+    const aafont_t *tf = TY_TX, *vf = tf, *nf = tf;
+    uint16_t hc = T_KNOB(k), bg = on ? ux_mix(T_BG, hc, 18) : T_BG;
+    int32_t cy = y + LIST_RH / 2, xr = more ? 218 : 228, vx = xr, vw, room = xr - 12 - 8;
+    if (v[0] && binary_value(v) < 0 && text_w(tf, lb) + text_w(tf, v) > room)
+        vf = TY_LB;                                     /* (both do not fit: the value smaller, then the name) */
+    if (v[0] && binary_value(v) < 0 && text_w(tf, lb) + text_w(vf, v) > room)
+        nf = TY_LB;
+    if (on)
+        cv_rrect(BOX_X, y, BOX_W, LIST_RH, 8, bg, T_BG);
+    if (v[0] && binary_value(v) >= 0) {
+        vw = text_w(TY_LB, v) + 12;
+        binary_badge(xr - vw / 2, cy - 11, 22, v, bg);
+        vx = xr - vw;
+    } else if (v[0]) {
+        vw = text_w(vf, v);
+        if (vw > 150) vw = 150;
+        vx = xr - vw;
+        cv_free_text(vx, ty_y(cy, vf), vf, v, vc == T_DIM ? T_DIM : on ? hc : ux_mix(T_BG, hc, 80), bg, 150);
+    }
+    if (more)
+        cv_text_on(222, ty_y(cy, tf), tf, ">", on ? hc : T_DIM, bg);
+    nf = nf == tf ? ty_fit(tf, lb, vx - 8 - 12) : nf;
+    cv_free_text(12, ty_y(cy, nf), nf, lb, on ? T_TEXT : T_SEC, bg, vx - 8 - 12);
+    return vx;
+}
+/* n rows from LIST_Y0, row r's label and value from cap (1: a list behind it, ">"), row picked, first .. first + vis
+ * shown, where they are as a bar at the right edge */
 static void list_rows(uint32_t n, uint32_t row, uint32_t first, uint32_t vis,
                       int (*cap)(uint32_t r, char *lb, char *v, uint16_t *vc))
 {
@@ -211,33 +243,23 @@ static void list_rows(uint32_t n, uint32_t row, uint32_t first, uint32_t vis,
     char lb[16], v[16];
     uint16_t vc;
     for (top = 0; top < (int32_t)vis * LIST_ROW; ) {   /* in slices between rows */
-        int32_t sh = (int32_t)vis * LIST_ROW - top <= 110 ? (int32_t)vis * LIST_ROW - top : 110;
+        int32_t sh = (int32_t)vis * LIST_ROW - top <= 3 * LIST_ROW ? (int32_t)vis * LIST_ROW - top : 3 * LIST_ROW;
         cv_begin(240, (uint32_t)sh, T_BG);
         cv_oy = -top;
         for (r = first; r < n && r < first + vis; r++) {
             int32_t y = (int32_t)(r - first) * LIST_ROW;
-            int on = r == row, more;
-            uint16_t bg = on ? T_LIFT : T_BG;
             if (y + LIST_ROW <= top || y >= top + sh)
                 continue;
-            more = cap(r, lb, v, &vc);
-            if (on) {
-                cv_rect(0, y, 240, 20, T_LIFT);
-                cv_rect(0, y, 3, 20, T_THEME);
-            }
-            cv_text_on(12, y + 3, &AF_S, lb, on ? T_TEXT : T_SEC, bg);
             {
-                int32_t w = text_w(&AF_S, v), x = 228 - (w < 104 ? w : 104);
-                cv_free_text(x, y + 3, &AF_S, v, vc == T_DIM ? T_DIM : on ? T_THEME : T_MID, bg, 104);
+                int more = cap(r, lb, v, &vc);
+                row_draw(y, lb, v, vc, r == row, more, r);
             }
-            if (more)
-                cv_text_on(230, y + 2, &AF_S, ">", on ? T_THEME : T_DIM, bg);
         }
         if (n > vis) {
             int32_t th = (int32_t)vis * LIST_ROW * (int32_t)vis / (int32_t)n;
             int32_t ty = (int32_t)((vis * LIST_ROW - (uint32_t)th) * first / (n - vis));
-            cv_rect(237, 0, 2, (int32_t)vis * LIST_ROW, T_LINE);
-            cv_rect(237, ty, 2, th, T_THEME);
+            cv_rect(238, 0, 2, (int32_t)vis * LIST_ROW, T_LINE);
+            cv_rect(238, ty, 2, th, T_THEME);
         }
         cv_oy = 0;
         cv_blit(0, (uint32_t)(LIST_Y0 + top));
@@ -254,7 +276,8 @@ static void list_draw(void)
 {
     const list_t *l = list_on();
     uint32_t r, sig, vis;
-    int32_t pic_y = l->pic == LP_SCALE ? 142 : l->pic == LP_GRAPH ? 96 : PV_SOUND_Y;
+    int32_t pic_y = l->pic == LP_SCALE ? LIST_Y0 + 4 * LIST_ROW + 2 : l->pic == LP_GRAPH ? LIST_Y0 + 2 * LIST_ROW + 2 :
+                    PV_SOUND_Y;
     char lb[16], v[16];
     uint16_t vc;
     if (ui.force) {
@@ -267,7 +290,7 @@ static void list_draw(void)
     }
     draw_head();
     pv_sound();
-    vis = (uint32_t)((pic_y - LIST_Y0 - 2) / LIST_ROW);
+    vis = (uint32_t)((pic_y - LIST_Y0 + 2) / LIST_ROW);
     if (lst.row >= list_n(l)) lst.row = 0;
     if (lst.row < lst.first) lst.first = lst.row;
     if (lst.row >= lst.first + vis) lst.first = (uint8_t)(lst.row + 1u - vis);

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* I2S output (ALNK0 -> external codec) and the
  * audio ISR: per half buffer, blocks of CTL samples: mix_block (mix.c: events ->
  * each synth part -> dist -> level / pan -> sends -> buses -> master) -> 24-bit stereo. */
@@ -9,7 +10,7 @@
 #define CPU_AVG (4096u / HALF_FRAMES)   /* halves the load meter averages: ~93 ms whatever the half */
 #define OUT_SHIFT 7               /* Q15 -> 24-bit, -6 dBFS ceiling (M0f ran clean at -18 dBFS) */
 
-static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
+static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(32)));
 
 /* diagnostics, kept across resets and UBOOT entry: read with `fm1t memr` */
 #define DBG_MAGIC 0x44424731u                       /* "DBG1" */
@@ -19,7 +20,13 @@ struct melodee_dbg {
     uint32_t stage, page, home;           /* where the main loop is (breadcrumbs) */
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
 } melodee_dbg __attribute__((section(".noinit")));
-static volatile uint32_t audio_halves, audio_max_us;
+static volatile uint32_t audio_halves,audio_max_us;
+static uint32_t audio_full_last_us,audio_full_max_us,audio_deadline_misses,audio_target_exceeded;
+/* Written by the assembly wrapper, observed at the following interrupt. */
+volatile uint32_t fm1_audio_irq_start_ticks,fm1_audio_irq_elapsed_ticks;
+static uint32_t audio_irq_max_ticks,audio_timer5_max_ticks;
+#define AUDIO_DEADLINE_TICKS (HALF_FRAMES*544u)
+#define AUDIO_TARGET_TICKS (AUDIO_DEADLINE_TICKS*80u/100u)
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 static uint32_t audio_cpu_rem;                         /* keep the fractional IIR step: no low-load bias */
 #define SCOPE_N 512u
@@ -30,6 +37,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
 {
     uint32_t i;
     mix_block(out, n);
+    AP_START(output_start);
 #if MELODEE_USB_AUDIO
     /* USB capture copies the finished master or optional stems; computer playback follows capture.
      * TIMER5 serves the endpoints nested in this render (main.c): only this short copy goes without IRQs,
@@ -51,6 +59,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
         out[2u * i] = out[2u * i + 1u] = 0;
 #endif
     }
+    AP_END(AP_OUTPUT,output_start);
 }
 
 /* Overload: two halves in a row above 85 % (the render plus TIMER5 nested in it), fade one voice over the
@@ -60,6 +69,9 @@ static volatile uint8_t shed_req;
 static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
 #define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
 static uint32_t shed_count;
+#if MELODEE_AUDIO_BENCH
+static uint32_t audio_bench_shed_requests;
+#endif
 static uint32_t shed_part[NPART];
 
 /* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
@@ -111,6 +123,8 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 {
     uint8_t p;
     uint32_t t0;
+    AP_START(half_start);
+    if(fm1_audio_irq_elapsed_ticks>audio_irq_max_ticks)audio_irq_max_ticks=fm1_audio_irq_elapsed_ticks;
     melodee_dbg.in_audio = 1;                   /* first: TIMER5 nests from here on (main.c) */
     p = fm1_audio_pending();
     t0 = fm1_ticks();
@@ -121,6 +135,10 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         int32_t *o = &abuf[half * HALF_WORDS];
         if (shed_req) {
             shed_req = 0;
+#if MELODEE_AUDIO_BENCH
+            if(audio_bench_active())audio_bench_shed_requests++;
+            else
+#endif
             shed_voice();
         }
 #if MELODEE_DUAL_CORE
@@ -157,6 +175,14 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             melodee_dbg.max_us = us;
         melodee_dbg.cpu_q8 = song.cpu_q8;
     }
+    uint32_t complete=fm1_ticks()-t0;
+    if(p&FM1_AUDIO_HALF){
+        audio_full_last_us=(complete+FM1_TICKS_PER_US-1u)/FM1_TICKS_PER_US;
+        if(audio_full_last_us>audio_full_max_us)audio_full_max_us=audio_full_last_us;
+        audio_deadline_misses+=complete>AUDIO_DEADLINE_TICKS;
+        audio_target_exceeded+=complete>AUDIO_TARGET_TICKS;
+    }
+    AP_END(AP_HALF,half_start);
     melodee_dbg.in_audio = 0;
 }
 extern void isr_alnk0(void);

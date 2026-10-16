@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Adapted from Felucca's metronome (1.1). Quarter notes in 4/4, with an
  * accented downbeat. A decaying sine at 1760/1320 Hz sounds only at the DAC,
  * after effects, MASTER and USB capture, with its own level. Preferences are device

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Single producer (CPU0 audio ISR), single consumer (CPU1). One outstanding
  * job. Completion publishes the result AND returns ownership of voice state.
  * CPU0 must join before events, engine changes, post processing or flash IO.
@@ -38,8 +39,14 @@ static struct {
     audio_worker_fn fn;
     void *context;
     uint32_t check, max_wait_ticks, timeouts;
+#if MELODEE_AUDIO_PROFILE
+    uint32_t wait_ticks, waits;
+#endif
     AW_WORD ready __attribute__((aligned(32)));
     AW_WORD complete, rejected;
+#if MELODEE_AUDIO_PROFILE
+    uint32_t job_ticks;
+#endif
     uint32_t jobs, max_job_ticks, misread;          /* misread: the last request refused, as CPU1 read it */
 } audio_worker __attribute__((aligned(32)));
 static int audio_worker_online;
@@ -93,6 +100,9 @@ static int audio_worker_join(void)
         }
     }
     uint32_t elapsed = AW_TICKS() - start;
+#if MELODEE_AUDIO_PROFILE
+    audio_worker.wait_ticks+=elapsed;audio_worker.waits++;
+#endif
     if (elapsed > audio_worker.max_wait_ticks) audio_worker.max_wait_ticks = elapsed;
     return 1;
 }
@@ -112,6 +122,9 @@ static inline __attribute__((always_inline)) void audio_worker_poll(uint32_t *do
             fn(context);
             uint32_t elapsed = AW_TICKS() - start;
             audio_worker.jobs++;
+#if MELODEE_AUDIO_PROFILE
+            audio_worker.job_ticks+=elapsed;
+#endif
             if (elapsed > audio_worker.max_job_ticks) audio_worker.max_job_ticks = elapsed;
             *done = request;
             AW_STORE(&audio_worker.complete, request);

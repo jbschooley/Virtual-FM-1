@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* USB0 full-speed isochronous service, included by usb.c after the SIE helpers.
  * The AC79 usb_phy.h defines bit 14 as ISOCHRONOUS in TX/RX CSR. As in the
  * SDK and the MIDI endpoints, MaxP is written as 0xFF and TX bit 13 (direction)
@@ -8,15 +8,17 @@
  * as USB MIDI. All SIE access stays in TIMER5, including SET_INTERFACE and
  * reset handling; register access goes through hal/fm1_usb.h. */
 #define UA_IF_PLAY 3u                           /* streaming interfaces in CFG_DESC (usb_audio_desc.h) */
-#define UA_IF_CAP 5u
-#define UA_OFF_OUT 1u                           /* ua_off: functions left out of the configuration */
+#define UA_IF_CAP 4u
+#define UA_IF_CONTROL 2u
+#define UA_FEATURE_PLAY 5u
+#define UA_OFF_OUT 1u                           /* ua_off: directions left out of the configuration */
 #define UA_OFF_IN 2u
 #define UA_NO_IF 0xFFu
 static uint8_t ua_off;                          /* what the host is given (ua_cfg_build at usb_start) */
 static uint8_t ua_tracks, ua_tracks_want;       /* 0 stereo master (default), 1 four mono stems */
 static uint8_t ua_off_want;                     /* GLO > SYSTEM (ua_off_set); ua_off_apply makes it ua_off */
 static uint32_t ua_off_ms;                      /* its last change */
-static uint8_t ua_if_play = UA_IF_PLAY, ua_if_cap = UA_IF_CAP, ua_nif = 6;   /* as sent (ua_cfg_build) */
+static uint8_t ua_if_play = UA_IF_PLAY, ua_if_cap = UA_IF_CAP, ua_nif = 5;   /* as sent (ua_cfg_build) */
 #define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
 static uint8_t ua_tx[2][UA_DMA_PACKET] __attribute__((aligned(4)));
 static uint32_t ua_tx_bytes;
@@ -26,46 +28,59 @@ static uint8_t ua_fb[4] __attribute__((aligned(4)));
 static uint16_t ua_frame;
 static uint8_t ua_frame_valid, ua_paused;
 static uint8_t ua_rate_pending, ua_rate_reply[3];
+static uint8_t ua_feature_pending, ua_feature_reply[2];
 
-/* CFG_DESC with the chosen capture channels, without the functions in ua_off.
- * Interfaces after a missing one move down to stay contiguous: IADs and the AC
- * header's streaming interface list. Absent streams get UA_NO_IF. */
+/* One audio control interface owns both streams. Omitted directions lose their
+ * streaming interface and terminal pair; the shared IAD and AC header follow
+ * the remaining collection. Absent streams get UA_NO_IF. */
 static void ua_cfg_build(void)
 {
-    uint32_t i, k, n = 0, nif = 0, shift = 0, skip = 0, ac = 0;
+    uint32_t i, k, n = 0, nif = 0, skip = 0;
     uint32_t original_if = UA_NO_IF, cap_width = 2u;
+    uint32_t play = !(ua_off & UA_OFF_OUT), cap = !(ua_off & UA_OFF_IN), streams = play + cap;
     ua_cap_channels = ua_tracks ? 4u : 2u;
-    ua_if_play = ua_if_cap = UA_NO_IF;
+    /* Retire the split-device revisions. Give each duplex layout a distinct BCD revision so
+     * the host reads the format and packet stride that ua_audio will produce.
+     * Use the applied settings here; pending knob edits keep the old layout. */
+    memcpy(ua_dev_desc, DEV_DESC, sizeof ua_dev_desc);
+    ua_dev_desc[12] = (uint8_t)(0x30u + (ua_off & 3u) + (ua_tracks ? 4u : 0u));
+    ua_if_play = play ? UA_IF_PLAY : UA_NO_IF;
+    ua_if_cap = cap ? (play ? UA_IF_CAP : UA_IF_PLAY) : UA_NO_IF;
     for (i = 0; i < sizeof CFG_DESC; i += CFG_DESC[i]) {
         const uint8_t *d = CFG_DESC + i;
         uint8_t *o = ua_cfg + n;
         if (d[1] == 0x0Bu) {                    /* IAD: a function starts */
-            skip = ua_off & (d[2] + 1u == UA_IF_PLAY ? UA_OFF_OUT : d[2] + 1u == UA_IF_CAP ? UA_OFF_IN : 0u);
-            if (skip)
-                shift += d[3];
+            skip = d[2] == 2u && !streams;
+        } else if (d[1] == 4u) {
+            original_if = d[2];
+            skip = (original_if == 2u && !streams) || (original_if == UA_IF_PLAY && !play) ||
+                   (original_if == UA_IF_CAP && !cap);
         }
         if (skip)
             continue;
+        if (original_if == 2u && d[1] == 0x24u && (d[2] == 2u || d[2] == 3u) &&
+            (d[3] <= 2u ? !play : !cap))
+            continue;                           /* the disabled direction's terminal pair */
+        if (original_if == UA_IF_CONTROL && d[1] == 0x24u && d[2] == 6u && !play)
+            continue;                           /* playback volume disappears with playback */
         for (k = 0; k < d[0]; k++)
             o[k] = d[k];
         n += d[0];
         if (d[1] == 0x0Bu) {
-            o[2] = (uint8_t)(d[2] - shift);
+            if (d[2] == 2u) o[3] = (uint8_t)(1u + streams);
         } else if (d[1] == 4u) {
-            o[2] = (uint8_t)(d[2] - shift);
-            original_if = d[2];
-            ac = d[5] == 1u && d[6] == 1u;      /* audio control: its header lists the streams */
+            if (original_if == UA_IF_CAP) o[2] = ua_if_cap;
             nif += d[3] == 0u;
-            if (d[2] == UA_IF_PLAY)
-                ua_if_play = o[2];
-            else if (d[2] == UA_IF_CAP)
-                ua_if_cap = o[2];
-        } else if (ac && d[1] == 0x24u && d[2] == 1u) {
-            for (k = 0; k < d[7]; k++)
-                o[8 + k] = (uint8_t)(d[8 + k] - shift);
+        } else if (original_if == 2u && d[1] == 0x24u && d[2] == 1u) {
+            o[0] = (uint8_t)(8u + streams);
+            o[5] = (uint8_t)(o[0] + streams * 21u + play * 10u); /* terminals and playback feature unit */
+            o[7] = (uint8_t)streams;
+            o[8] = play ? ua_if_play : ua_if_cap;
+            if (streams == 2u) o[9] = ua_if_cap;
+            n -= d[0] - o[0];
         }
         if (!ua_tracks) {
-            if (original_if == UA_IF_CAP - 1u && d[1] == 0x24u && d[2] == 2u) {
+            if (original_if == 2u && d[1] == 0x24u && d[2] == 2u && d[3] == 3u) {
                 o[7] = 2; o[8] = 3;             /* stereo L/R terminal */
             } else if (original_if == UA_IF_CAP && d[1] == 0x24u && d[2] == 2u) {
                 o[4] = 2;                      /* PCM format channels */
@@ -114,6 +129,7 @@ static void ua_hw_stop(void)
 {
     ua_reset();
     ua_rate_pending = 0;
+    ua_feature_pending = 0;
     ua_frame_valid = ua_paused = 0;
     ua_tx_bytes = ua_tx_slot = 0;
     sie_wr(S_INTRRX1E, sie_rd(S_INTRRX1E) & ~0x04u);
@@ -196,12 +212,43 @@ static int ua_set_interface(uint16_t interface, uint16_t alt)
     return 1;
 }
 
-/* UAC1 endpoint sampling-frequency control. There is only one discrete rate;
- * retain these requests for hosts that set it while starting a stream.
+/* Standard master mute and signed-dB volume on playback's Feature Unit. */
+static int ua_feature_setup(const uint8_t *s)
+{
+    uint32_t selector = s[3], bytes = selector == 1u ? 1u : 2u;
+    int16_t value;
+    if (!usb.config || ua_if_play == UA_NO_IF || s[4] != UA_IF_CONTROL || s[5] != UA_FEATURE_PLAY ||
+        (s[2] != 0u && s[2] != 0xFFu) || (selector != 1u && selector != 2u) || s[6] != bytes || s[7])
+        return 0;
+    if (s[0] == 0x21u && s[1] == 1u) {       /* SET_CUR: master mute or volume */
+        ua_feature_pending = (uint8_t)selector;
+        sie_wr(S_INDEX, 0);
+        sie_wr(S_CSR0, 0x40);
+        return 1;
+    }
+    if (s[0] != 0xA1u) return 0;
+    if (selector == 1u) {
+        if (s[1] != 0x81u) return 0;         /* mute has only CUR */
+        value = ua_host_mute;
+    } else switch (s[1]) {
+    case 0x81: value = ua_host_volume_q8; break;
+    case 0x82: value = UA_VOLUME_MIN; break;
+    case 0x83: value = 0; break;
+    case 0x84: value = 256; break;            /* one dB, signed 1/256-dB units */
+    default: return 0;
+    }
+    ua_feature_reply[0] = (uint8_t)value;
+    ua_feature_reply[1] = (uint8_t)((uint16_t)value >> 8);
+    e0_send(ua_feature_reply, bytes, bytes);
+    return 1;
+}
+
+/* Endpoint rate control remains available alongside interface feature controls.
  * Depth is selected by the AS alternate (1 = PCM16, 2 = packed PCM24). */
 static int ua_control_setup(const uint8_t *s)
 {
     uint32_t rate;
+    if (s[0] == 0x21u || s[0] == 0xA1u) return ua_feature_setup(s);
     if (!usb.config || s[2] || s[3] != 1u || s[5] || s[6] != 3u || s[7] ||
         (s[4] != 0x02u && s[4] != 0x82u) || (s[4] == 0x02u ? ua_if_play : ua_if_cap) == UA_NO_IF)
         return 0;                            /* (an endpoint of a function left out) */
@@ -230,8 +277,20 @@ static int ua_control_setup(const uint8_t *s)
 static int ua_control_data(const uint8_t *p, uint32_t n)
 {
     uint8_t ep = ua_rate_pending;
-    (void)p;
+    uint8_t feature = ua_feature_pending;
     ua_rate_pending = 0;
+    ua_feature_pending = 0;
+    if (feature) {
+        if (!usb.config || ua_if_play == UA_NO_IF) return 0;
+        if (feature == 1u) {
+            if (n != 1u || p[0] > 1u) return 0;
+            ua_host_mute = p[0];
+        } else {
+            if (n != 2u) return 0;
+            ua_host_volume_set((int16_t)(p[0] | (uint16_t)p[1] << 8));
+        }
+        return 1;
+    }
     if (!usb.config || !ep || n != 3u)
         return 0;
     /* UAC1 rounds unsupported values to the closest discrete rate: 44100.

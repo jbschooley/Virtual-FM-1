@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SEQ > PATTERNS and SEQ > SONG, screens of their own drawn to the redesign's mockups (docs/design: concept_screens 3
  * and 4, ref/patterns, ref/song).
  * PATTERNS (SEQ held, or its page): the header, then a row per track: its number in a circle (the selected one
@@ -18,6 +19,7 @@
  * Each part remembers what it drew. Included by ui_draw.c */
 
 static int ptc_on(void);                                /* PATTERNS' Copy to (below) */
+static int dq_defer(uint32_t cf, uint32_t k, uint32_t a, uint32_t b);   /* ui_input.c: playing, at the loop end */
 static uint32_t ptc_next(uint32_t from, int32_t dir);
 
 /* ------------------------------------------------------------ shared --- */
@@ -90,10 +92,10 @@ static uint32_t song_hash(const uint8_t (*pat)[NTRK], const uint8_t *rep, uint32
 static uint32_t fnv1(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
 
 /* ---------------------------------------------------------- PATTERNS --- */
-#define PT_NUM_Y H_HEAD                                 /* the patterns' numbers: rows 18 .. 41 */
-#define PT_ROW_Y 42                                     /* a track a row: 38 px, to 194 */
+#define PT_NUM_Y H_HEAD                                 /* the patterns' numbers: rows 30 .. 49 */
+#define PT_ROW_Y 50                                     /* a track a row: 38 px, to 201 */
 #define PT_ROW_H 38
-#define PT_SONG_Y (PT_ROW_Y + 4 * PT_ROW_H)             /* the song: 194 .. 239 */
+#define PT_SONG_Y (PT_ROW_Y + 4 * PT_ROW_H)             /* the song: 202 .. 239 */
 #define PT_CELL_X(b) (30 + 26 * (int32_t)(b))           /* a cell: 23 x 32 at row y 2 */
 static struct { uint32_t num, row[NTRK], prog[NTRK], song; } ptv;
 
@@ -133,7 +135,7 @@ static void pt_numbers(void)
     cv_begin(240, PT_ROW_Y - PT_NUM_Y, T_BG);
     for (b = 0; b < NPAT; b++) {
         char n[2] = {(char)('1' + b), 0};
-        cv_text_c(PT_CELL_X(b) + 11, 11, &AF_X, n, T_DIM, T_BG);
+        cv_text_c(PT_CELL_X(b) + 11, ty_y((PT_ROW_Y - PT_NUM_Y) / 2, TY_LB), TY_LB, n, T_MID, T_BG);
     }
     cv_blit(0, PT_NUM_Y);
 }
@@ -161,12 +163,13 @@ static void pt_row(uint32_t k)
     ptv.row[k] = h;
     ptv.prog[k] = prog;
     cv_begin(240, PT_ROW_H, T_BG);
-    if (sel) {                                          /* the track: its number in a circle, the selected one filled */
-        cv_circle(14, 18, 19, tc, T_BG);
-        cv_text_c(14, 13, &AF_X, n, T_INK, tc);
+    if (sel) {                                          /* the track: its numeral in a chip, the selected one filled */
+        cv_rrect(2, 2, 24, 32, 6, tc, T_BG);
+        cv_text_c(14, ty_y(18, TY_TX), TY_TX, n, T_INK, tc);
     } else {
-        cv_ring(14, 18, 19, tc);
-        cv_text_c(14, 13, &AF_X, n, tc, T_BG);
+        cv_rrect(2, 2, 24, 32, 6, tc, T_BG);
+        cv_rrect(4, 4, 20, 28, 4, T_BG, tc);
+        cv_text_c(14, ty_y(18, TY_TX), TY_TX, n, tc, T_BG);
     }
     for (b = 0; b < NPAT; b++) {
         int32_t x = PT_CELL_X(b), y = 2;
@@ -187,7 +190,7 @@ static void pt_row(uint32_t k)
             cv_rrect(x, y, 23, 32, 4, dst ? T_BG : T_LINE, dst ? T_THEME : T_BG);
             cv_rrect(x + 1, y + 1, 21, 30, 3, T_BG, dst ? T_BG : T_LINE);
             if (dst)                                    /* (Copy to: an empty place) */
-                cv_text_c(x + 11, y + 10, &AF_S, "+", T_THEME, T_BG);
+                cv_text_c(x + 11, ty_y(y + 16, TY_TX), TY_TX, "+", T_THEME, T_BG);
         }
         if (b == t->pattern_next)                       /* waiting for the bar: dashed */
             cv_dashed(x, y, 23, 32, 4, tc);
@@ -212,9 +215,9 @@ static void pt_song(void)
         return;
     ptv.song = sig;
     cv_begin(240, 240 - PT_SONG_Y, T_BG);
-    cv_text_on(8, 19, &AF_X, jamrows ? "JAM" : "SONG", T_MID, T_BG);
+    cv_text_on(8, ty_y(19, TY_LB), TY_LB, jamrows ? "JAM" : "SONG", T_MID, T_BG);
     if (!n) {
-        cv_text_on(44, 19, &AF_X, "--", T_DIM, T_BG);
+        cv_text_on(62, ty_y(19, TY_LB), TY_LB, "Empty", T_DIM, T_BG);
     } else {
         first = cur > 2u ? cur - 2u : 0u;
         if (n > 6u && first > n - 6u)
@@ -222,11 +225,11 @@ static void pt_song(void)
         if (n <= 6u)
             first = 0;
         for (i = first; i < first + 6u && i < n; i++) {
-            int32_t x = 44 + 31 * (int32_t)(i - first);
+            int32_t x = 62 + 29 * (int32_t)(i - first);
             int on = i == cur;
             char l[2] = {row_letter(pat, i), 0};
-            cv_rrect(x, 17, 28, 16, 4, on ? T_TEXT : T_SURF, T_BG);
-            cv_text_c(x + 14, 19, &AF_X, l, on ? T_BG : T_MID, on ? T_TEXT : T_SURF);
+            cv_rrect(x, 7, 26, 24, 6, on ? T_TEXT : T_SURF, T_BG);
+            cv_text_c(x + 13, ty_y(19, TY_LB), TY_LB, l, on ? T_BG : T_MID, on ? T_TEXT : T_SURF);
         }
     }
     cv_blit(0, PT_SONG_Y);
@@ -236,8 +239,10 @@ static void patterns_draw(void)
     uint32_t k;
     pt_numbers();
     pt_song();
-    for (k = 0; k < NTRK; k++)
+    for (k = 0; k < trk_n(); k++)
         pt_row(k);
+    if (ui.force && trk_n() < NTRK)                     /* (the rows of tracks not in use: empty) */
+        lcd_fill(0, PT_ROW_Y + (int32_t)trk_n() * PT_ROW_H, 240, (NTRK - trk_n()) * PT_ROW_H, T_BG);
 }
 /* a pattern queued on any track (PATTERNS' OCT- clears them before it leaves) */
 static int patterns_queued(void)
@@ -258,6 +263,8 @@ static void patgrid_edit(uint32_t k, int32_t steps)
         ui.force = 1;
         return;
     }
+    if (k >= trk_n())                                   /* (no track there) */
+        return;
     uint32_t from = t->pattern_next < NPAT ? t->pattern_next : t->pattern;
     if (pattern_request(t, (uint32_t)clamp((int32_t)from + (steps > 0 ? 1 : -1), 0, NPAT - 1u)))
         ui_message("STOP SONG TO SWITCH");
@@ -295,12 +302,18 @@ static void ptc_start(void)                             /* the pattern sheet's C
     ui.ptc_dst = (uint8_t)b;
     ui.force = 1;
 }
-static void ptc_paste(int asked)                        /* OCT+: copy it there (over one in use: asked first) */
+static void ptc_paste(int asked)                        /* OCT+: copy it there (over one in use: asked first;
+                                                         * that or the one playing, playing: at its loop end) */
 {
     uint32_t k = ui.ptc_trk % NTRK;
     int rc;
     if (!asked && !pattern_empty(k, ui.ptc_dst)) {
         confirm_open(CF_PASTE_PAT, k);
+        return;
+    }
+    if (ui.ptc_src != ui.ptc_dst && (ui.ptc_dst == trk[k].pattern || !pattern_empty(k, ui.ptc_dst)) &&
+        dq_defer(CF_PASTE_PAT, k, ui.ptc_dst, ui.ptc_src)) {
+        ui.ptc_on = 0;
         return;
     }
     rc = pattern_copy(&trk[k], ui.ptc_src, ui.ptc_dst);
@@ -312,11 +325,11 @@ static void ptc_paste(int asked)                        /* OCT+: copy it there (
 }
 
 /* -------------------------------------------------------------- SONG --- */
-#define SG_TOP_H 26                                     /* the title: rows 0 .. 25 */
-#define SG_LAB_H 18                                     /* the sections' letters: 26 .. 43 */
-#define SG_ROW_Y (SG_TOP_H + SG_LAB_H)                  /* a track a row: 36 px, 44 .. 187 */
+#define SG_TOP_H H_HEAD                                 /* the title: rows 0 .. 29 */
+#define SG_LAB_H 22                                     /* the sections' letters: 30 .. 51 */
+#define SG_ROW_Y (SG_TOP_H + SG_LAB_H)                  /* a track a row: 36 px, 52 .. 195 */
 #define SG_ROW_H 36
-#define SG_FOOT_Y (SG_ROW_Y + 4 * SG_ROW_H)             /* the foot: 188 .. 239 */
+#define SG_FOOT_Y (SG_ROW_Y + 4 * SG_ROW_H)             /* the foot: 196 .. 239 */
 #define SG_COL_W 56                                     /* a section: x 8 + 56 j, four shown */
 #define SG_COLS 4u
 static struct { uint32_t top, lab, row[NTRK], foot; } sgv;
@@ -325,7 +338,7 @@ static struct { uint32_t first, ncols, sel, total, bars, play; int32_t px; } sg;
 static uint32_t sg_row_bars(uint32_t r)                 /* a row's bars: its longest pattern's (x its repeats) */
 {
     uint32_t k, b = 1;
-    for (k = 0; k < NTRK; k++)
+    for (k = 0; k < trk_n(); k++)
         if (pat_bars(k, chain_patterns[r][k]) > b)
             b = pat_bars(k, chain_patterns[r][k]);
     return b * chain_config.row[r].repeat;
@@ -366,6 +379,7 @@ static void sg_lines(int32_t y, int32_t h)              /* the sections' rules a
 }
 static void sg_head(void)
 {
+    if (head_waiting()) { draw_head(); return; }
     char b[24], t[12];
     uint32_t secs = sg.bars * 240u / (uint32_t)(song.g[G_BPM] > 0 ? song.g[G_BPM] : 120), jam_on = song.playing && !chain.running;
     uint32_t sig = secs * 7u + jam.n * 131u + jam_on * 3u + (uint32_t)(ui.act == 4u) * 5u + ux.gen * 977u + ux.pal * 31u +
@@ -375,16 +389,18 @@ static void sg_head(void)
         return;
     sgv.top = sig;
     cv_begin(240, SG_TOP_H, T_BG);
-    x = cv_text_on(8, 5, &AF_S, "Song", T_TEXT, T_BG);
-    if (sg.bars) {                                      /* its length at the tempo */
-        str_cpy(t, "\xb7 ", 4);
-        fmt_int(t + 2, (int32_t)(secs / 60u));
+    cv_text_r(236, ty_y(SG_TOP_H / 2, TY_TX), TY_TX, "SONG", T_THEME, T_BG);
+    x = 8;
+    if (sg.bars && !ui.msg_t) {                         /* its length at the tempo */
+        str_cpy(t, "", 1);
+        fmt_int(t, (int32_t)(secs / 60u));
         str_cpy(t + str_len(t), secs % 60u < 10u ? ":0" : ":", 3);
         fmt_int(t + str_len(t), (int32_t)(secs % 60u));
-        cv_text_on(x + 6, 7, &AF_X, t, T_MID, T_BG);
+        cv_text_on(x, ty_y(SG_TOP_H / 2, TY_TX), TY_TX, t, T_TEXT, T_BG);
     }
     if (ui.msg_t) {
-        cv_free_text(100, 7, &AF_X, ui.msg, T_ACCENT, T_BG, 132);
+        cv_free_text(8, ty_y(SG_TOP_H / 2, ty_fit(TY_TX, ui.msg, 166)), ty_fit(TY_TX, ui.msg, 166), ui.msg, T_ACCENT, T_BG,
+                     166);
     } else if (jam_on || jam.n) {                       /* the jam: logging (a dot), its rows */
         if (jam_on) {
             str_cpy(b, "capturing jam", sizeof b);
@@ -393,9 +409,9 @@ static void sg_head(void)
             fmt_int(b + str_len(b), jam.n);
             str_cpy(b + str_len(b), jam.n > 1u ? " rows" : " row", 6);
         }
-        x = cv_text_r(232, 7, &AF_X, b, jam_on ? ux_mix(T_REC, T_TEXT, 30) : T_MID, T_BG);
+        x = cv_text_r(176, ty_y(SG_TOP_H / 2, TY_LB), TY_LB, b, jam_on ? ux_mix(T_REC, T_TEXT, 30) : T_MID, T_BG);
         if (jam_on)
-            cv_circle(232 - text_w(&AF_X, b) - 8, 12, 7, T_REC, T_BG);
+            cv_circle(x - 8, SG_TOP_H / 2, 9, T_REC, T_BG);
     }
     cv_blit(0, 0);
 }
@@ -423,32 +439,33 @@ static void sg_labels(void)                             /* the sections' letters
                 fmt_int(l + 3, chain_config.row[r].repeat);
             }
         }
-        x = cv_text_on(x, 1, &AF_X, l, sel ? T_TEXT : r < chain_config.count ? T_MID : T_DIM, T_BG);
+        x = cv_text_on(x, ty_y(10, TY_LB), TY_LB, l, sel ? T_TEXT : r < chain_config.count ? T_MID : T_DIM, T_BG);
         if (sel)                                        /* the row picked: marked in the track's colour */
-            cv_rrect(11 + SG_COL_W * (int32_t)j, 14, 12, 2, 1, T_THEME, T_BG);
+            cv_rrect(11 + SG_COL_W * (int32_t)j, 19, 14, 3, 1, T_THEME, T_BG);
         (void)x;
     }
     if (sg.px >= 0)
-        cv_rect(sg.px, 14, 2, SG_LAB_H - 14, T_TEXT);
+        cv_rect(sg.px, 18, 2, SG_LAB_H - 18, T_TEXT);
     cv_blit(0, SG_TOP_H);
 }
 /* track k's blocks: a pattern over sections in a row as one (the selected track's block in the row picked alone,
- * outlined); an empty pattern: nothing (picked: dashed) */
+ * outlined); an empty pattern: nothing (picked: dashed); a track not in use: its row's lines alone */
 static void sg_row(uint32_t k)
 {
     const track_t *t = &trk[k];
     uint16_t tc = t->p[P_MUTE] ? T_DIM : T_TRK(k);
+    uint32_t live = k < trk_n(), cols = live ? SG_COLS : 0u;
     uint32_t j, h = fnv1(2166136261u, sg.first + 16u * sg.ncols + 256u * sg.sel + 4096u * (k == song.sel) +
-                                     65536u * (uint32_t)(t->p[P_MUTE] != 0));
+                                     65536u * (uint32_t)(t->p[P_MUTE] != 0) + 131072u * live);
     h = fnv1(fnv1(h, (uint32_t)(sg.px + 1)), ux.gen * 977u + ux.pal * 31u + t->pattern_gen);
-    for (j = 0; j < SG_COLS && sg.first + j < chain_config.count; j++)
+    for (j = 0; j < cols && sg.first + j < chain_config.count; j++)
         h = fnv1(h, chain_patterns[sg.first + j][k] + 16u * (uint32_t)pattern_used(k, chain_patterns[sg.first + j][k]));
     if (!ui.force && h == sgv.row[k])
         return;
     sgv.row[k] = h;
     cv_begin(240, SG_ROW_H, T_BG);
     sg_lines(0, SG_ROW_H);
-    for (j = 0; j < SG_COLS && sg.first + j < chain_config.count; ) {
+    for (j = 0; j < cols && sg.first + j < chain_config.count; ) {
         uint32_t r = sg.first + j, p = chain_patterns[r][k], e = j + 1u, pick = k == song.sel && r == sg.sel;
         int used = pattern_used(k, p);
         int32_t x = 9 + SG_COL_W * (int32_t)j, w;
@@ -461,10 +478,10 @@ static void sg_row(uint32_t k)
             if (pick)                                   /* the selected track's, in the row picked: outlined */
                 cv_rrect(x - 1, 1, w + 2, 30, 6, T_TEXT, T_BG);
             cv_rrect(x, 2, w, 28, 5, tc, pick ? T_TEXT : T_BG);
-            cv_text_on(x + 5, 11, &AF_X, l, T_INK, tc);
+            cv_text_on(x + 6, ty_y(16, TY_LB), TY_LB, l, T_INK, tc);
         } else if (pick) {
             cv_dashed(x, 2, w, 28, 5, tc);
-            cv_text_on(x + 5, 11, &AF_X, l, tc, T_BG);
+            cv_text_on(x + 6, ty_y(16, TY_LB), TY_LB, l, tc, T_BG);
         }
         j = e;
     }
@@ -486,24 +503,24 @@ static void sg_foot(void)                               /* the sections and bars
     if (sg.px >= 0)
         cv_rect(sg.px, 0, 2, 6, T_TEXT);
     if (!n) {
-        cv_text_on(8, 17, &AF_S, "No sections yet", T_MID, T_BG);
+        cv_text_on(8, ty_y(17, TY_TX), TY_TX, "No sections yet", T_MID, T_BG);
     } else {
         fmt_int(b, (int32_t)n);
         str_cpy(b + str_len(b), n > 1u ? " sections \xb7 " : " section \xb7 ", 14);
         fmt_int(b + str_len(b), (int32_t)sg.bars);
         str_cpy(b + str_len(b), sg.bars > 1u ? " bars" : " bar", 6);
-        cv_text_on(8, 17, &AF_S, b, T_MID, T_BG);
+        cv_text_on(8, ty_y(17, TY_LB), TY_LB, b, T_MID, T_BG);
         if (r < n) {
             b[0] = row_letter((const uint8_t (*)[NTRK])chain_patterns, r);
             str_cpy(b + 1, " x", 3);
             fmt_int(b + 3, chain_config.row[r].repeat);
-            cv_text_r(232, 17, &AF_S, b, T_TEXT, T_BG);
+            cv_text_r(232, ty_y(17, TY_TX), TY_TX, b, T_TEXT, T_BG);
         }
     }
-    cv_rrect(8, 36, 224, 6, 3, T_SURF, T_BG);
+    cv_rrect(8, 32, 224, 6, 3, T_SURF, T_BG);
     if (chain.running && sg.bars) {
         int32_t w = (int32_t)(sg.play * 224u / sg.bars);
-        cv_rrect(8, 36, w < 6 ? 6 : w, 6, 3, T_TEXT, T_SURF);
+        cv_rrect(8, 32, w < 6 ? 6 : w, 6, 3, T_TEXT, T_SURF);
     }
     cv_blit(0, SG_FOOT_Y);
 }

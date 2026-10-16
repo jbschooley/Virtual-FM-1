@@ -1,11 +1,15 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Bounded audio working-memory arena. Only the audio owner (or boot/host
  * setup before audio starts) mutates it. Fixed handles, no heap,
  * relocation, or searches proportional to the number of voices/samples.
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_FX0, RES_COUNT = RES_FX0 + FX_STATE_COUNT };
+enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_FX0,
+       RES_RECORD_UNDO = RES_FX0 + FX_STATE_COUNT, RES_COUNT };
+static uint8_t recording_undo_lost;
+static uint8_t recording_undo_active, recording_undo_skip;
 static struct { void *ptr; uint32_t size; } resource[RES_COUNT];
 static uint32_t resource_peak, resource_failures;
 #ifdef FM1_IRQ_TARGET
@@ -103,5 +107,13 @@ static inline void *resource_get(uint32_t id, uint32_t bytes)
 {
     uint32_t size=(bytes+3u)&~3u;
     if(size && size==resource[id].size)return resource[id].ptr;
-    return resource_allocate(id,bytes);
+    void *p=resource_allocate(id,bytes);
+    /* A history snapshot must never prevent a voice/effect from acquiring its
+     * working memory. It is disposable, unlike sounding engine state. */
+    if(!p && bytes && bytes<=RESOURCE_CAPACITY && id!=RES_RECORD_UNDO && resource[RES_RECORD_UNDO].size){
+        resource_release(RES_RECORD_UNDO);recording_undo_lost=1;
+        recording_undo_skip|=recording_undo_active;recording_undo_active=0;
+        p=resource_allocate(id,bytes);
+    }
+    return p;
 }

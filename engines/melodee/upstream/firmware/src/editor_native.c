@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Engine-specific user preset slots. Command 78: engine, operation, slot/start,
  * then operation arguments. Replies begin engine, operation, slot/start, rc.
  * Native tones are VMEM (128 x 7-bit) or CZ-1 (144 low-first nibble pairs). */
@@ -7,6 +8,9 @@ static int ed_native_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
 {
     if(cmd!=ED_NATIVE)return 0;
     uint32_t e=n?a[0]:127u,op=n>1u?a[1]:127u,k=n>2u?a[2]:127u,rc=n<3u || !native_limit(e) || op>7u || k>=(op==7u?NTRK:native_limit(e));
+    uint32_t limit=e==ENGI_FM6?64u:128u;
+    if(op!=7u && k>=limit)rc=1;
+    if(!rc && (op==2u || op==3u || op==5u) && up_used(k) && up_engine(k)!=e)rc=1;
     uint8_t raw[CZ_BYTES];
     if(!rc){
         if(op==0u){if(n!=4u || !a[3] || a[3]>16u)rc=1;}
@@ -25,13 +29,13 @@ static int ed_native_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
             uint32_t len=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;
             if(n<4u || n>3u+len || !native_used(e,k))rc=1;
             for(uint32_t j=3u;!rc && j<n;j++)if(a[j]<32u || a[j]>126u)rc=1;
-            if(!rc){memcpy(raw,native_raw(e,k),native_size(e));uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u;memset(raw+off,' ',len);memcpy(raw+off,a+3,n-3u);rc=ed_flash_stop()?3u:(uint32_t)native_put(e,k,raw);}
+            if(!rc){char name[21];memcpy(name,a+3,n-3u);name[n-3u]=0;rc=ed_flash_stop()?3u:(uint32_t)up_rename(k,name);}
         }
     }
     if(rc==3u && !transport_busy())rc=0; /* RAM-only writes use the normal editor success convention. */
     ed_b(e);ed_b(op);ed_b(k);ed_b(rc);
-    if(!rc && op==7u){uint32_t u=trk[k].eng_req==e && trk[k].user_native && user_of(&trk[k])<USER_NONE?trk[k].user:0u;ed_b(u&127u);ed_b(u>>7);}
-    if(!rc && op==0u){uint32_t count=a[3];if(k+count>native_limit(e))count=native_limit(e)-k;ed_b(count);ed_b(native_limit(e)&127u);ed_b(native_limit(e)>>7);for(uint32_t j=k;j<k+count;j++){char name[13];ed_b(native_used(e,j));if(native_used(e,j))native_name(e,j,name);else name[0]=0;ed_str(name,12);}}
+    if(!rc && op==7u){uint32_t u=trk[k].eng_req==e && !trk[k].user_native && user_of(&trk[k])<USER_NONE?trk[k].user:0u;ed_b(u&127u);ed_b(u>>7);}
+    if(!rc && op==0u){uint32_t count=a[3];if(k+count>limit)count=limit-k;ed_b(count);ed_b(limit&127u);ed_b(limit>>7);for(uint32_t j=k;j<k+count;j++){char name[13];ed_b(native_used(e,j));if(native_used(e,j))native_name(e,j,name);else name[0]=0;ed_str(name,12);}}
     if(!rc && op==1u){const uint8_t *r=native_raw(e,k);for(uint32_t j=0;j<native_size(e);j++){if(e!=ENGI_FM6){ed_b(r[j]&15u);ed_b(r[j]>>4);}else ed_b(r[j]);}}
     return 1;
 }

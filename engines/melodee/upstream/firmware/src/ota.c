@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Copyright (C) 2026 ChoralRoot FM-1 contributors
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* M-UPGRADE entry: "step 1 lite".
  *
  * The updater talks SysEx (F0 pack7(00 59 cmd len24 body chk) F7):
@@ -372,8 +374,8 @@ static int ota_session(void)
     return 1;
 #endif
 #ifndef MELODEE_OTA_RAMONLY
-#define MELODEE_OTA_RAMONLY 0                       /* 1: RAM record only, no power-loss resume (a power
-                                                     * cycle leaves a broken loader behind) */
+#define MELODEE_OTA_RAMONLY 0                       /* 1: RAM record only; cold-boot recovery is the boot stub
+                                                     * checking the commit marker, never this flash record. */
 #endif
     if (!MELODEE_OTA_RAMONLY && (ota_prog(OTA_RES, parm, sizeof parm) || ota_fread(OTA_RES, back, sizeof back) ||
         !ota_memeq(back, parm, sizeof parm))) {
@@ -386,19 +388,95 @@ static int ota_session(void)
     return 0;
 }
 
-/* boot: a staging area left over (we are running, so the update finished or
- * never started): erase it so the SPL does not re-enter the loader */
+/* The staged loader is Felucca's own and whole: the boot stub's check (firmware/stub/stub_core.h stub_loader_check,
+ * which reads the area through XIP; here through ota_fread in small pieces, no 20 KiB buffer). The two are kept in
+ * step by tests/ota_test.c (the same answer on the staged loader and on thousands of damaged copies). Returns the
+ * staged length from OTA_AREA (the head, the inner head, the blocks), 0 if the stub would refuse it. */
+static uint32_t ota_staged(void)
+{
+    uint8_t h[0x88], q[8];
+    uint32_t len, isize, p, end, total = 0, i, own = 0;
+    if (ota_fread(OTA_AREA, h, sizeof h))
+        return 0;
+    if (ota_crc16(h + 2, 30, 0) != ota_rd16(h) || ota_rd32(h + 4) != OTA_AREA || h[12] != 0x41u ||
+        !ota_memeq(h + 16, (const uint8_t *)"LOADER.BIN", 11))
+        return 0;
+    len = ota_rd32(h + 8) - 32u;
+    if (len < 32u + 8u || len > OTA_AREA_LEN - 0x200u)
+        return 0;
+    isize = ota_rd32(h + 0x20 + 4);
+    if (ota_crc16(h + 0x22, 30, 0) != ota_rd16(h + 0x20) || ota_rd32(h + 0x20 + 8) != 0x01C0A800u ||
+        !isize || isize > 0x14000u)
+        return 0;
+    for (i = 0x48; i + 16u <= 0x48u + 64u && !own; i++)
+        own = (uint32_t)ota_memeq(h + i, (const uint8_t *)"FELUCCA-LOADER-1", 16);
+    if (!own)
+        return 0;
+    for (p = 0x40, end = 0x20u + len; p + 8u <= end;) {
+        uint32_t clen, dlen;
+        if (ota_fread(OTA_AREA + p, q, 8))
+            return 0;
+        clen = ota_rd32(q);
+        dlen = ota_rd32(q + 4);
+        if (!clen || clen > 4096u || !dlen || dlen > 4096u || clen > end - p - 8u)
+            return 0;
+        p += 8u + clen;
+        total += dlen;
+        if (dlen != 4096u && p != end)
+            return 0;
+    }
+    return p == end && total == isize ? end : 0;
+}
+
+/* Boot: retain our complete rescue loader; remove stale records or damaged staging. */
+#ifndef BOOT_WORK_BEGIN
+#define BOOT_WORK_BEGIN(title, total) ((void)0)
+#define BOOT_WORK_PROGRESS(done) ((void)0)
+#define BOOT_WORK_END(failed) ((void)0)
+#endif
 static int ota_boot_cleanup(void)
 {
-    uint8_t a[4], r[8];
-    uint32_t i, used = 0;
-    if (ota_fread(OTA_AREA, a, 4) || ota_fread(OTA_RES, r, 8))
-        return -1;
-    for (i = 0; i < 4u; i++)
-        used |= a[i] != 0xFFu;
-    for (i = 0; i < 8u; i++)
-        used |= r[i] != 0xFFu;
-    if (used)
-        ota_unstage();
+    uint8_t bytes[128];
+    uint32_t i, used = 0, end = ota_staged();
+    /* A complete loader remains available to the boot stub after a cold boot.
+     * Only the separate record sector may be cleared. */
+    if (end) {
+        if (end > OTA_AREA_LEN - 0x1000u)
+            return 0;
+        for (uint32_t off = OTA_AREA_LEN - 0x1000u; off < OTA_AREA_LEN; off += sizeof bytes) {
+            if (ota_fread(OTA_AREA + off, bytes, sizeof bytes)) {
+                BOOT_WORK_BEGIN("FINISHING UPDATE", 1);
+                BOOT_WORK_END(1);
+                return -1;
+            }
+            for (i = 0; i < sizeof bytes; i++) used |= bytes[i] != 0xFFu;
+        }
+        if (!used) return 0;
+        BOOT_WORK_BEGIN("FINISHING UPDATE", 1);
+        int rc = ota_erase(OTA_AREA + OTA_AREA_LEN - 0x1000u);
+        if (!rc) BOOT_WORK_PROGRESS(1);
+        BOOT_WORK_END(rc != 0);
+        return rc ? -1 : 2;
+    }
+    /* Also find a partially erased staging area after a failed cleanup. */
+    for (uint32_t off = 0; off < OTA_AREA_LEN && !used; off += sizeof bytes) {
+        if (ota_fread(OTA_AREA + off, bytes, sizeof bytes)) {
+            BOOT_WORK_BEGIN("FINISHING UPDATE", OTA_AREA_LEN / 0x1000u);
+            BOOT_WORK_END(1);
+            return -1;
+        }
+        for (i = 0; i < sizeof bytes; i++) used |= bytes[i] != 0xFFu;
+    }
+    if (used) {
+        BOOT_WORK_BEGIN("FINISHING UPDATE", OTA_AREA_LEN / 0x1000u);
+        for (i = 0; i < OTA_AREA_LEN; i += 0x1000u) {
+            if (ota_erase(OTA_AREA + i)) {
+                BOOT_WORK_END(1);
+                return -1;
+            }
+            BOOT_WORK_PROGRESS(i / 0x1000u + 1u);
+        }
+        BOOT_WORK_END(0);
+    }
     return (int)used;
 }

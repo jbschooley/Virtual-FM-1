@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Eight manual STEP edits of the selected track (SEQ > NOTES; CHANCE: the note's sheet): note / chord entry with its held length,
- * SCL + SELECT moves, ENV + SELECT lengths, PITCH, LENGTH, VEL, SLIDE and CHANCE turns. SAVE held undoes the last one (with nothing to undo here:
- * the sound / pattern load undo, ui.c undo_swap); OCT- / OCT+ with SAVE held undo further / redo
+ * SCL + SELECT moves, ENV + SELECT lengths, PITCH, LENGTH, VEL, SLIDE and CHANCE turns. EDIT held undoes the last one (with nothing to undo here:
+ * the sound / pattern load undo, ui.c undo_swap); OCT- / OCT+ with EDIT held undo further / redo
  * (ui_input.c). The frames of a held entry or move are one edit; a new edit drops the redo. Exact comparisons start
  * a fresh history after anything else changed the steps: live recording, the editor, a pattern load or clear, another
  * track or LEN. */
@@ -11,7 +11,7 @@
 #define STEP_HISTORY 8u
 static struct {
     struct {
-        step_t step[NSTEP];
+        step_snapshot_t step[NSTEP];
         recorded_note_t removed, replacement;
         uint16_t removed_index, selection;
         uint8_t cursor, note_slot, has_removed;
@@ -52,7 +52,7 @@ static void step_history_sync_locked(void)
         step_history.recording_gen = recording_generation;
         step_history.has_removed = step_history.state[0].has_removed = 0;
         step_history.len = (uint8_t)step_pattern_len(TSEL);
-        memcpy(step_history.state[0].step, TSEL->step, sizeof step_history.live);
+        step_snapshot_save(step_history.state[0].step, TSEL->step);
         memcpy(step_history.live, TSEL->step, sizeof step_history.live);
         step_history.state[0].cursor = ui.cursor;
         step_history.state[0].selection = ui.note_pick;
@@ -77,7 +77,7 @@ static void step_history_finish(void)
         step_history_clear();
         return;
     }
-    if (step_history.has_removed || memcmp(step_history.state[at].step, step_history.live, sizeof step_history.live)) {
+    if (step_history.has_removed || !step_snapshot_equal(step_history.state[at].step, step_history.live)) {
         step_history.count = (uint8_t)(step_history.pos + 1u);   /* the redo goes */
         if (step_history.count == STEP_HISTORY + 1u) {
             step_history.head = (uint8_t)((step_history.head + 1u) % (STEP_HISTORY + 1u));
@@ -87,7 +87,7 @@ static void step_history_finish(void)
         step_history.pos++;
         step_history.count++;
         at = step_history_index();
-        memcpy(step_history.state[at].step, step_history.live, sizeof step_history.live);
+        step_snapshot_save(step_history.state[at].step, step_history.live);
         step_history.state[at].cursor = ui.cursor;
         step_history.state[at].selection = ui.note_pick;
         step_history.state[at].note_slot = ui.note_slot;
@@ -137,7 +137,7 @@ static int step_history_apply(int redo)
     step_history_finish();                       /* a gesture still held is an edit too */
     if (!step_history_context() || (redo ? step_history.pos + 1u >= step_history.count : !step_history.pos)) {
         fm1_irq_on();
-        return 0;
+        return recording_history(redo);
     }
     uint32_t change = redo ? (step_history.head + step_history.pos + 1u) % (STEP_HISTORY + 1u) : step_history_index();
     if (step_history.state[change].has_removed) {
@@ -148,7 +148,7 @@ static int step_history_apply(int redo)
     }
     step_history.pos = (uint8_t)(step_history.pos + (redo ? 1 : -1));
     at = step_history_index();
-    memcpy(TSEL->step, step_history.state[at].step, sizeof step_history.live);
+    step_snapshot_load(TSEL->step, step_history.state[at].step);
     memcpy(step_history.live, TSEL->step, sizeof step_history.live);
     step_history.recording_gen = recording_generation;
     fm1_irq_on();

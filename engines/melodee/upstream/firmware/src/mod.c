@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Modulation matrix: per track four slots, each SRC -> DST by AMT (-64..63), added to the fixed
  * routings (ENV DEST, LFO DEST). Runs in the audio ISR (mix.c mix_part, voice.c track_render).
  *

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host-side render of the MELODEE DSP (engines, voices, FX, sequencer) to a WAV,
  * for debugging sound without hardware. Same sources as the firmware.
  *   tests/run_tests.sh builds it into build/host/;
@@ -662,7 +663,7 @@ static int rec_test(void)
 }
 
 /* TRS MIDI IN (midi_uart.c, untested on hardware): bytes through its parser into the same queue as
- * USB, routed by channel: 1..4 -> parts 1..4, others (10 too) -> the selected track; running
+ * USB, routed by channel: CH1-4 filters other channels; SEL sends them to the selected track; running
  * status, note-on velocity 0 = note-off; a note-off on a "selected track" channel reaches the track
  * its note-on went to after another track was selected; recording into an armed track. */
 static int trs_held(const track_t *t, uint32_t note)
@@ -695,21 +696,25 @@ static int trs_test(void)
                                 0x94, 67, 90}, 21);
     ok_parts = trs_held(&trk[0], 60) && trs_held(&trk[0], 65) && trs_held(&trk[1], 62) && trs_held(&trk[2], 64) &&
                trs_held(&trk[3], 48) && !trs_held(&trk[0], 62);
-    ok_ch10 = trs_held(&trk[1], 36) && !trs_held(&trk[3], 36);   /* ch 10: no drum channel any more */
-    ok_sel = trs_held(&trk[1], 67) && !trs_held(&trk[0], 67);
+    ok_ch10 = !trs_held(&trk[1], 36) && !trs_held(&trk[3], 36);   /* outside CH1-4 */
+    ok_sel = !trs_held(&trk[1], 67) && !trs_held(&trk[0], 67);
+    song.g[G_ROUTE] = 1;
+    trs_bytes((const uint8_t[]){0x94, 67, 90}, 3);   /* SEL still receives channel 5 */
+    ok_sel &= trs_held(&trk[1], 67);
     trs_bytes((const uint8_t[]){0x90, 60, 0, 65, 0, 0x81, 62, 0, 0x82, 64, 64, 0x83, 48, 0, 0x89, 36, 0}, 17);   /* vel 0 = off, 0x8n */
     ok_off = !trs_held(&trk[0], 60) && !trs_held(&trk[0], 65) && !trs_held(&trk[1], 62) && !trs_held(&trk[2], 64) &&
              !trs_held(&trk[3], 48) && !trs_held(&trk[1], 36);
     song.sel = 2;                                   /* another track selected while ch 5's note is down */
     trs_bytes((const uint8_t[]){0x84, 67, 0}, 3);
     ok_hang = !trs_held(&trk[1], 67);
+    song.g[G_ROUTE] = 0;
     song.rec = 1u << 2;                             /* track 3 armed, transport on: ch 3 records */
     transport_req = 1;
     trs_bytes((const uint8_t[]){0xF8}, 1);
     trs_bytes((const uint8_t[]){0x92, 72, 100}, 3);
     trs_bytes((const uint8_t[]){0x92, 72, 0}, 3);
     ok_rec = trk[2].step[0].n == 1u && trk[2].step[0].note[0] == 72u && trk[2].step[0].time == ST_NOTE && trk[1].step[0].n == 0u;
-    printf("tracks: TRS MIDI IN: ch 1..4 -> parts %s, ch 10 and ch 5 -> the selected track %s %s; note-offs "
+    printf("tracks: TRS MIDI IN: ch 1..4 -> parts %s, ch 10 filtered %s, ch 5 filtered then accepted in SEL %s; note-offs "
            "(running status, vel 0) %s\n", ok_parts ? "ok" : "FAIL", ok_ch10 ? "ok" : "FAIL", ok_sel ? "ok" : "FAIL",
            ok_off ? "ok" : "FAIL");
     printf("tracks: TRS MIDI IN: note-off after another track was selected reaches the note's track %s; ch 3 records "

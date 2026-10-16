@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The sound designer's input (ui_designer.c), ahead of the rest of ui_input: all of it but NAME and the question.
  * START: KNOB 1..3 ENGINE START PAGES, OCT+ designs, OCT- / HOME closes. The stages: OCT+ / OCT- the next /
  * previous stage (past either end, and HOME: the designer's sheet), PRESETS a stage, SELECT the pages, the knobs the

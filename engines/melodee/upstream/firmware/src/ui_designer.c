@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The sound designer (docs/SOUND_DESIGNER.md): a sound-only transaction over the native editors, which stay the
  * authority for every control. START is NEW SONG's key screen (rings over a large panel, the keys under it), FEATURES
  * a list page (KNOB 2 the row, KNOB 1 its value), the shaping stages the sound pages themselves: the stages as the
@@ -14,7 +15,8 @@ static void designer_page(void);
 /* One compact snapshot swaps A (original) and B (draft). Editing is allowed
  * only on B; switching engine during setup does not touch the track. */
 typedef struct {
-    uint8_t eng, preset, user, native;
+    uint8_t eng, preset, native;
+    uint16_t user;
     int16_t p[P_COUNT];
     union {
         struct { uint8_t patch[FP_SIZE+1u], fn[FM6_NFN], on; } fm;
@@ -527,8 +529,8 @@ static void designer_tabs(void)
     }
     tabs_draw(nm,n,cur,cur*7u+n*131u+ds.eng*1031u+ux.gen*977u+ux.pal*31u+song.sel+0x5E5u);
 }
-/* START: ENGINE, START (the sound now, INIT, or INIT with a goal's recipe), PAGES (MAIN, ALL) as rings, the engine
- * large under them, the keys under that (NEW SONG's key) */
+/* START (large type, C): ENGINE, START (this sound, INIT, or INIT with a goal's recipe), PAGES (MAIN, ALL) as rows
+ * (KNOB 1 .. 3 turn them: the row turning tinted), the engine large under them, the keys under that (NEW SONG's) */
 static void new_keys_row(const char *go,uint32_t icon);  /* ui_new.c */
 static int designer_init(void) { return !ds.current || ds.eng!=TSEL->eng_req; }
 static uint32_t designer_start(void) { return !designer_init()?0u:ds.goal==DG_FREE?1u:1u+ds.goal; }   /* 0 .. DG_COUNT */
@@ -539,31 +541,28 @@ static void designer_start_set(uint32_t k)
 }
 static void designer_start_draw(void)
 {
-    char b[48];uint8_t cs=col_style;
-    const aafont_t *f=&AF_L;
-    uint32_t s=ds.eng*7u+ds.goal*131u+ds.current*1031u+ds.expert*40503u+(ui.hot_t?ui.hot_col+1u:0u)*7919u+ux.gen*977u+
+    char b[24];
+    const aafont_t *f=TY_HR;
+    uint32_t k,s=ds.eng*7u+ds.goal*131u+ds.current*1031u+ds.expert*40503u+(ui.hot_t?ui.hot_col+1u:0u)*7919u+ux.gen*977u+
                ux.pal*31u+song.sel;
     if(ui.force)lcd_fill(0,H_HEAD,240,240-H_HEAD,T_BG);
     draw_head();
     if(!ui.force && s==ds.sig)return;
     ds.sig=s;
-    col_style=CS_RING;
     uint32_t st=designer_start();
-    draw_column(0,"ENGINE",ENGINES[ds.eng]->name,"",VAL(0u),(int32_t)(eng_rank(ds.eng)*1000u/(NENG_SHOWN-1u)),ICON_NONE);
-    draw_column(1,"START",st==0u?"CURRENT":st==1u?"INIT":DS_GOAL[ds.goal],"",VAL(1u),(int32_t)(st*1000u/DG_COUNT),ICON_NONE);
-    draw_column(2,"PAGES",ds.expert?"ALL":"MAIN","",VAL(2u),ds.expert?1000:0,ICON_NONE);
-    draw_column(3,"","","",T_THEME,-1,ICON_NONE);
-    col_style=cs;
-    cv_begin(240,100,T_BG);
-    cv_rrect(PV_PANEL_X,0,PV_PANEL_W,100,6,T_PANEL,T_BG);
-    if(text_w(f,ENGINES[ds.eng]->name)>216)f=&AF_M;
-    cv_text_c(120,f==&AF_L?22:32,f,ENGINES[ds.eng]->name,T_TEXT,T_PANEL);
-    b[0]=0;                                             /* "From this sound \xB7 main pages", "Pad from INIT \xB7 all pages" */
-    if(st>1u){menu_words(b,DS_GOAL[ds.goal],16);str_cpy(b+str_len(b)," from INIT",12);}
-    else str_cpy(b,st?"From INIT":"From this sound",16);
-    str_cpy(b+str_len(b),ds.expert?" \xB7 all pages":" \xB7 main pages",14);
-    cv_text_c(120,66,&AF_S,b,T_MID,T_PANEL);
-    cv_blit(0,108);
+    for(k=0;k<3u;k++){
+        static const char *const LB[3]={"Engine","Start","Pages"};
+        if(k==0u)menu_words(b,ENGINES[ds.eng]->name,sizeof b);
+        else if(k==1u){if(st<2u)str_cpy(b,st?"Init":"This sound",sizeof b);else{menu_words(b,DS_GOAL[ds.goal],16);str_cpy(b+str_len(b)," from Init",12);}}
+        else str_cpy(b,ds.expert?"All":"Main",sizeof b);
+        cv_begin(240,LIST_ROW,T_BG);
+        row_draw(0,LB[k],b,T_TEXT,ui.hot_t && ui.hot_col==k,0,k);
+        cv_blit(0,(uint32_t)(LIST_Y0+(int32_t)k*LIST_ROW));
+    }
+    if(text_w(f,ENGINES[ds.eng]->name)>220 || !text_has(f,ENGINES[ds.eng]->name))f=TY_VL;
+    cv_begin(240,Y_FOOT-(LIST_Y0+3*LIST_ROW),T_BG);   /* (the engine: large) */
+    cv_text_c(120,ty_y((Y_FOOT-(LIST_Y0+3*LIST_ROW))/2,f),f,ENGINES[ds.eng]->name,T_THEME,T_BG);
+    cv_blit(0,LIST_Y0+3*LIST_ROW);
     new_keys_row("Design",ICON_X_RIGHT);
 }
 /* FEATURES: a row a path, its state at the right (off: dim); an FM operator says what it is in the algorithm */
@@ -612,14 +611,15 @@ static int designer_foot(void)
     sig=str_hash(str_hash(nx*7u+song.sel*131u+ux.gen*977u+ux.pal*31u+0xF00Du,go),nm);
     if(!ui.force && sig==pv.sound)return 1;
     pv.sound=sig;
-    gw=text_w(&AF_S,go)+30;
-    cv_begin(240,240-PV_SOUND_Y,T_BG);
-    cv_rrect(6,1,34,18,5,T_SURF,T_BG);
-    cv_icon_mid(17,10,12,ICON_X_UNDO,T_MID,T_SURF);
-    cv_free_text(48,2,&AF_S,nm,T_SEC,T_BG,234-gw-8-48);
-    cv_rrect(234-gw,1,gw,18,5,T_THEME,T_BG);
-    cv_icon_mid(234-gw+8,10,12,nx<DT_COUNT?ICON_X_RIGHT:ICON_X_CHECK,T_INK,T_THEME);
-    cv_text_on(234-gw+22,3,&AF_S,go,T_INK,T_THEME);
+    gw=text_w(TY_TX,go)+42;
+    cv_begin(240,240-PV_SOUND_Y,T_BG);                  /* (NEW SONG's keys, the sound between them) */
+    cv_rrect(4,2,48,24,6,T_SURF,T_BG);
+    cv_icon_mid(20,14,16,ICON_X_UNDO,T_MID,T_SURF);
+    if(text_w(TY_LB,nm)<=236-gw-8-60)                  /* (the sound's name where it fits whole) */
+        cv_text_on(60,ty_y(14,ty_fit(TY_TX,nm,236-gw-8-60)),ty_fit(TY_TX,nm,236-gw-8-60),nm,T_SEC,T_BG);
+    cv_rrect(236-gw,2,gw,24,6,T_THEME,T_BG);
+    cv_icon_mid(236-gw+10,14,16,nx<DT_COUNT?ICON_X_RIGHT:ICON_X_CHECK,T_INK,T_THEME);
+    cv_text_on(236-gw+32,ty_y(14,TY_TX),TY_TX,go,T_INK,T_THEME);
     cv_blit(0,PV_SOUND_Y);
     return 1;
 }

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Shared DSP building blocks for the Melodee engines (all fixed point).
  * Voice output convention: add sample * amp to out[], where a full-scale
  * oscillator at amp = 1.0 (Q15 32767) contributes VOICE_FS. */
@@ -31,7 +32,8 @@ static inline int32_t mulq16(int32_t a, uint32_t k)
 {
     return (int32_t)(((a >> 16) * (int32_t)k) + (int32_t)(((uint32_t)(a & 0xFFFF) * k) >> 16));
 }
-static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* Shared sample helpers must inline so SRAM kernels never call into XIP. */
+static inline __attribute__((always_inline)) int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /* Musical pitch only: leave dimensionless ratios (pow2_q16) at their original reference.
  * At 440 Hz this is bit-identical to pitch_inc, including its truncation. */
@@ -70,16 +72,6 @@ static inline int32_t blep(uint32_t ph, uint32_t inc)
     return 0;
 }
 
-static inline int32_t osc_saw(uint32_t ph, uint32_t inc)
-{
-    return ((int32_t)(ph >> 16) - 32768) - blep(ph, inc);
-}
-
-static inline int32_t osc_pulse(uint32_t ph, uint32_t inc, uint32_t pw)
-{
-    return (osc_saw(ph, inc) - osc_saw(ph + pw, inc)) >> 1;
-}
-
 static inline int32_t osc_tri(uint32_t ph)
 {
     int32_t s = (int32_t)(ph >> 15);                 /* 0..131071 */
@@ -88,7 +80,7 @@ static inline int32_t osc_tri(uint32_t ph)
 
 /* tanh(x / 32768) * 32767, linearly interpolated (a plain lookup gives
  * 256-unit steps, audible on quiet signals) */
-static inline int32_t softclip(int32_t x)
+static inline __attribute__((always_inline)) int32_t softclip(int32_t x)
 {
     int32_t a = x < 0 ? -x : x, i = a >> 8, y;
     if (i >= 256)
@@ -99,7 +91,7 @@ static inline int32_t softclip(int32_t x)
 }
 
 /* xorshift32 */
-static inline uint32_t noise32(int32_t *st)
+static inline __attribute__((always_inline)) uint32_t noise32(int32_t *st)
 {
     uint32_t s = (uint32_t)*st;
     s ^= s << 13;
@@ -129,10 +121,6 @@ static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..1
         g += ((SVF_G[i + 1] - g) * (cut & 255)) >> 8;
     tsvf_coef_gk(c, g, k);
 }
-static inline void tsvf_coef(tsvf_t *c, int32_t cut, int32_t reso)   /* reso 0..127: damping 2.0 .. ~0.15 */
-{
-    tsvf_coef_k(c, cut, 8192 - reso * 7600 / 127);
-}
 
 static inline int32_t tsvf_lp(const tsvf_t *c, int32_t in, int32_t *ic1, int32_t *ic2)
 {
@@ -151,7 +139,7 @@ static inline int32_t tsvf_lp(const tsvf_t *c, int32_t in, int32_t *ic1, int32_t
 #if (1 << CTL_LOG2) != CTL
 #error "CTL_LOG2 does not match CTL"
 #endif
-static inline int32_t amp_at(const vmod_t *m, uint32_t i)
+static inline __attribute__((always_inline)) int32_t amp_at(const vmod_t *m, uint32_t i)
 {
     int32_t x = (m->amp1 - m->amp0) * (int32_t)i;
     return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> CTL_LOG2);

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """The UI palettes (run by tools/build.py generate()).
 
   gen_ui_palettes.py OUT.h [--report]
@@ -36,6 +37,16 @@ PALETTES = [
      ((160, 42, 22), (116, 68, 0), (0, 92, 72), (78, 56, 184))),
     ("CONTRAST", (0, 0, 0),       (34, 34, 34),    (255, 255, 255), (255, 255, 255),
      ((255, 128, 96), (255, 214, 0), (0, 236, 188), (176, 160, 255))),
+    ("SUNSET",   (34, 16, 34),    (54, 28, 52),    (255, 236, 240), (255, 255, 255),
+     ((255, 96, 160), (255, 150, 64), (255, 214, 92), (186, 132, 255))),
+    ("OCEAN",    (12, 22, 40),    (24, 40, 64),    (232, 244, 255), (255, 255, 255),
+     ((255, 128, 150), (255, 206, 104), (64, 214, 230), (140, 156, 255))),
+    ("NEON",     (10, 8, 20),     (28, 24, 46),    (244, 242, 255), (255, 255, 255),
+     ((255, 72, 200), (0, 228, 255), (170, 255, 64), (255, 230, 0))),
+    ("CANDY",    (255, 241, 246), (247, 224, 236), (44, 24, 48),    (30, 14, 34),
+     ((150, 20, 102), (32, 64, 178), (0, 88, 90), (138, 54, 0))),
+    ("LO-FI",    (32, 28, 26),    (48, 42, 38),    (236, 226, 208), (250, 244, 232),
+     ((218, 140, 128), (214, 182, 104), (146, 184, 142), (142, 164, 206))),
 ]
 TEST_GRAY = ("GRAY", (14, 14, 14), (36, 36, 36), (204, 204, 204), (255, 255, 255),
              ((232, 232, 232), (220, 220, 220), (208, 208, 208), (244, 244, 244)))
@@ -45,6 +56,58 @@ QR_LIGHT, QR_DARK, CRASH_BG, CRASH_INK = (255, 255, 255), (0, 0, 0), (160, 0, 0)
 PCT = {"MID": 70, "DIM": 42, "LINE": 18, "SEL": 80, "TINT": 12, "KEY": 78}
 RAISE_PCT = 12                     # SURF -> TEXT
 LINE_PCT = {"NIGHT": 10}           # a palette's own LINE (else PCT["LINE"]): NIGHT's dividers as faint as the design's
+
+
+# the knobs' colours (src/gfx.c T_KNOB): each track colour turned round the hue circle in OKLCH (degrees, and a lightness
+# step away from the background), so a page of the track keeps its family but each knob has a colour of its own; the
+# first is the track's colour itself. GRAY keeps its gray.
+SHADES = [(0, 0.0), (32, 0.03), (-32, 0.02), (64, 0.0)]
+
+
+def _lin(c):
+    c /= 255.0
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _unlin(c):
+    c = 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+    return max(0, min(255, round(c * 255)))
+
+
+def shade(rgb, dh, dl):
+    """rgb turned dh degrees round the OKLCH hue circle, its lightness dl further from the background (the chroma
+    reduced until the colour is in sRGB)"""
+    import math
+    r, g, b = (_lin(x) for x in rgb)
+    l_ = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+    m_ = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+    s_ = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+    L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
+    A = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+    B = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    C, h = math.hypot(A, B), math.atan2(B, A) + math.radians(dh)
+    L += dl
+    while True:
+        a, bb = C * math.cos(h), C * math.sin(h)
+        l3 = (L + 0.3963377774 * a + 0.2158037573 * bb) ** 3
+        m3 = (L - 0.1055613458 * a - 0.0638541728 * bb) ** 3
+        s3 = (L - 0.0894841775 * a - 1.2914855480 * bb) ** 3
+        rgb2 = (4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+                -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+                -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3)
+        if all(-0.001 <= x <= 1.001 for x in rgb2) or C < 0.01:
+            break
+        C *= 0.97
+    return tuple(_unlin(max(0.0, min(1.0, x))) for x in rgb2)
+
+
+def shades(p):
+    """[track][knob] colours of palette p"""
+    name, bg, _, _, _, trk = p
+    if name == "GRAY":
+        return [[c] * 4 for c in trk]
+    away = -1.0 if sum(bg) > 3 * 128 else 1.0          # (a light background: darker)
+    return [[shade(c, dh, away * dl) for dh, dl in SHADES] for c in trk]
 
 
 def to565(c):
@@ -84,11 +147,8 @@ def luma(c):
 
 
 def lum(c565):
-    def lin(v):
-        v /= 255.0
-        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
     r, g, b = from565(c565)
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
 
 
 def contrast(a, b):
@@ -109,6 +169,8 @@ def derive(p, t):
     d["ink"] = bg
     d["light"] = luma(bg) > 128
     d["rec"] = accent if mono else to565(REC_LIGHT if d["light"] else REC_DARK)
+    for k, c in enumerate(shades(p)[t]):
+        d[f"k{k}"] = to565(c)
     return f"{name}/T{t + 1}", d
 
 
@@ -123,7 +185,8 @@ CHECKS = [("text", "bg", 12.0, "body text"), ("text", "surf", 9.0, "body text on
           ("text", "raise_", 7.0, "text on a RAISE chip or button"), ("ink", "rec", 4.5, "text on the REC chip"),
           ("ink", "key", 4.5, "a keycap's label"), ("key", "bg", 3.0, "a keycap on the background"),
           ("key", "surf", 2.5, "a keycap on a surface"), ("ink", "dim", 1.8, "an unavailable keycap's label"),
-          ("ink", "accent", 4.5, "text on the ARM badge")]
+          ("ink", "accent", 4.5, "text on the ARM badge")] + \
+         [(f"k{k}", b, 4.5, f"knob {k + 1}'s colour: labels, curves") for k in range(4) for b in ("bg", "surf")]
 
 
 def main():
@@ -156,11 +219,13 @@ def main():
         def row(p):
             v = [to565(c) for c in p[1:5]]
             t = [to565(c) for c in p[5]]
+            k = [[to565(c) for c in ks] for ks in shades(p)]
             return (f'    {{"{p[0]}", ' + ", ".join(f"0x{x:04x}" for x in v) +
-                    ", {" + ", ".join(f"0x{x:04x}" for x in t) + "}},")
+                    ", {" + ", ".join(f"0x{x:04x}" for x in t) + "}, {" +
+                    ", ".join("{" + ", ".join(f"0x{x:04x}" for x in ks) + "}" for ks in k) + "}},")
         out = ["/* generated by tools/gen_ui_palettes.py: the UI palettes (4 colours and 4 track colours each, the rest",
                " * derived) */", "#pragma once", "#include <stdint.h>", "",
-               "/* ui_pal_t {name, bg, surf, text, accent, trk[4]} (src/gfx.c); GRAY: host tests only */",
+               "/* ui_pal_t {name, bg, surf, text, accent, trk[4], knob[4][4]} (src/gfx.c); GRAY: host tests only */",
                "static const ui_pal_t UI_PALETTES[] = {"]
         out += [row(p) for p in PALETTES]
         out += ["#ifdef UI_TEST_PALETTE", row(TEST_GRAY), "#endif", "};",

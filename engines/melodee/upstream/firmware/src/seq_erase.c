@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* EDIT held during live sequence recording erases the selected bank at audio
  * step boundaries. The UI publishes a scoped request; physical release, track
  * changes, disarm and transport stop disable it without waiting for a UI frame. */
@@ -68,6 +69,7 @@ static void seq_erase_pass(track_t *t, uint32_t step, int entered)
         uint32_t next = recording_next[i];
         if (recording_active(t, i) && ((recording[i].step & 63u) == step ||
             (starting && (recording_run[i].left || (recording_flags[i] & 1u))))) {
+            recording_undo_capture(t);
             touched |= (uint64_t)1u << recording_view(t, &recording[i]);
             recording_remove(t, i);
         }
@@ -79,6 +81,8 @@ static void seq_erase_pass(track_t *t, uint32_t step, int entered)
     for (uint32_t n = 0; n < len && t->step[source].time == ST_TIE; n++) source = (source + len - 1u) % len;
     if (!(t->step[source].flags & SF_RECORDED)) {
         if (t->step[source].time == ST_NOTE && (t->step[source].n || t->step[source].hit)) step = source;
+        step_t empty;memset(&empty,0,sizeof empty);empty.time=ST_REST;
+        if(memcmp(&empty,&t->step[step],sizeof empty))recording_undo_capture(t);
         seq_erase_clear(&t->step[step]);
         for (uint32_t n = 1; n < len && t->step[(step + n) % len].time == ST_TIE; n++)
             seq_erase_clear(&t->step[(step + n) % len]);

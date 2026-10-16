@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 #ifndef MELODEE_CZ_EDIT_H
 #define MELODEE_CZ_EDIT_H
 /* On-device editing of a native CZ-1 tone (the SC_CZ1 pages). The track keeps

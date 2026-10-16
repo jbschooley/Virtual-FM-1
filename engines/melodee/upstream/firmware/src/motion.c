@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Sparse, bounded step automation. Main-loop writes publish under the same
  * interrupt guard as parameter batches. The ISR only scans 64 fixed records.
  * p[] is the sounding value; motion_base_value() is the patch's saved value. */
@@ -8,6 +9,9 @@ static motion_store_t motion;
  * enable bits and event pool remain unchanged. */
 static uint8_t motion_design_pause;
 static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply);
+static void recording_drop(track_t *t, uint32_t owner);
+static void recording_reindex(void);
+static void step_clear(step_t *st);
 static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint8_t motion_base_valid, motion_full;
@@ -257,6 +261,7 @@ static int motion_set_event(track_t *t, uint32_t step, uint32_t id, int16_t valu
     for (i = 0; i < motion.count; i++)
         if (motion_pattern[i] == t->pattern && motion.event[i].place == (k << 6 | step) && motion.event[i].param == id && motion_native_event(id,motion.event[i].value)==motion_native_event(id,value)) break;
     if (i == MOTION_MAX) { motion_full = 1; motion_unguard(f); return 2; }
+    if(rec_on(t)&&(i==motion.count||motion.event[i].value!=value||!motion_enabled(t)))recording_undo_capture(t);
     if (t->pattern) motion.rsv[0] = 1;
     motion_pattern[i] = t->pattern;
     motion.event[i].place = (uint8_t)(k << 6 | step);
@@ -428,13 +433,15 @@ static int pattern_request(track_t *t, uint32_t bank)
     motion_unguard(f);
     return 0;
 }
-static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
+/* track t's pattern source copied over dest; live: even over the one playing (the UI does that at its loop end, as it
+ * waits there: ui_input.c dq_poll). 1 = refused, 2 = no room */
+static int pattern_copy_at(track_t *t, uint32_t source, uint32_t dest, int live)
 {
     uint32_t k = trk_index(t), i, n = 0, f, extra = 0;
     if (source >= NPAT || dest >= NPAT) return 1;
     if (source == dest) return 0;
     f = motion_guard();
-    if (chain.running || chain.armed || (song.playing && dest == t->pattern)) { motion_unguard(f); return 1; }
+    if (chain.running || chain.armed || (song.playing && dest == t->pattern && !live)) { motion_unguard(f); return 1; }
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) == k) {
         if (motion_pattern[i] == source) extra++;
         if (motion_pattern[i] == dest) n++;
@@ -454,6 +461,41 @@ static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
         motion.event[motion.count] = motion.event[i]; motion_pattern[motion.count++] = (uint8_t)dest;
     }
     if (dest == t->pattern) pattern_apply(t, dest);
+    motion_unguard(f);
+    return 0;
+}
+static int pattern_copy(track_t *t, uint32_t source, uint32_t dest) { return pattern_copy_at(t, source, dest, 0); }
+/* track t's motion on pattern bank b gone (the one playing: motion_clear) */
+static void motion_clear_bank(track_t *t, uint32_t b)
+{
+    uint32_t k = trk_index(t), i, n = 0, f;
+    if (b == t->pattern) { motion_clear(t); return; }
+    f = motion_guard();
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != b) {
+        motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+    }
+    motion.count = (uint8_t)n;
+    motion.rsv[0] = 1;
+    motion_unguard(f);
+}
+/* track t's pattern bank emptied, not the one playing (ui_input.c deletes that one as SEQ > PATTERNS does, undoably):
+ * its steps, recorded notes and motion; its length and division stay. 1 = refused (a song running) */
+static int pattern_clear(track_t *t, uint32_t bank)
+{
+    uint32_t k = trk_index(t), i, n = 0, f;
+    pattern_t *p;
+    if (bank >= NPAT || bank == t->pattern) return 1;
+    f = motion_guard();
+    if (chain.running || chain.armed) { motion_unguard(f); return 1; }
+    recording_drop(t, k * NPAT + bank);
+    recording_reindex();
+    p = pattern_at(k, bank);
+    for (i = 0; i < NSTEP; i++) step_clear(&p->step[i]);
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != bank) {
+        motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+    }
+    motion.count = (uint8_t)n;
+    motion.rsv[0] = 1;
     motion_unguard(f);
     return 0;
 }

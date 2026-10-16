@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
  * releases live here. QNT commits a grid to the new take when it finishes. */
@@ -100,6 +101,7 @@ static void recording_unlink(uint32_t i)
 }
 static void recording_reset(void)
 {
+    recording_undo_clear();
     memset(recording, 0, sizeof recording);
     memset(recording_run, 0, sizeof recording_run);
     memset(recording_flags, 0, sizeof recording_flags);
@@ -206,6 +208,7 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
         else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_run[i].left && !(recording_flags[i] & 1u)))) free = i;
     }
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
+    recording_undo_capture(t);
     if (recording_run[free].left) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
     recording_unlink(free);
     recorded_note_t *r = &recording[free];
@@ -264,6 +267,15 @@ static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
     recording_generation++;
 }
 
+/* the recorded notes of owner (track * NPAT + bank) gone; the index is the caller's to rebuild (recording_reindex) */
+static void recording_drop(track_t *t, uint32_t owner)
+{
+    for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == owner) {
+        recording_end(t, i);
+        memset(&recording[i], 0, sizeof recording[i]);
+        memset(&recording_run[i], 0, sizeof recording_run[i]); recording_flags[i] = 0;
+    }
+}
 /* Copy recordings atomically with a bank. Check capacity before mutating
  * either the destination's steps, automation or performance. */
 static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply)
@@ -275,11 +287,7 @@ static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply)
     }
     if (count > free) return 2;
     if (!apply) return 0;
-    for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == dst) {
-        recording_end(t, i);
-        memset(&recording[i], 0, sizeof recording[i]);
-        memset(&recording_run[i], 0, sizeof recording_run[i]); recording_flags[i] = 0;
-    }
+    recording_drop(t, dst);
     for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording[i].vel && (recording[i].owner & 31u) == src)
         for (uint32_t j = 0; j < RECORD_MAX; j++) if (!recording[j].vel) {
             recording[j] = recording_snapshot(i); recording[j].owner = (recording[j].owner & 224u) | dst;
@@ -300,7 +308,7 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     recorded_note_t *r = &recording[i];
     if (recording_flags[i] & 4u) return;
     recording_flags[i] |= 4u;
-    if ((recording_flags[i] & 1u)) return;
+    if ((recording_flags[i] & 1u) || ((seq_hush >> trk_index(t)) & 1u)) return;   /* (an edit waiting: seq.c) */
     uint32_t chance = step_chance(&t->step[recording_view(t, r)]);
     if (chance < 100u && rng() % 100u >= chance) return;
     uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);

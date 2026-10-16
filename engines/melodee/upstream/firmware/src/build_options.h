@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Shared by the application and assembly startup. Explicit build overrides win. */
 #ifndef MELODEE_BUILD_OPTIONS_H
 #define MELODEE_BUILD_OPTIONS_H

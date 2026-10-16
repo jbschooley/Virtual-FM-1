@@ -1,13 +1,15 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SEQ > MOTION (docs/design: mock/r6_pages MOTION, mock/r6_popups): the selected track's recorded motion as lanes, one
  * per parameter it moves on the pattern playing: the value step by step (held from one event to the next, the sound's
  * own before the first), the playhead over them. No chips: KNOB 2 the lane, KNOB 1 Play on / off, OCT+ the lane's
- * sheet (Play, Clear <lane>, Clear all motion), OCT- Stage. Included by ui_draw.c */
+ * sheet (Play, Clear <lane>, Clear all motion), KNOB 3 the step, KNOB 4 its value;
+ * SEQ + KNOB 2/4 clears the lane/point. OCT- Stage. Included by ui_draw.c */
 #define MO_MAX 8                                        /* lanes (parameters) at most */
-#define MO_Y0 22                                        /* the lanes: 64 px each, 3 shown, from y 22 */
-#define MO_H 64
+#define MO_Y0 Y_LABEL                                   /* the lanes: 60 px each, 3 shown, from y 32 to the sound bar */
+#define MO_H 60
 #define MO_VIS 3
-static struct { uint8_t lane, first; uint32_t sig; } mo;
+static struct { uint8_t lane, first, step, edit; uint32_t sig; } mo;
 static int16_t mo_cell;                                 /* (the sheet's lane: its parameter) */
 
 static int motion_page(void) { return !ui.home && !ui.menu && !ui.layer && cur_page()->graph == GR_MOTION; }
@@ -121,11 +123,21 @@ static void mo_play(void)
     if (mo_free())
         motion_set_enabled(TSEL, !motion_enabled(TSEL));
 }
+/* A sound-load undo normally clears motion. Preserve the current lane pool while
+ * taking that snapshot so an automation edit cannot erase neighbouring lanes. */
+static void mo_edit_begin(void)
+{
+    motion_store_t saved;
+    motion_snapshot_track(TSEL, &saved);
+    undo_seal();                                   /* this edit has its own undo */
+    load_begin(TSEL, UNDO_PAT);
+    (void)motion_replace_track(TSEL, &saved);
+}
 static void mo_clear_lane(void)
 {
     if (!mo_free())
         return;
-    load_begin(TSEL, UNDO_PAT);
+    mo_edit_begin();
     motion_clear_param(TSEL, (uint32_t)mo_cell);
     load_end(TSEL);
     ui_message("LANE CLEARED");
@@ -151,42 +163,84 @@ static void motion_enter(void)                          /* OCT+ on a lane: its s
     str_cpy(sub + str_len(sub), " events", 8);
     sheet_open(t, sub, SHEET_MOTION, NELEM(SHEET_MOTION));
 }
-static void motion_knob(uint32_t k, int32_t s)          /* KNOB 2 the lane, KNOB 1 Play */
+/* KNOB 3 picks a step; KNOB 4 edits its held value or inserts a point.
+ * SEQ + KNOB 2 clears the selected lane; SEQ + KNOB 4 deletes one point. */
+static void motion_knob(uint32_t k, int32_t s)
 {
     uint16_t ids[MO_MAX];
-    uint32_t n = mo_lanes(ids);
-    if (k == 1u && n)
+    uint32_t n = mo_lanes(ids), len = (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP);
+    int clear = (fm1_in.buttons & (1u << panel.btn[B_SEQ])) && (k == 1u || k == 3u);
+    if (clear) ui.seq_t0 |= 2u;                       /* consume SEQ's tap and hold */
+    if (k == 1u && n && !clear)
         mo.lane = (uint8_t)clamp((int32_t)mo.lane + (s > 0 ? 1 : -1), 0, (int32_t)n - 1);
     else if (k == 0u && mo_free())
         motion_set_enabled(TSEL, s > 0);
+    else if (k == 2u) {
+        mo.step = (uint8_t)clamp((int32_t)mo.step + s, 0, (int32_t)len - 1);
+        mo.edit = 1;
+    } else if (n && (k == 3u || clear) && mo_free()) {
+        uint32_t id = ids[mo.lane % n], step = mo.step % len;
+        int16_t v = mo_base(id);
+        if (clear && k == 1u) {
+            mo_cell = (int16_t)id;
+            mo_clear_lane();
+        } else if (clear) {
+            if (!mo_value(id, step, &v)) return;
+            mo_edit_begin();
+            motion_delete_event(TSEL, step, id);
+            load_end(TSEL);
+            ui_message("POINT CLEARED");
+        } else {
+            const param_desc_t *d = mo_desc(id);
+            for (uint32_t i = 0; i <= step; i++) mo_value(id, i, &v);
+            v = (int16_t)clamp((int32_t)v + s, d->min, d->max);
+            /* Packed CZ bytes have gaps between legal values. Skip those codes
+             * in the knob's direction, so a wave/flag byte remains editable. */
+            int16_t wire = v;
+            if (id & 256u) {
+                int32_t next = v;
+                while (next >= d->min && next <= d->max &&
+                       !motion_native_ok(id & 255u, (int16_t)(motion_native_tag(TSEL) << 8 | (uint32_t)next)))
+                    next += s > 0 ? 1 : -1;
+                if (next < d->min || next > d->max) return;
+                wire = (int16_t)(motion_native_tag(TSEL) << 8 | (uint32_t)next);
+            }
+            if (!mo_value(id, step, &v) && motion.count >= MOTION_MAX) {
+                ui_message("MOTION FULL");
+                return;
+            }
+            int was_on = motion_enabled(TSEL);
+            mo_edit_begin();
+            int result = motion_set_event(TSEL, step, id & 255u, wire);
+            if (!was_on) motion_set_enabled(TSEL, 0);
+            load_end(TSEL);
+            if (result) ui_message(result == 2 ? "MOTION FULL" : "INVALID VALUE");
+            mo.edit = 1;
+        }
+    }
 }
 
 /* ----------------------------------------------------------- drawing --- */
-/* one panel, a lane every 64 px (a faint line between): its name at the left (the lane picked: the track's colour), the
- * value step by step over x 52..230, the playhead across them all; motion off: the lines dim */
-static void mo_label(uint32_t id, char *b)              /* "CUTOFF" (too wide: the knob's own, "RES") */
+/* a lane every 60 px (large type): its name over it (the lane picked: tinted, the name and the line in the track's colour,
+ * the step picked and its value at the right), the value step by step over x 12..228, the playhead across them all;
+ * motion off: the lines dim */
+static void mo_label(uint32_t id, char *b)              /* "CUTOFF" */
 {
     uint32_t i;
     mo_name(id, b, 16);
     for (i = 0; b[i]; i++)
         if (b[i] >= 'a' && b[i] <= 'z') b[i] = (char)(b[i] - 32);
-    if (text_w(&AF_X, b) <= 40)
-        return;
-    if ((id&256u) && motion_native_tag(TSEL) == MO_TAG_CZ) {   /* "DCW1" */
-        mo_cz_name((id&255u) - MO_NATIVE, b, 16, 1);
-        for (i = 0; b[i]; i++)
-            if (b[i] >= 'a' && b[i] <= 'z') b[i] = (char)(b[i] - 32);
-    } else {
-        str_cpy(b, mo_desc(id)->label, 16);
-    }
 }
 static void motion_draw(void)
 {
     uint16_t ids[MO_MAX];
     uint32_t n = mo_lanes(ids), len = (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP), r, s, sig, on = motion_enabled(TSEL);
     uint32_t ph = song.playing ? TSEL->seq_idx % len : 0xFFu;
-    if (ui.force)
+    if (ui.force) {
+        lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
         mo.sig = 0;
+    }
+    mo.step %= len;
     draw_head();
     pv_sound();
     if (n && mo.lane >= n)
@@ -196,7 +250,7 @@ static void motion_draw(void)
     if (mo.lane >= mo.first + MO_VIS)
         mo.first = (uint8_t)(mo.lane + 1u - MO_VIS);
     sig = n * 7u + mo.lane * 131u + mo.first * 1031u + ph * 40503u + on * 977u + len * 13u + ux.gen * 7919u + ux.pal * 31u +
-          song.sel * 3u + TSEL->pattern * 104729u + TSEL->eng_req * 613u;
+          mo.step * 8191u + mo.edit * 524287u + song.sel * 3u + TSEL->pattern * 104729u + TSEL->eng_req * 613u;
     for (r = 0; r < motion.count; r++)
         sig = (sig ^ (uint32_t)(motion.event[r].place * 131u + motion.event[r].param * 7u + (uint16_t)motion.event[r].value)) *
               16777619u;
@@ -205,20 +259,20 @@ static void motion_draw(void)
     mo.sig = sig;
     for (r = 0; r < MO_VIS; r++) {
         uint32_t l = mo.first + r;
-        int32_t top = (int32_t)r * MO_H;
+        int32_t top = (int32_t)r * MO_H, x0 = 12, x1 = 228;
+        int sel = l < n && l == mo.lane;
+        uint16_t bg = sel ? ux_mix(T_BG, T_THEME, 18) : T_BG;
         cv_begin(240, MO_H, T_BG);
-        cv_oy = -top;
-        cv_rrect(4, 0, 232, MO_VIS * MO_H, 6, T_PANEL, T_BG);
-        cv_oy = 0;
-        if (r)
-            cv_rect(10, 0, 220, 1, T_LINE);
+        if (sel)
+            cv_rrect(BOX_X, 1, BOX_W, MO_H - 2, 8, bg, T_BG);
+        else if (r && l < n && mo.lane + 1u != l)
+            cv_rect(12, 0, 216, 1, T_LINE);
         if (!n && r == 1u)
-            cv_text_c(120, 24, &AF_S, "No motion", T_MID, T_PANEL);
+            cv_text_c(120, ty_y(MO_H / 2, TY_TX), TY_TX, "No motion", T_MID, T_BG);
         if (l < n) {
             const param_desc_t *d = mo_desc(ids[l]);
-            int32_t lo, hi, span, x0 = 52, x1 = 230, gy0 = 10, gh = 44, py = -1;
-            int sel = l == mo.lane;
-            uint16_t lc = !on ? T_DIM : sel ? T_THEME : ux_mix(T_PANEL, T_THEME, 60);
+            int32_t lo, hi, span, gy0 = 24, gh = 30, py = -1, lx = 130;
+            uint16_t lc = !on ? T_DIM : sel ? T_THEME : ux_mix(T_BG, T_THEME, 60);
             int16_t v = mo_base(ids[l]), w = v;
             char b[16];
             lo = hi = clamp(v, d->min, d->max);         /* (the lane scaled to what it moves through, 16 at least) */
@@ -233,9 +287,20 @@ static void motion_draw(void)
             }
             span = hi - lo;
             for (s = 4; s < len; s += 4)                /* (the beats, faint) */
-                cv_rect(x0 + (int32_t)s * (x1 - x0) / (int32_t)len, 4, 1, MO_H - 8, ux_mix(T_PANEL, T_LINE, 50));
+                cv_rect(x0 + (int32_t)s * (x1 - x0) / (int32_t)len, gy0, 1, gh, ux_mix(bg, T_LINE, 50));
+            if (sel) {                                  /* (the step picked, its value) */
+                char vb[16], sb[12];
+                const char *unit;
+                int16_t sv = mo_base(ids[l]);
+                for (s = 0; s <= mo.step; s++) mo_value(ids[l], s, &sv);
+                param_format(d, sv, vb, &unit);
+                lx = cv_text_r(228, ty_y(13, TY_LB), TY_LB, vb, T_THEME, bg);
+                str_cpy(sb, "Step ", sizeof sb);
+                fmt_int(sb + 5, mo.step + 1u);
+                lx = cv_text_r(lx - 8, ty_y(13, TY_LB), TY_LB, sb, T_MID, bg);
+            }
             mo_label(ids[l], b);
-            cv_text_on(10, MO_H / 2 - 6, &AF_X, b, !on ? T_DIM : sel ? T_THEME : T_MID, T_PANEL);
+            cv_free_text(12, ty_y(13, TY_LB), TY_LB, b, !on ? T_DIM : sel ? T_THEME : T_MID, bg, lx - 8 - 12);
             for (s = 0; s < len; s++) {                 /* the value held step by step */
                 int32_t xa = x0 + (int32_t)s * (x1 - x0) / (int32_t)len, xb = x0 + (int32_t)(s + 1u) * (x1 - x0) / (int32_t)len;
                 int32_t y;
@@ -246,16 +311,18 @@ static void motion_draw(void)
                 cv_rect(xa, y, xb - xa, 2, lc);
                 py = y;
             }
+            if (mo.edit && sel)
+                cv_rect(x0 + (int32_t)mo.step * (x1 - x0) / (int32_t)len, gy0 - 2, 1, gh + 4, T_ACCENT);
         }
-        if (ph < len && n) {                            /* the playhead, across the lanes */
-            int32_t x = 52 + (int32_t)ph * (230 - 52) / (int32_t)len;
-            cv_rect(x, r ? 0 : 6, 2, MO_H - (r ? 0 : 6) - (r + 1u == MO_VIS ? 6 : 0), T_TEXT);
+        if (ph < len && n && l < n) {                   /* the playhead, across the lanes */
+            int32_t x = x0 + (int32_t)ph * (x1 - x0) / (int32_t)len;
+            cv_rect(x, 22, 2, MO_H - 26, T_TEXT);
         }
         if (n > MO_VIS) {                               /* where the lanes are */
             int32_t sp = MO_VIS * MO_H, th = sp * MO_VIS / (int32_t)n, ty = (sp - th) * mo.first / (int32_t)(n - MO_VIS) - top;
-            cv_rect(237, 0, 2, MO_H, T_LINE);
+            cv_rect(238, 0, 2, MO_H, T_LINE);
             if (ty < MO_H && ty + th > 0)
-                cv_rect(237, ty, 2, th, T_THEME);
+                cv_rect(238, ty, 2, th, T_THEME);
         }
         cv_blit(0, (uint32_t)(MO_Y0 + top));
     }

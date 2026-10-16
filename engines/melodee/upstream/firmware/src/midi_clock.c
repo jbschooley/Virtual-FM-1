@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted from MIDI clock contributions by ChanceTheMaker and keremimo (2026).
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Audio ISR state. Musical phase is exactly 1024 units per MIDI pulse; changing
  * the measured tempo cannot move steps, gates, ties or the arpeggiator. */
 static struct {

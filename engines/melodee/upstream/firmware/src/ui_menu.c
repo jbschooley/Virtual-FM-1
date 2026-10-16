@@ -1,25 +1,27 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Melodee menu (HOME held): COLOR, FONT (the type: RUBIK or PIXEL, ui.c TY_*), HOLD (the layer threshold), LIGHTS (the keys' and buttons'
  * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
  * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
- * AUTOSAVE (automatic project saves after five seconds stopped and untouched),
+ * AUTOSAVE (automatic project saves after five seconds stopped and untouched), HOME SELECT (what SELECT turns on HOME:
+ * ui.c HS_*), GLO SELECT (what SELECT turns with GLO held, on any page: the same choices),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
-#define MENU_HEAD 24                     /* the menu's own title strip (Stage and the pages: H_HEAD) */
-enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
+#define MENU_HEAD H_HEAD                 /* the menu's own title strip */
+enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
-                                              "AUTOSAVE", "KNOB ACCEL", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
+                                              "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT", "GLO SELECT", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -48,7 +50,7 @@ static void draw_about_qr(int32_t x, int32_t y)
 /* All notices are in flash. Wrap at the font's actual width, without dropping URL
  * characters; the same layout computes the scroll limit and draws clipped bands.
  * Mixed case here (long text); S throughout, the title in L. */
-#define MENU_DOC_H 216                                /* the document: screen rows 24..240 */
+#define MENU_DOC_H (240 - MENU_HEAD)                  /* the document: screen rows 30..240 */
 enum { MC_TEXT, MC_TITLE, MC_URL };
 typedef struct { const char *text; uint8_t kind; } menu_credit_t;
 static const menu_credit_t MENU_CREDITS[] = {
@@ -58,7 +60,7 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"", MC_TEXT},
     {"H\xFCgelton Instruments / OWN WORK", MC_TITLE},
     {"Leo Kuroshita", MC_TEXT},
-    {"CrispyZebra (PHASE waveforms), synthesized 808: GPL-3.0", MC_TEXT},
+    {"CrispyZebra (PHASE waveforms): GPL-3.0", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
     {"", MC_TEXT},
     {"KLATTSCH / VOICE REFERENCE", MC_TITLE},
@@ -114,20 +116,22 @@ static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
             uint32_t c = (uint8_t)s[n];
             line[n] = s[n];
             line[n + 1u] = 0;
-            pen += (prev ? kern(&AF_S, prev, c) : 0) + AF_S.g[glyph(&AF_S, c)].adv;
+            pen += (prev ? kern(TY_TX, prev, c) : 0) + gadv(TY_TX, &TY_TX->g[glyph(TY_TX, c)]);
             prev = c;
             if ((pen + 8) >> 4 > 226)
                 break;
             if (s[n] == ' ')
                 space = n;
+            else if (s[n] == '/' && n)                  /* (a URL: a line may end after a slash) */
+                space = n + 1u;
             n++;
         }
         take = s[n] && space ? space : n;
         if (!take) take = 1;                         /* progress even for an unusually wide glyph */
         line[take] = 0;
-        if (draw && y + AF_S.h > 0 && y < MENU_DOC_H)
-            cv_text(6, y, &AF_S, line, col);
-        y += 18;
+        if (draw && y + TY_TX->h > 0 && y < MENU_DOC_H)
+            cv_text(6, y, TY_TX, line, col);
+        y += 26;
         s += take;
         while (*s == ' ') s++;
     }
@@ -137,20 +141,18 @@ static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
 static int32_t menu_document(int32_t y, int draw)
 {
     uint32_t i;
-    if (draw) {
-        int32_t x;                                    /* (docs/design: mock/r6_pages About) */
-        cv_text(6, y + 4, &AF_L, "Melodee", T_THEME);
-        cv_text(6, y + 40, &AF_S, "Multi-engine synthesizer", T_SEC);
-        x = cv_text(6, y + 62, &AF_M, MELODEE_VERSION, T_TEXT);
-        cv_text(x + 8, y + 67, &AF_X, __DATE__, T_MID);
-        draw_about_qr(158, y + 4);
-        cv_text(6, y + 94, &AF_S, "\xA9 2026 Kerem Kilic, Ellic Studio", T_TEXT);
-        cv_text(6, y + 112, &AF_S, "Based on Felucca by Leo Kuroshita,", T_TEXT);
-        cv_text(6, y + 130, &AF_S, "H\xFCgelton Instruments", T_SEC);
-        cv_text(6, y + 148, &AF_S, "GPL-3.0-only", T_TEXT);
-        cv_text(6, y + 166, &AF_S, "keremimo.github.io/melodee", T_MID);
+    if (draw) {                                       /* (docs/design: mock/r6_pages About, the large type) */
+        cv_text(6, y + 2, TY_HR, "Melodee", T_THEME);
+        cv_text(6, y + 60, TY_TX, MELODEE_VERSION, T_TEXT);
+        cv_text(6, y + 86, TY_LB, __DATE__, T_MID);
+        draw_about_qr(158, y + 66);
     }
-    y = menu_text("CREDITS", y + 192, T_THEME, draw) + 8;
+    y = menu_text("Multi-engine synthesizer", y + 146, T_SEC, draw);
+    y = menu_text("\xA9 2026 Kerem Kilic, Ellic Studio", y + 6, T_TEXT, draw);
+    y = menu_text("Based on Felucca by Leo Kuroshita, H\xFCgelton Instruments", y, T_TEXT, draw);
+    y = menu_text("GPL-3.0-only", y, T_TEXT, draw);
+    y = menu_text("keremimo.github.io/melodee", y, T_MID, draw);
+    y = menu_text("CREDITS", y + 14, T_THEME, draw) + 8;
     for (i = 0; i < NELEM(MENU_CREDITS); i++) {
         const menu_credit_t *c = &MENU_CREDITS[i];
         const char *text = c->text;
@@ -177,31 +179,31 @@ static int32_t menu_scroll_max(void)
 /* the menu's header (0..24): its title, the REC mark, the way back */
 static void menu_head(void)
 {
+    if (head_waiting()) { draw_head(); return; }
     cv_begin(240, MENU_HEAD, T_BG);
-    cv_text(8, 2, &AF_M, ui.menu == 2 ? "About" : "Settings", T_TEXT);
+    cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : "Settings", T_THEME);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
-        cv_icon_mid(226, MENU_HEAD / 2, 12, ICON_X_UNDO, T_MID, T_BG);   /* (OCT-) */
-        draw_rec_mark(204, T_BG);
+        cv_icon_mid(218, MENU_HEAD / 2, 16, ICON_X_UNDO, T_MID, T_BG);   /* (OCT-) */
+        draw_rec_mark(196, T_BG);
     } else {
-        draw_rec_mark(178, T_BG);
+        draw_rec_mark(218, T_BG);
     }
     cv_blit(0, Y_HEAD);
 }
 
-/* the list (docs/design: mock/r5_pages, ref/settings): nine rows, 20 px, 22 apart from y 28: the name (S, secondary)
- * and its value (S, mid) at the right in words ("Night", "0.4 s"); the selected row lifted across the screen with a
- * bar in the track's colour, its name in text and its value in the track's colour; COLOR: the palettes as swatches,
- * the one chosen outlined. Under the rows where they are in the list. Drawn in two bands (the canvas holds 124
- * rows), split between two rows */
-#define MENU_VISIBLE 9u
-#define MENU_Y0 28
-#define MENU_ROW 22
-#define MENU_RH 20
-#define MENU_SPLIT 137
+/* the list (large type, C): six rows, 32 px, 34 apart from y 32 (ui_list.c row_draw): the name and its value at the
+ * right in words ("Night", "0.4 s"); the selected row tinted in the track's colour, its value in it; COLOR: the
+ * palettes as swatches, the one chosen outlined. Where the rows are in the list: a bar at the right edge. Drawn in two
+ * bands (the canvas holds 124 rows), split between two rows */
+#define MENU_VISIBLE 6u
+#define MENU_Y0 32
+#define MENU_ROW 34
+#define MENU_RH 32
+#define MENU_SPLIT (MENU_Y0 + 3 * MENU_ROW)
 /* "AUDIO CLICK" -> "Audio click", "P5 OSC A" -> "Osc A" (acronyms and a letter alone stay capitals) */
 static void menu_words(char *d, const char *s, uint32_t n)
 {
-    static const char *const AC[] = {"USB", "FX", "MIDI", "LFO", "EG", "FM", "OP", "PW", "DCW", "DCA", "DCO", "MPC"};
+    static const char *const AC[] = {"USB", "FX", "MIDI", "LFO", "EG", "FM", "OP", "PW", "DCW", "DCA", "DCO", "MPC", "GLO"};
     uint32_t i, w = 0, a;
     str_cpy(d, s, n);
     for (i = 0; d[i]; i++) {
@@ -228,8 +230,10 @@ static void draw_menu(void)
 #endif
                             song.rec * 65537u + song.sel * 13u +
                             (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
-    if (!ui.force && sig == ui.menu_sig)
+    if (!ui.force && sig == ui.menu_sig) {
+        if (head_waiting()) draw_head();
         return;
+    }
     ui.menu_sig = sig;
     menu_head();
     if (ui.menu >= 2) {
@@ -255,26 +259,24 @@ static void draw_menu(void)
         cv_oy = -top;                                 /* drawn in screen rows */
         uint32_t first=ui.menu_sel>=MENU_VISIBLE?ui.menu_sel-MENU_VISIBLE+1u:0u;
         for (i = first; i < first+MENU_VISIBLE && i<MI_COUNT; i++) {
-            int32_t y = MENU_Y0 + (int32_t)(i-first) * MENU_ROW, yt = y + 3;
+            int32_t y = MENU_Y0 + (int32_t)(i-first) * MENU_ROW;
             int sel = i == ui.menu_sel;
-            uint16_t bg = sel ? T_LIFT : T_BG, val = sel ? T_THEME : T_MID;
             const char *value = 0;
-            char b[24], w[24];
+            char b[24], w[24], v[24];
             if (y + MENU_RH <= top || y >= top + (int32_t)cv_h)
                 continue;
-            if (sel) {
-                cv_rect(0, y, 240, MENU_RH, T_LIFT);
-                cv_rect(0, y, 3, MENU_RH, T_THEME);
-            }
             menu_words(w, MI_NAME[i], sizeof w);
-            cv_text_on(12, yt, &AF_S, w, sel ? T_TEXT : T_SEC, bg);
             if (i >= MI_CLICK && i <= MI_ADD)
                 value = i==MI_CLICK?(const char *const[]){"OFF","REC","ON"}[settings_click%3u]:
                   i==MI_CLICK_LEVEL?(const char *const[]){"LOW","MID","HIGH"}[settings_click_level%3u]:
                   i==MI_COUNTIN?(const char *const[]){"OFF","1 BAR","2 BARS"}[settings_countin%3u]:
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
+            if (i == MI_PICKER) value = PREF_BITS & PREF_PICK_OFF ? "OFF" : "ON";
+            if (i == MI_FONT) value = TY_PIXEL ? "PIXEL" : "RUBIK";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
+            if (i == MI_HOME_SEL) value = HS_NAME[home_select()];
+            if (i == MI_GLO_SEL) value = HS_NAME[glo_select()];
             if (i == MI_SCREEN) value = (const char *const[]){"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"}[scr_get()];
             if (i == MI_LIGHTS) value = LIGHTS_NAME[settings_lights % LIGHTS_N];
 #if MELODEE_USB_AUDIO
@@ -286,27 +288,27 @@ static void draw_menu(void)
                 b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
                 value = b;
             }
-            if (i == MI_COLOR) {                        /* the palettes as swatches, the one chosen outlined */
+            if (i == MI_COLOR) {                        /* the palette's four track colours as swatches */
                 uint32_t k;
                 int32_t x;
-                menu_words(w, UI_PALETTES[settings.palette % NPALETTES].name, sizeof w);
-                x = cv_text_r(228, yt, &AF_S, w, val, bg) - 10 - 12 * (int32_t)NPALETTES;   /* (cv_text_r: its left) */
-                for (k = 0; k < NPALETTES; k++) {
-                    int on = k == settings.palette % NPALETTES;
-                    cv_rrect(x + 12 * (int32_t)k, y + 5, 10, 10, 2, on ? T_THEME : T_MID, bg);
-                    cv_rrect(x + 12 * (int32_t)k + 1, y + 6, 8, 8, 2,   /* (GRAY, the tests': greys) */
-                             ux.mono ? ux_mix(T_BG, T_TEXT, 40 * k) : UI_PALETTES[k].bg, on ? T_THEME : T_MID);
-                }
-            } else if (value) {
-                menu_words(w, value, sizeof w);
-                cv_text_r(228, yt, &AF_S, w, val, bg);
+                uint16_t bg = sel ? ux_mix(T_BG, T_KNOB(i), 18) : T_BG;
+                menu_words(v, UI_PALETTES[settings.palette % NPALETTES].name, sizeof v);
+                x = row_draw(y, w, v, T_TEXT, sel, 0, i) - 10 - 16 * 4;
+                for (k = 0; k < 4u; k++)
+                    cv_rrect(x + 16 * (int32_t)k + 2, y + MENU_RH / 2 - 5, 10, 10, 3, T_TRK(k), bg);
+            } else {
+                v[0] = 0;
+                if (value)
+                    menu_words(v, value, sizeof v);
+                row_draw(y, w, v, T_TEXT, sel, 0, i);
             }
         }
-        {   /* where the rows are in the list */
-            int32_t tw = 232 * (int32_t)MENU_VISIBLE / (int32_t)MI_COUNT;
-            int32_t tx = MI_COUNT > MENU_VISIBLE ? (232 - tw) * (int32_t)first / (int32_t)(MI_COUNT - MENU_VISIBLE) : 0;
-            cv_rrect(4, 228, 232, 2, 1, T_LINE, T_BG);
-            cv_rrect(4 + tx, 228, tw, 2, 1, T_THEME, T_LINE);
+        {   /* where the rows are in the list: a bar at the right edge */
+            int32_t th = MENU_VISIBLE * MENU_ROW * (int32_t)MENU_VISIBLE / (int32_t)MI_COUNT;
+            int32_t ty = MENU_Y0 + (MI_COUNT > MENU_VISIBLE ? (MENU_VISIBLE * MENU_ROW - th) * (int32_t)first /
+                                    (int32_t)(MI_COUNT - MENU_VISIBLE) : 0);
+            cv_rect(238, MENU_Y0, 2, MENU_VISIBLE * MENU_ROW, T_LINE);
+            cv_rect(238, ty, 2, th, T_THEME);
         }
         cv_oy = 0;
         cv_blit(0, (uint32_t)top);
@@ -390,10 +392,31 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         settings_autosave = (uint8_t)(s > 0 ? 1u : s < 0 ? 0u : !settings_autosave);
         ui.force = 1; ok = 0;
     }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_FONT) {   /* KNOB 1 right PIXEL, left RUBIK; OCT+ toggles */
+        uint32_t px = s > 0 ? 1u : s < 0 ? 0u : !TY_PIXEL;
+        PREF_BITS = (uint8_t)(px ? PREF_BITS | PREF_PIXEL : PREF_BITS & ~PREF_PIXEL);
+        palette_set(settings.palette);                 /* (ux.gen: every part's signature, the rolls redraw) */
+        ui.force = 1; ok = 0;
+    }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_PICKER) {
+        uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_PICK_OFF);
+        PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_PICK_OFF : PREF_BITS | PREF_PICK_OFF);
+        ui.force = 1; ok = 0;
+    }
     if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_ACCEL) {   /* KNOB 1 right ON, left OFF; OCT+ toggles */
         uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_ACCEL_OFF);
         PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_ACCEL_OFF : PREF_BITS | PREF_ACCEL_OFF);
         ui.force=1; ok=0;
+    }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_HOME_SEL) {   /* KNOB 1 steps, OCT+ steps and wraps */
+        uint32_t v = home_select();
+        HOME_SELECT = (uint8_t)(s > 0 ? (v + 1u < HS_N ? v + 1u : v) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % HS_N);
+        ui.force = 1; ok = 0;
+    }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_GLO_SEL) {    /* .. GLO SELECT the same */
+        uint32_t v = glo_select();
+        glo_select_set(s > 0 ? (v + 1u < HS_N ? v + 1u : v) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % HS_N);
+        ui.force = 1; ok = 0;
     }
     if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_SCREEN) {
         uint32_t value=scr_get(), top=4u;

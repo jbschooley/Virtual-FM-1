@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Editor protocol: the FM6 patches (EDITOR_PROTOCOL.md "FM6 patches", cmds 68..71). A patch travels as the
  * 128-byte packed record (every byte 7-bit: no pack7). Targets: 0 a track's own patch (index 0..3), 1 the patch bank
  * (retired in 1.0.3: GET / PUT / ERASE answer rc 3, "no bank"; LIST counts 0 bank slots), 2 a factory patch
@@ -35,7 +36,7 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                 rc = ED_FM6_NOBANK;
             else if (a[0] == ED_FM6_FACTORY && a[1] < FM6_NFAC)
                 fm6_factory(a[1], pk);
-            else if (a[0] == ED_FM6_USER && a[1] < UP_SLOTS)
+            else if (a[0] == ED_FM6_USER && a[1] < 128u)
                 {if(native_used(ENGI_FM6,a[1]))memcpy(pk,native_raw(ENGI_FM6,a[1]),FM6_PACKED);else rc=2u;}
             else
                 rc = 1;
@@ -53,13 +54,13 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             ui.force = 1;
         } else if (!rc && a[0] == ED_FM6_BANK) {
             rc = ED_FM6_NOBANK;
-        } else if (!rc && a[0] == ED_FM6_USER && a[1] < UP_SLOTS && up_used(a[1]) && up_rec(a[1])->engine == ENGI_FM6) {
+        } else if (!rc && a[0] == ED_FM6_USER && a[1] < 128u && up_used(a[1]) && up_rec(a[1])->engine == ENGI_FM6) {
             uint8_t v[FP_SIZE + 1u];
             int r = 2;
             fm6_unpack(a + 2, v);                          /* (every value into its range) */
             fm6_pack(v, pk);
             if (!ed_flash_stop())
-                r = native_put(ENGI_FM6, a[1], pk);
+                r = native_update(ENGI_FM6, a[1], pk);
             rc = r == 2 ? 2u : 0u;                         /* (3, no flash: kept in RAM) */
         } else {
             rc = 1;

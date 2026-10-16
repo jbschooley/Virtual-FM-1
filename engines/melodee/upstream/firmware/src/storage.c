@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Persistent storage on the SPI NOR.
  *
  * Every object has an A/B pair (five base plus two extension sectors per bank project; one otherwise). A save goes to the copy that is not
@@ -13,6 +14,7 @@
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
  */
 #define ST_MAGIC 0x554C4546u                   /* "FELU" */
+#define ST_COMPACT_TAG 0x32504D43u             /* CMP2: preset payload begins at byte 32 */
 #define ST_SECTOR 4096u
 #define ST_PAYLOAD_OFF 256u
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
@@ -22,18 +24,18 @@
 
 /* The Prophet user banks: 0x93000..0x9CFFF. The old banks at 0x89000 are retired and never migrated.
  * The current banks occupy the legacy single-pattern projects' place: those objects are retired (2026-10-10, Kerem: not
- * wanted), their numbers kept, nothing loads or saves them; 0x9D000..0x9EFFF is free.
+ * wanted), their numbers kept, nothing loads or saves them; 0x9D000..0x9EFFF is the final shared preset pair.
  * Bank projects occupy 0xA0000..0xC7FFF, two five-sector copies per slot.
  * Expanded project copies each use two more sectors at 0xEA000..0xF9FFF (unused USR area).
  * User samples are disabled: this area must never accept sample uploads.
- * Flash map: app area 0x4000..0x92FFF; Prophet banks 0x93000..0x9CFFF; free 0x9D000..0x9EFFF; FM6 patch bank
+ * Flash map: app area 0x4000..0x92FFF; Prophet banks 0x93000..0x9CFFF; shared extension 0x9D000..0x9EFFF; FM6 patch bank
  * copy A 0x9F000 (B 0xFE000); bank projects 0xA0000..0xC7FFF; CZ banks 0xC8000..0xD7FFF; native FM6 0xD8000..;
  * user preset banks 0xDC000..0xDFFFF (upreset.c); OTA staging 0xE0000..0xE4FFF; extensions 0xE5000..0xFAFFF;
  * settings 0xFC000 (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..) */
 /* Object numbers 0..19 stay fixed. U33..U64 use E5000..E8FFF;
  * owned FM6 U01..U32 reuse the old bank pair, U33..U64 use E9000/FA000.
  * E0000..E4FFF remains reserved for OTA loader staging. */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_UPRESET_EXT0 = OBJ_CZBANK0 + 8, OBJ_UPFM6_EXT = OBJ_UPRESET_EXT0 + 2, OBJ_NATIVEFM0, OBJ_P5BANK0 = OBJ_NATIVEFM0 + 2, OBJ_COUNT = OBJ_P5BANK0 + 5 };
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_UPRESET_EXT0 = OBJ_CZBANK0 + 8, OBJ_UPFM6_EXT = OBJ_UPRESET_EXT0 + 2, OBJ_NATIVEFM0, OBJ_P5BANK0 = OBJ_NATIVEFM0 + 2, OBJ_SHARED_EXT = OBJ_P5BANK0 + 5, OBJ_COUNT };
 
 typedef struct {
     uint32_t magic;
@@ -64,6 +66,7 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
+    if (obj == OBJ_SHARED_EXT) return 0x9D000u+copy*ST_SECTOR;
     if (obj >= OBJ_P5BANK0) return 0x93000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
     if (obj >= OBJ_NATIVEFM0) return 0xD8000u + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
@@ -86,6 +89,14 @@ static int st_banked(uint32_t obj) { return obj >= OBJ_BANK0 && obj < OBJ_CZBANK
  * 256 bytes erased so the SPL/update loader cannot interpret musical data as OTA. */
 static uint32_t st_payload_off(uint32_t obj) { return obj >= OBJ_UPRESET_EXT0 ? sizeof(st_hdr_t) : ST_PAYLOAD_OFF; }
 static uint32_t st_capacity(uint32_t obj) { return st_banked(obj) ? ST_BANK_BASE_MAX + ST_BANK_EXT_MAX : obj >= OBJ_UPRESET_EXT0 ? ST_SECTOR - 256u - sizeof(st_hdr_t) : ST_PAYLOAD_MAX; }
+static int st_preset_object(uint32_t obj)
+{
+    return (obj>=OBJ_UPRESET0 && obj<OBJ_BANK0) || (obj>=OBJ_CZBANK0 && obj<OBJ_COUNT);
+}
+static uint32_t st_payload_off_header(uint32_t obj,const st_hdr_t *h)
+{
+    return st_preset_object(obj) && h->rsv[0]==ST_COMPACT_TAG ? sizeof(st_hdr_t) : st_payload_off(obj);
+}
 static uint32_t st_extension(uint32_t obj, uint32_t copy)
 {
     return ST_BANK_EXT_LO + ((obj - OBJ_BANK0) * 2u + copy) * 2u * ST_SECTOR;
@@ -94,15 +105,23 @@ static uint32_t st_extension(uint32_t obj, uint32_t copy)
  * extension in unused flash, so migration never overwrites the current copy.
  * The last 256 bytes of extension sectors stay erased: the SPL scans those
  * tails for update records, and musical data must never look like one. */
-static uint32_t st_address(uint32_t obj, uint32_t copy, uint32_t off, uint32_t *span)
+static uint32_t st_address_at(uint32_t obj, uint32_t copy, uint32_t off, uint32_t *span,uint32_t payload)
 {
     if (!st_banked(obj) || off < ST_BANK_BASE_MAX) {
         *span = (st_banked(obj) ? ST_BANK_BASE_MAX : st_capacity(obj)) - off;
-        return st_sector(obj, copy) + st_payload_off(obj) + off;
+        return st_sector(obj, copy) + payload + off;
     }
     off -= ST_BANK_BASE_MAX;
     *span = ST_PAYLOAD_MAX - off % ST_PAYLOAD_MAX;
     return st_extension(obj, copy) + off / ST_PAYLOAD_MAX * ST_SECTOR + off % ST_PAYLOAD_MAX;
+}
+/* The commit header carries the offset, so old and new copies can coexist
+ * during conversion. Never infer layout from a payload length or uncommitted data. */
+static uint32_t st_address(uint32_t obj,uint32_t copy,uint32_t off,uint32_t *span)
+{
+    st_hdr_t h;uint32_t payload=st_payload_off(obj);
+    if(st_preset_object(obj) && !st_read(st_sector(obj,copy),&h,sizeof h))payload=st_payload_off_header(obj,&h);
+    return st_address_at(obj,copy,off,span,payload);
 }
 static int st_read_range(uint32_t obj, uint32_t copy, uint32_t off, void *dst, uint32_t n)
 {
@@ -128,7 +147,8 @@ static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record 
     if (st_read(st_sector(obj, copy), h, sizeof *h))
         return -1;
     if (h->magic != ST_MAGIC || h->type != obj || h->slot != copy || h->len > st_capacity(obj) ||
-        h->hcrc != st_crc32(h, sizeof *h - 4u))
+        h->hcrc != st_crc32(h, sizeof *h - 4u) ||
+        (h->rsv[0]==ST_COMPACT_TAG && (!st_preset_object(obj) || h->len>ST_SECTOR-256u-sizeof(st_hdr_t))))
         return -1;
     return 0;
 }
@@ -200,6 +220,9 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
+    uint32_t payload=st_payload_off(obj),compact=0;
+    if(st_preset_object(obj) && len==3716u){uint32_t magic;memcpy(&magic,src,sizeof magic);compact=magic==0x32425055u;}
+    if(compact)payload=sizeof(st_hdr_t);
     uint32_t crc = st_crc32(src, len);
     uint32_t extent = obj >= OBJ_BANK0 && obj < OBJ_CZBANK0 ? 5u * ST_SECTOR : ST_SECTOR;
     for (off = 0; off < extent; off += ST_SECTOR)
@@ -209,7 +232,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     for (off = 0; off < len; off += sizeof st_buf) {
         uint32_t n = len - off > sizeof st_buf ? sizeof st_buf : len - off;
         memcpy(st_buf, (const uint8_t *)src + off, n);
-        uint32_t span, addr = st_address(obj, cur == 0 ? 1u : 0u, off, &span);
+        uint32_t span, addr = st_address_at(obj, cur == 0 ? 1u : 0u, off, &span,payload);
         if ((rc = st_prog(addr, st_buf, n)) != 0) return rc;
     }
     h.magic = ST_MAGIC;
@@ -218,7 +241,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     h.seq = seq + 1u;
     h.len = len;
     h.crc = crc;
-    h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
+    h.rsv[0]=compact?ST_COMPACT_TAG:0xFFFFFFFFu;h.rsv[1]=0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
     if ((rc = st_prog(base, &h, sizeof h)) != 0)       /* the commit record, last */
         return rc;

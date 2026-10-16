@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* X0X drum part: the 9W9 TR-909 engine (Charles Vestal, GPL-3.0; itself grown out
  * of ER-99 by Matthew Cieplak, GPL-3.0), ported to the FM-1.
  *

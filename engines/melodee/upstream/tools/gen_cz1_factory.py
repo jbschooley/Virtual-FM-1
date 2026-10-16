@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """CZ-1's factory tones: assets/cz1-factory/cz1-factory.syx (64 native CZ-1 tones, Casio's preset tones
 A-1 .. H-8; tools/make_cz1_factory.py) -> a header for eng_cz.c:
 

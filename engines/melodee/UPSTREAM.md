@@ -3,8 +3,8 @@
 `upstream/` is part of [Melodee](https://github.com/keremimo/melodee), Kerem
 Kilic's firmware for the M-VAVE FM-1, built from
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments) 1.0, at **v1.3.4** (tag `v1.3.4`, commit
-`f7cd3eafd593d9e585895bfaf2c9550a03662ac7`, 2026-10-13, the commit its `BUILD_INFO.json` names).
+Instruments) 1.0, at **v1.4.1** (tag `v1.4.1`, commit
+`1cccd6970e6e60f136862f3016de58617010c01e`, 2026-10-15, the commit its `BUILD_INFO.json` names).
 Two earlier releases are kept beside it for the projects made with them: Melodee 0.13 in
 `engines/melodee013` (1.0 retired its LOFI, PHASE, VOICE and NOISE and its project objects) and
 Melodee 1.1.0 in `engines/melodee110` (1.2 removed its effects and retired ANALOG and DIGITAL; 1.3's
@@ -32,7 +32,7 @@ Copied unchanged:
   README) and `assets/prophet5-factory/` (the Prophet-5 programs and their README)
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-export of v1.3.4 with Python 3 and Pillow (it needs that checkout's `assets/`,
+export of v1.4.1 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not all copied): `ui_fonts.h`, `ui_icons.h`, `ui_keycaps.h`, `ui_palettes.h`,
 `melodee_tables.h`, `melodee_fm6.h`, `melodee_cz1.h` and
 `melodee_prophet_factory.h`; and `x0x_drum_tables.h`, which its `build_app()` makes

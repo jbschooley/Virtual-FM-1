@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* NOTES uses the original onset interval, not the rounded STEP overview.
  * Selection is ordered by onset, pitch, then storage index: repeated pitches
  * and independent chord notes are individually reachable. Selection never edits note data. */

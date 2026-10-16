@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE user interface.
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
@@ -21,6 +22,11 @@ static void template_load(void);
 static uint32_t chain_prepare(void);
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
+static int up_favorite(uint32_t k);
+static int up_favorite_set(uint32_t k,int on);
+static void up_favorite_poll(void);
+static int shared_preferences_save(void);
+static int shared_wipe(void);                     /* confirmed recovery from preset migration failure */
 static uint32_t up_count(void);
 static uint32_t up_nth(uint32_t n);
 static uint32_t up_rank(uint32_t slot);
@@ -35,9 +41,6 @@ static int native_used(uint32_t e, uint32_t k);
 static int native_old(uint32_t e, uint32_t k);
 static int up_old(uint32_t k);
 static int up_old_bank(uint32_t k);
-static uint32_t native_count(uint32_t e);
-static uint32_t native_nth(uint32_t e, uint32_t n);
-static uint32_t native_rank(uint32_t e, uint32_t k);
 static void native_name(uint32_t e, uint32_t k, char *out);
 static int native_load(uint32_t e, uint32_t k, uint32_t tr);
 static const uint8_t *native_raw(uint32_t e, uint32_t k);
@@ -45,19 +48,12 @@ static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
 static uint32_t native_size(uint32_t e);
+static int shared_import(uint32_t e,uint32_t first,uint32_t count,const uint8_t *raw,uint32_t stride,uint32_t *saved);
 static int general_sysex_send(uint32_t k);
 static int general_sysex_save(uint32_t k,const uint8_t *raw);
-static uint32_t library_native(void);
 static void confirm_open(uint32_t kind,uint32_t track);
 static uint32_t library_engine(void);
-static uint32_t user_limit(void);
-static int user_used(uint32_t k);
-static int user_old(uint32_t k);
-static int user_old_bank(uint32_t k);
 static void preset_old_allow(uint32_t allow);
-static void user_name(uint32_t k, char *out);
-static void user_label(char *out, uint32_t k);
-static void user_ui_named(uint32_t op, uint32_t k, const char *name);
 static void slot_save_sheet(void);              /* ui_slots.c */
 static int project_save_as(uint32_t slot, const char *name);
 static int project_name(uint32_t slot, char *b);
@@ -66,43 +62,65 @@ static int project_erase(uint32_t slot);
 static void project_cur_name(char *b);
 static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, USER_NONE = none */
 {
-    return t->user && (t->user_native ? native_used(t->eng_req,t->user-1u) : up_used(t->user-1u)) ? t->user-1u : USER_NONE;
+    return t->user && !t->user_native && up_used(t->user-1u) && up_engine(t->user-1u)==t->eng_req ? t->user-1u : USER_NONE;
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4: left as saved, never read). */
+ * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 retired
+ * (STAGE EFFECTS OFF in 1.4.0-rc.4: left as saved, never read). */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
+#define PREF_PICK_OFF 32u
+#define PREF_PIXEL 64u                         /* Settings > FONT: PIXEL (else RUBIK) */
+#define TY_PIXEL ty_pixel()
+static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
+/* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
+enum { HS_BPM, HS_MOD, HS_LEVEL, HS_SWING, HS_TRANS, HS_CHORD, HS_ARATE, HS_PATTERN, HS_OFF, HS_N };
+static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "PATTERN",
+                                          "OFF"};
+#define HOME_SELECT (favorites.factory[15][25])
+static uint32_t home_select(void) { return HOME_SELECT < HS_N ? HOME_SELECT : HS_BPM; }
+/* GLO SELECT (the menu): what SELECT turns with GLO held, on any page (the same choices), kept in bits 1..4 of
+ * favorites.factory[15][24] (bit 0: a CZ-1 star; 0, any other: BPM) */
+#define GLO_SELECT (favorites.factory[15][24])
+static uint32_t glo_select(void) { return ((GLO_SELECT >> 1) & 15u) < HS_N ? (GLO_SELECT >> 1) & 15u : HS_BPM; }
+static void glo_select_set(uint32_t v) { GLO_SELECT = (uint8_t)((GLO_SELECT & ~0x1Eu) | (v & 15u) << 1); }
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
 #define ACC T_THEME                /* values, curves */
 #define VAL(c) ((void)(c), T_TEXT)   /* a value (the knob just turned: its card tinted and outlined, ui_draw.c) */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
-/* layout (docs/design): header 0..18, four cards 22..66 (54 px at x 4 + 58 c), the panel 70..194 (the graphs live
- * in it; Stage: its own panel and lanes, ui_stage.c), footer 198..240; BG between them */
+/* layout (docs/design/README.md "Large type"): the header 0..29; a page's four knobs as a strip of cells 32..79 (57 px
+ * at x 2 + 60 c: a knob's label over its value), the panel 84..207 (the page's picture, the graphs), the sound bar
+ * 212..239; BG between them. Stage, lists, slots: full-width rows of their own */
 #define Y_HEAD 0
-#define H_HEAD 18
-#define Y_LABEL 22                    /* the cards */
-#define Y_SEP_END 66
-#define CARD_W 54
-#define CARD_H 44
-#define CARD_X(c) (4 + 58 * (int32_t)(c))
-#define Y_GRAPH 70                    /* the panel */
+#define H_HEAD 30
+#define Y_LABEL 32                    /* the strip (the knobs' cells) */
+#define Y_SEP_END 80
+#define CARD_W 57
+#define CARD_H 48
+#define CARD_X(c) (2 + 60 * (int32_t)(c))
+#define Y_GRAPH 84                    /* the panel */
 #define H_GRAPH 124
-#define Y_FOOT 198
-#define H_FOOT 42
+#define Y_FOOT 212                    /* the sound bar (pages of the old template: their one row) */
+#define H_FOOT 28
+#define BOX_X 2                       /* panels and rows: x 2 .. 237 */
+#define BOX_W 236
 
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */
     uint8_t home;
+    uint8_t home_pg;             /* HOME's page: 0 Stage, 1 the chord view (ui_view.c); HOME tapped on HOME turns it */
     uint8_t drum_sound;
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
+    uint8_t pat_tap, pat_dlg;                      /* .. the key last tapped (+1), the one held to its dialog */
+    uint32_t pat_ms, pat_tap_ms;                   /* .. when it went down, when the tapped one was let go */
     uint8_t ptc_on, ptc_trk, ptc_src, ptc_dst;     /* PATTERNS' Copy to: track ptc_trk's pattern src to dst
                                                     * (ui_patterns.c) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
@@ -118,7 +136,7 @@ static struct {
     recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
-    uint8_t step_oct_used;       /* OCT buttons consumed by SAVE undo or redo */
+    uint8_t step_oct_used;       /* OCT buttons consumed by EDIT undo or redo */
     uint16_t step_mods, step_used; /* STEP's ENV/SCL buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
@@ -132,16 +150,18 @@ static struct {
     uint32_t seen_pattern_gen;
     uint32_t menu_sig, home_t0;  /* HOME press time (btn_hold) */
     uint8_t force;               /* full redraw pending */
+    uint8_t waiting_shown;       /* selected track's persistent header status */
     uint8_t msg_t;               /* transient message frames */
     uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
     uint8_t act;                 /* action pages: the column whose action OCT+ does, + 1; 0 = none (act_col) */
     uint32_t rec_t0;             /* REC press time (transport only) */
     uint32_t seq_t0;             /* SEQ held: direct SONG entry */
-    uint32_t save_t0;            /* SAVE press time (btn_hold: held = UNDO) */
+    uint32_t save_t0;            /* SAVE press time (btn_hold: held = project quick save) */
+    uint32_t edit_t0;            /* EDIT press time (btn_hold: held = UNDO) */
     uint32_t oct_t0;             /* OCT+ press time (btn_hold: held = the page's sheet, ui_popup.c) */
     uint8_t confirm;             /* the OCT- / OCT+ dialog: CF_*, 0 = none */
-    uint8_t confirm_trk;         /* the track it clears, the slot it overwrites */
-    uint8_t uslot;               /* SAVE > USER: the selected user preset slot */
+    uint16_t confirm_trk;         /* the track it clears, the slot it overwrites */
+    uint16_t uslot;               /* SAVE > USER: the selected user preset slot */
     uint8_t song_row;            /* SONG: row selected, count selects the next empty row */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
@@ -151,8 +171,8 @@ static struct {
     uint8_t layer;               /* the layer whose map is shown (LAYER_*), 0 = none */
     uint16_t pg_down;            /* page buttons down (panel ids) that act when let go */
     uint32_t layer_sig;          /* drawn-state cache of the map */
-    char msg[24];
-    char msg2[24];               /* a second message, shown when the first is over */
+    char msg[32];                /* (a sound's name fits: the toast wraps it, ui_draw.c draw_toast) */
+    char msg2[32];               /* a second message, shown when the first is over */
     uint32_t enc_t[NE];
     /* drawn-state cache */
     char col[4][32];
@@ -184,17 +204,17 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
-       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE };
-                                     /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
-                                      * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
-                                      * pattern in use */
+       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
+       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
+                                      * pattern over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to
+                                      * over a pattern in use; SEQ + a white key held: its pattern (ui_input.c) */
 
 static const page_t *page_over;   /* a quick layer's own four knobs (ui_layer.c), while it edits or draws them */
 static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
+enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static uint32_t layer_leds(void);
@@ -233,8 +253,9 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
-    if(PAGES[i].fam==FAM_FX && PAGES[i].scope==SC_TRACK && PAGES[i].id[0]==P_FXSEND)
-        return song.g[G_FXMODE]!=0;
+    if (PAGES[i].fam == FAM_FX && PAGES[i].graph != GR_FXRACK)   /* a slot's page (its MIX first): while it holds an
+                                                                 * effect (the rack shows it either way) */
+        return (PAGES[i].scope == SC_GLOBAL ? song.g : TSEL->p)[PAGES[i].id[0] - 1u] != FX_OFF;
     if (list_gone(i))
         return 0;
     if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
@@ -310,7 +331,6 @@ static void chain_play_ui(void)
         ui_message(rc == 1u ? "ADD A SONG ROW" : "STOP FIRST");
     }
 }
-
 
 static uint16_t step_midi_held;                      /* physical MIDI keys held in this entry */
 static uint32_t step_midi_keys[16][4];               /* channel/source ownership, before scale and chord */
@@ -522,7 +542,9 @@ static void open_family(uint32_t fam)
         ui.page = !ui.home && k < n ? pg[(k + 1u) % n]                 /* again: the next one; from elsewhere the */
                   : native_page(ui.fam_last[fam], fam) && fam_has(fam, ui.fam_last[fam]) ? ui.fam_last[fam] : pg[0];
                                                                         /* engine's page last used, else its first */
-    } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page */
+    } else if (fam == FAM_FX && (ui.home || ui.page != page_first(FAM_FX))) {
+        ui.page = (uint8_t)page_first(FAM_FX);        /* FX: the track's rack (from its slots and SHARED too); */
+    } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page (FX: on from its rack) */
         uint32_t n, i = ui.page;
         for (n = 0; n < NPAGES; n++) {
             i = (i + 1u) % NPAGES;
@@ -583,24 +605,26 @@ static int seq_is_empty(const track_t *t)
 
 /* UNDO of loads. A sound load (a factory or user preset, an engine jump, TOOLS INIT, the editor's PRESET / G_ENGSEL /
  * UP_LOAD) changes the sound only; a Capture changes the steps and the pattern
- * parameters only. Each first copies the track as it was into a level; SAVE held swaps back what the latest level's
- * loads changed (held again: the level before, SAVE + OCT+ redoes), so steps recorded after a sound load, or a sound
+ * parameters only. Each first copies the track as it was into a level; EDIT held swaps back what the latest level's
+ * loads changed (held again: the level before, EDIT + OCT+ redoes), so steps recorded after a sound load, or a sound
  * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
  * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
  * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
  * leaving the data cache available for flash reads. Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
+#include "step_snapshot.h"
 typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_step) */
-    uint8_t eng, preset, user, user_native, patn;
+    uint8_t eng, preset, user_native, patn;
+    uint16_t user;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     p5_patch_t p5;
     drum_patch_t drum;
     int16_t p[P_COUNT];
-    step_t step[NSTEP];
+    step_snapshot_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
     uint32_t pattern_gen;
     uint32_t after;              /* track_sig right after the last load */
@@ -630,17 +654,10 @@ static uint32_t pat_sig[NTRK];   /* steps_sig of the pattern the last pattern lo
                                   * steps, untouched, are replaced by the next pattern without asking */
 static uint8_t pat_last[NTRK];   /* that pattern's list index + 1, 0 = none */
 
-static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
-{
-    const uint8_t *b = (const uint8_t *)p;
-    while (n--)
-        h = (h ^ *b++) * 16777619u;
-    return h;
-}
 static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, sizeof t->step); }
 static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's patch too), the steps */
 {
-    uint8_t id[4] = {t->eng_req, t->preset, t->user, t->user_native};
+    uint8_t id[5] = {t->eng_req, t->preset, (uint8_t)t->user, (uint8_t)(t->user>>8), t->user_native};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     h = fnv(h, cz_patch[k].raw, CZ_BYTES);
@@ -726,7 +743,7 @@ static void load_begin(track_t *t, uint32_t what)
     u->user = t->user;
     u->user_native=t->user_native;
     memcpy(u->p, t->p, sizeof u->p);
-    memcpy(u->step, t->step, sizeof u->step);
+    step_snapshot_save(u->step, t->step);
     memcpy(u->fm6, fm6_patch[i], FP_SIZE);
     u->cz = cz_patch[i];
     u->p5 = *p5_patch_of(&trk[i]);
@@ -759,12 +776,26 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
+static int recording_history(int redo)
+{
+    uint32_t f=motion_guard();
+    int result=recording_undo_apply(redo);
+    motion_unguard(f);
+    if(!result)return 0;
+    if(result==1){
+        ui.note_pick=0;ui.note_generation=recording_generation;
+        ui.hot_t=0;ui.force=1;
+        ui_message(redo?"REDO RECORDING":"UNDO RECORDING");
+    }else ui_message(result==2?"FINISH RECORDING":"UNDO MEMORY FULL");
+    return 1;
+}
 
-/* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
+/* EDIT held (redo 0) / EDIT + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
 {
+    if(recording_history(redo))return;
     if(note_clear_history(redo))return;
     track_t *t;
     undo_t *u;
@@ -787,7 +818,8 @@ static void undo_step(int redo)
     u->motion_backup = current_motion;
     fm1_irq_off();                                /* the audio ISR must not see half a sound */
     if (u->what & UNDO_SOUND) {
-        uint8_t e = t->eng_req, pr = t->preset, us = t->user, un=t->user_native;
+        uint8_t e = t->eng_req, pr = t->preset, un=t->user_native;
+        uint16_t us = t->user;
         panic_req |= (uint8_t)(1u << trk_index(t));
         t->eng_req = u->eng;
         t->preset = u->preset;
@@ -818,8 +850,8 @@ static void undo_step(int redo)
         }
         for (i = 0; i < NSTEP; i++) {
             step_t s = t->step[i];
-            t->step[i] = u->step[i];
-            u->step[i] = s;
+            t->step[i] = step_snapshot_get(&u->step[i]);
+            step_snapshot_put(&u->step[i], &s);
         }
     }
     fm1_irq_on();
@@ -882,12 +914,6 @@ static void scale_share(const track_t *from)
 
 #include "scale_picker.c"
 
-/* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
- * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for */
-static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
-static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
-#define preset_shown(e) (ENGINES[e]->npresets)
-
 
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
 static void apply_preset_to(track_t *t, uint32_t pi)
@@ -903,7 +929,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         load_end(t);
         return;
     }
-    pi = preset_orig(e, pi % e->npresets);
+    pi %= e->npresets;
     t->preset = (uint8_t)pi;
     memset(&drum_patch[t-trk],0,sizeof(drum_patch_t));
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
@@ -956,7 +982,7 @@ static uint32_t preset_init(uint32_t e)
     }
     return 0;
 }
-/* Init sound (the sound's sheet, EDIT held's black key, the browser's ENGINE knob): the engine's INIT, the steps
+/* Init sound (the sound's sheet, the browser's ENGINE knob): the engine's INIT, the steps
  * stay */
 static void sound_init_of(track_t *t, uint32_t ei) { engine_load_of(t, ei, preset_init(ei)); }
 
@@ -1016,59 +1042,11 @@ static void preset_go(uint32_t n)                    /* load list index n into t
     preset_hinted();
 }
 
-/* the EDIT layer's KNOB 2 (ui_layer.c): the selected track's engine only: its factory presets, then the used user presets
+/* The selected track's engine only: its factory presets, then the used user presets
  * made with it (slot order). List index of the current sound; *total the length */
-static uint32_t eng_list_pos(uint32_t *total)
-{
-    uint32_t e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, u = user_of(TSEL), k, n = 0;
-    uint32_t cur = np ? TSEL->preset % np : 0u;
-    uint32_t nn=native_count(e);
-    if(TSEL->user_native && u<USER_NONE)cur=np+native_rank(e,u);
-    for (k = 0; k < UP_SLOTS; k++)
-        if (up_used(k) && up_engine(k) == e) {
-            if (!TSEL->user_native && k == u)
-                cur = np + nn + n;
-            n++;
-        }
-    *total = np + nn + n;
-    return cur;
-}
-
-static void eng_list_step(int32_t direction)         /* the next / previous sound of the engine (wraps) */
-{
-    uint32_t total, cur = eng_list_pos(&total), e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, k, n;
-    if (total < 2u)
-        return;
-    n = (cur + (direction > 0 ? 1u : total - 1u)) % total;
-    if (n < np) {
-        apply_preset(n);
-    } else {
-        n -= np;
-        if(n<native_count(e)){native_load(e,native_nth(e,n),song.sel);recent_loaded();preset_hinted();return;}
-        n-=native_count(e);
-        for (k = 0; k < UP_SLOTS; k++)
-            if (up_used(k) && up_engine(k) == e && !n--) {
-                up_load(k);
-                break;
-            }
-    }
-    recent_loaded();
-    preset_hinted();
-}
 
 /* Seven display rows. ALL is a carousel; FAV, RECENT and a category use a bounded window.
  * Return total for an empty row; a current sound not in the list shows the start. */
-static uint32_t preset_visible(uint32_t cur, uint32_t total, uint32_t row)
-{
-    uint32_t first, last;
-    if (!total || row >= 7u) return total;
-    if (list_mode() == LM_ALL)
-        return (cur + total * 4u + row - 3u) % total;
-    first = cur < total && cur > 3u ? cur - 3u : 0u;
-    last = total > 7u ? total - 7u : 0u;
-    if (first > last) first = last;
-    return first + row < total ? first + row : total;
-}
 
 /* Stage's (HOME's) four knobs: the selected track's engine's EDIT values (engine_t .knob), a native sound's own panel
  * values for PROPHET (filter, its envelope amount, the amp release) and CZ-1 (line 1's wave and DCW peak, detune,
@@ -1093,10 +1071,10 @@ static const param_desc_t *home_param(uint32_t k, int16_t **vp)
     return page_desc(stage_page(), k & 3u, vp);
 }
 
-/* select track i (KNOB 1 on TRACKS, the editor): its sound, pages and pattern from now on */
+/* select track i (ALGORITHM, SONG's KNOB 2, the editor; one in use): its sound, pages and pattern from now on */
 static void track_select(uint32_t i)
 {
-    if (i >= NTRK || i == song.sel)
+    if (i >= trk_n() || i == song.sel)
         return;
     browse_commit();                             /* (a sound still pending loads into the track it was meant for) */
     momentary_restore();
@@ -1166,17 +1144,47 @@ static int act_ready(void)
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
 #include "seq_notes.c"                            /* NOTES: select original hits without snapping them */
 static int note_tools_history(int redo);
-#include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */
+#include "seq_undo.c"                             /* .. and the eight edits EDIT held undoes */
 
 static void confirm_open(uint32_t kind, uint32_t trk)
 {
     ui.confirm = (uint8_t)kind;
-    ui.confirm_trk = (uint8_t)trk;
+    ui.confirm_trk = (uint16_t)trk;
     ui.act = 0;
     ui.force = 1;
 }
 
-
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 
 #include "note_tools.c"
+
+#define TL_MAX 4u
+/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
+ * fits), each line up to 31 characters; the number of lines */
+static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
+{
+    uint32_t k = 0;
+    while (*s && k < m) {
+        uint32_t i, cut = 0;
+        while (*s == ' ')
+            s++;
+        for (i = 1; s[i - 1] && i < 32u; i++) {
+            str_cpy(l[k], s, i + 1u);
+            if (text_w(f, l[k]) > w)
+                break;
+            if (!s[i] || s[i] == ' ')
+                cut = i;
+        }
+        if (!cut) {                                     /* (one long word: as much of it as fits) */
+            for (cut = 1; s[cut] && cut < 31u; cut++) {
+                str_cpy(l[k], s, cut + 2u);
+                if (text_w(f, l[k]) > w)
+                    break;
+            }
+        }
+        str_cpy(l[k++], s, cut + 1u);
+        s += cut;
+    }
+    return k;
+}
+#include "ui_boot.c"                            /* visible progress before boot flash maintenance */
