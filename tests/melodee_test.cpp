@@ -195,7 +195,7 @@ int main() {
     }
     {   // Felucca, SLOOP and Melodee side by side: each its own
         FeluccaEngine fel, slp{FeluccaEngine::Flavor::Sloop}, mel{kMel};
-        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && mel.version() == "v1.3.4" && fel.engines() == 14 && mel.engines() == 20,
+        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.7" && mel.version() == "v1.3.4" && fel.engines() == 14 && mel.engines() == 20,
               "a Felucca, a SLOOP and a Melodee instance at once, each its own firmware");
         // Melodee 0.13, kept beside 1.3 for the projects made with it (engines/melodee013): its own core
         FeluccaEngine m13{kMel, FeluccaEngine::Release::Previous};

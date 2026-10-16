@@ -1,4 +1,4 @@
-/* sloop_core.c -- SLOOP 2.5 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
+/* sloop_core.c -- SLOOP 2.7 (engines/sloop/upstream, GPL-3.0-only; isod89, after Felucca by Leo
  * Kuroshita / Hügelton Instruments), the whole firmware, as a library the plugin can drive: a
  * virtual FM-1 running Sloop, with its sound, sequencer, arranger, screen, front panel, projects,
  * user presets and editor protocol.
@@ -11,8 +11,8 @@
  * The firmware's own sources are included unchanged, in the order its felucca.c includes them.
  * What touches hardware is replaced below: the panel's buttons, keys and knobs, the LEDs (none) and
  * the screen are the plugin's, and the flash is RAM. Never built: lcd.c, audio.c, the update and
- * boot loader paths (ota.c, recovery.c), the serial console, the TRS MIDI input and the USB audio
- * input: nothing here acts on them. */
+ * boot loader paths (ota.c, recovery.c), the serial console, the TRS MIDI input, the USB audio
+ * input and (2.7) the second core: nothing here acts on them. */
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -48,6 +48,9 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define FELUCCA_UART 0                   /* no TRS MIDI input */
 #define FELUCCA_ARRANGER 1
 #define FELUCCA_ICONS 1
+#define FELUCCA_CPU1 0                   /* (2.7) no second core: cpu1.c's own one-core API (cpu1_run says "run it
+                                          * yourself"), so the render does every unit itself, as SLOOP does when
+                                          * core 1 does not answer: the same output, bit for bit (cpu1.h) */
 /* the user sample slots: empty, and never written (the plugin takes no samples yet), so one array
  * of zeros for every copy (sloop_shared.c, written by CMakeLists.txt) */
 extern const uint8_t slp_no_samples[4][0x14000];   /* (four slots from 2.4: USR1-4) */
@@ -97,6 +100,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 }
 #include "../upstream/firmware/src/gfx.c"
 #include "../upstream/firmware/src/core.h"
+#include "../upstream/firmware/src/cpu1.h"
 #include "../upstream/firmware/src/engines.c"
 #include "../upstream/firmware/src/drums.c"
 #include "../upstream/firmware/src/params.c"
@@ -129,12 +133,24 @@ static void ota_idle(void)
 }
 #include "../upstream/firmware/src/arranger.c"
 #include "../upstream/firmware/src/seq.c"
+#include "../upstream/firmware/src/cpu1.c"
 #define SCOPE_N 512u                     /* audio.c's (not built): the HOME oscilloscope and (2.4) the full-screen
                                           * visualiser, left and right, fed in FEL(render) from fx.c's vis_tap */
 static int16_t scope_buf[SCOPE_N], scope_bufr[SCOPE_N];
 static uint32_t scope_w;
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
+/* (2.7) REMOTE (GLO > MIDI 3): buttons held over MIDI (ui_input.c, seq.c remote_cc). The device's scan reads them as
+ * closed (hal/fm1_input.h fm1__key); here a button is down while the plugin holds it or REMOTE does, and either
+ * going down is a press (fel_buttons) */
+static volatile uint32_t fm1_remote_btn;
+static uint32_t host_held;
+static void fel_buttons(void)
+{
+    const uint32_t now = host_held | fm1_remote_btn;
+    host_pressed |= now & ~fm1_in.buttons;
+    fm1_in.buttons = now;
+}
 static int32_t host_enc[7];
 static uint32_t fm1_ticks(void) { return host_ticks; }
 static uint32_t fm1_input_edges(int x) { uint32_t p = host_pressed; (void)x; host_pressed = 0; return p; }
@@ -228,8 +244,12 @@ static void audio_silence(void) {}
 static void fl_inval(uint32_t off, uint32_t n) { (void)off; (void)n; }
 static int fl_erase4k_quiet(uint32_t off, uint32_t *took) { (void)off; *took = 0; return -1; }   /* no user samples yet */
 static int fl_write(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
+/* (2.7) the user preset banks are read in place, through the XIP window on the device (storage.c st_xip):
+ * here, in their sector (each object starts on one; a bank must fit in it: checked after upreset.c) */
+#define ST_XIP_PTR(off) ((const uint8_t *)sect(off))
 #include "../upstream/firmware/src/storage.c"
 #include "../upstream/firmware/src/upreset.c"
+_Static_assert(ST_PAYLOAD_OFF + sizeof(up_bank_t) <= 4096u, "a user preset bank read in place spans a sector (ST_XIP_PTR)");
 /* (2.4) the FM6 patch bank is read in place, through the XIP window on the device: here, its sectors */
 #define FM6_BANK_XIP(copy) ((const uint8_t *)sect(st_sector(OBJ_FM6BANK, copy) + ST_PAYLOAD_OFF))
 #include "../upstream/firmware/src/project.c"
@@ -262,6 +282,10 @@ static void felucca_init(void)
     song.g[G_ROUTE] = (int16_t)lights_min;
     song.g[G_CH1] = midi_set[0], song.g[G_CH2] = midi_set[1], song.g[G_CH3] = midi_set[2];   /* (2.6: GLO > MIDI, */
     song.g[G_DRCH] = midi_set[3], song.g[G_CHOTH] = midi_set[4], song.g[G_BEND] = midi_set[5];   /* settings of the FM-1) */
+    song.g[G_FXCH] = midi_set[6];            /* (2.7) GLO > MIDI 3: FX CH, DR MAP, CLOCK, REMOTE */
+    song.g[G_DRMAP] = midi_set[7];
+    song.g[G_CLKOUT] = midi_set[9];
+    song.g[G_RMCH] = midi_set[8];
     layers_init();
     go_home();
     ui.force = 1;
@@ -323,6 +347,7 @@ static void fel_main_pass(void)
     usb.uboot_req = 0;
     usb.ota_req = 0;
     fel_editor();
+    fel_buttons();                       /* (2.7) what REMOTE holds now, as the next scan would read it */
     ui_input();
     autosave_tick();                     /* the working project into "flash", when quiet */
     sections_flush();                    /* the live sections and the recorded song, when quiet */
@@ -468,13 +493,11 @@ void FEL(button)(uint32_t b, int down)
     if (b >= NB)
         return;
     bit = 1u << panel.btn[b];
-    if (down) {
-        if (!(fm1_in.buttons & bit))
-            host_pressed |= bit;
-        fm1_in.buttons |= bit;
-    } else {
-        fm1_in.buttons &= ~bit;
-    }
+    if (down)
+        host_held |= bit;
+    else
+        host_held &= ~bit;
+    fel_buttons();
 }
 
 void FEL(key)(uint32_t k, int down)   /* the 27 keys, 0 = the lowest */
@@ -640,8 +663,8 @@ const char *FEL(lane_name)(uint32_t track, uint32_t lane) { return track == TRK_
 
 /* ---- the device's stored objects, as the editor's full backup carries them (editor.c v10): 0 the
  * working project, 1 the settings, 2..5 the projects A..D, 6 and 7 the user preset banks, 8 the FM6
- * patch bank (2.4), 9 the SYN drum kits (2.5), 10 the MIDI part (2.6). The user sample slots (32..35) are
- * not kept here. --------------------------------- */
+ * patch bank (2.4), 9 the SYN drum kits (2.5), 10 the MIDI part (2.6), 11 your theme (2.7: no bytes while there
+ * is none). The user sample slots (32..35) are not kept here. --------------------------------- */
 uint32_t FEL(object_max)(void) { return (uint32_t)sizeof proj_tmp; }
 
 int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
@@ -654,7 +677,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
         persist_fill(&ed_bk_set);
     else if (id == 10u)                  /* (2.6: the MIDI LEARN map and GLO > MIDI; no bytes while the default) */
         midi_part_fill(ed_bk_ml);
-    else if (id > 10u)                   /* (9, 2.5: the SYN drum kits) */
+    else if (id > 11u)                   /* (9, 2.5: the SYN drum kits; 11, 2.7: the theme) */
         return -1;
     p = ed_bk_obj(id, &len);
     if (!p || len > max)
@@ -667,7 +690,7 @@ int32_t FEL(object_get)(uint32_t id, uint8_t *out, uint32_t max)
 uint32_t FEL(object_put)(uint32_t id, const uint8_t *data, uint32_t len)
 {
     uint32_t rc;
-    if (id > 10u || len > sizeof proj_tmp)
+    if (id > 11u || len > sizeof proj_tmp)
         return 1;
     if (transport_req == 2u) {           /* a stop asked for (a project loaded just before): as the next */
         seq_stop();                      /* audio block would, before Sloop refuses this as busy (rc 3) */

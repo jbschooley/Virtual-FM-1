@@ -80,6 +80,10 @@ static std::map<std::string, std::string> frozenFacts() {
         const auto names = f.presetNames(e);
         for (size_t i = 0; i < names.size(); ++i) {
             if (names[i].empty()) continue;   // an alias: plays another
+            // the arpeggiator off first: from 2.7 a running one is kept through a preset load (ui.c
+            // apply_preset_to keep_arp), so the one before would leave its arp on this one
+            for (int id = 0; id < f.firstEngineParam(); ++id)
+                if (const auto d = f.paramDesc(0, id); d.label == "MODE" && d.names.size() > 1 && d.names[0] == "OFF" && d.names[1] == "UP") f.setParam(0, id, 0);
             f.applyPreset(0, int(i));
             // its common parameters that are not at their default, by name, and the engine's eight: a
             // release that adds parameters (at their defaults) leaves the hash as it was, so a change
@@ -184,7 +188,7 @@ int main() {
     }
     {   // a Felucca and a Sloop side by side: each its own
         FeluccaEngine fel, slp{kSloop};
-        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.6" && fel.engines() == 14 && slp.engines() == 12,
+        CHECK(fel.version() == "v1.5.1" && slp.version() == "SLOOP 2.7" && fel.engines() == 14 && slp.engines() == 12,
               "a Felucca instance and a Sloop instance at once, each its own firmware");
     }
 
@@ -245,8 +249,11 @@ int main() {
     // ---- parameters ----
     {
         Sloop f{kSloop};
-        CHECK(f.paramCount() == 71 && f.firstEngineParam() == 63 && f.globalCount() == 45 && f.globalDesc(32).label == "DLY",
-              "71 parameters per track (2.4: FILT, STRUM, VLEAD; 2.6: INSERT, TYPE, ESYNC, LFO 2 before the engine's 8); 45 globals (2.5: the drums' DLY; 2.6: MIDI, TEXTURE, BEND)");
+        CHECK(f.paramCount() == 71 && f.firstEngineParam() == 63 && f.globalCount() == 49 && f.globalDesc(32).label == "DLY",
+              "71 parameters per track (2.4: FILT, STRUM, VLEAD; 2.6: INSERT, TYPE, ESYNC, LFO 2 before the engine's 8); 49 globals (2.5: the drums' DLY; 2.6: MIDI, TEXTURE, BEND; 2.7: MIDI 3)");
+        CHECK(f.globalDesc(45).label == "FX CH" && f.globalDesc(46).label == "DR MAP" && f.globalDesc(47).label == "REMOTE" && f.globalDesc(48).label == "CLOCK"
+              && f.globalDesc(16).label == "SECT",
+              "2.7: GLO > MIDI 3's four (FX CH, DR MAP, REMOTE, CLOCK) after BEND; SAVE's SLOT is SECT (A..D)");
         CHECK(f.paramDesc(0, 53).label == "INSRT" && f.paramDesc(0, 58).label == "TYPE" && f.paramDesc(0, 59).label == "ESYNC"
               && f.globalDesc(37).label == "SRC" && f.globalDesc(43).label == "DUCK" && f.globalDesc(44).label == "BEND",
               "2.6's parameters where the plugin's host parameters and panel expect them (53..62; globals 37..44)");
@@ -311,8 +318,8 @@ int main() {
         const std::string version(info.size() > 5 ? reinterpret_cast<const char*>(info.data() + 5) : "");
         const size_t at = 5 + version.size() + 1;
         std::printf("  INFO: \"%s\"\n", version.c_str());
-        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.6" && info[at] == 12 && info[at + 1] == 71 && info[at + 2] == 45 && info[at + 4] == 63,
-              "INFO answers, as SLOOP 2.6 (12 engines, 71 parameters, 45 globals, P_E0 63)");
+        CHECK(info.size() > at + 5 && info[4] == 1 && version == "FELUCCA SLOOP 2.7" && info[at] == 12 && info[at + 1] == 71 && info[at + 2] == 49 && info[at + 4] == 63,
+              "INFO answers, as SLOOP 2.7 (12 engines, 71 parameters, 49 globals, P_E0 63)");
         auto set = request({3, 0, 0, uint8_t((50 + 8192) & 127), uint8_t((50 + 8192) >> 7)});
         CHECK(!set.empty() && f.param(0, 0) == 50, "SET through the editor protocol changes the sound");
         {
@@ -336,8 +343,30 @@ int main() {
         CHECK(g.object(1, settingsObj) && !settingsObj.empty(), "the settings object");
         CHECK(g.object(8, empty) && empty.empty(), "object 8: its FM6 patch bank (2.4), empty at first");
         std::vector<uint8_t> syn, syn2;
-        CHECK(g.object(9, syn) && !syn.empty() && f.putObject(9, syn) == 0 && f.object(9, syn2) && syn2 == syn && !g.object(11, empty),
-              "object 9 (2.5): its SYN drum kits, kept and put back; nothing past 10");
+        CHECK(g.object(9, syn) && !syn.empty() && f.putObject(9, syn) == 0 && f.object(9, syn2) && syn2 == syn,
+              "object 9 (2.5): its SYN drum kits, kept and put back");
+        CHECK(g.object(11, empty) && empty.empty() && !g.object(12, empty), "object 11 (2.7): no theme at first, no bytes; nothing past 11");
+        {   // object 11 (2.7): your theme (gfx.c theme_t: "THM2", a name, five screen colours, four track colours,
+            // the background, the accent, 0, and a CRC-32 of the 36 bytes before it), kept and put back
+            std::vector<uint8_t> th(40, 0), th2, th3;
+            const uint32_t magic = 0x324D4854u;
+            for (int i = 0; i < 4; ++i) th[size_t(i)] = uint8_t(magic >> (8 * i));
+            const char* name = "TEST";
+            for (int i = 0; name[i]; ++i) th[size_t(4 + i)] = uint8_t(name[i]);
+            const uint16_t colours[12] = {0x2104, 0x4208, 0x8410, 0xC618, 0xFFFF, 0xF800, 0x07E0, 0x001F, 0xFFE0, 0x0000, 0xFFFF, 0};
+            for (int i = 0; i < 12; ++i) { th[size_t(12 + 2 * i)] = uint8_t(colours[i]); th[size_t(13 + 2 * i)] = uint8_t(colours[i] >> 8); }
+            uint32_t crc = 0xFFFFFFFFu;   // (zlib's CRC-32, storage.c st_crc32)
+            for (int i = 0; i < 36; ++i) { crc ^= th[size_t(i)]; for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u))); }
+            crc = ~crc;
+            for (int i = 0; i < 4; ++i) th[size_t(36 + i)] = uint8_t(crc >> (8 * i));
+            Sloop h{kSloop};
+            CHECK(f.putObject(11, th) == 0 && f.object(11, th2) && th2 == th && h.putObject(11, th2) == 0 && h.object(11, th3) && th3 == th,
+                  "object 11 (2.7): a theme is kept and goes to another instance");
+            std::vector<uint8_t> none;
+            CHECK(h.putObject(11, none) == 0 && h.object(11, th3) && th3.empty(), "and an empty one takes it away");
+            th[4] ^= 1;   // (its CRC no longer fits)
+            CHECK(h.putObject(11, th) != 0 && h.object(11, th3) && th3.empty(), "a damaged theme is refused");
+        }
         {   // object 10 (2.6): the MIDI LEARN map and GLO > MIDI, no bytes at the default; a changed one is
             // kept and goes to another instance
             std::vector<uint8_t> ml, ml2;

@@ -81,9 +81,12 @@ const Dialect& sloopDialect() {
     // fourth user sample slot (35); 2.5: object 9, its SYN drum kits (editor.html BK.RESTORE 6, 7, 8,
     // 9, 2..5, 0, 1), and the drums' delay send (global 32), carried live with the other drum mix; 2.6:
     // object 10, the MIDI LEARN map and GLO > MIDI (a setting of the FM-1, listed only when not the
-    // default; BK.RESTORE 6, 7, 8, 9, 10, 2..5, 0, 1), and GLO > TEXTURE (globals 37..43, the song's)
+    // default; BK.RESTORE 6, 7, 8, 9, 10, 2..5, 0, 1), and GLO > TEXTURE (globals 37..43, the song's); 2.7:
+    // object 11, your theme (gfx.c theme_t, a setting of the FM-1, listed only when there is one; BK.RESTORE
+    // 6..11, 2..5, 0, 1: before the settings, which say whether it shows). Its GLO > MIDI 3 (globals 45..48)
+    // are settings of the FM-1 too: not carried live
     static const Dialect d{"SLOOP", 34, 35, 36, false,
-                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 32, 33, 34, 35}, {6, 7, 8, 9, 10, 2, 3, 4, 5, 0, 1}, 10, true, "sloop-backup",
+                           {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 32, 33, 34, 35}, {6, 7, 8, 9, 10, 11, 2, 3, 4, 5, 0, 1}, 11, true, "sloop-backup",
                            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, 26, 27, 28, 29, 30, 32, 37, 38, 39, 40, 41, 42, 43}, 3, 33};
     return d;
 }
@@ -292,6 +295,7 @@ juce::String backupJson(const Objects& objects, const juce::String& firmware, co
         auto* o = new juce::DynamicObject();
         if (sloop && id >= 32 && it == objects.end()) continue;   // (SLOOP: a sample slot not read is left out)
         if (sloop && id == 10 && (it == objects.end() || it->second.empty() || isSloopMidiDefault(it->second))) continue;   // (as SLOOP lists it)
+        if (sloop && id == 11 && (it == objects.end() || it->second.empty())) continue;   // (2.7's theme: listed when there is one)
         o->setProperty("id", id);
         o->setProperty(sloop ? "len" : "size", int(b.size()));
         o->setProperty("crc", b.empty() ? juce::int64(0) : juce::int64(crc32(b)));

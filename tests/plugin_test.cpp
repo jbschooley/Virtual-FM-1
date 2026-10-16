@@ -263,8 +263,8 @@ static int checks() {
             const fm1::Identity sloop{"FM-1", 900, "FELUCCA SLOOP 2.2"}, dev{"FM-1", 900, "FELUCCA v1.1-dev"};
             const auto c = fm1::checkVersion(sloop);
             CHECK(fm1::firmwareIdFor(sloop) == "sloop" && fm1::isFirmwareChoice("sloop") && fm1::firmwareFor(sloop)->name() == "SLOOP"
-                  && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.6",
-                  "an FM-1 running SLOOP is SLOOP, a choice (2.6) played like Felucca");
+                  && fm1::isFeluccaFamily("sloop") && fm1::firmwareChoice("sloop").label() == "SLOOP 2.7",
+                  "an FM-1 running SLOOP is SLOOP, a choice (2.7) played like Felucca");
             {   // Melodee: a Felucca fork answering as one (FM-1_9012, FM-1_910 from 1.0): told apart, played and synced
                 const fm1::Identity m12{"FM-1", 9012, "MELODEE v0.12"}, m10{"FM-1", 910, "MELODEE v1.0"};
                 CHECK(fm1::firmwareIdFor(m12) == "melodee" && fm1::firmwareIdFor(m10) == "melodee" && fm1::isFirmwareChoice("melodee")
@@ -320,20 +320,24 @@ static int checks() {
                 CHECK(!felucca::readBackup(f, o, err, felucca::feluccaDialect()) && err.contains("Melodee"), "its backup files are refused: " + err);
                 f.deleteFile();
             }
-            const fm1::Identity s26{"FM-1", 900, "FELUCCA SLOOP 2.6"};
-            const auto cur = fm1::checkVersion(s26);
-            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.6" && fm1::writesRefused(s26).empty(),
-                  "SLOOP 2.6: current, nothing to say, written to: " + cur.text);
-            for (const char* r : {"2.3", "2.4", "2.4.1", "2.5"}) {   // none reads 2.6's projects (format 6)
+            const fm1::Identity s27{"FM-1", 900, "FELUCCA SLOOP 2.7"}, s26{"FM-1", 900, "FELUCCA SLOOP 2.6"};
+            const auto cur = fm1::checkVersion(s27);
+            CHECK(cur.support == fm1::Support::Current && cur.known && cur.text == "FM-1_900: SLOOP 2.7" && fm1::writesRefused(s27).empty(),
+                  "SLOOP 2.7: current, nothing to say, written to: " + cur.text);
+            const auto c26 = fm1::checkVersion(s26);   // (it reads 2.7's projects, format 6, dropping what is new)
+            CHECK(c26.known && c26.support == fm1::Support::Older && c26.text.find("Send works") != std::string::npos
+                      && c26.text.find("to go Live") != std::string::npos && fm1::writesRefused(s26).empty(),
+                  "SLOOP 2.6: known, older, still written to (Live refuses its fewer globals): " + c26.text);
+            for (const char* r : {"2.3", "2.4", "2.4.1", "2.5"}) {   // none reads 2.6's or 2.7's projects (format 6)
                 const fm1::Identity older{"FM-1", 900, std::string("FELUCCA SLOOP ") + r};
                 const auto c2 = fm1::checkVersion(older);
                 CHECK(c2.known && c2.support == fm1::Support::Older && c2.text.find("pulled from only") != std::string::npos
-                      && c2.text.find("update it to 2.6") != std::string::npos && fm1::writesRefused(older).find("update it to 2.6") != std::string::npos,
+                      && c2.text.find("update it to 2.7") != std::string::npos && fm1::writesRefused(older).find("update it to 2.7") != std::string::npos,
                       std::string("SLOOP ") + r + ": known, pulled from only (nothing sent, no Live): " + c2.text);
             }
             const auto v30 = fm1::checkVersion(fm1::Identity{"FM-1", 900, "SLOOP 3.0"});
-            CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.6") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
-            CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.6") != std::string::npos,
+            CHECK(v30.newer && v30.text.find("SLOOP 3.0, newer than the plugin's 2.7") != std::string::npos, "a newer one, also without the FELUCCA prefix: " + v30.text);
+            CHECK(c.support == fm1::Support::Older && !c.newer && c.text.find("SLOOP 2.2, older than the plugin's 2.7") != std::string::npos,
                   "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
@@ -458,8 +462,8 @@ static int checks() {
             p.setPlayConfigDetails(0, 2, 44100.0, 256);
             p.prepareToPlay(44100.0, 256);
             p.setFirmware("sloop");
-            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.6",
-                  "set to SLOOP, the instance plays SLOOP 2.6");
+            CHECK(p.emulates() && p.felucca() != nullptr && p.felucca()->flavor() == Fl::Sloop && p.felucca()->version() == "SLOOP 2.7",
+                  "set to SLOOP, the instance plays SLOOP 2.7");
             CHECK(FeluccaEngine::instances(Fl::Sloop) == slpBefore + 1 && FeluccaEngine::instances() == felBefore,
                   "in a SLOOP copy, none of Felucca's");
             juce::AudioBuffer<float> buf(2, 256);
@@ -492,7 +496,7 @@ static int checks() {
             p.getStateInformation(both);
             auto tree = juce::ValueTree::readFromData(both.getData(), both.getSize());
             CHECK(tree.getChildWithName("Felucca").isValid() && tree.getChildWithName("Sloop").isValid()
-                  && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.6",
+                  && tree.getChildWithName("Sloop").getProperty("version").toString() == "SLOOP 2.7",
                   "a project keeps both, apart");
         }
         {   // an instance set to Melodee plays Melodee 0.12 in its own copies; no host parameters of its own yet
@@ -1093,6 +1097,18 @@ static int checks() {
                 o.erase(10);
                 f.replaceWithText(felucca::backupJson(o, "FELUCCA SLOOP 2.5", d));
                 CHECK(felucca::readBackup(f, back, err, d) && !back.count(10), "a 2.5 file has none: the device's stays as it is");
+                // 2.7's object 11 (the theme): in the file only when there is one (as SLOOP lists it); a file
+                // without it leaves the device's
+                o[11] = {};
+                f.replaceWithText(felucca::backupJson(o, "SLOOP 2.7 (Virtual FM-1)", d));
+                CHECK(!f.loadFileAsString().contains("\"id\": 11") && felucca::readBackup(f, back, err, d) && !back.count(11),
+                      "no theme: object 11 left out of the file, and not restored from it");
+                o[11] = std::vector<uint8_t>(40, 7);
+                f.replaceWithText(felucca::backupJson(o, "SLOOP 2.7 (Virtual FM-1)", d));
+                CHECK(felucca::readBackup(f, back, err, d) && back[11] == o[11], "a theme is kept in the file: " + err);
+                auto sloop26 = objs({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+                auto send = objs({0, 2, 3, 4, 5, 6, 7, 8, 9, 11});
+                CHECK(felucca::fitToSynth(send, sloop26, d).isEmpty() && !send.count(11), "SLOOP 2.6 has no object 11 (2.7's theme): left out");
                 f.deleteFile();
             }
             auto mine = objs({0, 2, 23});
