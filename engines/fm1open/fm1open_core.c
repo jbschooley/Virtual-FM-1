@@ -119,9 +119,35 @@ static void *fo_calloc(size_t n, size_t size)
 #include "upstream/web/engine/sequencer.c"
 #define leds fofile_sim_leds
 #define state fofile_sim_state
+#undef fm1_midi_send
+#define fm1_midi_send FEL(fofile_sim_midi_send)   /* (its own drops what FM1 Open sends: below, kept) */
 #include "upstream/web/engine/Simulator.c"
+#undef fm1_midi_send
+#ifndef FO_NAMES_PROBE
+#define fm1_midi_send FEL(fm1_midi_send)
+#endif
 #undef leds
 #undef state
+
+/* What FM1 Open sends over USB MIDI: its project transfer protocol's replies (app/transfer.c), for the
+ * plugin's sync (fo_take_sysex); its notes and clock are the plugin's own business and are dropped. Its
+ * browser preview drops them all. Full: not sent, and FM1 Open sends it again on its next poll, as the
+ * device does when its USB queue is full. (In the state: per instance.) */
+enum { FO_OUTBOX = 16, FO_OUT_BYTES = 128 };
+static uint8_t fo_out[FO_OUTBOX][FO_OUT_BYTES];
+static uint16_t fo_out_len[FO_OUTBOX];
+static unsigned fo_out_head, fo_out_count;
+int fm1_midi_send(const uint8_t *m, size_t n)
+{
+    if (!m || !n || n > FO_OUT_BYTES) return -1;
+    if (m[0] != 0xf0) return 0;
+    if (fo_out_count == FO_OUTBOX) return -1;
+    const unsigned at = (fo_out_head + fo_out_count) % FO_OUTBOX;
+    memcpy(fo_out[at], m, n);
+    fo_out_len[at] = (uint16_t)n;
+    ++fo_out_count;
+    return 0;
+}
 #define midi fofile_sound_midi
 #include "upstream/web/engine/sound.c"
 #undef midi
@@ -182,6 +208,15 @@ const uint8_t *FEL(fo_state)(void) { return sim_state(); }
 uint8_t *FEL(fo_flash)(void) { return sim_flash(); }
 uint32_t FEL(fo_flash_size)(void) { return (uint32_t)sizeof flash; }
 uint32_t FEL(fo_flash_revision)(void) { return sim_flash_revision(); }
+unsigned FEL(fo_take_sysex)(uint8_t *out)
+{
+    if (!fo_out_count) return 0;
+    const unsigned n = fo_out_len[fo_out_head];
+    memcpy(out, fo_out[fo_out_head], n);
+    fo_out_head = (fo_out_head + 1u) % FO_OUTBOX;
+    --fo_out_count;
+    return n;
+}
 int FEL(fo_export)(uint8_t *out)
 {
     const int r = sim_export();

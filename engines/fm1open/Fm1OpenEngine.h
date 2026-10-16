@@ -2,7 +2,8 @@
 // instance of it, with its own copy of the firmware's state (fel_state.py: the code is shared by
 // every instance, the state is not). It plays at the FM-1's 44.1 kHz in blocks of 128 frames, takes
 // the host's MIDI and the Device tab's panel, and keeps its projects in its own flash (saved with the
-// host's project, projects() / setProjects()). No host parameters and no sync with a device yet.
+// host's project, projects() / setProjects()). No host parameters. A device running FM1 Open is synced
+// through its project transfer protocol (request(); firmwares/fm1open/Fm1OpenSync.h).
 #pragma once
 
 #include <array>
@@ -50,6 +51,14 @@ public:
     // project; set powers it on again from them. The sample bank stays its demo bank (not saved).
     std::vector<uint8_t> projects() const;
     bool setProjects(const std::vector<uint8_t>& bytes);
+    // its sample bank (the flash after the projects, GROOVE_SAMPLE_BYTES) when it is not the demo bank it
+    // powers on with (one written to it: Fm1OpenSync's samplesWrite), else empty; set: powered on again
+    // from the projects and that bank (empty: the demo bank)
+    std::vector<uint8_t> samples() const;
+    bool setFlash(const std::vector<uint8_t>& projects, const std::vector<uint8_t>& samples);
+    // FM1 Open's project transfer protocol (app/transfer.c), as a device running it answers over USB MIDI:
+    // a request (F0 7D 46 4D 02 ...) served at once, and what it sent back (an exact retry: its cached reply)
+    std::vector<std::vector<uint8_t>> request(const std::vector<uint8_t>& sysex);
     void reset();                                // powered on again with empty storage
     uint32_t heapUsed() const;                   // (for the tests)
 
@@ -58,6 +67,8 @@ private:
     struct Free { void operator()(void* p) const; };
     std::unique_ptr<void, Free> state_;
     mutable std::mutex lock_;
+    void bootFrom(const uint8_t* projects, const std::vector<uint8_t>& samples);   // (the lock held)
+    uint64_t demoSamples_ = 0;   // the demo sample bank's hash, as it powers on with it
     std::array<float, 2 * 128> block_{};
     int blockPos_ = 128;
 };
