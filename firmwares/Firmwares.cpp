@@ -175,11 +175,16 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     static const std::vector<KnownVersion> sloop = {
         // Before 2.6 none reads 2.6's projects (format 6: INSERT, LFO 2, TEXTURE...): pulled from only
         // (2.3 does not read 2.4's either, and its engine parameters sit 3 lower)
-        {900, "2.3", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.4", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.4.1", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.5", Support::Older, "pulled from only: update it to 2.6 with SLOOP's installer to send to it or go Live"},
-        {900, "2.6", Support::Current, ""},   // (tried on an FM-1 2026-10-11: Pull, Send, Live, locks, nudges and conditions)
+        {900, "2.3", Support::Older, "pulled from only: update it to 2.7 with SLOOP's installer to send to it or go Live"},
+        {900, "2.4", Support::Older, "pulled from only: update it to 2.7 with SLOOP's installer to send to it or go Live"},
+        {900, "2.4.1", Support::Older, "pulled from only: update it to 2.7 with SLOOP's installer to send to it or go Live"},
+        {900, "2.5", Support::Older, "pulled from only: update it to 2.7 with SLOOP's installer to send to it or go Live"},
+        // 2.6 reads 2.7's projects (the same format 6; 2.7's additions in spare bytes and step flags it ignores,
+        // project.c): Send works, its load clamps what 2.6 does not have (an arp MODE past ORD plays as ORD).
+        // It has four globals fewer (GLO > MIDI 3), so Live refuses (Mirror::start)
+        {900, "2.6", Support::Older, "Send works (2.7's new arp modes, held notes and MIDI 3 settings are dropped there); "
+                                     "update it to 2.7 with SLOOP's installer to go Live"},
+        {900, "2.7", Support::Current, ""},   // (not yet tried on an FM-1)
     };
     // Melodee's releases X.Y answer FM-1_9 X YY (its build.py --release: 0.13 FM-1_9013); its INFO
     // names the release ("MELODEE v0.13")

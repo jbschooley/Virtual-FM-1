@@ -131,7 +131,6 @@ global ROLL#1	0..4 def 1 fmt 8 1/8 1/16 1/32 32T 1/64
 global SAVE#1	0..1 def 0 fmt 8 -- GO
 global SET#1	0..1 def 0 fmt 8 -- GO
 global SIZE#1	0..127 def 90 fmt 1
-global SLOT#1	1..4 def 1 fmt 0
 global SRC#1	0..10 def 0 fmt 8 OFF VINYL TAPE RAIN WIND RADIO ROOM USR1 USR2 USR3 USR4
 global SWING#1	0..100 def 0 fmt 14
 global SYNC#1	0..2 def 0 fmt 8 INT USB TRS
@@ -167,7 +166,7 @@ param INSRT#1	0..8 def 0 fmt 8 OFF SOFT HARD FOLD FUZZ CRUSH PHASR FLANG CHOR
 param LEN#1	1..64 def 16 fmt 13
 param LVL#1	0..127 def 104 fmt 6
 param MIX#1	0..127 def 127 fmt 1
-param MODE#1	0..5 def 0 fmt 8 OFF UP DN UPDN RND ORD
+param MODE#1	0..14 def 0 fmt 8 OFF UP DN UPDN RND ORD REPEAT DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD
 param MUTE#1	0..1 def 0 fmt 8 OFF ON
 param OCT#1	1..4 def 1 fmt 0
 param ORD#1	0..1 def 0 fmt 8 NOTE PLAY
@@ -355,3 +354,8 @@ preset WHEEL 4	HOUSE ORGN 885418bdff3c3993
 preset WHEEL 5	ROCK ORGAN d021a07fa9dfc3fa
 preset WHEEL 6	CHAPEL f1ebd9f993503d18
 preset WHEEL 7	REGGAE ORG b9203dc43d69ccdf
+global CLOCK#1	0..1 def 0 fmt 8 OFF OUT
+global DR MAP#1	0..1 def 0 fmt 8 GM 1-16
+global FX CH#1	0..16 def 0 fmt 8 OFF 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+global REMOTE#1	0..16 def 0 fmt 8 OFF 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+global SECT#1	1..4 def 1 fmt 0

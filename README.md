@@ -41,8 +41,8 @@ At phone size (the iOS app builds from source):
   **[FM-1+VA firmware](https://baudgirl.com/work/FM-1+VA)** (0.97; 0.96, 0.93
   and 0.94 too; 101 synced as 0.97, not tried yet), **[Felucca](https://github.com/hugelton/Felucca)**
   1.6.1 (1.6 too, untried; 1.0 to 1.5.1 pulled from only; one on 1.0.3 syncs with an
-  instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.6 (2.3 to
-  2.5 pulled from only) or
+  instance set to Felucca 1.0.3), **[SLOOP](https://github.com/isod89/sloop-fm1)** 2.7 (2.6
+  too, without Live; 2.3 to 2.5 pulled from only) or
   **[Melodee](https://github.com/keremimo/melodee)** 1.3.4 (1.3.0 to 1.3.3 synced as
   1.3.4, untried; its Synth only build is not supported; 0.12 to 1.2.1 pulled from
   only; one on 0.13 or 1.1.0 syncs with an instance set to that release). On M-VAVE's own
@@ -143,12 +143,12 @@ project saves its own current preset, edits, patterns and arpeggiator.
   nudges and conditions, parameter locks and songs with a slot per track. **Felucca 1.0.3** stays
   beside it, its own firmware choice, for the projects made with it: a project saved
   with 1.0.x opens on it, and it syncs fully with an FM-1 still on 1.0.3.
-- **SLOOP 2.6**, built from its source the same way: its twelve engines (FM6,
+- **SLOOP 2.7**, built from its source the same way: its twelve engines (FM6,
   PHYS and NOISE among them) on three parts and a drum track, each with its
   INSERT, in the same editor and as host parameters, Library and Device tabs.
   Its projects, user presets, FM6 bank, SYN drum kits and MIDI setup are kept in
   the library as the file SLOOP's web editor uses for backups
-  (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.6: pull, send and
+  (`SLOOP/SLOOP device.json`). With an FM-1 running SLOOP 2.7: pull, send and
   live, as with Felucca; one on 2.3 to 2.5,
   which cannot read 2.6's projects, is pulled from only.
 - **Melodee 1.3.4**, built from its source the same way: its engines on four

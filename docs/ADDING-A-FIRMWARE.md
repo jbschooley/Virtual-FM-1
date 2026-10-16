@@ -86,7 +86,10 @@ once and gives every instance its own copy of the state instead:
 
 - `engines/<kind>/<kind>_core.c` (the "core") includes the firmware's sources,
   unchanged, as one compilation unit, replaces the hardware, and exposes the
-  API in `engines/felucca/felucca_core.h`.
+  API in `engines/felucca/felucca_core.h`. A firmware that renders on the FM-1's
+  second core too (SLOOP from 2.7) is built with its one-core switch
+  (`FELUCCA_CPU1 0` there): the render does every unit itself, as it does on an
+  FM-1 whose second core does not answer.
 - `engines/felucca/fel_state.py` rewrites the core's LLVM IR (CMakeLists.txt
   `fm1_core`, through `fel_state_build.py`): every writable variable marked by
   the core's section pragma becomes a field of one struct, reached through a

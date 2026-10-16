@@ -20,6 +20,17 @@ for the code. New work goes under the next version at the top.
   recorded with 1.5.1 on a part's modulation destinations ("Felucca P1 M1DST"
   to M4DST), its QUANT, or a DRUM part's KIT (its E0) can land on a
   neighbouring value now, as those lists grew: check it.
+- **SLOOP 2.7** is built in (it was 2.6): fifteen arp modes, KBD HOLD, each
+  drum sound's TUNE and DECAY, favourites, GLO > MIDI 3
+  (the punch-in effects, drum notes and panel buttons over MIDI, MIDI clock
+  out), SECTION A-D in place of PROJECT 1-4, held notes under a recorded one,
+  and its synth kicks reshaped for small speakers. Your theme (2.7's screen colours) is kept with
+  Pull and backups; a Send leaves the FM-1's own. An FM-1 on SLOOP 2.6 still
+  takes a Send (it drops what 2.7 added: an arp mode past ORD plays as ORD), but
+  Live needs 2.7 on both. The arp MODE host parameter ("SLOOP P1 AMODE") now
+  spans fifteen modes, so its automation from before lands on other modes.
+  Each drum sound's TUNE and DECAY are not host parameters and Live does not
+  carry them (Pull and Send do). Not yet tried with an FM-1 running 2.7.
 - **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
   memory is 0.97's, checked in its firmware image), and said to be not tried
   with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.

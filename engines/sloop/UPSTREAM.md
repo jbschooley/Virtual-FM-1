@@ -3,8 +3,8 @@
 `upstream/` is part of [SLOOP](https://github.com/isod89/sloop-fm1), isod89's
 groovebox firmware for the M-VAVE FM-1, a fork of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton
-Instruments), at **v2.6** (commit `d30d6553353373cf5506b9ed285fc4a2aa0c30ef`,
-2026-10-10). It is GPL-3.0-only, but for its FM6 core (`fm6_core.c`, from
+Instruments), at **v2.7** (commit `ba54ba5f0e7f6e0a1a3499497809e1e6c1ad7e8c`,
+2026-10-15). It is GPL-3.0-only, but for its FM6 core (`fm6_core.c`, from
 msfa: Apache-2.0, `upstream/LICENSES/Apache-2.0-msfa.txt`); see
 `upstream/LICENSE` and `upstream/LICENSING.md`.
 
@@ -16,17 +16,18 @@ Copied unchanged:
 
 - `firmware/src/` and `firmware/hal/`: the firmware
 - `tests/regress.c`, `tests/hostsim.c`, `tests/golden.txt`: its regression
-  (182 golden renders), run by ctest as `sloop_regress`. Its CPU budget depends
+  (182 golden renders), run by ctest as `sloop_regress`; `tests/cpu1_host.c` (2.7), the second
+  core's host double `hostsim.c` includes (run inline, one thread: `CORES` unset). Its CPU budget depends
   on the host, so ctest gives it no baseline file and it only prints the counts
 - `tools/gen_font.py`, `gen_icons.py`, `gen_tables.py`, `gen_samples.py`,
-  `gen_drumkits.py`, `gen_logo.py`, `gen_waves.py`, `gen_fm6_patches.py`,
-  `sampleio.py`: the generators
+  `gen_drumkits.py` (with `drumkit_levels.json`, its measured levels), `gen_logo.py`, `gen_waves.py`,
+  `gen_fm6_patches.py`, `sampleio.py`: the generators
 - `LICENSE`, `LICENSING.md`, `LICENSES/Apache-2.0-msfa.txt`, `assets/fonts/Terminus-LICENSE.txt` and
   `assets/samples-cc0/ATTRIBUTION.txt`: its licences, and those of the font and
   samples compiled into it
 
 `generated/` holds what its `tools/build.py` `generate()` makes, run in a clean
-checkout of v2.6 with Python 3 and Pillow (it needs that checkout's `assets/`,
+checkout of v2.7 with Python 3 and Pillow (it needs that checkout's `assets/`,
 not copied): `felucca_font.h`, `felucca_icons.h`, `felucca_tables.h`,
 `felucca_samples.h`, `felucca_drumkits.h`, `felucca_fm6.h` and `sloop_logo.h`.
 Generating twice gave the same bytes.

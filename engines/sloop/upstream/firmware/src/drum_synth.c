@@ -82,6 +82,7 @@ typedef struct {
     int32_t gain, lg;            /* velocity Q15, the sound's level Q10 */
     int32_t held, holdn;         /* crush: sample-and-hold */
     uint8_t crush, bursts, fmode;
+    int8_t dk;                   /* (2.7) the DECAY's DECAY_K steps (the CLAP's tail after its bursts) */
 } dsv_t;
 
 /* per-sample DECAY_K (Q16) -> per-block (CTL = 32 samples) by squaring five times */
@@ -119,8 +120,14 @@ static void ds_filter(dsv_t *s)
 /* the 808 cymbal oscillators (205.3 304.4 369.6 522.7 540 800 Hz) as 1/16 semitones above the first */
 static const int16_t DS_METAL[6] = {0, 109, 163, 259, 268, 377};
 
-static void ds_on(dsv_t *s, const dsnd_t *snd, uint32_t crush, uint32_t note, uint32_t vel)
+/* (2.7, the DRUMS screen's SOUND page) a sound's DECAY, -4 .. +3 (0: as designed): the decays' DECAY_K steps (x0.25 ..
+ * x3 the time, 5.4 % a step) and the holds scaled alike (Q8) */
+static const int8_t DK_IDX[8] = {-26, -17, -10, -4, 0, 6, 13, 21};
+static const uint16_t DK_SCALE[8] = {64, 102, 154, 205, 256, 358, 512, 768};
+/* tune16: the sound's TUNE in 1/16 semitones; dsel: its DECAY + 4 (0 .. 7) */
+static void ds_on(dsv_t *s, const dsnd_t *snd, uint32_t crush, uint32_t note, uint32_t vel, int32_t tune16, uint32_t dsel)
 {
+    int32_t dk = DK_IDX[dsel & 7u];
     int32_t semi;
     uint32_t lane = ds_lane(note, &semi), i;
     const dsnd_t *d = &snd[lane];
@@ -135,16 +142,21 @@ static void ds_on(dsv_t *s, const dsnd_t *snd, uint32_t crush, uint32_t note, ui
         uint32_t g = QDB[e % 24];
         s->lg = (int32_t)(q >= 0 ? g << q : g >> -q);
     }
-    s->base16 = ((int32_t)d->pitch + semi) * 16 + d->fine;
+    s->base16 = ((int32_t)d->pitch + semi) * 16 + d->fine + tune16;
     s->pe = d->bend || d->fenv ? 32767 : 0;
     s->kpe = ds_k32(d->btime);
     s->inc = s->inc_to = ds_inc(s->base16 + ((s->pe * (int32_t)d->bend * 16) >> 15));
     s->amp = s->amp_to = d->wave ? (int32_t)d->tlev * 258 : 0;
-    s->ka = ds_k32(d->decay);
+    s->ka = ds_k32((uint32_t)clamp((int32_t)d->decay + dk, 0, 127));
     s->hold = ds_blocks(d->hold);
+    s->dk = (int8_t)dk;
+    if (dk)
+        s->hold = (uint16_t)(((uint32_t)s->hold * DK_SCALE[dsel & 7u]) >> 8);
     s->nz = s->nz_to = (d->src & 15u) ? (int32_t)d->nlev * 258 : 0;
-    s->kn = (d->src & DN_CLAP) ? ds_k32(12) : ds_k32(d->ndec);  /* CLAP: short bursts first */
+    s->kn = (d->src & DN_CLAP) ? ds_k32(12) : ds_k32((uint32_t)clamp((int32_t)d->ndec + dk, 0, 127));   /* CLAP: short bursts first */
     s->nhold = (d->src & DN_CLAP) ? 0 : ds_blocks(d->nhold);
+    if (dk)
+        s->nhold = (uint16_t)(((uint32_t)s->nhold * DK_SCALE[dsel & 7u]) >> 8);
     s->ck = s->ck_to = (int32_t)d->click * 258;
     s->bursts = 1;
     s->fmode = d->flt & 7u;
@@ -179,7 +191,7 @@ static void ds_control(dsv_t *s)
     if ((d->src & DN_CLAP) && s->bursts < 4u && s->t >= s->bursts * 420u) {
         s->nz = (int32_t)d->nlev * 258;                 /* bursts at 0, 9.5, 19 ms; the 4th is the tail */
         if (++s->bursts == 4u) {
-            s->kn = ds_k32(d->ndec);
+            s->kn = ds_k32((uint32_t)clamp((int32_t)d->ndec + s->dk, 0, 127));
             s->nhold = ds_blocks(d->nhold);
         }
     }
