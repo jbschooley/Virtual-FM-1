@@ -4,7 +4,7 @@ What changed in each release of Virtual FM-1. The section for a version
 becomes the notes of its GitHub release, so write entries for players, not
 for the code. New work goes under the next version at the top.
 
-## [Unreleased]
+## [0.9.2] - 2026-10-16
 
 ### Fixed
 
@@ -15,8 +15,9 @@ for the code. New work goes under the next version at the top.
   its own parameters only. Live now reads the selected part's sound on both
   sides about four times a second and carries what changed: a PROPHET's
   settings one by one (its notes play on), an FM6 patch whole, a CZ-1 tone
-  whole (the part's notes stop for it). The PROPHET's tried with an FM-1
-  running Melodee 1.3.4; FM6 and CZ-1 not yet.
+  whole (the part's notes stop for it). Tried with an FM-1 running Melodee
+  1.3.4 for a PROPHET's settings changed over USB; knob turns on the FM-1, FM6
+  and CZ-1 not yet.
 
 ### Added
 
@@ -520,6 +521,7 @@ First release.
 - `.syx` import and export: FM-1+VA backups, DX7 banks and voices.
 - Installers that let you choose the Standalone app, VST3 and AU.
 
+[0.9.2]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/jbschooley/Virtual-FM-1/compare/v0.7.0...v0.8.0
