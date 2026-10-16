@@ -96,17 +96,24 @@ std::optional<fm1::Identity> Fm1Session::doIdentify() {
     if (id && id->version >= 200) {   // (baud girl's FM-1_0NN and 1NN do not speak it)
         // FM-1_9XY: Felucca, or a firmware made from it that answers alike (Sloop): its editor
         // protocol's INFO names it (F0 7D 46 4C 01 F7 -> its name, 0-terminated, first; then
-        // NENGINES, P_COUNT, G_COUNT, NSTEP: Melodee's Synth only build has no steps)
-        auto info = link_.ask<std::pair<std::string, bool>>(fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7},
-            [](const fm1::Bytes& f) -> std::optional<std::pair<std::string, bool>> {
+        // NENGINES, P_COUNT, G_COUNT, NSTEP: Melodee's Synth only build has no steps; one with no
+        // engines (ChoralRoot's: 0 engines, 0 tracks) then NTRK, CHAIN_ROWS and its tags (tag, length,
+        // payload), 43 01 v its backup's version)
+        struct Info { std::string name; bool noSteps; int backup; };
+        auto info = link_.ask<Info>(fm1::Bytes{0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7},
+            [](const fm1::Bytes& f) -> std::optional<Info> {
                 if (f.size() < 7 || f[1] != 0x7D || f[2] != 0x46 || f[3] != 0x4C || f[4] != 0x01) return std::nullopt;
                 std::string s;
                 size_t i = 5;
                 for (; i + 1 < f.size() && f[i] != 0; ++i) s += char(f[i]);
                 const size_t nstep = i + 4;   // (past the name's 0, NENGINES, P_COUNT, G_COUNT)
-                return std::make_pair(s, nstep + 1 < f.size() && f[nstep] == 0);
+                int backup = -1;
+                if (i + 8 < f.size() && f[i + 1] == 0)
+                    for (size_t k = i + 8; k + 2 < f.size() && f[k] != 0xF7; k += 2 + f[k + 1])
+                        if (f[k] == 0x43 && f[k + 1] == 1) backup = f[k + 2];
+                return Info{s, nstep + 1 < f.size() && f[nstep] == 0, backup};
             }, 500, 2);
-        if (info) { id->editor = info->first; id->noSteps = info->second; }
+        if (info) { id->editor = info->name; id->noSteps = info->noSteps; id->backup = info->backup; }
     }
     if (id && acceptIdentity && !acceptIdentity(*id)) {
         // not this instance's firmware: forget the synth and do nothing more with it

@@ -501,6 +501,10 @@ static int checks() {
         CHECK(fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.21"}).find("Pull still works") != std::string::npos
                   && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.22"}).empty() && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.23 1-core"}).empty(),
               "ChoralRoot before 0.22 (other backup objects): pulled from only; 0.22 and 0.23 sent to");
+        CHECK(fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot dev-1a2b", false, 2}).find("runs ChoralRoot dev-1a2b, whose backup") != std::string::npos
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot dev-1a2b", false, 3}).empty()
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.23", false, 2}).find("Pull still works") != std::string::npos,
+              "its INFO's backup version (43 01 v), when it gives one, decides: before 3 pulled from only, whatever its release says");
         CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA v1.6-dev"}).text.find("development build") != std::string::npos,
               "a Felucca build that is not a release (FM-1_900, its INFO Felucca's: with none, Hortator, below)");
         {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it
@@ -906,6 +910,24 @@ static int checks() {
             CHECK(c.playing() && sc.load(c).isEmpty() && sc.tick(c).isEmpty() && c.object(1, sc1) && sc1.empty(), "busy as it loads: waits, nothing said");
             press(10);
             CHECK(!c.playing() && sc.tick(c).isEmpty() && c.object(1, sc1) && sc1 == sa1, "stopped: the file taken");
+            // a backup from before 0.22 (its page's file) holds sound objects 0.23 no longer lists (6, 7, 9..13, 22): read and
+            // left out, as its page restores only the objects the synth lists; the rest taken. An id it never had: refused
+            auto older = juce::JSON::parse(felucca::backupJson(felucca::objectsOf(a), "ChoralRoot 0.21", d));
+            auto* list = older.getProperty("objects", {}).getArray();
+            auto* legacy = new juce::DynamicObject(*list->getReference(0).getDynamicObject());   // (object 1's bytes, crc and size)
+            legacy->setProperty("id", 9);
+            list->add(juce::var(legacy));
+            path.replaceWithText(juce::JSON::toString(older));
+            felucca::Objects back;
+            juce::String err;
+            FeluccaEngine e(Fl::ChoralRoot);
+            felucca::DeviceStore se(d);
+            std::vector<uint8_t> se1;
+            CHECK(felucca::readBackup(path, back, err, d) && back.count(9) && se.load(e).isEmpty() && e.object(1, se1) && se1 == sa1,
+                  "a backup from before 0.22: read, its object 9 left out, the rest taken " + err);
+            legacy->setProperty("id", 30);
+            path.replaceWithText(juce::JSON::toString(older));
+            CHECK(!felucca::readBackup(path, back, err, d) && err.contains("object 30 is not one of ChoralRoot's"), "an object ChoralRoot never had: refused: " + err);
         }
     }
 

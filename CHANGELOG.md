@@ -98,7 +98,10 @@ for the code. New work goes under the next version at the top.
   tab); DX7 and CZ-1 SysEx sent to it reach its FM6 and CZ engines as on the
   unit. An FM-1 running it is recognised by its INFO ("ChoralRoot 0.23"; it
   answers FM-1_920 in every release); 0.24-beta1 changed none of its backup
-  and is synced as 0.23. Its Sync page pulls from and sends to it what its
+  and is synced as 0.23. One before 0.22 (whose backup holds other objects,
+  told by the backup version its INFO gives) is pulled from only; a backup file
+  from such a release gives what 0.23 has, as ChoralRoot's page restores it.
+  Its Sync page pulls from and sends to it what its
   backup carries (the sound pool, favourites, loop slots, CZ-1 banks and FM6
   bank; each side keeps its own settings), backing up the FM-1 to the library
   first and restarting it after a Send, as ChoralRoot's own page does; a Send

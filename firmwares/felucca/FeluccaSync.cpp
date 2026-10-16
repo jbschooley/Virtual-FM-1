@@ -266,13 +266,18 @@ bool readBackup(const juce::File& f, Objects& out, juce::String& error, const Di
         juce::MemoryOutputStream data;
         // (as each editor allows: a sample 80 KB; Melodee's music and projects 27904 bytes (1.0; 0.13: 27752), its
         // PROPHET banks 3600; the rest 3840, ChoralRoot's all: storage.c's ST_PAYLOAD_MAX)
-        if (choral && std::find(ids.begin(), ids.end(), id) == ids.end()) {
-            error = "object " + juce::String(id) + " is not one of ChoralRoot 0.23's (a backup of another release)";
+        // (ChoralRoot before 0.22: its sound objects 6, 7, 9..13, 22, which 0.23 no longer lists: read, and left out of
+        // what is restored, as its page restores only the objects the synth lists)
+        static const std::vector<int> choralLegacy = {6, 7, 9, 10, 11, 12, 13, 22};
+        const bool known = std::find(ids.begin(), ids.end(), id) != ids.end()
+                           || (choral && std::find(choralLegacy.begin(), choralLegacy.end(), id) != choralLegacy.end());
+        if (choral && !known) {
+            error = "object " + juce::String(id) + " is not one of ChoralRoot's (a backup of another release)";
             return false;
         }
         const int most = choral ? 3840 : id >= 32 ? 81920 : melodee && (id == 0 || (id >= 2 && id <= 5)) ? (&d == &melodee013Dialect() ? 27752 : 27904)
                        : melodee && id >= 23 && id <= 27 ? 3600 : 3840;
-        if (std::find(ids.begin(), ids.end(), id) == ids.end() || size < 0 || size > most
+        if (!known || size < 0 || size > most
             || !juce::Base64::convertFromBase64(data, o.getProperty("data", {}).toString()) || int(data.getDataSize()) != size) {
             error = "object " + juce::String(id) + " is damaged";
             return false;
