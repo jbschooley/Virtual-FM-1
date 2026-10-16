@@ -40,8 +40,11 @@ for the code. New work goes under the next version at the top.
   moved into the shared bank as the FM-1 does it, so 1.3.4 is not kept beside
   it (0.13 and 1.1.0 still are). An FM-1 on Melodee 1.3.6 or older cannot read
   1.4's projects: the plugin pulls from it only, and says to update it with
-  Melodee's installer. 1.4.0 is synced as 1.4.1 (the same firmware). Not yet
-  tried with an FM-1 running 1.4.
+  Melodee's installer. 1.4.0 is synced as 1.4.1 (the same firmware). A 1.4
+  project uses one track at first (the FM-1's Stage adds more): copying a part's
+  sound to one its project does not use yet says so; a Send of the whole
+  project brings them all. Tried with an FM-1 running 1.4.1: Pull, Send, sound
+  copies, pattern banks and Live.
 - **baud girl's FM-1+VA 101** is known: synced as 0.97 (its preset and pattern
   memory is 0.97's, checked in its firmware image), and said to be not tried
   with an FM-1 yet. Her betas 0.98 and 0.99 are named as such.

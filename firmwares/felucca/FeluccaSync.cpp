@@ -337,7 +337,8 @@ std::optional<Bytes> LinkEndpoint::ask(const Bytes& request, int timeoutMs) {
     // earlier request of the same command (asked again after no answer) is not taken for this one's
     const auto q = argsOf(request);
     // (SLOOP 2.4: LOCK_SET track, step, param; MICRO_SET / FILL_SET track, step; their GETs the track)
-    size_t echo = cmd == kSet || cmd == kTrackParam || cmd == kTrackStep ? 2 : cmd == kTrack || cmd == dialect_.drumStep ? 1 : 0;
+    // (TRACK's reply names the part selected after it, which is not always the one asked for: selectTrack)
+    size_t echo = cmd == kSet || cmd == kTrackParam || cmd == kTrackStep ? 2 : cmd == dialect_.drumStep ? 1 : 0;
     if (isSloop(dialect_))
         echo = cmd == kLockSet ? 3 : cmd == kMicroSet || cmd == kFillSet ? 2 : cmd == kLockGet || cmd == kMicroGet || cmd == kFillGet ? 1 : echo;
     echo = std::min(echo, q.size());
@@ -641,6 +642,18 @@ static std::optional<Bytes> askAgain(Endpoint& ep, const Bytes& request) {
     return ep.ask(request, kAsk);
 }
 
+// TRACK: select a part (its reply: the part selected, first). Melodee 1.4 selects only the tracks its project
+// uses (song.ntrk, one to start with: the FM-1's Stage adds more, and a project carries how many), and
+// answers with the selection unchanged for another
+static bool selectTrack(Endpoint& e, int track, juce::String& error) {
+    auto r = askAgain(e, frame(kTrack, {uint8_t(track)}));
+    if (!r) { error = "no answer to TRACK"; return false; }
+    const auto a = argsOf(*r);
+    if (!a.empty() && a[0] == track) return true;
+    error = "the FM-1 has no part " + juce::String(track + 1) + " in its project yet: add tracks there (Stage), or send the whole project first";
+    return false;
+}
+
 bool Mirror::forward(const Bytes& request, juce::String& error) {
     if (a_.ep.ask(request, kFlash)) return true;
     error = "the synth did not take an edit";
@@ -800,7 +813,7 @@ bool Mirror::carry(Side& from, Side& to, const Bytes& push, juce::String& error)
         from.lastReload = push;
         from.sel = a[2];
         if (to.sel != a[2]) {
-            if (!must(askAgain(to.ep, frame(kTrack, {a[2]})), "TRACK")) return false;
+            if (!selectTrack(to.ep, a[2], error)) return false;
             to.sel = a[2];
         }
         if (!copyTrackSound(from, to, a[2], error)) return false;
@@ -863,7 +876,7 @@ bool copySound(Endpoint& from, Endpoint& to, int track, juce::String& error, Loa
     const int srcPreset = dumpPreset(src);
     if ((dst[1] != src[1] || dumpPreset(dst) != srcPreset) && !sameOwn) {
         // PRESET loads into the selected part: that track is selected first
-        if (!askAgain(to, frame(kTrack, {uint8_t(track)}))) { error = "no answer to TRACK"; return false; }
+        if (!selectTrack(to, track, error)) return false;
         std::vector<uint8_t> q = {src[1], uint8_t(srcPreset & 127)};
         if (isMelodee(to.dialect()) && srcPreset > 127) q.push_back(uint8_t(srcPreset >> 7));   // (PROPHET: 201 presets)
         if (!to.ask(frame(kPreset, q), kFlash)) { error = "no answer to PRESET"; return false; }

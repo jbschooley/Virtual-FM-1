@@ -906,6 +906,27 @@ static int checks() {
                 fa->object(0, music);
                 CHECK(fa->putObject(4, music) == 0, "a 1.3 project into slot 3");
                 felucca::VirtualEndpoint ea(fa), eb(fb);
+                {   // Melodee 1.4: an FM-1 whose project uses one track selects no other (its TRACK answers with the
+                    // selection unchanged): a part's sound copy there says so, it does not wait for an answer
+                    struct OneTrack : felucca::Endpoint {
+                        felucca::Endpoint& e;
+                        explicit OneTrack(felucca::Endpoint& x) : e(x) {}
+                        const felucca::Dialect& dialect() const override { return e.dialect(); }
+                        std::optional<fm1::Bytes> ask(const fm1::Bytes& q, int t) override {
+                            if (felucca::commandOf(q) == felucca::kTrack && felucca::argsOf(q).size() == 1 && felucca::argsOf(q)[0] != 0)
+                                return e.ask(felucca::frame(felucca::kTrack, {0}), t);
+                            return e.ask(q, t);
+                        }
+                        std::vector<fm1::Bytes> pushes() override { return e.pushes(); }
+                    };
+                    auto fx = std::make_shared<FeluccaEngine>(Fl::Melodee), fy = std::make_shared<FeluccaEngine>(Fl::Melodee);
+                    felucca::VirtualEndpoint ex(fx), ey(fy);
+                    OneTrack one(ey);
+                    fx->setEngine(1, 19);
+                    fx->applyPreset(1, 40);
+                    juce::String e1;
+                    CHECK(!felucca::copySound(ex, one, 1, e1) && e1.contains("no part 2"), "a part the FM-1's project does not use: said so (" + e1 + ")");
+                }
                 juce::String err;
                 auto objs = felucca::backup(ea, {}, err);
                 CHECK(objs && objs->count(4) && (*objs)[4] == music && felucca::restore(eb, *objs, {}, err), "a full 1.3 backup, restored into another 1.3 (" + err + ")");

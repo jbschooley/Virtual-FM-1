@@ -358,7 +358,8 @@ int main(int argc, char** argv) {
         // 1. Pull: the FM-1's whole backup, kept, then into the plugin's Melodee (settings left its own)
         auto theirs = felucca::backup(synth, progress, err);
         std::printf("\n");
-        check(theirs.has_value() && theirs->size() == 28, "pull: the FM-1's 28 objects (" + err + ")");
+        check(theirs.has_value() && int(theirs->size()) == dl.lastObject + 1,
+              "pull: the FM-1's " + juce::String(dl.lastObject + 1) + " objects (" + err + ")");
         if (!theirs) return 1;
         const auto keep = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Virtual FM-1/FM-1 backups")
                               .getChildFile("melodee-0.13-" + juce::Time::getCurrentTime().formatted("%Y%m%d-%H%M%S") + "-before-sync-test.json");
