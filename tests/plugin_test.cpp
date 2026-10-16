@@ -498,6 +498,9 @@ static int checks() {
                   "and Felucca, SLOOP, Melodee and FM-1+VA still as before");
         }
         CHECK(at(904).support == Support::Deprecated && at(904).text.find("1.0") != std::string::npos, "Felucca 0.4 beta: retired, says which release to update to");
+        CHECK(fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.21"}).find("Pull still works") != std::string::npos
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.22"}).empty() && fm1::writesRefused(fm1::Identity{"FM-1", 920, "ChoralRoot 0.23 1-core"}).empty(),
+              "ChoralRoot before 0.22 (other backup objects): pulled from only; 0.22 and 0.23 sent to");
         CHECK(fm1::checkVersion(fm1::Identity{"FM-1", 900, "FELUCCA v1.6-dev"}).text.find("development build") != std::string::npos,
               "a Felucca build that is not a release (FM-1_900, its INFO Felucca's: with none, Hortator, below)");
         {   // Sloop answers as a Felucca development build does (FM-1_900); its editor's INFO names it

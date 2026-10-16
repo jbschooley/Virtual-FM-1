@@ -291,6 +291,13 @@ std::string writesRefused(const Identity& id, const std::string& choiceId) {
         return "This FM-1 runs Melodee " + release + ", which does not read Melodee " + current + "'s projects: update it to " + current
                + " with Melodee's installer to send to it or go Live" + (kept ? ", or set this instance to Melodee " + std::string(kept->label) : "") + ". Pull still works.";
     }
+    if (firmwareIdFor(id) == "choralroot") {   // its backup objects as 0.23 has them from 0.22: an older one's differ
+        std::string release = id.editor.size() > 11 ? id.editor.substr(11) : std::string();
+        if (const auto at = release.find(' '); at != std::string::npos) release.resize(at);
+        if (release.empty() || !sloopNewer("0.22", release)) return {};
+        return "This FM-1 runs ChoralRoot " + release + ", whose backup holds other objects than " + std::string(currentVersion("choralroot").label)
+               + "'s: update it with ChoralRoot's installer to send to it. Pull still works.";
+    }
     if (firmwareIdFor(id) == "felucca") {   // 1.6's projects open on no release before 1.6 (1.5 refuses a step's condition)
         const std::string release = feluccaRelease(id);
         const bool before16 = release.empty() ? id.version >= 910 && id.version < 916 : sloopNewer("1.6", release);   // (no INFO: its X.Y)
