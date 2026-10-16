@@ -81,13 +81,20 @@ same bytes both times, and the same as 1.5.1's.
 - Not yet: user sample slots (USR1..USR3 are empty), the LEDs, and MIDI clock in (`G_CLOCK`
   USB or TRS: the plugin gives the host's tempo instead).
 
-## 1.5.1 in the core
+## 1.6.1 in the core
 
-`felucca_core.c` follows 1.5.1's `felucca.c` (`menu_items.c` after `ui.c`; `master.c`, the MASTER pot, is
-only called from `main.c` and not built) and `main.c` (`eng_mem_claim` at power-on, SCREEN OFF counted
-from init). Not built, as the plugin keeps the music: the autosave (`autosave_boot`, `autosave_poll`;
-not a backup object). The power-on LED sweep and idle animation are stubs (the UI's LEDs at once), and
-the breathing and mid-level LEDs (1.1) show dim. Its full backup has the same objects as 1.0.3.
+`felucca_core.c` follows 1.6.1's `felucca.c` (the same order as 1.5.1's; `menu_items.c` after `ui.c`;
+`master.c`, the MASTER pot, is only called from `main.c` and not built) and `main.c` (`eng_mem_claim` at
+power-on, SCREEN OFF counted from init). Not built, as the plugin keeps the music: the autosave
+(`autosave_boot`, `autosave_poll`; not a backup object). The power-on LED sweep and idle animation are
+stubs (the UI's LEDs at once), and the breathing and mid-level LEDs (1.1) show dim. Its full backup has
+the same objects as 1.0.3.
+
+The second core (1.6.1, `hal/fm1_cpu1.*`): `FELUCCA_CPU2` stays at its default, 1, as in Felucca's
+release packages, so MENU > SYSTEM > 2ND CORE (setting 32) is there as on an FM-1 and the editor's MENU
+settings match it. Nothing hands work to a second core: `felucca.c`'s `C1_RUN` (the hardware's) is not
+built, so `fx.c` takes its own (none taken) and this core renders every part, which `fx.c` says is bit
+for bit what one core renders. The setting is kept and does nothing here.
 
 ## Updating
 

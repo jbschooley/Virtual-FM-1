@@ -6,7 +6,6 @@ engine ANALOG E5	CUT 0..127 def 90 fmt 5
 engine ANALOG E6	RES 0..127 def 30 fmt 1
 engine ANALOG E7	DRV 0..127 def 0 fmt 1
 engine ANALOG E8	KTR 0..127 def 64 fmt 1
-engine DRUM E1	KIT 0..8 def 0 fmt 8 STD 66 10 77 80 10 66 55 77
 engine DRUM E2	TUNE 0..127 def 64 fmt 1
 engine DRUM E3	TONE 0..127 def 64 fmt 1
 engine DRUM E4	DECY 0..127 def 64 fmt 1
@@ -53,7 +52,6 @@ engine PHASE E4	ENV 0..127 def 64 fmt 1
 engine PHASE E5	DTN 0..127 def 0 fmt 0
 engine PHASE E6	LINE 0..1 def 0 fmt 8 MIX RING
 engine PHASE E7	SUB 0..127 def 0 fmt 1
-engine PHASE E8	- 0..0 def 0 fmt 0
 engine PHYS E1	MODEL 0..3 def 0 fmt 8 MODAL STRNG MEMB SYMP
 engine PHYS E2	STRC 0..127 def 64 fmt 1
 engine PHYS E3	BRIT 0..127 def 80 fmt 1
@@ -117,7 +115,6 @@ global LOAD#1	0..1 def 0 fmt 8 -- GO
 global MIDI#1	0..1 def 0 fmt 8 USB TRS
 global MIX#1	0..127 def 90 fmt 1
 global NAME#1	0..0 def 0 fmt 8 --
-global ROUT#1	0..4 def 0 fmt 8 CH1-4 SEL CH5-8 CH9-12 CH13-16
 global SAVE#1	0..1 def 0 fmt 8 -- GO
 global SET#1	0..1 def 0 fmt 8 -- GO
 global SIZE#1	0..127 def 90 fmt 1
@@ -151,10 +148,6 @@ param DEPTH#1	0..127 def 127 fmt 1
 param DIV#1	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
 param DLY#1	0..127 def 0 fmt 1
 param DST#1	0..127 def 0 fmt 1
-param DST1#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST2#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST3#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
-param DST4#1	0..20 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH
 param DTUNE#1	0..127 def 40 fmt 0
 param ESYNC#1	0..1 def 0 fmt 8 OFF ON
 param FADE#1	0..127 def 0 fmt 3
@@ -192,7 +185,6 @@ param PIT#2	-64..63 def 0 fmt 2
 param POL#1	0..1 def 0 fmt 8 BI UNI
 param PRIO#1	0..2 def 0 fmt 8 LAST LOW HIGH
 param PROB#1	0..127 def 127 fmt 1
-param QNT#1	0..3 def 0 fmt 8 OFF SNAP WHITE SEQ
 param QNTZ#1	0..1 def 1 fmt 8 OFF ON
 param RATE#1	0..127 def 60 fmt 4
 param RATE#2	0..9 def 2 fmt 8 1/4 1/8 1/16 1/32 8T 16T 1/2 1/1 2BAR 4BAR
@@ -298,3 +290,14 @@ preset WHEEL 1	JAZZ PERC ea5c0eb1fe0e89f6
 preset WHEEL 2	GOSPEL 19349b32d6609a25
 preset WHEEL 3	SOFT FLUTE 7d3d31470e613dd8
 preset WHEEL 4	ROCK DRIVE 768f59d79bb1f6a0
+engine DRUM E1	KIT 0..11 def 0 fmt 8 STD 66 10 77 80 10 66 55 77 DEEP TIGHT PERC
+engine PHASE E8	FOLD 0..127 def 0 fmt 1
+global ROUT#1	0..5 def 0 fmt 8 CH1-4 SEL CH5-8 CH9-12 CH13-16 TRACK
+param DST1#1	0..22 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH VEL TIME
+param DST2#1	0..22 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH VEL TIME
+param DST3#1	0..22 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH VEL TIME
+param DST4#1	0..22 def 0 fmt 8 OFF PITCH CUT SHP AMP PAN DIST CHO DLY REV RATE VIB E1 E2 E3 E4 E5 E6 E7 E8 DEPTH VEL TIME
+param QNT#1	0..4 def 0 fmt 8 OFF SNAP WHITE SEQ SEQ+T
+preset DRUM 1	DEEP KIT 919550781355284b
+preset DRUM 2	TIGHT KIT 2794828ab64d54cd
+preset DRUM 3	PERC KIT c35a797caa5606cc

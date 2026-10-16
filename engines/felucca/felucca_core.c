@@ -45,7 +45,7 @@ FEL_SECTIONS(FEL_BSS_SECTION, FEL_DATA_SECTION)
 #define __attribute__(x)
 #define FELUCCA_OTA 1                    /* the editor's SysEx plumbing in usb.c (not ota.c: never built) */
 #define FELUCCA_FLASH 1                  /* projects, user presets and their FM6 patches in "flash" (RAM below) */
-#define FELUCCA_VERSION "v1.5.1"
+#define FELUCCA_VERSION "v1.6.1"
 /* the user sample slots USR1..3: empty, and never written (the plugin takes no samples yet), so
  * one array of zeros for every copy (felucca_shared.c, written by CMakeLists.txt) rather than
  * 240 KB of each one's state */
@@ -355,7 +355,7 @@ void FEL(init)(void)   /* main.c fm1_main, up to its loop: the stored settings a
     usb.config = 1;                      /* as a computer that has set the device up: the editor may reply */
 }
 
-const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* "v1.5.1": the release built here */
+const char *FEL(version)(void) { return FELUCCA_VERSION; }   /* "v1.6.1": the release built here */
 uint32_t FEL(ctl)(void) { return CTL; }
 uint32_t FEL(rate)(void) { return FS; }
 uint32_t FEL(ntracks)(void) { return NTRK; }

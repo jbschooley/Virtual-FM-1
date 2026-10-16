@@ -240,18 +240,19 @@ static int checks() {
             for (const auto& v : fm1::knownVersions(fw)) current += v.support == Support::Current;
             CHECK(current == 1, "each firmware has one current release");
         }
-        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.97" && fm1::firmwareChoice("felucca").label() == "Felucca 1.5.1"
+        CHECK(fm1::firmwareChoice("baudgirl_fm1va").label() == "FM-1+VA (baud girl) 0.97" && fm1::firmwareChoice("felucca").label() == "Felucca 1.6.1"
               && fm1::firmwareChoice("fm1_stock").label() == "M-VAVE (stock) V15", "the firmware list names each with its current release");
         CHECK(at(97).known && at(97).support == Support::Current && at(96).known && at(96).support == Support::Tested,
               "FM-1_097: current; FM-1_096: tested, tried on an FM-1");
         CHECK(at(93).support == Support::Tested && at(93).text.find("8-Bit") != std::string::npos, "FM-1_093: tested, says what 096 adds");
         CHECK(at(94).support == Support::Tested && at(94).text.find("beta") != std::string::npos && at(15).support == Support::Current
-              && at(915).support == Support::Current && at(910).support == Support::Older, "094 (a tested beta, said so), V15, Felucca 1.5.1 known, 1.0 older");
+              && at(916).support == Support::Current && at(915).support == Support::Older && at(910).support == Support::Older,
+              "094 (a tested beta, said so), V15, Felucca 1.6.1 known, 1.5.1 and 1.0 older");
         CHECK(at(92).support == Support::Older && at(92).text.find("GLOBE") != std::string::npos, "an older release says what it lacks");
         auto n = at(98);
         CHECK(n.newer && !n.known && n.support == Support::Current && n.text.find("newer") != std::string::npos && n.text.find("0.97") != std::string::npos,
               "an unknown newer release: synced as the newest known, said to be untested, never refused");
-        CHECK(at(916).newer && at(916).firmwareId == "felucca" && at(916).text.find("1.5.1") != std::string::npos, "Felucca 1.6 too");
+        CHECK(at(917).newer && at(917).firmwareId == "felucca" && at(917).text.find("1.6.1") != std::string::npos, "Felucca 1.7 too");
         CHECK(!at(70).known && !at(70).newer && at(70).text.find("older") != std::string::npos, "an unknown older release says so");
         CHECK(at(88).text.find("not a release the plugin knows") != std::string::npos && at(95).text.find("not a release the plugin knows") != std::string::npos,
               "one between known releases is not called older");
@@ -337,21 +338,25 @@ static int checks() {
                   "an older one says so: " + c.text);
             CHECK(fm1::firmwareIdFor(dev) == "felucca" && fm1::firmwareIdFor(fm1::Identity{"FM-1", 910, "FELUCCA v1.0"}) == "felucca",
                   "a Felucca build with its INFO is still Felucca");
-            // releases that answer the same FM-1_9XY are told apart by INFO; 1.5's projects open on none before 1.5
+            // releases that answer the same FM-1_9XY are told apart by INFO; 1.6's projects open on none before 1.6 (1.5
+            // refuses a step's condition)
             const fm1::Identity f104{"FM-1", 910, "FELUCCA v1.0.4"}, f103{"FM-1", 910, "FELUCCA v1.0.3"}, f141{"FM-1", 914, "FELUCCA v1.4.1"},
-                                f15{"FM-1", 915, "FELUCCA v1.5"}, f151{"FM-1", 915, "FELUCCA v1.5.1"}, f152{"FM-1", 915, "FELUCCA v1.5.2"};
-            const auto v104 = fm1::checkVersion(f104), v103 = fm1::checkVersion(f103), v141 = fm1::checkVersion(f141);
-            CHECK(!v104.newer && v104.support == Support::Older && v104.text.find("Felucca 1.0.4, older than the plugin's 1.5.1; pulled from only") != std::string::npos
+                                f151{"FM-1", 915, "FELUCCA v1.5.1"}, f16{"FM-1", 916, "FELUCCA v1.6"}, f161{"FM-1", 916, "FELUCCA v1.6.1"},
+                                f162{"FM-1", 916, "FELUCCA v1.6.2"};
+            const auto v104 = fm1::checkVersion(f104), v103 = fm1::checkVersion(f103), v141 = fm1::checkVersion(f141), v151 = fm1::checkVersion(f151);
+            CHECK(!v104.newer && v104.support == Support::Older && v104.text.find("Felucca 1.0.4, older than the plugin's 1.6.1; pulled from only") != std::string::npos
                   && v141.support == Support::Older && !fm1::writesRefused(f141).empty() && !fm1::writesRefused(f104).empty()
-                  && !fm1::writesRefused(fm1::Identity{"FM-1", 914}).empty() && fm1::writesRefused(fm1::Identity{"FM-1", 915}).empty(),
-                  "1.0.x to 1.4.1: older, pulled from only: " + v104.text);
+                  && v151.support == Support::Older && v151.text.find("pulled from only") != std::string::npos && !fm1::writesRefused(f151).empty()
+                  && !fm1::writesRefused(fm1::Identity{"FM-1", 914}).empty() && !fm1::writesRefused(fm1::Identity{"FM-1", 915}).empty()
+                  && fm1::writesRefused(fm1::Identity{"FM-1", 916}).empty(),
+                  "1.0.x to 1.5.1: older, pulled from only: " + v151.text);
             CHECK(v103.text.find("an instance set to Felucca 1.0.3 syncs with it") != std::string::npos && fm1::writesRefused(f103, "felucca_103").empty()
                   && fm1::checkVersion(f103, "felucca_103").text == "FM-1_910: Felucca 1.0.3", "1.0.3: and synced fully by an instance set to 1.0.3: " + v103.text);
-            const auto v15 = fm1::checkVersion(f15), v151 = fm1::checkVersion(f151), v152 = fm1::checkVersion(f152);
-            CHECK(v15.support == Support::Older && v15.text.find("synced as 1.5.1") != std::string::npos && fm1::writesRefused(f15).empty()
-                  && v151.support == Support::Current && v151.text == "FM-1_915" && fm1::writesRefused(f151).empty()
-                  && v152.newer && v152.text.find("newer than the plugin's 1.5.1") != std::string::npos,
-                  "1.5: the same formats, synced; 1.5.1 the one built in; a later 1.5.x newer: " + v15.text);
+            const auto v16 = fm1::checkVersion(f16), v161 = fm1::checkVersion(f161), v162 = fm1::checkVersion(f162);
+            CHECK(v16.support == Support::Older && v16.text.find("synced as 1.6.1") != std::string::npos && fm1::writesRefused(f16).empty()
+                  && v161.support == Support::Current && v161.text == "FM-1_916" && fm1::writesRefused(f161).empty()
+                  && v162.newer && v162.text.find("newer than the plugin's 1.6.1") != std::string::npos,
+                  "1.6: the same formats, synced; 1.6.1 the one built in; a later 1.6.x newer: " + v16.text);
         }
         CHECK(at(908).support == Support::Deprecated && at(909).support == Support::Deprecated && at(909).text.find("from 1.0") != std::string::npos,
               "any Felucca before 1.0 (0.8, 0.9 beta): supported from 1.0, update it");
@@ -2333,7 +2338,7 @@ static int checks() {
             juce::MemoryBlock mb;
             made.getStateInformation(mb);
             auto tree = juce::ValueTree::readFromData(mb.getData(), mb.getSize());
-            CHECK(tree.getProperty("firmwareVersion").toString() == "1.5.1" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.5.1",
+            CHECK(tree.getProperty("firmwareVersion").toString() == "1.6.1" && tree.getChildWithName("Felucca").getProperty("version").toString() == "v1.6.1",
                   "a project says the release it was made for");
             tree.setProperty("firmwareVersion", "0.9", nullptr);
             juce::MemoryOutputStream os;
@@ -2342,7 +2347,7 @@ static int checks() {
             juce::String said;
             later.onStatus = [&said](const juce::String& t) { said = t; };
             later.setStateInformation(os.getData(), int(os.getDataSize()));
-            CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.5.1"), "loading one made for another release says so");
+            CHECK(said.contains("made for Felucca 0.9") && said.contains("plays 1.6.1"), "loading one made for another release says so");
             later.onStatus = nullptr;
             FM1Processor hostLoaded;   // a host loads the project before any editor is open
             hostLoaded.setStateInformation(os.getData(), int(os.getDataSize()));
