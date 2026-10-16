@@ -241,7 +241,7 @@ const std::vector<KnownVersion>& knownVersions(const std::string& firmwareId) {
     // changed none of its backup objects or their formats (cr_backup.c, storage.c the same; its settings record
     // the same, with a fourth Key Touch, Vel + Poly AT, that 0.23 reads as Fixed)
     static const std::vector<KnownVersion> choralroot = {
-        {920, "0.23", Support::Current, ""},   // (not yet tried on an FM-1)
+        {920, "0.23", Support::Current, ""},   // (tried on an FM-1 2026-10-16: Pull, Send of its backup)
         {920, "0.24-beta1", Support::Older, "synced as 0.23 (the same backup), not tried on an FM-1; its Key Touch Vel + Poly AT reads as Fixed in the plugin"},
     };
     if (firmwareId == "choralroot") return choralroot;

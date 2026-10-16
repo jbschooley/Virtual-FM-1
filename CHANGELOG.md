@@ -54,9 +54,9 @@ for the code. New work goes under the next version at the top.
   written and read back, preset and pattern round trips. Her betas 0.98 and 0.99
   are named as such. The stock presets were checked on it too: after M-VAVE's
   own factory restore, all 128 voices read back as the plugin's, byte for byte.
-- **More firmwares are named.** An FM-1 running ChoralRoot, CoralFlower,
-  PurpleMonkey, X0X, Jangada, ORBIT, DUELL, Optimist, MONK-1, CTL-1, AMB-1,
-  FuMi-1, FoMni, FiMba-1, TRIBE, Dinghy, Hortator or FM-106 is named as such and
+- **More firmwares are named.** An FM-1 running CoralFlower, PurpleMonkey,
+  X0X, Jangada, ORBIT, DUELL, Optimist, MONK-1, CTL-1, AMB-1, FuMi-1, FoMni,
+  FiMba-1, TRIBE, Dinghy, Hortator or FM-106 is named as such and
   said to be not supported yet, instead of being taken for Felucca or FM-1+VA
   (most answer as Felucca does, or with Felucca's own numbers). Where two
   answer alike, both are named. The plugin now asks a firmware for its name
@@ -112,7 +112,9 @@ for the code. New work goes under the next version at the top.
   device file is `ChoralRoot/ChoralRoot device.json`. Its protocol has nothing
   else, so there are no host parameters, Live, sound copies or patterns, and
   its sounds and loops are not saved with the host's project (only in the
-  device file). Not yet tried with an FM-1.
+  device file). Tried with an FM-1 running 0.23: recognised, Pull, and Send
+  of what its backup holds (a saved sound read back the same after its
+  restart).
 
 ## [0.9.2] - 2026-10-16
 

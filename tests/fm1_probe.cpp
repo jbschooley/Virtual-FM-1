@@ -298,6 +298,17 @@ int main(int argc, char** argv) {
         // 3. send
         if (!felucca::restore(synth, *ours, progress, err)) { std::printf("\nsend failed: %s\n", err.toRawUTF8()); return 1; }
         std::printf("\nsent\n");
+        if (dl.restart) {   // ChoralRoot restarts after a Send and leaves USB: its ports again before the read-back
+            std::printf("waiting for the FM-1 to come back from its restart\n");
+            juce::Thread::sleep(3000);
+            bool back = false;
+            for (int k = 0; k < 30 && !back; ++k) {
+                if (auto p = Fm1Link::findFm1()) { link.close(); back = link.open(p->inputId, p->outputId); }
+                if (!back) juce::Thread::sleep(1000);
+            }
+            if (!back) { std::printf("the FM-1 did not come back\n"); return 1; }
+            juce::Thread::sleep(2000);
+        }
         // 4. read the synth back and compare
         auto after = felucca::backup(synth, progress, err);
         std::printf("\n");
