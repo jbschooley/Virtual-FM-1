@@ -308,3 +308,5 @@ in [`THIRD_PARTY.md`](THIRD_PARTY.md): msfa is Apache-2.0, the Dexed UI parts
 are GPL-3.0-or-later, Felucca, SLOOP, Melodee and ChoralRoot are GPL-3.0-only, JUCE is used under the AGPLv3 and the VST3 SDK is under
 the MIT licence. Melodee and ChoralRoot include Casio's CZ-1 tones and Sequential's Prophet-5
 programs as sound data, with no licence granted; see `THIRD_PARTY.md`.
+
+Related: try FM-1 firmwares in the browser with the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
